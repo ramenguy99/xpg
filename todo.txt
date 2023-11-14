@@ -1,0 +1,27 @@
+Python bindings:
+- Add python library target and test nanobind + pybind11 stubs generator for generating and packaging python module
+    - Python module interface (similar to viewer needs):
+        - Window utilities (multiple windows, surface rendering without window / swapchains)
+        - Rendering logic and scene hierarchy/renderables likely defined in C++ code and exposed to python. (Maybe add wrappers for conversions/utils that are easier to do in python).
+        - Debugging options at runtime (e.g. logging / tracing / validation / named objects etc..)
+- Targets (share as much code as possible):
+    - Standalone apps in C++.
+    - Scriptable apps from python.
+    - Headless rendering/compute from C++/python.
+- Power usage:
+    - Animated vs on event rendering for energy consumption.
+    - Framerate cap.
+- Initialize vulkan stuff and build rendering layer utilities on top of it.
+    - Required extensions?
+    - ImGui/docking support -> use same GUI version as pyimgui and share ctx somehow, or make our own bindings.
+    - Render on resize mode?
+    - Binding helpers?
+    - Synchronization / render passes?
+    - Resource / memory management (VMA)?
+    - Ring/buffers?
+    - Ray-tracing?
+- Shaders:
+    - HLSL/GLSL/SLANG? -> all require toolchain to be installed for development
+    - Need introspection?
+    - Hot reloading?
+- Test on linux/macos.
