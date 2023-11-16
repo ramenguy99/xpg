@@ -353,22 +353,15 @@ InitializeVulkan(VulkanContext* vk, u32 required_version, ArrayView<const char*>
 
 struct VulkanWindow {
     GLFWwindow* window;
-
-    // Surface.
-    u32 fb_width;
-    u32 fb_height;
     VkSurfaceKHR surface;
+    VkFormat swapchain_format;
 
     // Swapchain.
+    u32 fb_width;
+    u32 fb_height;
     VkSwapchainKHR swapchain;
-    VkFormat swapchain_format;
     Array<VkImage> images;
     Array<VkImageView> image_views;
-
-    // Set to true after the window has been resized.
-    bool resized;
-    u32 resized_fb_width;
-    u32 resized_fb_height;
 };
 
 VulkanResult CreateVulkanSemaphore(VkDevice device, VkSemaphore* semaphore) {
@@ -383,16 +376,6 @@ VulkanResult CreateVulkanSemaphore(VkDevice device, VkSemaphore* semaphore) {
 internal void
 Callback_WindowResize(GLFWwindow* window, int width, int height) {
     VulkanWindow* w = (VulkanWindow*)glfwGetWindowUserPointer(window);
-    int fb_height = 0;
-    int fb_width = 0;
-    glfwGetFramebufferSize(w->window, &fb_width, &fb_height);
-    if (fb_width == w->fb_width && fb_height == w->fb_height) {
-        return;
-    }
-
-    w->resized_fb_width = (u32)fb_width;
-    w->resized_fb_height = (u32)fb_height;
-    w->resized = true;
 }
 
 VulkanResult
@@ -460,12 +443,34 @@ CreateVulkanSwapchain(VulkanWindow* w, const VulkanContext& vk, VkSurfaceKHR sur
     w->swapchain = swapchain;
     w->images = std::move(images);
     w->image_views = std::move(image_views);
+    w->fb_width = fb_width;
+    w->fb_height = fb_height;
 
     return VulkanResult::SUCCESS;
 }
 
-VulkanResult RecreateSwapchain(VulkanWindow* w, const VulkanContext& vk, bool verbose) {
-    vkDeviceWaitIdle(vk.device);
+enum class SwapchainStatus {
+    READY,
+    RESIZED,
+    MINIMIZED,
+    FAILED,
+};
+
+SwapchainStatus UpdateSwapchain(VulkanWindow* w, const VulkanContext& vk, bool verbose) {
+    VkSurfaceCapabilitiesKHR surface_capabilities;
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk.physical_device, w->surface, &surface_capabilities) != VK_SUCCESS) {
+        return SwapchainStatus::FAILED;
+    }
+
+	uint32_t new_width = surface_capabilities.currentExtent.width;
+	uint32_t new_height = surface_capabilities.currentExtent.height;
+
+    if (new_width == 0 || new_height == 0)
+        return SwapchainStatus::MINIMIZED;
+
+    if (new_width == w->fb_width && new_height == w->fb_height) {
+        return SwapchainStatus::READY;
+    }
 
     for (size_t i = 0; i < w->image_views.length; i++) {
         vkDestroyImageView(vk.device, w->image_views[i], nullptr);
@@ -473,20 +478,20 @@ VulkanResult RecreateSwapchain(VulkanWindow* w, const VulkanContext& vk, bool ve
     }
 
     VkSwapchainKHR old_swapchain = w->swapchain;
-    vkDestroySwapchainKHR(vk.device, old_swapchain, nullptr);
-
-    VulkanResult result = CreateVulkanSwapchain(w, vk, w->surface, w->swapchain_format, w->fb_width, w->fb_height, w->images.length, VK_NULL_HANDLE); //, old_swapchain);
-
+    VulkanResult result = CreateVulkanSwapchain(w, vk, w->surface, w->swapchain_format, new_width, new_height, w->images.length, old_swapchain);
     if (result != VulkanResult::SUCCESS) {
-        return result;
+        return SwapchainStatus::FAILED;
     }
 
+    vkDeviceWaitIdle(vk.device);
 
-    return VulkanResult::SUCCESS;
+    vkDestroySwapchainKHR(vk.device, old_swapchain, nullptr);
+
+    return SwapchainStatus::RESIZED;
 }
 
 VulkanResult 
-CreateVulkanWindow(VulkanWindow* w, const VulkanContext& vk, char* name, u32 width, u32 height, bool verbose) {
+CreateVulkanWindow(VulkanWindow* w, const VulkanContext& vk, const char* name, u32 width, u32 height, bool verbose) {
     // Create window.
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     GLFWwindow* window = glfwCreateWindow(width, height, name, NULL, NULL);
@@ -497,11 +502,6 @@ CreateVulkanWindow(VulkanWindow* w, const VulkanContext& vk, char* name, u32 wid
 
     // Install callbacks.
     glfwSetWindowSizeCallback(window, Callback_WindowResize);
-
-    // Retrieve framebuffer size.
-    int fb_height = 0;
-    int fb_width = 0;
-    glfwGetFramebufferSize(window, &fb_width, &fb_height);
 
     // Create window surface.
     VkSurfaceKHR surface = 0;
@@ -553,6 +553,10 @@ CreateVulkanWindow(VulkanWindow* w, const VulkanContext& vk, char* name, u32 wid
         printf("Swapchain format: %s\n", string_VkFormat(format));
     }
 
+    // Retrieve framebuffer size.
+	u32 fb_width = surface_capabilities.currentExtent.width;
+	u32 fb_height = surface_capabilities.currentExtent.height;
+
     VulkanResult res = CreateVulkanSwapchain(w, vk, surface, format, fb_width, fb_height, frames, VK_NULL_HANDLE);
     if (res != VulkanResult::SUCCESS) {
         return res;
@@ -561,13 +565,8 @@ CreateVulkanWindow(VulkanWindow* w, const VulkanContext& vk, char* name, u32 wid
     glfwSetWindowUserPointer(window, w);
 
     w->window = window;
-    w->fb_width = fb_width;
-    w->fb_height = fb_height;
     w->surface = surface;
     w->swapchain_format = format;
-
-    w->resized = false;
-
 
     return VulkanResult::SUCCESS;
 }
@@ -623,29 +622,39 @@ int main(int argc, char** argv) {
     VkQueue queue;
     vkGetDeviceQueue(vk.device, vk.queue_family_index, 0, &queue);
     
-    VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-    pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    pool_info.queueFamilyIndex = vk.queue_family_index;
+    Array<VkCommandPool> command_pools(window.images.length);
+    Array<VkCommandBuffer> command_buffers(window.images.length);
+    for (usize i = 0; i < window.images.length; i++) {
+        VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+        pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;// | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        pool_info.queueFamilyIndex = vk.queue_family_index;
     
-    VkCommandPool pool;
-    result = vkCreateCommandPool(vk.device, &pool_info, 0, &pool);
-    assert(result == VK_SUCCESS);
-    
-    VkCommandBufferAllocateInfo allocate_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    allocate_info.commandPool = pool;
-    allocate_info.level =VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocate_info.commandBufferCount = 1;
-    
-    VkCommandBuffer command_buffer;
-    result = vkAllocateCommandBuffers(vk.device, &allocate_info, &command_buffer);
-    assert(result == VK_SUCCESS);
+        result = vkCreateCommandPool(vk.device, &pool_info, 0, &command_pools[i]);
+        assert(result == VK_SUCCESS);
+
+        VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+        allocate_info.commandPool = command_pools[i];
+        allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocate_info.commandBufferCount = 1;
+
+        result = vkAllocateCommandBuffers(vk.device, &allocate_info, &command_buffers[i]);
+        assert(result == VK_SUCCESS);
+    }
     
     VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     
-    VkSemaphore acquire_semaphore = 0, release_semaphore = 0;
-    CreateVulkanSemaphore(vk.device, &acquire_semaphore);
-    CreateVulkanSemaphore(vk.device, &release_semaphore);
+    Array<VkSemaphore> acquire_semaphores(window.images.length);
+    Array<VkSemaphore> release_semaphores(window.images.length);
+    Array<VkFence> fences(window.images.length);
+    for (usize i = 0; i < window.images.length; i++) {
+        VkFenceCreateInfo fence_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        vkCreateFence(vk.device, &fence_info, 0, &fences[i]);
+
+        CreateVulkanSemaphore(vk.device, &acquire_semaphores[i]);
+        CreateVulkanSemaphore(vk.device, &release_semaphores[i]);
+    }
 
     // Create descriptor pool for imgui.
     VkDescriptorPoolSize pool_sizes[] = {
@@ -701,8 +710,11 @@ int main(int argc, char** argv) {
 
     // Upload font texture.
     {
+        VkCommandPool command_pool = command_pools[0];
+        VkCommandBuffer command_buffer= command_buffers[0];
+
         // Reset command buffer.
-        VkResult vkr = vkResetCommandBuffer(command_buffer, 0);
+        VkResult vkr = vkResetCommandPool(vk.device, command_pool, 0);
         assert(vkr == VK_SUCCESS);
 
         // Begin recording commands.
@@ -735,10 +747,15 @@ int main(int argc, char** argv) {
         vkr = vkDeviceWaitIdle(vk.device);
         assert(vkr == VK_SUCCESS);
     }
-    
-    bool animating = true;
+
+
+
+    bool wait_for_events = false;
+    bool force_swapchain_update = false;
+    u32 frame_index = 0;
+
     while (true) {
-        if (!animating) {
+        if (wait_for_events) {
             glfwWaitEvents();
         }
         else {
@@ -749,21 +766,34 @@ int main(int argc, char** argv) {
             break;
         }
 
+        SwapchainStatus swapchain_status = UpdateSwapchain(&window, vk, force_swapchain_update);
+        if (swapchain_status == SwapchainStatus::FAILED) {
+            printf("Swapchain update failed\n");
+            exit(1);
+        }
+        force_swapchain_update = false;
+
+        if (swapchain_status == SwapchainStatus::MINIMIZED) {
+            wait_for_events = true;
+            continue;
+        } 
+        else if(swapchain_status == SwapchainStatus::RESIZED) {
+            // Resize framebuffer sized elements.
+        }
+
+        wait_for_events = false;
         
         // Acquire current frame
+        VkFence fence = fences[frame_index];
+        vkWaitForFences(vk.device, 1, &fence, VK_TRUE, ~0);
+
+        VkSemaphore acquire_semaphore = acquire_semaphores[frame_index];
+        VkSemaphore release_semaphore = release_semaphores[frame_index];
+
         u32 index;
         VkResult vkr = vkAcquireNextImageKHR(vk.device, window.swapchain, ~0ull, acquire_semaphore, 0, &index);
         if(vkr == VK_ERROR_OUT_OF_DATE_KHR) {
-            if (window.resized) {
-                window.resized = false;
-                window.fb_width = window.resized_fb_width;
-                window.fb_height = window.resized_fb_height;
-            }
-
-            if (RecreateSwapchain(&window, vk, true) != VulkanResult::SUCCESS) {
-                printf("Failed to resize\n");
-                exit(1);
-            }
+            force_swapchain_update = true;
             continue;
         }
         
@@ -778,14 +808,19 @@ int main(int argc, char** argv) {
         // Render imgui.
         ImGui::Render();
         
-        // Reset command buffer
-        vkr = vkResetCommandBuffer(command_buffer, 0);
+        // Reset command pool
+        VkCommandPool command_pool = command_pools[frame_index];
+        VkCommandBuffer command_buffer= command_buffers[frame_index];
+
+        vkr = vkResetCommandPool(vk.device, command_pool, 0);
         assert(vkr == VK_SUCCESS);
 
         // Record commands
         vkr = vkBeginCommandBuffer(command_buffer, &begin_info);
         assert(vkr == VK_SUCCESS);
-        
+       
+        vkResetFences(vk.device, 1, &fence);
+
 		VkClearColorValue color = { 0.1f, 0.2f, 0.4f, 1.0f };
 
         VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
@@ -864,7 +899,7 @@ int main(int argc, char** argv) {
         submit_info.pSignalSemaphores = &release_semaphore;
         
             
-        vkr = vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE);
+        vkr = vkQueueSubmit(queue, 1, &submit_info, fence);
         assert(vkr == VK_SUCCESS);
         
         // Present
@@ -876,24 +911,17 @@ int main(int argc, char** argv) {
         present_info.pWaitSemaphores = &release_semaphore;
         vkr = vkQueuePresentKHR(queue, &present_info);
 
-        if (vkr == VK_ERROR_OUT_OF_DATE_KHR || vkr == VK_SUBOPTIMAL_KHR || window.resized) {
-            if (window.resized) {
-                window.resized = false;
-                window.fb_width = window.resized_fb_width;
-                window.fb_height = window.resized_fb_height;
-            }
-            if (RecreateSwapchain(&window, vk, true) != VulkanResult::SUCCESS) {
-                printf("Failed to resize after submit\n");
-                exit(1);
-            }
+        if (vkr == VK_ERROR_OUT_OF_DATE_KHR || vkr == VK_SUBOPTIMAL_KHR) {
+            force_swapchain_update = true;
         } else if (result != VK_SUCCESS) {
             printf("Failed to submit\n");
             exit(1);
         }
         
-        // Wait
-        vkr = vkDeviceWaitIdle(vk.device);
-        assert(vkr == VK_SUCCESS);
+        // // Wait
+        // vkr = vkDeviceWaitIdle(vk.device);
+        // assert(vkr == VK_SUCCESS);
+        frame_index = (frame_index + 1) % window.images.length;
     }
 
     // Wait
@@ -902,10 +930,16 @@ int main(int argc, char** argv) {
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
 
-    vkDestroySemaphore(vk.device, acquire_semaphore, 0);
-    vkDestroySemaphore(vk.device, release_semaphore, 0);
-    vkFreeCommandBuffers(vk.device, pool, 1, &command_buffer);
-    vkDestroyCommandPool(vk.device, pool, 0);
+
+    for (usize i = 0; i < window.image_views.length; i++) {
+        vkDestroyFence(vk.device, fences[i], 0);
+
+        vkDestroySemaphore(vk.device, acquire_semaphores[i], 0);
+        vkDestroySemaphore(vk.device, release_semaphores[i], 0);
+
+        vkFreeCommandBuffers(vk.device, command_pools[i], 1, &command_buffers[i]);
+        vkDestroyCommandPool(vk.device, command_pools[i], 0);
+    }
     
     // Window stuff
     vkDestroyDescriptorPool(vk.device, descriptor_pool, 0);
