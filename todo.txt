@@ -25,3 +25,24 @@ Python bindings:
     - Need introspection?
     - Hot reloading?
 - Test on linux/macos.
+
+
+Project structure:
+- Core:
+    - Vulkan context and headless rendering
+    - Renderables and passes
+- Viewer:
+    - Windowing
+    - ImGui
+    - Input
+
+- Python module:
+    - Bindings for both core and viewer
+
+ Core    - 
+  |        \
+  |          -> Python bindings + conversion utils -> python wrappers/helpers -> user code
+  V        / 
+Viewer   -
+
+
