@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <utility> // std::move
 
 #define VOLK_IMPLEMENTATION
 #include <volk.h>
@@ -41,8 +42,8 @@ typedef size_t   usize;
 #define ZeroAlloc(size) (calloc(1, size))
 #define Free(p) free((p))
 #define OutOfBounds(i) (assert(false))
+#define OutOfSpace() (assert(false))
 #define internal static
-#include "array.h"
 
 
 template<typename T>
@@ -59,6 +60,8 @@ template<typename T>
 T Clamp(const T& v, const T& min, const T& max) {
     return Min(Max(v, min), max);
 }
+
+#include "array.h"
 
 static VkBool32 VKAPI_CALL 
 VulkanDebugReportCallback(VkDebugReportFlagsEXT flags, 
@@ -264,10 +267,10 @@ InitializeVulkan(VulkanContext* vk, u32 required_version, ArrayView<const char*>
         //@Feature: vkGetPhysicalDeviceProperties2, support more / vendor specific device information
         
         bool picked = false;
-        if(!physical_device && p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+        //if(!physical_device && p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             physical_device = physical_devices[i];
             picked = true;
-        }
+        //}
 
         if (verbose) {
             printf("Physical device %u:%s\n    Name: %s\n    Vulkan version: %d.%d.%d\n    Drivers version: %u\n    Vendor ID: %u\n    Device ID: %u\n    Device type: %s\n",
@@ -361,12 +364,17 @@ VulkanResult InitializeSwapchain(VulkanContext* vk, VkSurfaceKHR surface, VkForm
     if (result != VK_SUCCESS) {
         return VulkanResult::SWAPCHAIN_CREATION_FAILED;
     }
+    
+    u32 frames = Max<u32>(2, surface_capabilities.minImageCount);
+    if(surface_capabilities.maxImageCount > 0) {
+        frames = Min<u32>(frames, surface_capabilities.maxImageCount);
+    }
 
     // Create swapchain.
     u32 queue_family_indices[] = { vk->queue_family_index };
     VkSwapchainCreateInfoKHR swapchain_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
     swapchain_info.surface = surface;
-    swapchain_info.minImageCount = Clamp(2u, surface_capabilities.minImageCount, surface_capabilities.maxImageCount);
+    swapchain_info.minImageCount = frames;
     swapchain_info.imageFormat = format;
     swapchain_info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     swapchain_info.imageExtent.width = width;
@@ -771,5 +779,5 @@ int main(int argc, char** argv) {
 	vkDestroyDebugReportCallbackEXT(vk.instance, vk.debug_callback, 0);
     vkDestroyInstance(vk.instance, 0);
 
-    system("pause");
+//    system("pause");
 }

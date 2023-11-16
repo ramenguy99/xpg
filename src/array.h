@@ -140,7 +140,7 @@ struct Array {
     
     void add(const T& value) {
         if(length == capacity) {
-            usize new_capacity = Max(8ull, capacity * 2);
+            usize new_capacity = Max<usize>(8, capacity * 2);
             grow_unchecked(new_capacity);
         }
         
@@ -149,7 +149,7 @@ struct Array {
 
 	void add(T&& value) {
 		if(length == capacity) {
-			usize new_capacity = Max(8ull, capacity * 2);
+			usize new_capacity = Max<usize>(8, capacity * 2);
 			grow_unchecked(new_capacity);
 		}
         
@@ -159,7 +159,7 @@ struct Array {
 	
 	void extend(const ArrayView<T>& arr) {
 		if(length + arr.length > capacity) {
-			usize new_capacity = Max(8ull, MAX(capacity * 2, length + arr.length));
+			usize new_capacity = Max<usize>(8, MAX(capacity * 2, length + arr.length));
 			grow_unchecked(new_capacity);
 		}
 
