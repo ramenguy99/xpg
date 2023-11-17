@@ -539,7 +539,7 @@ CreateVulkanWindow(VulkanWindow* w, const VulkanContext& vk, const char* name, u
 
     VkFormat format = VK_FORMAT_UNDEFINED;
     for (u32 i = 0; i < formats_count; i++) {
-        if (formats[i].format == VK_FORMAT_B8G8R8_UNORM || formats[i].format == VK_FORMAT_R8G8B8_UNORM) {
+        if (formats[i].format == VK_FORMAT_B8G8R8A8_UNORM || formats[i].format == VK_FORMAT_R8G8B8A8_UNORM) {
             format = formats[i].format;
         }
     }
@@ -658,8 +658,8 @@ int main(int argc, char** argv) {
 
     // Create descriptor pool for imgui.
     VkDescriptorPoolSize pool_sizes[] = {
-        // { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
-        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
+        // { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
     };
 
     VkDescriptorPoolCreateInfo descriptor_pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
