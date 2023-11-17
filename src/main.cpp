@@ -373,11 +373,6 @@ VulkanResult CreateVulkanSemaphore(VkDevice device, VkSemaphore* semaphore) {
 	return VulkanResult::SUCCESS;
 }
 
-internal void
-Callback_WindowResize(GLFWwindow* window, int width, int height) {
-    VulkanWindow* w = (VulkanWindow*)glfwGetWindowUserPointer(window);
-}
-
 VulkanResult
 CreateVulkanSwapchain(VulkanWindow* w, const VulkanContext& vk, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize frames, VkSwapchainKHR old_swapchain) {
     // Create swapchain.
@@ -500,9 +495,6 @@ CreateVulkanWindow(VulkanWindow* w, const VulkanContext& vk, const char* name, u
         exit(1);
     }
 
-    // Install callbacks.
-    glfwSetWindowSizeCallback(window, Callback_WindowResize);
-
     // Create window surface.
     VkSurfaceKHR surface = 0;
     VkResult result = glfwCreateWindowSurface(vk.instance, window, NULL, &surface);
@@ -562,13 +554,210 @@ CreateVulkanWindow(VulkanWindow* w, const VulkanContext& vk, const char* name, u
         return res;
     }
 
-    glfwSetWindowUserPointer(window, w);
-
     w->window = window;
     w->surface = surface;
     w->swapchain_format = format;
 
     return VulkanResult::SUCCESS;
+}
+
+struct VulkanFrame {
+
+    VkCommandPool command_pool;
+    VkCommandBuffer command_buffer;
+
+    VkSemaphore acquire_semaphore;
+    VkSemaphore release_semaphore;
+
+    VkFence fence;
+};
+
+struct App {
+    VulkanContext* vk;
+    VulkanWindow* window;
+
+    VkQueue queue;
+
+
+    u32 frame_index;
+    Array<VulkanFrame> frames;
+
+    bool force_swapchain_update;
+    bool wait_for_events;
+
+};
+
+void Draw(App* app) {
+    auto& vk = *app->vk;
+    auto& window = *app->window;
+
+    SwapchainStatus swapchain_status = UpdateSwapchain(&window, vk, app->force_swapchain_update);
+    if (swapchain_status == SwapchainStatus::FAILED) {
+        printf("Swapchain update failed\n");
+        exit(1);
+    }
+    app->force_swapchain_update = false;
+
+    if (swapchain_status == SwapchainStatus::MINIMIZED) {
+        app->wait_for_events = true;
+        return;
+    } 
+    else if(swapchain_status == SwapchainStatus::RESIZED) {
+        // Resize framebuffer sized elements.
+    }
+
+    app->wait_for_events = false;
+    
+    // Acquire current frame
+    VulkanFrame& frame = app->frames[app->frame_index];
+
+    vkWaitForFences(vk.device, 1, &frame.fence, VK_TRUE, ~0);
+
+    u32 index;
+    VkResult vkr = vkAcquireNextImageKHR(vk.device, window.swapchain, ~0ull, frame.acquire_semaphore, 0, &index);
+    if(vkr == VK_ERROR_OUT_OF_DATE_KHR) {
+        app->force_swapchain_update = true;
+        return;
+    }
+    
+    ImGui_ImplGlfw_NewFrame();
+    ImGui_ImplVulkan_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::DockSpaceOverViewport(NULL, ImGuiDockNodeFlags_PassthruCentralNode);
+
+    ImGui::ShowDemoWindow();
+    
+    // Render imgui.
+    ImGui::Render();
+    
+    // Reset command pool
+    vkr = vkResetCommandPool(vk.device, frame.command_pool, 0);
+    assert(vkr == VK_SUCCESS);
+
+    // Record commands
+    VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkr = vkBeginCommandBuffer(frame.command_buffer, &begin_info);
+    assert(vkr == VK_SUCCESS);
+   
+    vkResetFences(vk.device, 1, &frame.fence);
+
+    VkClearColorValue color = { 0.1f, 0.2f, 0.4f, 1.0f };
+
+    VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = window.images[index];
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    
+    barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    
+    vkCmdPipelineBarrier(frame.command_buffer,
+                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 
+                         0, 0, 
+                         0, 0, 
+                         1, &barrier);
+
+    // Begin rendering.
+    VkRenderingAttachmentInfo attachmentInfo = {};
+    attachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    attachmentInfo.imageView = window.image_views[index];
+    attachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    attachmentInfo.resolveMode = VK_RESOLVE_MODE_NONE;
+    attachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachmentInfo.clearValue.color = color;
+
+    VkRenderingInfoKHR renderingInfo = {};
+    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+    renderingInfo.renderArea.extent.width = window.fb_width;
+    renderingInfo.renderArea.extent.height = window.fb_height;
+    renderingInfo.layerCount = 1;
+    renderingInfo.viewMask = 0;
+    renderingInfo.colorAttachmentCount = 1;
+    renderingInfo.pColorAttachments = &attachmentInfo;
+
+    vkCmdBeginRenderingKHR(frame.command_buffer, &renderingInfo);
+    
+    ImDrawData* draw_data = ImGui::GetDrawData();
+    ImGui_ImplVulkan_RenderDrawData(draw_data, frame.command_buffer);
+
+    vkCmdEndRenderingKHR(frame.command_buffer);
+
+    barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.dstAccessMask = 0;
+    vkCmdPipelineBarrier(frame.command_buffer,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 
+                         0, 0, 
+                         0, 0, 
+                         1, &barrier);
+
+    vkr = vkEndCommandBuffer(frame.command_buffer);
+    assert(vkr == VK_SUCCESS);
+    
+    // Submit commands
+    VkPipelineStageFlags submit_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    
+    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &frame.command_buffer;
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &frame.acquire_semaphore;
+    submit_info.pWaitDstStageMask = &submit_stage_mask;
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &frame.release_semaphore;
+    
+        
+    vkr = vkQueueSubmit(app->queue, 1, &submit_info, frame.fence);
+    assert(vkr == VK_SUCCESS);
+    
+    // Present
+    VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+    present_info.swapchainCount = 1;
+    present_info.pSwapchains = &window.swapchain;
+    present_info.pImageIndices = &index;
+    present_info.waitSemaphoreCount = 1;
+    present_info.pWaitSemaphores = &frame.release_semaphore;
+    vkr = vkQueuePresentKHR(app->queue, &present_info);
+
+    if (vkr == VK_ERROR_OUT_OF_DATE_KHR || vkr == VK_SUBOPTIMAL_KHR) {
+        app->force_swapchain_update = true;
+    } else if (vkr != VK_SUCCESS) {
+        printf("Failed to submit\n");
+        exit(1);
+    }
+    
+    // // Wait
+    // vkr = vkDeviceWaitIdle(vk.device);
+    // assert(vkr == VK_SUCCESS);
+    app->frame_index = (app->frame_index + 1) % window.images.length;
+}
+
+
+internal void
+Callback_WindowResize(GLFWwindow* window, int width, int height) {
+    App* app = (App*)glfwGetWindowUserPointer(window);
+}
+
+internal void
+Callback_WindowRefresh(GLFWwindow* window) {
+    App* app = (App*)glfwGetWindowUserPointer(window);
+    if (app) {
+        Draw(app);
+    }
 }
 
 int main(int argc, char** argv) {
@@ -622,38 +811,31 @@ int main(int argc, char** argv) {
     VkQueue queue;
     vkGetDeviceQueue(vk.device, vk.queue_family_index, 0, &queue);
     
-    Array<VkCommandPool> command_pools(window.images.length);
-    Array<VkCommandBuffer> command_buffers(window.images.length);
-    for (usize i = 0; i < window.images.length; i++) {
+    Array<VulkanFrame> frames(window.images.length);
+    for (usize i = 0; i < frames.length; i++) {
+        VulkanFrame& frame = frames[i];
+
         VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
         pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;// | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         pool_info.queueFamilyIndex = vk.queue_family_index;
     
-        result = vkCreateCommandPool(vk.device, &pool_info, 0, &command_pools[i]);
+        result = vkCreateCommandPool(vk.device, &pool_info, 0, &frame.command_pool);
         assert(result == VK_SUCCESS);
 
         VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-        allocate_info.commandPool = command_pools[i];
+        allocate_info.commandPool = frame.command_pool;
         allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocate_info.commandBufferCount = 1;
 
-        result = vkAllocateCommandBuffers(vk.device, &allocate_info, &command_buffers[i]);
+        result = vkAllocateCommandBuffers(vk.device, &allocate_info, &frame.command_buffer);
         assert(result == VK_SUCCESS);
-    }
-    
-    VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    
-    Array<VkSemaphore> acquire_semaphores(window.images.length);
-    Array<VkSemaphore> release_semaphores(window.images.length);
-    Array<VkFence> fences(window.images.length);
-    for (usize i = 0; i < window.images.length; i++) {
+
         VkFenceCreateInfo fence_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
         fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        vkCreateFence(vk.device, &fence_info, 0, &fences[i]);
+        vkCreateFence(vk.device, &fence_info, 0, &frame.fence);
 
-        CreateVulkanSemaphore(vk.device, &acquire_semaphores[i]);
-        CreateVulkanSemaphore(vk.device, &release_semaphores[i]);
+        CreateVulkanSemaphore(vk.device, &frame.acquire_semaphore);
+        CreateVulkanSemaphore(vk.device, &frame.release_semaphore);
     }
 
     // Create descriptor pool for imgui.
@@ -670,6 +852,10 @@ int main(int argc, char** argv) {
 
     VkDescriptorPool descriptor_pool = 0;
     vkCreateDescriptorPool(vk.device, &descriptor_pool_info, 0, &descriptor_pool);
+
+    // Setup window callbacks
+    glfwSetWindowSizeCallback(window.window, Callback_WindowResize);
+    glfwSetWindowRefreshCallback(window.window, Callback_WindowRefresh);
 
     // Initialize ImGui.
     ImGui::CreateContext();
@@ -710,14 +896,16 @@ int main(int argc, char** argv) {
 
     // Upload font texture.
     {
-        VkCommandPool command_pool = command_pools[0];
-        VkCommandBuffer command_buffer= command_buffers[0];
+        VkCommandPool command_pool = frames[0].command_pool;
+        VkCommandBuffer command_buffer= frames[0].command_buffer;
 
         // Reset command buffer.
         VkResult vkr = vkResetCommandPool(vk.device, command_pool, 0);
         assert(vkr == VK_SUCCESS);
 
         // Begin recording commands.
+        VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkr = vkBeginCommandBuffer(command_buffer, &begin_info);
         assert(vkr == VK_SUCCESS);
 
@@ -750,12 +938,16 @@ int main(int argc, char** argv) {
 
 
 
-    bool wait_for_events = false;
-    bool force_swapchain_update = false;
-    u32 frame_index = 0;
+    App app = {};
+    app.frames = std::move(frames);
+    app.window = &window;
+    app.vk = &vk;
+    app.queue = queue;
+
+    glfwSetWindowUserPointer(window.window, &app);
 
     while (true) {
-        if (wait_for_events) {
+        if (app.wait_for_events) {
             glfwWaitEvents();
         }
         else {
@@ -766,162 +958,7 @@ int main(int argc, char** argv) {
             break;
         }
 
-        SwapchainStatus swapchain_status = UpdateSwapchain(&window, vk, force_swapchain_update);
-        if (swapchain_status == SwapchainStatus::FAILED) {
-            printf("Swapchain update failed\n");
-            exit(1);
-        }
-        force_swapchain_update = false;
-
-        if (swapchain_status == SwapchainStatus::MINIMIZED) {
-            wait_for_events = true;
-            continue;
-        } 
-        else if(swapchain_status == SwapchainStatus::RESIZED) {
-            // Resize framebuffer sized elements.
-        }
-
-        wait_for_events = false;
-        
-        // Acquire current frame
-        VkFence fence = fences[frame_index];
-        vkWaitForFences(vk.device, 1, &fence, VK_TRUE, ~0);
-
-        VkSemaphore acquire_semaphore = acquire_semaphores[frame_index];
-        VkSemaphore release_semaphore = release_semaphores[frame_index];
-
-        u32 index;
-        VkResult vkr = vkAcquireNextImageKHR(vk.device, window.swapchain, ~0ull, acquire_semaphore, 0, &index);
-        if(vkr == VK_ERROR_OUT_OF_DATE_KHR) {
-            force_swapchain_update = true;
-            continue;
-        }
-        
-        ImGui_ImplGlfw_NewFrame();
-        ImGui_ImplVulkan_NewFrame();
-        ImGui::NewFrame();
-
-        ImGui::DockSpaceOverViewport(NULL, ImGuiDockNodeFlags_PassthruCentralNode);
-
-        ImGui::ShowDemoWindow();
-        
-        // Render imgui.
-        ImGui::Render();
-        
-        // Reset command pool
-        VkCommandPool command_pool = command_pools[frame_index];
-        VkCommandBuffer command_buffer= command_buffers[frame_index];
-
-        vkr = vkResetCommandPool(vk.device, command_pool, 0);
-        assert(vkr == VK_SUCCESS);
-
-        // Record commands
-        vkr = vkBeginCommandBuffer(command_buffer, &begin_info);
-        assert(vkr == VK_SUCCESS);
-       
-        vkResetFences(vk.device, 1, &fence);
-
-		VkClearColorValue color = { 0.1f, 0.2f, 0.4f, 1.0f };
-
-        VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = window.images[index];
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-        
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        
-        barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        
-        vkCmdPipelineBarrier(command_buffer,
-                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 
-                             0, 0, 
-                             0, 0, 
-                             1, &barrier);
-
-        // Begin rendering.
-        VkRenderingAttachmentInfo attachmentInfo = {};
-        attachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
-        attachmentInfo.imageView = window.image_views[index];
-        attachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        attachmentInfo.resolveMode = VK_RESOLVE_MODE_NONE;
-        attachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        attachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        attachmentInfo.clearValue.color = color;
-
-        VkRenderingInfoKHR renderingInfo = {};
-        renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
-        renderingInfo.renderArea.extent.width = window.fb_width;
-        renderingInfo.renderArea.extent.height = window.fb_height;
-        renderingInfo.layerCount = 1;
-        renderingInfo.viewMask = 0;
-        renderingInfo.colorAttachmentCount = 1;
-        renderingInfo.pColorAttachments = &attachmentInfo;
-
-        vkCmdBeginRenderingKHR(command_buffer, &renderingInfo);
-        
-        ImDrawData* draw_data = ImGui::GetDrawData();
-        ImGui_ImplVulkan_RenderDrawData(draw_data, command_buffer);
-
-        vkCmdEndRenderingKHR(command_buffer);
-
-        barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        barrier.dstAccessMask = 0;
-        vkCmdPipelineBarrier(command_buffer,
-                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                             VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 
-                             0, 0, 
-                             0, 0, 
-                             1, &barrier);
-
-        vkr = vkEndCommandBuffer(command_buffer);
-        assert(vkr == VK_SUCCESS);
-        
-        // Submit commands
-		VkPipelineStageFlags submit_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        
-        VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-        submit_info.commandBufferCount = 1;
-        submit_info.pCommandBuffers = &command_buffer;
-        submit_info.waitSemaphoreCount = 1;
-        submit_info.pWaitSemaphores = &acquire_semaphore;
-        submit_info.pWaitDstStageMask = &submit_stage_mask;
-        submit_info.signalSemaphoreCount = 1;
-        submit_info.pSignalSemaphores = &release_semaphore;
-        
-            
-        vkr = vkQueueSubmit(queue, 1, &submit_info, fence);
-        assert(vkr == VK_SUCCESS);
-        
-        // Present
-        VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-        present_info.swapchainCount = 1;
-        present_info.pSwapchains = &window.swapchain;
-        present_info.pImageIndices = &index;
-        present_info.waitSemaphoreCount = 1;
-        present_info.pWaitSemaphores = &release_semaphore;
-        vkr = vkQueuePresentKHR(queue, &present_info);
-
-        if (vkr == VK_ERROR_OUT_OF_DATE_KHR || vkr == VK_SUBOPTIMAL_KHR) {
-            force_swapchain_update = true;
-        } else if (result != VK_SUCCESS) {
-            printf("Failed to submit\n");
-            exit(1);
-        }
-        
-        // // Wait
-        // vkr = vkDeviceWaitIdle(vk.device);
-        // assert(vkr == VK_SUCCESS);
-        frame_index = (frame_index + 1) % window.images.length;
+        Draw(&app);
     }
 
     // Wait
@@ -932,13 +969,14 @@ int main(int argc, char** argv) {
 
 
     for (usize i = 0; i < window.image_views.length; i++) {
-        vkDestroyFence(vk.device, fences[i], 0);
+        VulkanFrame& frame = app.frames[i];
+        vkDestroyFence(vk.device, frame.fence, 0);
 
-        vkDestroySemaphore(vk.device, acquire_semaphores[i], 0);
-        vkDestroySemaphore(vk.device, release_semaphores[i], 0);
+        vkDestroySemaphore(vk.device, frame.acquire_semaphore, 0);
+        vkDestroySemaphore(vk.device, frame.release_semaphore, 0);
 
-        vkFreeCommandBuffers(vk.device, command_pools[i], 1, &command_buffers[i]);
-        vkDestroyCommandPool(vk.device, command_pools[i], 0);
+        vkFreeCommandBuffers(vk.device, frame.command_pool, 1, &frame.command_buffer);
+        vkDestroyCommandPool(vk.device, frame.command_pool, 0);
     }
     
     // Window stuff
