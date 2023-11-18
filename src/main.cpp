@@ -12,7 +12,9 @@
 #include <vk_mem_alloc.h>
 
 #define _GLFW_VULKAN_STATIC
+#ifdef _WIN32
 #define GLFW_EXPOSE_NATIVE_WIN32
+#endif
 #include <GLFW/glfw3.h>
 
 #include <glm/glm.hpp>
@@ -94,7 +96,9 @@ VulkanDebugReportCallback(VkDebugReportFlagsEXT flags,
     
     
     printf("%s", message);
+#ifdef _WIN32
     OutputDebugStringA(message);
+#endif
     
     // if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
     //  assert(!"Validation error encountered!");
@@ -836,6 +840,7 @@ Callback_WindowRefresh(GLFWwindow* window) {
     }
 }
 
+#ifdef _WIN32
 DWORD WINAPI thread_proc(void* param) {
     HWND window = (HWND)param;
     while (true) {
@@ -843,6 +848,7 @@ DWORD WINAPI thread_proc(void* param) {
     }
     return 0;
 }
+#endif
 
 
 int main(int argc, char** argv) {
@@ -902,12 +908,14 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+#ifdef _WIN32
     // Redraw during move / resize
     HWND hwnd = glfwGetWin32Window(window.window);
     HANDLE thread = CreateThread(0, 0, thread_proc, hwnd, 0, 0);
     if (thread) {
         CloseHandle(thread);
     }
+#endif
 
     // Initialize queue and command allocator.
     VkResult result;
