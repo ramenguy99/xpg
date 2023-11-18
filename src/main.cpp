@@ -7,7 +7,12 @@
 #include <volk.h>
 #include <vulkan/vk_enum_string_helper.h>
 
+#define VMA_STATIC_VULKAN_FUNCTIONS 1
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
+
 #define _GLFW_VULKAN_STATIC
+#define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
 
 #include <glm/glm.hpp>
@@ -39,6 +44,8 @@ typedef int16_t  s16;
 typedef int32_t  s32;
 typedef int64_t  s64;
 typedef size_t   usize;
+typedef float    f32;
+typedef double   f64;
 #define ArrayCount(a) (sizeof((a)) / sizeof(*(a)))
 #define ZeroAlloc(size) (calloc(1, size))
 #define Free(p) free((p))
@@ -87,7 +94,7 @@ VulkanDebugReportCallback(VkDebugReportFlagsEXT flags,
     
     
     printf("%s", message);
-    //OutputDebugStringA(message);
+    OutputDebugStringA(message);
     
     // if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
     //  assert(!"Validation error encountered!");
@@ -578,18 +585,43 @@ struct App {
 
     VkQueue queue;
 
-
+    // Swapchain frames, index wraps around at the number of frames in flight.
     u32 frame_index;
     Array<VulkanFrame> frames;
 
     bool force_swapchain_update;
     bool wait_for_events;
 
+    // Application data.
+    u64 current_frame;
+    u64 last_frame_timestamp;
+    ArrayFixed<f32, 64> frame_times;
+
+    // Rendering
+    VkBuffer vertex_buffer;
+    VkBuffer index_buffer;
+    VkPipeline pipeline;
 };
 
 void Draw(App* app) {
     auto& vk = *app->vk;
     auto& window = *app->window;
+
+    u64 timestamp = glfwGetTimerValue();
+    
+    float dt = (float)((double)(timestamp - app->last_frame_timestamp) / (double)glfwGetTimerFrequency());
+    app->last_frame_timestamp = timestamp;
+    if (isnan(dt) || isinf(dt)) {
+        dt = 0.0f;
+    }
+    app->frame_times[app->current_frame % app->frame_times.length] = dt;
+
+
+    float avg_frame_time = 0.0f;
+    for (usize i = 0; i < app->frame_times.length; i++) {
+        avg_frame_time += app->frame_times[i];
+    }
+    avg_frame_time /= (f32)app->frame_times.length;
 
     SwapchainStatus swapchain_status = UpdateSwapchain(&window, vk, app->force_swapchain_update);
     if (swapchain_status == SwapchainStatus::FAILED) {
@@ -626,7 +658,22 @@ void Draw(App* app) {
 
     ImGui::DockSpaceOverViewport(NULL, ImGuiDockNodeFlags_PassthruCentralNode);
 
-    ImGui::ShowDemoWindow();
+    if (ImGui::Begin("Playback")) {
+        struct Getter {
+            static float fn(void* data, int index) {
+                App* a = (App*)data;
+                
+                usize i = (index - (a->current_frame % a->frame_times.length) + a->frame_times.length) % a->frame_times.length;
+                return 1.0f / a->frame_times[a->frame_times.length - i - 1];
+            }
+        };
+        //ImGui::PlotLines("", app->frame_times.data, (int)app->frame_times.length, 0, 0, 0.0f, .0f, ImVec2(100, 30));
+        ImGui::PlotLines("", Getter::fn, app, (int)app->frame_times.length, 0, 0, 0.0f, 200.0f, ImVec2(100, 30));
+        ImGui::SameLine();
+        ImGui::Text("FPS: %.2f (%.2fms) [%.2f (%.2fms)]", 1.0f / dt, dt * 1.0e3f, 1.0 / avg_frame_time, avg_frame_time * 1.0e3f);
+    }
+    ImGui::End();
+    //ImGui::ShowDemoWindow();
     
     // Render imgui.
     ImGui::Render();
@@ -688,6 +735,27 @@ void Draw(App* app) {
     renderingInfo.pColorAttachments = &attachmentInfo;
 
     vkCmdBeginRenderingKHR(frame.command_buffer, &renderingInfo);
+
+    vkCmdBindPipeline(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app->pipeline);
+    
+    VkDeviceSize offsets[1] = { 0 };
+    vkCmdBindVertexBuffers(frame.command_buffer, 0, 1, &app->vertex_buffer, offsets);
+
+    vkCmdBindIndexBuffer(frame.command_buffer, app->index_buffer, 0, VK_INDEX_TYPE_UINT32);
+    
+    VkViewport viewport = {};
+    viewport.width = (f32)window.fb_width;
+    viewport.height = (f32)window.fb_height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(frame.command_buffer, 0, 1, &viewport);
+
+    VkRect2D scissor = {};
+    scissor.extent.width = window.fb_width;
+    scissor.extent.height = window.fb_height;
+    vkCmdSetScissor(frame.command_buffer, 0, 1, &scissor);
+
+    vkCmdDrawIndexed(frame.command_buffer, 3, 1, 0, 0, 0);
     
     ImDrawData* draw_data = ImGui::GetDrawData();
     ImGui_ImplVulkan_RenderDrawData(draw_data, frame.command_buffer);
@@ -744,8 +812,16 @@ void Draw(App* app) {
     // vkr = vkDeviceWaitIdle(vk.device);
     // assert(vkr == VK_SUCCESS);
     app->frame_index = (app->frame_index + 1) % window.images.length;
+    app->current_frame += 1;
 }
 
+internal void
+Callback_Key(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    App* app = (App*)glfwGetWindowUserPointer(window);
+    
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+        glfwSetWindowShouldClose(app->window->window, true);
+}
 
 internal void
 Callback_WindowResize(GLFWwindow* window, int width, int height) {
@@ -759,6 +835,15 @@ Callback_WindowRefresh(GLFWwindow* window) {
         Draw(app);
     }
 }
+
+DWORD WINAPI thread_proc(void* param) {
+    HWND window = (HWND)param;
+    while (true) {
+        SendMessage(window, WM_PAINT, 0, 0);
+    }
+    return 0;
+}
+
 
 int main(int argc, char** argv) {
     glm::vec3 v = glm::vec3(0.0f);
@@ -787,11 +872,23 @@ int main(int argc, char** argv) {
     device_extensions.add("VK_KHR_swapchain");
     device_extensions.add("VK_KHR_dynamic_rendering");
 
+    u32 vulkan_api_version = VK_API_VERSION_1_3;
+
     VulkanContext vk = {};
-    if (InitializeVulkan(&vk, VK_API_VERSION_1_3, instance_extensions, device_extensions, true, true, true, true) != VulkanResult::SUCCESS) {
+    if (InitializeVulkan(&vk, vulkan_api_version, instance_extensions, device_extensions, true, true, true, true) != VulkanResult::SUCCESS) {
         printf("Failed to initialize vulkan\n");
         exit(1);
     }
+
+    VmaAllocatorCreateInfo vma_info = {};
+    vma_info.flags = 0; // Optionally set here that we externally synchronize.
+    vma_info.instance = vk.instance;
+    vma_info.physicalDevice = vk.physical_device;
+    vma_info.device = vk.device;
+    vma_info.vulkanApiVersion = vulkan_api_version;
+
+    VmaAllocator vma;
+    vmaCreateAllocator(&vma_info, &vma);
 
     // Check if queue family supports image presentation.
     if (!glfwGetPhysicalDevicePresentationSupport(vk.instance, vk.physical_device, vk.queue_family_index)) {
@@ -803,6 +900,13 @@ int main(int argc, char** argv) {
     if (CreateVulkanWindow(&window, vk, "XPG", 1600, 900, true) != VulkanResult::SUCCESS) {
         printf("Failed to create vulkan window\n");
         return 1;
+    }
+
+    // Redraw during move / resize
+    HWND hwnd = glfwGetWin32Window(window.window);
+    HANDLE thread = CreateThread(0, 0, thread_proc, hwnd, 0, 0);
+    if (thread) {
+        CloseHandle(thread);
     }
 
     // Initialize queue and command allocator.
@@ -856,6 +960,7 @@ int main(int argc, char** argv) {
     // Setup window callbacks
     glfwSetWindowSizeCallback(window.window, Callback_WindowResize);
     glfwSetWindowRefreshCallback(window.window, Callback_WindowRefresh);
+    glfwSetKeyCallback(window.window, Callback_Key);
 
     // Initialize ImGui.
     ImGui::CreateContext();
@@ -936,6 +1041,219 @@ int main(int argc, char** argv) {
         assert(vkr == VK_SUCCESS);
     }
 
+    // Allocate vertex and index buffers.
+    Array<glm::vec3> vertices;
+    vertices.add(glm::vec3(-0.5,  0.5, 0.0));
+    vertices.add(glm::vec3( 0.5,  0.5, 0.0));
+    vertices.add(glm::vec3( 0.0, -0.5, 0.0));
+
+    Array<u32> indices;
+    indices.add(0);
+    indices.add(1);
+    indices.add(2);
+
+    VkResult vkr;
+
+    VkBufferCreateInfo vertex_buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    vertex_buffer_info.size = vertices.size_in_bytes();
+    vertex_buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+     
+    VkBufferCreateInfo index_buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    index_buffer_info.size = indices.size_in_bytes();
+    index_buffer_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+
+    VmaAllocationCreateInfo alloc_create_info = {};
+    alloc_create_info.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+    alloc_create_info.preferredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    alloc_create_info.flags = 0;
+        // VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT  <- Host can access, useful if usage=AUTO, not necessary if require HOST_VISIBLE
+        // VMA_ALLOCATION_CREATE_MAPPED_BIT              <- Persistently mapped, not needed for upload once usage as we are doing here, we will manually map and unmap.
+     
+    VkBuffer vertex_buffer = 0;
+    VmaAllocation vertex_allocation = {};
+    vkr = vmaCreateBuffer(vma, &vertex_buffer_info, &alloc_create_info, &vertex_buffer, &vertex_allocation, 0);
+
+    VkBuffer index_buffer = 0;
+    VmaAllocation index_allocation = {};
+    vkr = vmaCreateBuffer(vma, &index_buffer_info, &alloc_create_info, &index_buffer, &index_allocation, 0);
+
+    void* map;
+
+    vmaMapMemory(vma, vertex_allocation, &map);
+    ArrayView<u8> vertex_map((u8*)map, vertex_buffer_info.size);
+    vertex_map.copy_exact(vertices.as_bytes());
+    vmaUnmapMemory(vma, vertex_allocation);
+
+    vmaMapMemory(vma, index_allocation, &map);
+    ArrayView<u8> index_map((u8*)map, index_buffer_info.size);
+    index_map.copy_exact(indices.as_bytes());
+    vmaUnmapMemory(vma, index_allocation);
+
+
+    // Create graphics pipeline.
+    u32 vertex_code[] = {
+        // 1112.1.0
+        0x07230203,0x00010000,0x0008000b,0x00000018,0x00000000,0x00020011,0x00000001,0x0006000b,
+        0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,0x00000000,0x00000001,
+        0x0007000f,0x00000000,0x00000004,0x6e69616d,0x00000000,0x0000000a,0x0000000f,0x00030003,
+        0x00000002,0x000001c2,0x00040005,0x00000004,0x6e69616d,0x00000000,0x00060005,0x00000008,
+        0x505f6c67,0x65567265,0x78657472,0x00000000,0x00060006,0x00000008,0x00000000,0x505f6c67,
+        0x7469736f,0x006e6f69,0x00030005,0x0000000a,0x00000000,0x00040005,0x0000000f,0x736f5061,
+        0x00000000,0x00050048,0x00000008,0x00000000,0x0000000b,0x00000000,0x00030047,0x00000008,
+        0x00000002,0x00040047,0x0000000f,0x0000001e,0x00000000,0x00020013,0x00000002,0x00030021,
+        0x00000003,0x00000002,0x00030016,0x00000006,0x00000020,0x00040017,0x00000007,0x00000006,
+        0x00000004,0x0003001e,0x00000008,0x00000007,0x00040020,0x00000009,0x00000003,0x00000008,
+        0x0004003b,0x00000009,0x0000000a,0x00000003,0x00040015,0x0000000b,0x00000020,0x00000001,
+        0x0004002b,0x0000000b,0x0000000c,0x00000000,0x00040017,0x0000000d,0x00000006,0x00000003,
+        0x00040020,0x0000000e,0x00000001,0x0000000d,0x0004003b,0x0000000e,0x0000000f,0x00000001,
+        0x0004002b,0x00000006,0x00000011,0x3f800000,0x00040020,0x00000016,0x00000003,0x00000007,
+        0x00050036,0x00000002,0x00000004,0x00000000,0x00000003,0x000200f8,0x00000005,0x0004003d,
+        0x0000000d,0x00000010,0x0000000f,0x00050051,0x00000006,0x00000012,0x00000010,0x00000000,
+        0x00050051,0x00000006,0x00000013,0x00000010,0x00000001,0x00050051,0x00000006,0x00000014,
+        0x00000010,0x00000002,0x00070050,0x00000007,0x00000015,0x00000012,0x00000013,0x00000014,
+        0x00000011,0x00050041,0x00000016,0x00000017,0x0000000a,0x0000000c,0x0003003e,0x00000017,
+        0x00000015,0x000100fd,0x00010038
+    };
+
+    u32 fragment_code[] = {
+        // 1112.1.0
+        0x07230203,0x00010000,0x0008000b,0x0000000d,0x00000000,0x00020011,0x00000001,0x0006000b,
+        0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,0x00000000,0x00000001,
+        0x0006000f,0x00000004,0x00000004,0x6e69616d,0x00000000,0x00000009,0x00030010,0x00000004,
+        0x00000007,0x00030003,0x00000002,0x000001c2,0x00040005,0x00000004,0x6e69616d,0x00000000,
+        0x00040005,0x00000009,0x6c6f4366,0x0000726f,0x00040047,0x00000009,0x0000001e,0x00000000,
+        0x00020013,0x00000002,0x00030021,0x00000003,0x00000002,0x00030016,0x00000006,0x00000020,
+        0x00040017,0x00000007,0x00000006,0x00000004,0x00040020,0x00000008,0x00000003,0x00000007,
+        0x0004003b,0x00000008,0x00000009,0x00000003,0x0004002b,0x00000006,0x0000000a,0x3f800000,
+        0x0004002b,0x00000006,0x0000000b,0x00000000,0x0007002c,0x00000007,0x0000000c,0x0000000a,
+        0x0000000b,0x0000000b,0x0000000a,0x00050036,0x00000002,0x00000004,0x00000000,0x00000003,
+        0x000200f8,0x00000005,0x0003003e,0x00000009,0x0000000c,0x000100fd,0x00010038
+    };
+
+    VkShaderModuleCreateInfo vertex_module_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+    vertex_module_info.codeSize = sizeof(vertex_code);
+    vertex_module_info.pCode = vertex_code;
+
+    VkShaderModule vertex_module = 0;
+    vkr = vkCreateShaderModule(vk.device, &vertex_module_info, 0, &vertex_module);
+    assert(vkr == VK_SUCCESS);
+
+    VkShaderModuleCreateInfo fragment_module_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+    fragment_module_info.codeSize = sizeof(fragment_code);
+    fragment_module_info.pCode = fragment_code;
+    VkShaderModule fragment_module = 0;
+    vkCreateShaderModule(vk.device, &fragment_module_info, 0, &fragment_module);
+    assert(vkr == VK_SUCCESS);
+
+    VkPipelineShaderStageCreateInfo stages[2] = {};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].flags = 0;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT ;
+    stages[0].module = vertex_module;
+    stages[0].pName = "main";
+
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].flags = 0;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT ;
+    stages[1].module = fragment_module;
+    stages[1].pName = "main";
+
+    VkVertexInputBindingDescription vertex_bindings[1] = {};
+    vertex_bindings[0].binding = 0;
+    vertex_bindings[0].stride = sizeof(glm::vec3);
+    vertex_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    VkVertexInputAttributeDescription vertex_attributes[1] = {};
+    vertex_attributes[0].location = 0;
+    vertex_attributes[0].binding = 0;
+    vertex_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    vertex_attributes[0].offset = 0;
+
+    VkPipelineVertexInputStateCreateInfo vertex_input_state = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+    vertex_input_state.vertexBindingDescriptionCount = ArrayCount(vertex_bindings);
+    vertex_input_state.pVertexBindingDescriptions = vertex_bindings;
+    vertex_input_state.vertexAttributeDescriptionCount = ArrayCount(vertex_attributes);
+    vertex_input_state.pVertexAttributeDescriptions = vertex_attributes;
+
+    VkPipelineInputAssemblyStateCreateInfo input_assembly_state = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+    input_assembly_state.primitiveRestartEnable = false;
+    input_assembly_state.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkPipelineTessellationStateCreateInfo tessellation_state = { VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO };
+
+    VkPipelineViewportStateCreateInfo viewport_state = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
+    viewport_state.viewportCount = 1;
+    viewport_state.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterization_state = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+    rasterization_state.depthClampEnable = false;
+    rasterization_state.rasterizerDiscardEnable = false;
+    rasterization_state.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterization_state.cullMode = VK_CULL_MODE_NONE;
+    rasterization_state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterization_state.depthBiasEnable = false;
+    rasterization_state.lineWidth = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisample_state = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+    multisample_state.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depth_stencil_state = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
+    depth_stencil_state.depthTestEnable = false;
+    depth_stencil_state.depthWriteEnable = false;
+    depth_stencil_state.depthCompareOp = VK_COMPARE_OP_LESS;
+
+    VkPipelineColorBlendAttachmentState attachments[1] = {};
+    attachments[0].blendEnable = false;
+
+    VkPipelineColorBlendStateCreateInfo blend_state = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+    blend_state.attachmentCount = ArrayCount(attachments);
+    blend_state.pAttachments = attachments;
+
+    VkDynamicState dynamic_states[2] = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR,
+    };
+
+    VkPipelineDynamicStateCreateInfo dynamic_state = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
+    dynamic_state.dynamicStateCount = ArrayCount(dynamic_states);
+    dynamic_state.pDynamicStates = dynamic_states;
+
+    // Layout
+    VkPipelineLayoutCreateInfo layout_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+
+    VkPipelineLayout layout = 0;
+    vkr = vkCreatePipelineLayout(vk.device, &layout_info, 0, &layout);
+    assert(vkr == VK_SUCCESS);
+
+
+    VkGraphicsPipelineCreateInfo pipeline_create_info = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+    pipeline_create_info.flags = 0;
+    
+    // Shaders
+    pipeline_create_info.stageCount = 2;
+    pipeline_create_info.pStages = stages;
+
+    // Graphics state
+    pipeline_create_info.pVertexInputState = &vertex_input_state;
+    pipeline_create_info.pInputAssemblyState = &input_assembly_state;
+    pipeline_create_info.pTessellationState = &tessellation_state;
+    pipeline_create_info.pViewportState = &viewport_state;
+    pipeline_create_info.pRasterizationState = &rasterization_state;
+    pipeline_create_info.pMultisampleState = &multisample_state;
+    pipeline_create_info.pDepthStencilState = &depth_stencil_state;
+    pipeline_create_info.pColorBlendState = &blend_state;
+    pipeline_create_info.pDynamicState = &dynamic_state;
+
+    // Binding layout
+    pipeline_create_info.layout = layout;
+
+    // Render pass -> we use dynamic rendering
+    pipeline_create_info.renderPass = VK_NULL_HANDLE;
+
+
+    VkPipeline pipeline = 0;
+    vkr = vkCreateGraphicsPipelines(vk.device, VK_NULL_HANDLE, 1, &pipeline_create_info, 0, &pipeline);
+    assert(vkr == VK_SUCCESS);
 
 
     App app = {};
@@ -943,6 +1261,12 @@ int main(int argc, char** argv) {
     app.window = &window;
     app.vk = &vk;
     app.queue = queue;
+    app.wait_for_events = true;
+    app.frame_times.resize(ArrayCount(app.frame_times.data));
+    app.last_frame_timestamp = glfwGetTimerValue();
+    app.vertex_buffer = vertex_buffer;
+    app.index_buffer = index_buffer;
+    app.pipeline = pipeline;
 
     glfwSetWindowUserPointer(window.window, &app);
 
@@ -961,12 +1285,22 @@ int main(int argc, char** argv) {
         Draw(&app);
     }
 
+
     // Wait
     vkDeviceWaitIdle(vk.device);
     
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 
+    vmaDestroyBuffer(vma, vertex_buffer, vertex_allocation);
+    vmaDestroyBuffer(vma, index_buffer, index_allocation);
+    vmaDestroyAllocator(vma);
+
+    vkDestroyShaderModule(vk.device, vertex_module, 0);
+    vkDestroyShaderModule(vk.device, fragment_module, 0);
+    vkDestroyPipelineLayout(vk.device, layout, 0);
+    vkDestroyPipeline(vk.device, pipeline, 0);
 
     for (usize i = 0; i < window.image_views.length; i++) {
         VulkanFrame& frame = app.frames[i];
@@ -991,5 +1325,5 @@ int main(int argc, char** argv) {
 	vkDestroyDebugReportCallbackEXT(vk.instance, vk.debug_callback, 0);
     vkDestroyInstance(vk.instance, 0);
 
-    system("pause");
+    //system("pause");
 }

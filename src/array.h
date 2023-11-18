@@ -55,6 +55,14 @@ struct ArrayView {
         return data[index];
     }
     
+    void copy_exact(const ArrayView<T>& other) {
+        if (length != other.length) {
+            OutOfSpace();
+        }
+
+        memcpy(data, other.data, length * sizeof(T));
+    }
+
     ArrayView<u8> as_bytes() {
         return ArrayView<u8>((u8*)data, size_in_bytes());
     }
@@ -247,7 +255,7 @@ struct ArrayFixed {
     }
     
     void resize(usize new_size) {
-        if(new_size >= N) {
+        if(new_size > N) {
             OutOfSpace();
         }
         
