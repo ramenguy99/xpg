@@ -76,7 +76,7 @@ struct ArrayView {
     
     T* consume_ptr(usize count) {
         if(count > length) {
-            return 0;
+            OutOfBounds(count);
         }
         T* result = data;
         
@@ -103,12 +103,20 @@ struct ArrayView {
 	}
 
 	template<typename AdvType>
-	AdvType consume(usize count = 1)
+	AdvType consume()
 	{
 		//Only allow this on byte like types
 		static_assert(sizeof(T) == 1);
-		return *(AdvType*)consume_ptr(count * sizeof(AdvType));
+		return *(AdvType*)consume_ptr(sizeof(AdvType));
 	}
+
+    template<typename Type>
+    Type* as_type() {
+        if (sizeof(Type) != length) {
+            OutOfBounds(sizeof(Type));
+        }
+        return (Type*)data;
+    }
     
     
     bool is_empty() {
@@ -137,8 +145,10 @@ struct Array {
     Array& operator=(Array&& other) {
         this->data = other.data;
         this->length = other.length;
+        this->capacity = other.capacity;
         other.data = 0;
         other.length = 0;
+        other.capacity = 0;
         return *this;
     }
     

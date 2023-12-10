@@ -10,7 +10,7 @@ add_subdirectory(ext/volk)
 add_subdirectory(ext/glm)
 add_subdirectory(ext/VulkanMemoryAllocator)
 
-add_executable(app src/main.cpp)
+add_executable(app src/main.cpp "src/defines.h")
 target_link_libraries(app PRIVATE volk_headers glfw glm VulkanMemoryAllocator)
-target_include_directories(app PRIVATE ext/imgui)
+target_include_directories(app PRIVATE ext/imgui shaders)
 
