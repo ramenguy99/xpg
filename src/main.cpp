@@ -4,6 +4,17 @@
 #include <utility> // std::move
 #include <functional> // std::function
 
+
+#ifdef _WIN32
+#else
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <semaphore.h>
+#include <pthread.h>
+#endif
+
 #define VOLK_IMPLEMENTATION
 #include <volk.h>
 #include <vulkan/vk_enum_string_helper.h>
@@ -402,7 +413,7 @@ DWORD WINAPI thread_proc(void* param) {
 #endif
 
 int main(int argc, char** argv) {
-    File file = OpenFile("N:\\scenes\\smpl\\all_frames_10.bin");
+    File file = OpenFile(argv[1]);
 
     Array<u8> header(12);
     ReadAtOffset(file, header, 0);

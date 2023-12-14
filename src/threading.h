@@ -23,10 +23,12 @@ struct ConditionVariable {
 };
 
 #ifdef _WIN32
-typedef DWORD (WINAPI *ThreadProc)(LPVOID lpThreadParameter);
+#define THREAD_PROC(x) DWORD WINAPI x(LPVOID data)
 #else
-typedef void (*ThreadProc)(void*);
+#define THREAD_PROC(x) void* x(void* data)
 #endif // _WIN32
+
+typedef THREAD_PROC(ThreadProc);
 
 struct Semaphore {
 #ifdef _WIN32
@@ -43,10 +45,25 @@ struct Semaphore {
     void release() {
         ReleaseSemaphore(handle, 1, 0);
     }
+#else
+    sem_t semaphore;
+
+    Semaphore(u32 initial_count, u32 max_count) {
+        sem_init(&semaphore, 0, initial_count);
+    }
+
+    void acquire() {
+        sem_wait(&semaphore);
+    }
+
+    void release() {
+        sem_post(&semaphore);
+    }
 #endif
 };
 
 struct Thread {    
+#ifdef _WIN32
     HANDLE handle;
 
     Thread(ThreadProc proc, void* data) {
@@ -60,6 +77,16 @@ struct Thread {
             handle = INVALID_HANDLE_VALUE;
         }
     }
+#else
+    pthread_t thread;
+    Thread(ThreadProc proc, void* data) {
+        pthread_create(&thread, 0, proc, data);
+    }
+
+    void join() {
+        pthread_join(thread, 0);
+    }
+#endif
 };
 
 struct WorkerPool {
@@ -73,7 +100,7 @@ struct WorkerPool {
     Semaphore semaphore; // Semaphore for waiting for work.
     std::atomic<bool> exit;
 
-    static DWORD WINAPI thread_proc(void* data) {
+    static THREAD_PROC(thread_proc) {
         WorkerPool* pool = (WorkerPool*)data;
         while (true) {
             if (pool->exit.load()) {
