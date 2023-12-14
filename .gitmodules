@@ -13,3 +13,6 @@
 [submodule "ext/VulkanMemoryAllocator"]
 	path = ext/VulkanMemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+[submodule "ext/atomic_queue"]
+	path = ext/atomic_queue
+	url = https://github.com/max0x7ba/atomic_queue.git
