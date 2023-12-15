@@ -8,9 +8,14 @@ struct File {
 };
 
 struct FileReadWork {
+    // Submission info
     File file;
-    usize offset;
+    u64 offset;
     ArrayView<u8> buffer;
+    bool do_chunks;
+
+    // Work state
+    u64 bytes_read;
 };
 
 File OpenFile(const char* path) {

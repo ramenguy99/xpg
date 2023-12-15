@@ -1,4 +1,21 @@
-Python bindings:
+Ideas:
+- Maybe have an internal feature set kind of thing to support multiple hardware types.
+  Seem important to support at least:
+    - Compute only (required: subgroup stuff?)
+    - Basic rendering (required: dynamic rendering?)
+    - Raytracing (required: rt + bindless)
+
+- New error model for everything:
+    - Error on the handle kind of thing
+    - Ability to attach context and record call stacks
+    - Maybe helpers / macros to check if an handle is errored and collect callstacks / attach additional info.
+
+- Cleaness and portability:
+    - Statically link on windows and with musl on linux (no idea about macOS)
+    - Get rid of some headers
+    - Maybe split stuff in some cpp files
+
+Notes:
 - Add python library target and test nanobind + pybind11 stubs generator for generating and packaging python module
     - Python module interface (similar to viewer needs):
         - Window utilities (multiple windows, surface rendering without window / swapchains)
@@ -8,9 +25,6 @@ Python bindings:
     - Standalone apps in C++.
     - Scriptable apps from python.
     - Headless rendering/compute from C++/python.
-- Power usage:
-    - Animated vs on event rendering for energy consumption.
-    - Framerate cap.
 - Initialize vulkan stuff and build rendering layer utilities on top of it.
     - Required extensions?
     - ImGui/docking support -> use same GUI version as pyimgui and share ctx somehow, or make our own bindings.
@@ -30,11 +44,14 @@ Python bindings:
 Project structure:
 - Core:
     - Vulkan context and headless rendering
-    - Renderables and passes
+    - Resource creation and other utils
+    - Shader and pipeline management helpers
+    - Maybe a rendergraph helper here too?
 - Viewer:
     - Windowing
     - ImGui
     - Input
+    - Renderables and passes
 
 - Python module:
     - Bindings for both core and viewer

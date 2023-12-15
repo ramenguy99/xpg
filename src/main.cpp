@@ -74,25 +74,29 @@ struct App {
     // Swapchain frames, index wraps around at the number of frames in flight.
     u32 frame_index;
     Array<VulkanFrame> frames;
+    // Total frame index.
+    u64 current_frame;
 
     bool force_swapchain_update;
     bool wait_for_events;
     bool closed;
 
     // Application data.
-    u64 current_frame;
     u64 last_frame_timestamp;
-    u64 start_timestamp;
     ArrayFixed<f32, 64> frame_times;
     Array<VkDescriptorSet> descriptor_sets;
     Array<UniformBuffer> uniform_buffers;
-    VkImageView depth_view;
-    VkImage depth_img;
+    DepthBuffer depth_buffer;
+    
+    // Playback
+    bool playback_enabled;
+    u32 num_playback_frames;
+    u32 playback_frame;
+    f64 playback_delta;
 
     BufferedStream<FileReadWork> mesh_stream;
     ArrayView<u8> vertex_map;
     File mesh_file;
-    u32 num_frames;
     u32 num_vertices;
     u32 num_indices;
 
@@ -110,7 +114,6 @@ void Draw(App* app) {
     auto& window = *app->window;
 
     u64 timestamp = glfwGetTimerValue();
-    float total_time = (float)((double)(timestamp - app->start_timestamp) / (double)glfwGetTimerFrequency());
 
     float dt = (float)((double)(timestamp - app->last_frame_timestamp) / (double)glfwGetTimerFrequency());
     app->last_frame_timestamp = timestamp;
@@ -138,6 +141,8 @@ void Draw(App* app) {
     } 
     else if(swapchain_status == SwapchainStatus::RESIZED) {
         // Resize framebuffer sized elements.
+        VulkanDestroyDepthBuffer(vk, app->depth_buffer);
+        app->depth_buffer = VulkanCreateDepthBuffer(vk, window.fb_width, window.fb_height);
     }
 
     app->wait_for_events = false;
@@ -154,6 +159,16 @@ void Draw(App* app) {
         return;
     }
     
+    // Playback update
+    if (app->playback_enabled) {
+        app->playback_delta += dt;
+        u32 frames_to_step = (u32)(app->playback_delta * 25.0f);
+        app->playback_frame = (app->playback_frame + frames_to_step + app->num_playback_frames) % app->num_playback_frames;
+        app->playback_delta -= frames_to_step * (1.0f / 25.0f);
+    }
+
+
+    // ImGui
     ImGui_ImplGlfw_NewFrame();
     ImGui_ImplVulkan_NewFrame();
     ImGui::NewFrame();
@@ -173,9 +188,54 @@ void Draw(App* app) {
         ImGui::PlotLines("", Getter::fn, app, (int)app->frame_times.length, 0, 0, 0.0f, 200.0f, ImVec2(100, 30));
         ImGui::SameLine();
         ImGui::Text("FPS: %.2f (%.2fms) [%.2f (%.2fms)]", 1.0f / dt, dt * 1.0e3f, 1.0 / avg_frame_time, avg_frame_time * 1.0e3f);
+
+        int frame = app->playback_frame;
+        if (ImGui::SliderInt("Playback", &frame, 0, app->num_playback_frames - 1)) {
+            app->playback_frame = frame;
+            app->playback_delta = 0.0f;
+        }
+
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        f32 x = p.x + 2.0f;
+        f32 y = p.y + 4.0f;
+        f32 width = 4.0f;
+        f32 height = 16.0f;
+        for (u32 i = 0; i < app->num_playback_frames; i++) {
+            // Normalize frame index
+            u64 frame_index = i;
+            if (frame_index < app->mesh_stream.stream_cursor) {
+                frame_index += app->mesh_stream.stream_length;
+            }
+
+            // If in bounds of the buffer
+            if (frame_index < app->mesh_stream.stream_cursor + app->mesh_stream.buffer.length) {
+                u64 delta = frame_index - app->mesh_stream.stream_cursor;
+                u64 buffer_index = (app->mesh_stream.buffer_offset + delta) % app->mesh_stream.buffer.length;
+                
+                u32 color = 0xFF000000;
+                BufferedStream<FileReadWork>::EntryState state = app->mesh_stream.buffer[buffer_index].state.load(std::memory_order_relaxed);
+                switch (state) {
+                case BufferedStream<FileReadWork>::EntryState::Empty: color = 0xFF000000; break;
+                case BufferedStream<FileReadWork>::EntryState::Filling: color = 0xFF00FFFF; break;
+                case BufferedStream<FileReadWork>::EntryState::Canceling: color = 0xFF0000FF; break;
+                case BufferedStream<FileReadWork>::EntryState::Done: color = 0xFF00FF00; break;
+                }
+                draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + width, y + height), color);
+            }
+
+            u32 outline_color = 0xFFFFFFFF;
+            if (app->mesh_stream.stream_cursor == i) {
+                outline_color = 0xFF000000;
+            }
+            draw_list->AddRect(ImVec2(x, y), ImVec2(x + width, y + height), outline_color, 0, 0, 1.0f);
+
+
+            x += width + 1.0f;
+        }
     }
     ImGui::End();
-    //ImGui::ShowDemoWindow();
+    ImGui::ShowDemoWindow();
     
     // Render imgui.
     ImGui::Render();
@@ -222,7 +282,7 @@ void Draw(App* app) {
         barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = app->depth_img;
+        barrier.image = app->depth_buffer.image;
         barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
         barrier.subresourceRange.baseMipLevel = 0;
         barrier.subresourceRange.levelCount = 1;
@@ -252,7 +312,7 @@ void Draw(App* app) {
     attachment_info.clearValue.color = color;
 
     VkRenderingAttachmentInfo depth_attachment_info = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-    depth_attachment_info.imageView = app->depth_view;
+    depth_attachment_info.imageView = app->depth_buffer.view;
     depth_attachment_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     depth_attachment_info.resolveMode = VK_RESOLVE_MODE_NONE;
     depth_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -273,7 +333,6 @@ void Draw(App* app) {
     vkCmdBindPipeline(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app->pipeline);
     
 
-    u32 animation_frame = ((u32)(total_time * 25.0f)) % app->num_frames;
     //u32 animation_frame = app->current_frame % app->num_frames;
     u32 size = app->num_vertices * sizeof(vec3);
     u32 buffer_offset = size * app->frame_index;
@@ -283,7 +342,7 @@ void Draw(App* app) {
     ReadAtOffset(app->mesh_file, vertices.as_bytes(), 12 + (u64)size * animation_frame);
     memcpy(app->vertex_map.data + buffer_offset, vertices.data, size);
 #else
-    FileReadWork w = app->mesh_stream.get_frame(animation_frame);
+    FileReadWork w = app->mesh_stream.get_frame(app->playback_frame);
     memcpy(app->vertex_map.data + buffer_offset, w.buffer.data, size);
 #endif
 
@@ -385,8 +444,26 @@ internal void
 Callback_Key(GLFWwindow* window, int key, int scancode, int action, int mods) {
     App* app = (App*)glfwGetWindowUserPointer(window);
     
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-        glfwSetWindowShouldClose(app->window->window, true);
+    if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+        if (key == GLFW_KEY_ESCAPE) {
+            glfwSetWindowShouldClose(app->window->window, true);
+        }
+
+        if (key == GLFW_KEY_PERIOD) {
+            app->playback_frame += 1;
+            app->playback_frame = (app->playback_frame + app->num_playback_frames) % app->num_playback_frames;
+        }
+
+        if (key == GLFW_KEY_COMMA) {
+            app->playback_frame -= 1;
+            app->playback_frame = (app->playback_frame + app->num_playback_frames) % app->num_playback_frames;
+        }
+
+        if (key == GLFW_KEY_SPACE) {
+            app->playback_enabled = !app->playback_enabled;
+            app->playback_delta = 0.0f;
+        }
+    }
 }
 
 internal void
@@ -429,7 +506,7 @@ int main(int argc, char** argv) {
     u64 size = V * sizeof(vec3);
     
     u32 WORKERS = 4;
-    u32 BUFFER_SIZE = (u32)4;
+    u32 BUFFER_SIZE = (u32)8;
 
     Array<u8> loaded_data(size * BUFFER_SIZE);
     ArrayView<u8> loaded_data_view = loaded_data;
@@ -437,20 +514,26 @@ int main(int argc, char** argv) {
     WorkerPool pool(WORKERS);
     BufferedStream<FileReadWork> mesh_stream(N, BUFFER_SIZE, &pool,
         // Init
-        [=](u64 index, u64 buffer_index) mutable {
+        [=](u64 index, u64 buffer_index, bool high_priority) mutable {
             FileReadWork w = {};
 
             w.file = file;
             w.offset = 12 + size * index;
             w.buffer = loaded_data_view.slice(buffer_index * size, size);
+            w.do_chunks = true;
 
             return w;
-        },
+    },
         // Fill
         [=](FileReadWork* w) {
-            ReadAtOffset(w->file, w->buffer, w->offset);
-            printf("Read data: %llu  %llu\n", w->buffer.length, w->offset);
-            return true;
+            u64 bytes_left = w->buffer.length - w->bytes_read;
+
+            u64 chunk_size = w->do_chunks ? Min((u64)16 * 1024, bytes_left) : bytes_left;
+            ReadAtOffset(w->file, w->buffer.slice(w->bytes_read, chunk_size), w->offset + w->bytes_read);
+            w->bytes_read += chunk_size;
+
+            //printf("Read data: %llu  %llu\n", w->buffer.length, w->offset);
+            return w->bytes_read == w->buffer.length;
         }
     );
 
@@ -485,16 +568,6 @@ int main(int argc, char** argv) {
         printf("Failed to initialize vulkan\n");
         exit(1);
     }
-
-    VmaAllocatorCreateInfo vma_info = {};
-    vma_info.flags = 0; // Optionally set here that we externally synchronize.
-    vma_info.instance = vk.instance;
-    vma_info.physicalDevice = vk.physical_device;
-    vma_info.device = vk.device;
-    vma_info.vulkanApiVersion = vulkan_api_version;
-
-    VmaAllocator vma;
-    vmaCreateAllocator(&vma_info, &vma);
 
     // Check if queue family supports image presentation.
     if (!glfwGetPhysicalDevicePresentationSupport(vk.instance, vk.physical_device, vk.queue_family_index)) {
@@ -697,14 +770,14 @@ int main(int argc, char** argv) {
     VmaAllocation vertex_allocation = {};
     alloc_create_info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
     VmaAllocationInfo vertex_alloc_info = {};
-    vkr = vmaCreateBuffer(vma, &vertex_buffer_info, &alloc_create_info, &vertex_buffer, &vertex_allocation, &vertex_alloc_info);
+    vkr = vmaCreateBuffer(vk.vma, &vertex_buffer_info, &alloc_create_info, &vertex_buffer, &vertex_allocation, &vertex_alloc_info);
     assert(vkr == VK_SUCCESS);
     ArrayView<u8> vertex_map = ArrayView<u8>((u8*)vertex_alloc_info.pMappedData, vertex_buffer_info.size);
 
     VkBuffer index_buffer = 0;
     VmaAllocation index_allocation = {};
     alloc_create_info.flags = 0;
-    vkr = vmaCreateBuffer(vma, &index_buffer_info, &alloc_create_info, &index_buffer, &index_allocation, 0);
+    vkr = vmaCreateBuffer(vk.vma, &index_buffer_info, &alloc_create_info, &index_buffer, &index_allocation, 0);
     assert(vkr == VK_SUCCESS);
 
 
@@ -715,10 +788,10 @@ int main(int argc, char** argv) {
     // vertex_map.copy_exact(vertices.as_bytes());
     // vmaUnmapMemory(vma, vertex_allocation);
 
-    vmaMapMemory(vma, index_allocation, &map);
+    vmaMapMemory(vk.vma, index_allocation, &map);
     ArrayView<u8> index_map((u8*)map, index_buffer_info.size);
     index_map.copy_exact(indices.as_bytes());
-    vmaUnmapMemory(vma, index_allocation);
+    vmaUnmapMemory(vk.vma, index_allocation);
 
 
     // Create graphics pipeline.
@@ -919,7 +992,7 @@ int main(int argc, char** argv) {
 
         
         VmaAllocationInfo alloc_info = {};
-        vkr = vmaCreateBuffer(vma, &buffer_info, &alloc_create_info, &uniform_buffers[i].buffer, &uniform_buffers[i].allocation, &alloc_info);
+        vkr = vmaCreateBuffer(vk.vma, &buffer_info, &alloc_create_info, &uniform_buffers[i].buffer, &uniform_buffers[i].allocation, &alloc_info);
         assert(vkr == VK_SUCCESS);
 
         uniform_buffers[i].map = ArrayView<u8>((u8*)alloc_info.pMappedData, buffer_info.size);
@@ -939,42 +1012,7 @@ int main(int argc, char** argv) {
         vkUpdateDescriptorSets(vk.device, 1, &descriptor_write, 0, 0);
     }
 
-    // Create a depth buffer.
-    VkImageCreateInfo depth_create_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-    depth_create_info.imageType = VK_IMAGE_TYPE_2D;
-    depth_create_info.extent.width = window.fb_width;
-    depth_create_info.extent.height = window.fb_height;
-    depth_create_info.extent.depth = 1;
-    depth_create_info.mipLevels = 1;
-    depth_create_info.arrayLayers = 1;
-    depth_create_info.format = VK_FORMAT_D32_SFLOAT;
-    depth_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    depth_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    depth_create_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    depth_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
-     
-    VmaAllocationCreateInfo depth_alloc_create_info = {};
-    depth_alloc_create_info.usage = VMA_MEMORY_USAGE_AUTO;
-    depth_alloc_create_info.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
-    depth_alloc_create_info.priority = 1.0f;
-     
-    VkImage depth_img;
-    VmaAllocation depth_alloc;
-    vkr = vmaCreateImage(vma, &depth_create_info, &depth_alloc_create_info, &depth_img, &depth_alloc, nullptr);
-    assert(vkr == VK_SUCCESS);
-    
-    VkImageViewCreateInfo depth_img_view_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-    depth_img_view_info.image = depth_img;
-    depth_img_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    depth_img_view_info.format = VK_FORMAT_D32_SFLOAT;
-    depth_img_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    depth_img_view_info.subresourceRange.levelCount = 1;
-    depth_img_view_info.subresourceRange.layerCount = 1;
-
-    VkImageView depth_img_view = 0;
-    vkr = vkCreateImageView(vk.device, &depth_img_view_info, 0, &depth_img_view);
-    assert(vkr == VK_SUCCESS);
-
+    DepthBuffer depth_buffer = VulkanCreateDepthBuffer(vk, window.fb_width, window.fb_height);
 
     App app = {};
     app.frames = std::move(frames);
@@ -984,17 +1022,15 @@ int main(int argc, char** argv) {
     app.wait_for_events = true;
     app.frame_times.resize(ArrayCount(app.frame_times.data));
     app.last_frame_timestamp = glfwGetTimerValue();
-    app.start_timestamp = app.last_frame_timestamp;
     app.vertex_buffer = vertex_buffer;
     app.index_buffer = index_buffer;
     app.pipeline = pipeline;
     app.descriptor_sets = std::move(descriptor_sets);
     app.uniform_buffers = std::move(uniform_buffers);
     app.layout = layout;
-    app.depth_view = depth_img_view;
-    app.depth_img = depth_img;
+    app.depth_buffer = depth_buffer;
 
-    app.num_frames = (u32)N;
+    app.num_playback_frames = (u32)N;
     app.num_vertices = (u32)V;
     app.num_indices = (u32)I;
     app.vertex_map = vertex_map;
@@ -1029,21 +1065,21 @@ int main(int argc, char** argv) {
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
+    VulkanDestroyDepthBuffer(vk, app.depth_buffer);
+
     for (usize i = 0; i < app.uniform_buffers.length; i++) {
-        vmaDestroyBuffer(vma, app.uniform_buffers[i].buffer, app.uniform_buffers[i].allocation);
+        vmaDestroyBuffer(vk.vma, app.uniform_buffers[i].buffer, app.uniform_buffers[i].allocation);
     }
 
-    vmaDestroyBuffer(vma, vertex_buffer, vertex_allocation);
-    vmaDestroyBuffer(vma, index_buffer, index_allocation);
+    vmaDestroyBuffer(vk.vma, vertex_buffer, vertex_allocation);
+    vmaDestroyBuffer(vk.vma, index_buffer, index_allocation);
 
-    vmaDestroyImage(vma, depth_img, depth_alloc);
-    vmaDestroyAllocator(vma);
+    vmaDestroyAllocator(vk.vma);
 
     vkDestroyShaderModule(vk.device, vertex_module, 0);
     vkDestroyShaderModule(vk.device, fragment_module, 0);
     vkDestroyPipelineLayout(vk.device, layout, 0);
     vkDestroyPipeline(vk.device, pipeline, 0);
-    vkDestroyImageView(vk.device, depth_img_view, 0);
 
     for (usize i = 0; i < window.image_views.length; i++) {
         VulkanFrame& frame = app.frames[i];

@@ -1,6 +1,6 @@
 template<typename T>
 struct BufferedStream {
-    typedef std::function<T(u64, u64)> InitProc;
+    typedef std::function<T(u64, u64, bool)> InitProc;
     typedef std::function<bool(T*)> FillProc;
 
     enum class EntryState: u32 {
@@ -56,11 +56,11 @@ struct BufferedStream {
         fill_proc(fill) {
 
         for (u64 i = 0; i < buffer.length; i++) {
-            enqueue_load(i, i);
+            enqueue_load(i, i, false);
         }
     }
 
-    void enqueue_load(u64 buffer_index, u64 stream_index) {
+    void enqueue_load(u64 buffer_index, u64 stream_index, bool high_priority) {
         Entry* entry = &buffer[buffer_index];
 
         // Acquire entry, making sure nobody is using it.
@@ -83,13 +83,31 @@ struct BufferedStream {
 
         // Initialize entry and submit work to pool.
         entry->state.store(EntryState::Filling, std::memory_order_relaxed);
-        entry->value = init_proc(stream_index, buffer_index);
+        entry->value = init_proc(stream_index, buffer_index, high_priority);
         entry->fill_proc = fill_proc;
 
         WorkerPool::Work w;
         w.callback = work_callback;
         w.user_data = entry;
         pool->add_work(w);
+    }
+
+    void cancel_all_pending_work() {
+        for (u64 i = 0; i < buffer.length; i++) {
+            Entry* entry = &buffer[i];
+
+            // Acquire entry, making sure nobody is using it.
+            EntryState state = entry->state.load(std::memory_order_relaxed);
+
+            if (state != EntryState::Empty) {
+                if (state == EntryState::Filling) {
+                    // Attempt to cancel pending work.
+                    // - If this succeeds the worker will exit at some point and we can start waiting. 
+                    // - If this failed the worker just finished, so we can continue.
+                    entry->state.compare_exchange_strong(state, EntryState::Canceling, std::memory_order_relaxed);
+                }
+            }
+        }
     }
 
     // TODO: this waits if the frame is not ready, we should have a way to 
@@ -113,6 +131,8 @@ struct BufferedStream {
         bool reset = false;
         if (buffer.length < stream_length) {
             if (normalized_frame >= stream_cursor + buffer.length) {
+                cancel_all_pending_work();
+
                 reset = true;
                 normalized_frame = frame;
 
@@ -120,7 +140,7 @@ struct BufferedStream {
                 buffer_offset = 0;
 
                 // Schedule current frame
-                enqueue_load(0, frame);
+                enqueue_load(0, frame, true);
             }
         }
     
@@ -130,7 +150,7 @@ struct BufferedStream {
 
         // Wait for frame to be ready
         while (buffer[buffer_index].state.load(std::memory_order_relaxed) != EntryState::Done);
-        std::atomic_thread_fence(std::memory_order::memory_order_seq_cst);
+        std::atomic_thread_fence(std::memory_order::memory_order_acquire);
 
         T value = buffer[buffer_index].value;
 
@@ -138,7 +158,7 @@ struct BufferedStream {
         if (reset) {
             // The buffer was invalid, refresh everything.
             for (u64 i = 1; i < buffer.length; i++) {
-                enqueue_load(i, frame + i);
+                enqueue_load(i, frame + i, false);
             }
         }
         else if (buffer.length < stream_length && delta > 0) {
@@ -146,7 +166,7 @@ struct BufferedStream {
             for (u64 i = 0; i < delta; i++) {
                 u64 buffer_index = (buffer_offset + buffer.length + i) % buffer.length;
                 u64 frame_index = (frame + buffer.length + i) % stream_length;
-                enqueue_load(buffer_index, frame_index);
+                enqueue_load(buffer_index, frame_index, false);
             }
 
             stream_cursor = frame;

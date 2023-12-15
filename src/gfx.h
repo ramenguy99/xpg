@@ -37,6 +37,7 @@ struct VulkanContext {
     VkPhysicalDevice physical_device;
     VkDevice device;
     u32 queue_family_index;
+    VmaAllocator vma;
 
     // Debug
     VkDebugReportCallbackEXT debug_callback;
@@ -54,6 +55,7 @@ enum class VulkanResult {
     DEVICE_CREATION_FAILED,
     SWAPCHAIN_CREATION_FAILED,
     SURFACE_CREATION_FAILED,
+    VMA_CREATION_FAILED,
 };
 
 VulkanResult 
@@ -259,12 +261,27 @@ InitializeVulkan(VulkanContext* vk, u32 required_version, ArrayView<const char*>
         return VulkanResult::DEVICE_CREATION_FAILED;
     }
 
+    VmaAllocatorCreateInfo vma_info = {};
+    vma_info.flags = 0; // Optionally set here that we externally synchronize.
+    vma_info.instance = instance;
+    vma_info.physicalDevice = physical_device;
+    vma_info.device = device;
+    vma_info.vulkanApiVersion = version;
+
+    VmaAllocator vma;
+    result = vmaCreateAllocator(&vma_info, &vma);
+    if (result != VK_SUCCESS) {
+        return VulkanResult::VMA_CREATION_FAILED;
+    }
+
+
     vk->version = version;
     vk->instance = instance;
     vk->physical_device = physical_device;
     vk->device = device;
     vk->queue_family_index = 0;
     vk->debug_callback = debug_callback;
+    vk->vma = vma;
 
     return VulkanResult::SUCCESS;
 }
@@ -310,8 +327,8 @@ CreateVulkanSwapchain(VulkanWindow* w, const VulkanContext& vk, VkSurfaceKHR sur
     swapchain_info.pQueueFamilyIndices = queue_family_indices;
     swapchain_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     swapchain_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    //swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
-    swapchain_info.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+    swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    //swapchain_info.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
     swapchain_info.oldSwapchain = old_swapchain;
 
     VkSwapchainKHR swapchain;
@@ -497,3 +514,61 @@ struct UniformBuffer {
     VmaAllocation allocation;
     ArrayView<u8> map;
 };
+
+struct DepthBuffer {
+    VmaAllocation allocation;
+    VkImage image;
+    VkImageView view;
+};
+
+
+DepthBuffer VulkanCreateDepthBuffer(const VulkanContext& vk, u32 width, u32 height) {
+    // Create a depth buffer.
+    VkImageCreateInfo image_create_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    image_create_info.imageType = VK_IMAGE_TYPE_2D;
+    image_create_info.extent.width = width;
+    image_create_info.extent.height = height;
+    image_create_info.extent.depth = 1;
+    image_create_info.mipLevels = 1;
+    image_create_info.arrayLayers = 1;
+    image_create_info.format = VK_FORMAT_D32_SFLOAT;
+    image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_create_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+
+    VmaAllocationCreateInfo alloc_create_info = {};
+    alloc_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+    alloc_create_info.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+    alloc_create_info.priority = 1.0f;
+
+    VkImage image;
+    VmaAllocation allocation;
+    VkResult vkr = vmaCreateImage(vk.vma, &image_create_info, &alloc_create_info, &image, &allocation, nullptr);
+    assert(vkr == VK_SUCCESS);
+
+    VkImageViewCreateInfo image_view_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    image_view_info.image = image;
+    image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    image_view_info.format = VK_FORMAT_D32_SFLOAT;
+    image_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    image_view_info.subresourceRange.levelCount = 1;
+    image_view_info.subresourceRange.layerCount = 1;
+
+    VkImageView image_view = 0;
+    vkr = vkCreateImageView(vk.device, &image_view_info, 0, &image_view);
+    assert(vkr == VK_SUCCESS);
+
+    DepthBuffer result = {};
+    result.image = image;
+    result.view = image_view;
+    result.allocation = allocation;
+
+    return result;
+}
+
+void VulkanDestroyDepthBuffer(const VulkanContext& vk, DepthBuffer& depth_buffer) {
+    vkDestroyImageView(vk.device, depth_buffer.view, 0);
+    vmaDestroyImage(vk.vma, depth_buffer.image, depth_buffer.allocation);
+    depth_buffer = {};
+}
