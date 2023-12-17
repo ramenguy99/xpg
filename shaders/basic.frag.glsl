@@ -11,7 +11,7 @@ layout(location = 0) out vec4 fColor;
 void main()
 {
     vec3 L = normalize(vec3(-1, -1, 1));
-    
+
     vec3 t = dFdx(world_position);
     vec3 b = dFdy(world_position);
     vec3 N = normalize(cross(t, b));

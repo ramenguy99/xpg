@@ -49,10 +49,10 @@ struct BufferedStream {
     BufferedStream() {}
 
     BufferedStream(u64 length, u64 buffer_size, WorkerPool* pool, InitProc init, FillProc fill):
-        buffer(Min(length, buffer_size)), 
+        buffer(Min(length, buffer_size)),
         stream_length(length),
         pool(pool),
-        init_proc(init), 
+        init_proc(init),
         fill_proc(fill) {
 
         for (u64 i = 0; i < buffer.length; i++) {
@@ -68,7 +68,7 @@ struct BufferedStream {
         if (state != EntryState::Empty) {
             if (state == EntryState::Filling) {
                 // Attempt to cancel pending work.
-                // - If this succeeds the worker will exit at some point and we can start waiting. 
+                // - If this succeeds the worker will exit at some point and we can start waiting.
                 // - If this failed the worker just finished, so we can continue.
                 entry->state.compare_exchange_strong(state, EntryState::Canceling, std::memory_order_relaxed);
             }
@@ -76,10 +76,12 @@ struct BufferedStream {
             // Wait for worker to be done with this item.
             while (state != EntryState::Done) {
                 state = entry->state.load(std::memory_order_relaxed);
-
-                // TODO: spinlock hint here
+                SpinlockHint();
             }
         }
+
+        // After worker is done, ensure all writes from the worker are complete.
+        std::atomic_thread_fence(std::memory_order::memory_order_acquire);
 
         // Initialize entry and submit work to pool.
         entry->state.store(EntryState::Filling, std::memory_order_relaxed);
@@ -99,21 +101,17 @@ struct BufferedStream {
             // Acquire entry, making sure nobody is using it.
             EntryState state = entry->state.load(std::memory_order_relaxed);
 
-            if (state != EntryState::Empty) {
-                if (state == EntryState::Filling) {
-                    // Attempt to cancel pending work.
-                    // - If this succeeds the worker will exit at some point and we can start waiting. 
-                    // - If this failed the worker just finished, so we can continue.
-                    entry->state.compare_exchange_strong(state, EntryState::Canceling, std::memory_order_relaxed);
-                }
+            if (state == EntryState::Filling) {
+                // Attempt to cancel pending work.
+                entry->state.compare_exchange_strong(state, EntryState::Canceling, std::memory_order_relaxed);
             }
         }
     }
 
-    // TODO: this waits if the frame is not ready, we should have a way to 
+    // TODO: this waits if the frame is not ready, we should have a way to
     // first ask for the current frame to be loaded for all streams and then wait for them to complete.
     //
-    // Additionally we could have some helpers method to ensure that if we have more 
+    // Additionally we could have some helpers method to ensure that if we have more
     // than one stream (A, B) the future frames are scheduled as A_0, B_0, A_1, B_1 instead of A_0, A_1, B_0, B_1
     // to help with fifo ordering.
     T get_frame(u64 frame) {
@@ -143,7 +141,7 @@ struct BufferedStream {
                 enqueue_load(0, frame, true);
             }
         }
-    
+
         // Delta is in range [0, buffer.length[
         u64 delta = normalized_frame - stream_cursor;
         u64 buffer_index = (buffer_offset + delta) % buffer.length;
