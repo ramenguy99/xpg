@@ -118,7 +118,7 @@ struct Plot {
 
 struct Data {
     Array<double> data;
-    s64 columns;
+    s64 columns = 0;
 };
 
 struct App {
@@ -234,12 +234,12 @@ void Draw(App* app) {
     // ImGuiID dockspace = ImGui::DockSpaceOverViewport(NULL, ImGuiDockNodeFlags_PassthruCentralNode);
     // static bool first_frame = true;
 
-    ImGui::ShowDemoWindow();
+    // ImGui::ShowDemoWindow();
     // ImPlot::ShowDemoWindow();
     {
         std::lock_guard<std::mutex> lock(app->mutex);
 
-        usize count = app->data.data.length / app->data.columns;
+        usize count = app->data.columns > 0 ? app->data.data.length / app->data.columns : 0;
         usize stride = app->data.columns * sizeof(double);
 
         ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -1045,7 +1045,7 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(args, argc, argv);
 
-    Data data;
+    Data data = {};
     if(input == "-") {
         // Reading from stdin will happen asynchronously
     } else {
