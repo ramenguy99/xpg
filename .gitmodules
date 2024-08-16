@@ -16,3 +16,6 @@
 [submodule "ext/atomic_queue"]
 	path = ext/atomic_queue
 	url = https://github.com/max0x7ba/atomic_queue.git
+[submodule "ext/implot"]
+	path = ext/implot
+	url = https://github.com/epezent/implot.git
