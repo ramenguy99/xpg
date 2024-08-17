@@ -119,7 +119,14 @@ struct AxisLimits {
     double max;
 };
 
+enum class PlotKind {
+    Plot,
+    Histogram,
+};
+
 struct Plot {
+    PlotKind kind = PlotKind::Plot;
+
     std::vector<Lines> lines;
 
     std::vector<ImPlotMarker_> markers;
@@ -135,6 +142,11 @@ struct Plot {
     ImPlotScale_ yscale = ImPlotScale_Linear;
     AxisLimits xlimits;
     AxisLimits ylimits;
+
+    // Histogram specific
+    int histogram_bins = ImPlotBin_Sturges;
+    ImPlotHistogramFlags histogram_flags;
+    AxisLimits histogram_range;
 };
 
 struct Data {
@@ -256,7 +268,7 @@ void Draw(App* app) {
     // static bool first_frame = true;
 
     // ImGui::ShowDemoWindow();
-    // ImPlot::ShowDemoWindow();
+    ImPlot::ShowDemoWindow();
     {
         std::lock_guard<std::mutex> lock(app->mutex);
 
@@ -320,7 +332,8 @@ void Draw(App* app) {
                                     u64 per_line_colors = 0;
                                     if(!plot.colors.empty()) {
                                         ImPlot::PushStyleColor(ImPlotCol_Line, plot.colors[y_idx % plot.colors.size()].color);
-                                        per_line_colors += 1;
+                                        ImPlot::PushStyleColor(ImPlotCol_Fill, plot.colors[y_idx % plot.colors.size()].color);
+                                        per_line_colors += 2;
                                     }
                                     ImPlotFlags flags = 0;
                                     std::string name;
@@ -330,20 +343,33 @@ void Draw(App* app) {
                                         name = StringPrintf("%d - %s###line%d", (int)y_idx, plot.names[y_idx % plot.names.size()].c_str(), (int)y_idx);
                                     }
 
-                                    if(x != -1) {
-                                        ImPlot::GetterXY<ImPlot::IndexerIdx<double>, ImPlot::IndexerIdx<double>> getter(
-                                            ImPlot::IndexerIdx<double>(app->data.data.data + x, (int)count, 0, (int)stride),
-                                            ImPlot::IndexerIdx<double>(app->data.data.data + y, (int)count, 0, (int)stride),
-                                            (int)count
-                                        );
-                                        ImPlot::PlotLineEx(name.c_str(), getter, flags);
+                                    if(plot.kind == PlotKind::Plot) {
+                                        if(x != -1) {
+                                            ImPlot::GetterXY<ImPlot::IndexerIdx<double>, ImPlot::IndexerIdx<double>> getter(
+                                                ImPlot::IndexerIdx<double>(app->data.data.data + x, (int)count, 0, (int)stride),
+                                                ImPlot::IndexerIdx<double>(app->data.data.data + y, (int)count, 0, (int)stride),
+                                                (int)count
+                                            );
+                                            ImPlot::PlotLineEx(name.c_str(), getter, flags);
+                                        } else {
+                                            ImPlot::GetterXY<ImPlot::IndexerLin, ImPlot::IndexerIdx<double>> getter(
+                                                ImPlot::IndexerLin(1, 0),
+                                                ImPlot::IndexerIdx<double>(app->data.data.data + y, (int)count, 0, (int)stride),
+                                                (int)count
+                                            );
+                                            ImPlot::PlotLineEx(name.c_str(), getter, flags);
+                                        }
                                     } else {
-                                        ImPlot::GetterXY<ImPlot::IndexerLin, ImPlot::IndexerIdx<double>> getter(
-                                            ImPlot::IndexerLin(1, 0),
-                                            ImPlot::IndexerIdx<double>(app->data.data.data + y, (int)count, 0, (int)stride),
-                                            (int)count
-                                        );
-                                        ImPlot::PlotLineEx(name.c_str(), getter, flags);
+                                        ImPlotRange range = ImPlotRange();
+                                        if(plot.histogram_range.set) {
+                                            range = ImPlotRange(plot.histogram_range.min, plot.histogram_range.max);
+                                        }
+                                        Array<double> values(count);
+                                        for(usize i = 0; i < count; i++) {
+                                            values[i] = app->data.data.data[i * app->data.columns + y];
+                                        }
+                                        ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL,0.5f);
+                                        ImPlot::PlotHistogram(name.c_str(), values.data, (int)count, plot.histogram_bins, 1.0, range, plot.histogram_flags);
                                     }
 
                                     y_idx += 1;
@@ -480,7 +506,7 @@ DWORD WINAPI thread_proc(void* param) {
 //   [x] Stdin
 // - Plot types:
 //   [x] Normal 2D plot (y only, multiple ys, one x and one or more ys, x, y pairs)
-//   [ ] Histogram (configurable bin size) and CDF (just sort and draw), also add options for extra stats (mean, median, quartiles, stddev)
+//   [x] Histogram (configurable bin size) and CDF (just sort and draw)
 // - Format:
 //   [x] Text
 //      - Each line is a record
@@ -507,7 +533,8 @@ DWORD WINAPI thread_proc(void* param) {
 //   [ ] Passthrough (input is also written as stdout, useful for progress bars)
 //   [ ] Ringbuffer / windowed plot (keep n last points, mostly useful for pipes / data coming over time)
 //   [ ] Save as png (stb_image_write) and off-surface render
-//   [ ] Data subsampling for drawing perf
+//   [ ] Data subsampling for drawing perf (could also be done as preprocess, but could be convenient)
+//   [ ] add options for extra stats (mean, median, quartiles, stddev) -> extra lines in histogram?
 // - Cleanup:
 //   [ ] Move stuff to more files, move apps in own directory
 //   [ ] Make XPG more standalone / clean
@@ -589,6 +616,20 @@ ImPlotScale StringToScale(const std::string& s) {
         return ImPlotScale_Log10;
     } else if(s == "lin" || s == "linear") {
         return ImPlotScale_Linear;
+    } else {
+        return INT_MAX;
+    }
+}
+
+ImPlotBin StringToAutoBin(const std::string& s) {
+    if(s == "sqrt") {
+        return ImPlotBin_Sqrt;
+    } else if(s == "sturges") {
+        return ImPlotBin_Sturges;
+    } else if(s == "rice") {
+        return ImPlotBin_Rice;
+    } else if(s == "scott") {
+        return ImPlotBin_Scott;
     } else {
         return INT_MAX;
     }
@@ -932,7 +973,7 @@ template<> ImPlotMarker_ Parse<ImPlotMarker_>(const std::string& s, const std::s
 
 template<> ImPlotScale_ Parse<ImPlotScale_>(const std::string& s, const std::string& opt) {
     if(s.size() == 0) {
-        Fatal("Invalid empty value for marker option %s\n", opt.c_str());
+        Fatal("Invalid empty value for scale option %s\n", opt.c_str());
     }
 
     std::string l = Lower(s);
@@ -942,6 +983,29 @@ template<> ImPlotScale_ Parse<ImPlotScale_>(const std::string& s, const std::str
     }
 
     return (ImPlotScale_)scale;
+}
+
+template<> ImPlotBin_ Parse<ImPlotBin_>(const std::string& s, const std::string& opt) {
+    if(s.size() == 0) {
+        Fatal("Invalid empty value for binning option %s\n", opt.c_str());
+    }
+
+    int bins = 0;
+
+    try {
+        bins = StringToInt(s);
+        return (ImPlotBin_)bins;
+    } catch (...) {
+
+    }
+
+    std::string l = Lower(s);
+    bins = StringToAutoBin(l);
+    if(bins == INT_MAX) {
+        Fatal("Invalid value \"%s\" for binning option %s must be a positive integer or sturges,sqrt,rice,scott \n", s.c_str(), opt.c_str());
+    }
+
+    return (ImPlotBin_)bins;
 }
 
 template<typename T>
@@ -1071,6 +1135,83 @@ void SetLightTheme()
     colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.20f, 0.20f, 0.20f, 0.35f);
 }
 
+std::vector<Range> ParseRanges(const std::string b) {
+    std::vector<Range> ranges;
+    if(!b.empty()) {
+        size_t it = 0;
+        while(it < b.size()) {
+            Range range = {};
+
+            size_t pos = b.find_first_of(',', it);
+
+            std::string r = b.substr(it, pos == std::string::npos ? pos : pos - it);
+            std::string begin, end;
+            if(SplitAtChar(r, '-', begin, end)) {
+                if(begin.empty()) {
+                    range.begin = 0;
+                } else {
+                    try {
+                        range.begin = StringToInt(begin);
+                    } catch(...) {
+                        Fatal("Plot y range begin must be an integer. Found \"%s\"\n", begin.c_str());
+                    }
+                }
+                if(end.empty()) {
+                    range.end = INT_MAX;
+                } else {
+                    try {
+                        range.end = StringToInt(end);
+                    } catch(...) {
+                        Fatal("Plot y range end must be an integer. Found \"%s\"\n", end.c_str());
+                    }
+                }
+            } else {
+                try {
+                    s32 v = StringToInt(r);
+                    range.begin = v;
+                    range.end = v;
+                } catch(...) {
+                    Fatal("Plot y must be an integer or a range. Found \"%s\"\n", r.c_str());
+                }
+            }
+
+            ranges.push_back(range);
+
+            if(pos == std::string::npos) {
+                break;
+            }
+            it = pos + 1;
+        }
+    } else {
+        Range range = {};
+        range.begin = 0;
+        range.end = INT_MAX;
+
+        ranges.push_back(range);
+    }
+
+    return ranges;
+}
+Lines ParseLineRange(const std::string& a, const std::string& b) {
+    // a -> optional number
+    // b -> comma separated list of ranges
+    // range -> optional number - optional number
+    Lines lines = {};
+    if(!a.empty()) {
+        try {
+            lines.x = StringToInt(a);
+        } catch(...) {
+            Fatal("Plot x must be an integer. Found \"%s\"\n", a.c_str());
+        }
+    } else {
+        lines.x = -1;
+    }
+
+    lines.ys = ParseRanges(b);
+
+    return lines;
+}
+
 int main(int argc, char** argv) {
     CLI::App args{"Command line utility for plotting"};
 
@@ -1083,6 +1224,9 @@ int main(int argc, char** argv) {
 
     std::vector<std::vector<std::string>> plots_options;
     args.add_option("-p,--plot", plots_options, "Plot, followed by input range and options")->take_all()->expected(0,-1);
+
+    std::vector<std::vector<std::string>> histogram_options;
+    args.add_option("-t,--hist", histogram_options, "Histogram, followed by input range and options")->take_all()->expected(0,-1);
 
     int window_width = 1600;
     args.add_option("-W,--width", window_width, "Window width")->check(CLI::Range(1, 100000));
@@ -1285,6 +1429,8 @@ int main(int argc, char** argv) {
     }
 
     std::vector<Plot> plots;
+
+    // Parse plots
     for(auto& p: plots_options) {
         Plot plot = {};
         for(auto& o: p) {
@@ -1321,74 +1467,7 @@ int main(int argc, char** argv) {
                     Fatal("Unknown option %s\n", a.c_str());
                 }
             } else if(SplitAtChar(o, ':', a, b)) {
-                // a -> optional number
-                // b -> comma separated list of ranges
-                // range -> optional number - optional number
-                Lines lines = {};
-                if(!a.empty()) {
-                    try {
-                        lines.x = StringToInt(a);
-                    } catch(...) {
-                        Fatal("Plot x must be an integer. Found \"%s\"\n", a.c_str());
-                    }
-                } else {
-                    lines.x = -1;
-                }
-
-                std::vector<Range> ranges;
-                if(!b.empty()) {
-                    size_t it = 0;
-                    while(it < b.size()) {
-                        Range range = {};
-
-                        size_t pos = b.find_first_of(',', it);
-
-                        std::string r = b.substr(it, pos == std::string::npos ? pos : pos - it);
-                        std::string begin, end;
-                        if(SplitAtChar(r, '-', begin, end)) {
-                            if(begin.empty()) {
-                                range.begin = 0;
-                            } else {
-                                try {
-                                    range.begin = StringToInt(begin);
-                                } catch(...) {
-                                    Fatal("Plot y range begin must be an integer. Found \"%s\"\n", begin.c_str());
-                                }
-                            }
-                            if(end.empty()) {
-                                range.end = INT_MAX;
-                            } else {
-                                try {
-                                    range.end = StringToInt(end);
-                                } catch(...) {
-                                    Fatal("Plot y range end must be an integer. Found \"%s\"\n", end.c_str());
-                                }
-                            }
-                        } else {
-                            try {
-                                s32 v = StringToInt(r);
-                                range.begin = v;
-                                range.end = v;
-                            } catch(...) {
-                                Fatal("Plot y must be an integer or a range. Found \"%s\"\n", r.c_str());
-                            }
-                        }
-
-                        ranges.push_back(range);
-
-                        if(pos == std::string::npos) {
-                            break;
-                        }
-                        it = pos + 1;
-                    }
-                } else {
-                    Range range = {};
-                    range.begin = 0;
-                    range.end = INT_MAX;
-
-                    ranges.push_back(range);
-                }
-                lines.ys = ranges;
+                Lines lines = ParseLineRange(a, b);
                 plot.lines.push_back(lines);
             } else {
                 Fatal("Plot argument must be range (e.g. \"0:1\") or option (e.g. \"k=v\")\n", a.c_str());
@@ -1410,6 +1489,84 @@ int main(int argc, char** argv) {
 
         plots.push_back(plot);
     }
+
+    // Parse histograms
+    for(auto& h: histogram_options) {
+        Plot plot = {};
+        plot.kind = PlotKind::Histogram;
+        for(auto& o: h) {
+            std::string a, b;
+            if(SplitAtChar(o, '=', a, b)) {
+                // Parse option
+                if       (a == "m" || a == "marker") {
+                    plot.markers = ParseList<ImPlotMarker_>(b, a);
+                } else if(a == "s" || a == "size") {
+                    plot.size = Parse<double>(b, a);
+                } else if(a == "w" || a == "width") {
+                    plot.width = Parse<double>(b, a);
+                } else if(a == "c" || a == "color") {
+                    plot.colors = ParseList<Color>(b, a);
+                } else if(a == "g" || a == "grid") {
+                    plot.grid = Parse<bool>(b, a);
+                } else if(a == "T" || a == "title") {
+                    plot.title = Parse<std::string>(b, a);
+                } else if(a == "X" || a == "xlabel") {
+                    plot.xlabel = Parse<std::string>(b, a);
+                } else if(a == "Y" || a == "ylabel") {
+                    plot.ylabel = Parse<std::string>(b, a);
+                } else if(a == "n" || a == "name") {
+                    plot.names = ParseList<std::string>(b, a);
+                } else if(a == "xlim" || a == "xlimit" || a == "xlimits") {
+                    plot.xlimits = Parse<AxisLimits>(b, a);
+                } else if(a == "ylim" || a == "ylimit" || a == "ylimits") {
+                    plot.ylimits = Parse<AxisLimits>(b, a);
+                } else if(a == "xscale") {
+                    plot.xscale = Parse<ImPlotScale_>(b, a);
+                } else if(a == "yscale") {
+                    plot.yscale = Parse<ImPlotScale_>(b, a);
+                } else if(a == "b" || a == "bin" || a == "binning" || a == "bins") {
+                    plot.histogram_bins = Parse<ImPlotBin_>(b, a);
+                } else if(a == "h" || a == "hor" || a == "horizontal") {
+                    if(Parse<bool>(b, a)) {
+                        plot.histogram_flags |= ImPlotHistogramFlags_Horizontal;
+                    }
+                } else if(a == "cum" || a == "cdf" || a == "cumulative") {
+                    if(Parse<bool>(b, a)) {
+                        plot.histogram_flags |= ImPlotHistogramFlags_Cumulative;
+                    }
+                } else if(a == "norm" || a == "normal" || a == "normalize") {
+                    if(Parse<bool>(b, a)) {
+                        plot.histogram_flags |= ImPlotHistogramFlags_Density;
+                    }
+                } else if(a == "r" || a == "range") {
+                    plot.histogram_range = Parse<AxisLimits>(b, a);
+                } else {
+                    Fatal("Unknown option %s\n", a.c_str());
+                }
+            } else {
+                Lines lines = {};
+                lines.x = -1;
+                lines.ys = ParseRanges(o);
+                plot.lines.push_back(lines);
+            }
+        }
+
+        // No line specified default to all y axis.
+        if(plot.lines.empty()) {
+            Lines lines = {};
+            lines.x = -1;
+
+            Range range = {};
+            range.begin = 0;
+            range.end = INT_MAX;
+            lines.ys.push_back(range);
+
+            plot.lines.push_back(lines);
+        }
+
+        plots.push_back(plot);
+    }
+
 
     // Push a default plot if empty
     if(plots.empty()) {
