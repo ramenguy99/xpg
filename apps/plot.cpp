@@ -477,7 +477,7 @@ DWORD WINAPI thread_proc(void* param) {
 // TODO:
 // - Input types:
 //   [x] File
-//   [ ] Stdin -> just open stdin as File structure
+//   [x] Stdin
 // - Plot types:
 //   [x] Normal 2D plot (y only, multiple ys, one x and one or more ys, x, y pairs)
 //   [ ] Histogram (configurable bin size) and CDF (just sort and draw), also add options for extra stats (mean, median, quartiles, stddev)
@@ -503,6 +503,7 @@ DWORD WINAPI thread_proc(void* param) {
 //   [x] Window size controls
 //   [ ] Vulkan device override (maybe rely on vulkan configurator / system specific options?)
 // - Extra features:
+//   [ ] Read stdin over time and append to plot
 //   [ ] Passthrough (input is also written as stdout, useful for progress bars)
 //   [ ] Ringbuffer / windowed plot (keep n last points, mostly useful for pipes / data coming over time)
 //   [ ] Save as png (stb_image_write) and off-surface render
@@ -1075,7 +1076,7 @@ int main(int argc, char** argv) {
 
     // Define options
     std::string input;
-    args.add_option("input", input, "Input file or - for stdin")->required();
+    args.add_option("input", input, "Input file or empty for stdin");
 
     std::vector<std::string> binary;
     CLI::Option* opt_binary = args.add_option("-b,--binary", binary, "Binary format");
@@ -1104,165 +1105,183 @@ int main(int argc, char** argv) {
     CLI11_PARSE(args, argc, argv);
 
     Data data = {};
-    if(input == "-") {
-        // Reading from stdin will happen asynchronously
-    } else {
-        // Parse all data upfront
-        if(opt_binary->count()) {
-            // Parse binary input
-            Array<BinaryFormat> formats;
-            u64 max_size = 0;
+    // Parse all data upfront
+    if(opt_binary->count()) {
+        // Parse binary input
+        Array<BinaryFormat> formats;
+        u64 max_size = 0;
 
-            u64 offset = 0;
-            for(auto& f: binary) {
-                std::string a, b;
+        u64 offset = 0;
+        for(auto& f: binary) {
+            std::string a, b;
 
-                BinaryFormat format = {};
+            BinaryFormat format = {};
 
-                std::string& e_type = f;
-                format.offset = offset;
+            std::string& e_type = f;
+            format.offset = offset;
 
-                if(SplitAtChar(f, ':', a, b)) {
-                    e_type = a;
-                    if(b.size() == 0) {
-                        Fatal("Invalid empty offset in binary format string\n");
+            if(SplitAtChar(f, ':', a, b)) {
+                e_type = a;
+                if(b.size() == 0) {
+                    Fatal("Invalid empty offset in binary format string\n");
+                }
+
+                if(b[0] == '+') {
+                    int off;
+                    try {
+                        off = StringToInt(b.substr(1));
+                    } catch(...) {
+                        Fatal("Invalid offset \"%s\" in binary format string\n", b.c_str());
                     }
-
-                    if(b[0] == '+') {
-                        int off;
-                        try {
-                            off = StringToInt(b.substr(1));
-                        } catch(...) {
-                            Fatal("Invalid offset \"%s\" in binary format string\n", b.c_str());
-                        }
-                        format.offset += off;
-                    } else {
-                        int off;
-                        try {
-                            off = StringToInt(b);
-                        } catch(...) {
-                            Fatal("Invalid offset \"%s\" in binary format string\n", b.c_str());
-                        }
-                        format.offset = off;
+                    format.offset += off;
+                } else {
+                    int off;
+                    try {
+                        off = StringToInt(b);
+                    } catch(...) {
+                        Fatal("Invalid offset \"%s\" in binary format string\n", b.c_str());
                     }
-                }
-
-                if(e_type.size() == 0) {
-                    Fatal("Invalid empty type in binary format string\n");
-                }
-
-                format.type = StringToBinaryType(e_type);
-                format.size = BinaryTypeSize(format.type);
-                if(format.type == BinaryType::None) {
-                    Fatal("Invalid binary type \"%s\" in binary format. Must be one of i8,i16,i32,i64,u8,u16,u32,u64,f32,f64,void\n");
-                }
-
-                offset = format.offset + format.size;
-                max_size = std::max(max_size, offset);
-
-                if(format.type != BinaryType::Void) {
-                    formats.add(format);
+                    format.offset = off;
                 }
             }
 
-            if(max_size >= 1 << 30) {
-                Fatal("Binary record size must be < 1GB. Got %llu bytes\n", (unsigned long long)max_size);
+            if(e_type.size() == 0) {
+                Fatal("Invalid empty type in binary format string\n");
             }
 
-            std::ifstream file(input, std::ios::binary);
-            if(file.fail()) {
-                Fatal("Could not read %s: %s (os error %d)\n", input.c_str(), strerror(errno), errno);
+            format.type = StringToBinaryType(e_type);
+            format.size = BinaryTypeSize(format.type);
+            if(format.type == BinaryType::None) {
+                Fatal("Invalid binary type \"%s\" in binary format. Must be one of i8,i16,i32,i64,u8,u16,u32,u64,f32,f64,void\n");
             }
 
-            Array<u8> row(max_size);
-            while(!file.eof() && !file.fail()) {
-                file.read((char*)row.data, row.length);
-                usize bread = file.gcount();
+            offset = format.offset + format.size;
+            max_size = std::max(max_size, offset);
 
-                // Eof
-                if(bread == 0 && file.eof()) {
+            if(format.type != BinaryType::Void) {
+                formats.add(format);
+            }
+        }
+
+        if(max_size >= 1 << 30) {
+            Fatal("Binary record size must be < 1GB. Got %llu bytes\n", (unsigned long long)max_size);
+        }
+
+        FILE* file;
+        if(input == "") {
+            freopen(NULL, "rb", stdin);
+            file = stdin;
+        } else {
+            file = fopen(input.c_str(), "rb");
+        }
+
+        if(!file || ferror(file)) {
+            Fatal("Could not read %s: %s (os error %d)\n", input.c_str(), strerror(errno), errno);
+        }
+
+        Array<u8> row(max_size);
+        while(!feof(file) && !ferror(file)) {
+            size_t count_read = fread(row.data, row.length, 1, file);
+
+            // Read failed
+            if(count_read != 1) {
+                if(ferror(file)) {
+                    Fatal("Failed to read a record of size %u. Input file is likely not a multiple of specified record size.\n", (unsigned)row.length);
+                }
+                if(feof(file)) {
                     break;
                 }
-                // Truncated chunk, exit
-                if(bread != row.length) {
-                    Fatal("Read record of size %u, expected size %u. Input file is likely not a multiple of specified record size.\n", (unsigned)bread, (unsigned)row.length);
-                }
-
-                for(usize i = 0; i < formats.length; i++) {
-                    BinaryFormat& fmt = formats[i];
-                    void* ptr = row.data + fmt.offset;
-                    assert(fmt.offset + fmt.size <= row.length);
-
-                    double value = 0.0;
-                    switch(fmt.type) {
-                        case BinaryType::f32: value = (double)*(f32*)ptr; break;
-                        case BinaryType::f64: value = (double)*(f64*)ptr; break;
-                        case BinaryType::i8 : value = (double)*(s8 *)ptr; break;
-                        case BinaryType::i16: value = (double)*(s16*)ptr; break;
-                        case BinaryType::i32: value = (double)*(s32*)ptr; break;
-                        case BinaryType::i64: value = (double)*(s64*)ptr; break;
-                        case BinaryType::u8 : value = (double)*(u8 *)ptr; break;
-                        case BinaryType::u16: value = (double)*(u16*)ptr; break;
-                        case BinaryType::u32: value = (double)*(u32*)ptr; break;
-                        case BinaryType::u64: value = (double)*(u64*)ptr; break;
-                        default: assert(false);
-                    }
-
-                    data.data.add(value);
-                }
-
-                data.columns = formats.length;
-            }
-        } else {
-            // Parse text input
-            std::string line;
-            std::ifstream file(input);
-            if(file.fail()) {
-                Fatal("Could not read %s: %s (os error %d)\n", input.c_str(), strerror(errno), errno);
+                continue;
             }
 
-            s64 expected_count = -1;
-            s64 line_number = 0;
-            while(!file.eof() && !file.fail()) {
-                std::getline(file, line);
-                line_number++;
+            for(usize i = 0; i < formats.length; i++) {
+                BinaryFormat& fmt = formats[i];
+                void* ptr = row.data + fmt.offset;
+                assert(fmt.offset + fmt.size <= row.length);
 
-                const char* end = line.c_str() + line.size();
-                const char* it = line.c_str();
-
-                s64 count = 0;
-                while(it != end) {
-                    char* next_it;
-                    double val = 0.0;
-                    try {
-                        val = strtod(it, &next_it);
-                        if(next_it == it) {
-                            throw std::exception();
-                        }
-                        it = next_it;
-                        count += 1;
-
-                        data.data.add(val);
-                    } catch (...) {
-                        Fatal("%s(%d): Failed to parse value \"%s\"\n", input.c_str(), line_number,  it);
-                    }
-                    // Skip whitespace
-                    while(it != end && std::isspace(*it)) it++;
+                double value = 0.0;
+                switch(fmt.type) {
+                    case BinaryType::f32: value = (double)*(f32*)ptr; break;
+                    case BinaryType::f64: value = (double)*(f64*)ptr; break;
+                    case BinaryType::i8 : value = (double)*(s8 *)ptr; break;
+                    case BinaryType::i16: value = (double)*(s16*)ptr; break;
+                    case BinaryType::i32: value = (double)*(s32*)ptr; break;
+                    case BinaryType::i64: value = (double)*(s64*)ptr; break;
+                    case BinaryType::u8 : value = (double)*(u8 *)ptr; break;
+                    case BinaryType::u16: value = (double)*(u16*)ptr; break;
+                    case BinaryType::u32: value = (double)*(u32*)ptr; break;
+                    case BinaryType::u64: value = (double)*(u64*)ptr; break;
+                    default: assert(false);
                 }
 
-                if(count == 0) continue;
-
-                if(expected_count == -1) {
-                    expected_count = count;
-                } else if(expected_count != count) {
-                    Fatal("%s(%d): Expected %d columns, found %d\n", input.c_str(), line_number, expected_count, count);
-                }
+                data.data.add(value);
             }
-            if(expected_count <= 0) {
-                Fatal("Empty input\n");
-            }
-            data.columns = expected_count;
         }
+
+        if(input != "") {
+            fclose(file);
+        }
+
+        data.columns = formats.length;
+    } else {
+        // Parse text input
+        std::string line;
+
+        std::istream* stream;
+        if(input == "") {
+            stream = &std::cin;
+        } else {
+            stream = new std::ifstream (input);
+        }
+
+        if(stream->fail()) {
+            Fatal("Could not read %s: %s (os error %d)\n", input.c_str(), strerror(errno), errno);
+        }
+
+        s64 expected_count = -1;
+        s64 line_number = 0;
+        while(!stream->eof() && !stream->fail()) {
+            std::getline(*stream, line);
+            line_number++;
+
+            const char* end = line.c_str() + line.size();
+            const char* it = line.c_str();
+
+            s64 count = 0;
+            while(it != end) {
+                char* next_it;
+                double val = 0.0;
+                try {
+                    val = strtod(it, &next_it);
+                    if(next_it == it) {
+                        throw std::exception();
+                    }
+                    it = next_it;
+                    count += 1;
+
+                    data.data.add(val);
+                } catch (...) {
+                    Fatal("%s(%d): Failed to parse value \"%s\"\n", input.c_str(), line_number,  it);
+                }
+                // Skip whitespace
+                while(it != end && std::isspace(*it)) it++;
+            }
+
+            if(count == 0) continue;
+
+            if(expected_count == -1) {
+                expected_count = count;
+            } else if(expected_count != count) {
+                Fatal("%s(%d): Expected %d columns, found %d\n", input.c_str(), line_number, expected_count, count);
+            }
+        }
+        if(expected_count <= 0) {
+            Fatal("Empty input\n");
+        }
+        if(input != "") {
+            delete stream;
+        }
+        data.columns = expected_count;
     }
 
     std::vector<Plot> plots;
