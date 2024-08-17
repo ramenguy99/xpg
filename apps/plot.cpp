@@ -78,6 +78,27 @@ using glm::vec3;
 using glm::mat4;
 #include "types.h"
 
+enum class BinaryType {
+    None,
+    i8,
+    i16,
+    i32,
+    i64,
+    u8,
+    u16,
+    u32,
+    u64,
+    f32,
+    f64,
+    Void, // Empty type not considered for plotting, useful to deal with padding / undesired fields.
+};
+
+struct BinaryFormat {
+    u64 offset;
+    u64 size;
+    BinaryType type;
+};
+
 struct Range {
     s32 begin;
     s32 end;
@@ -270,7 +291,7 @@ void Draw(App* app) {
                         ImPlot::SetupAxis(ImAxis_Y1, plot.ylabel.c_str(), yaxis_flags);
 
                         if(plot.xscale != ImPlotScale_Linear) { ImPlot::SetupAxisScale(ImAxis_X1, plot.xscale); }
-                        if(plot.yscale != ImPlotScale_Linear) { ImPlot::SetupAxisScale(ImAxis_Y1, plot.xscale); }
+                        if(plot.yscale != ImPlotScale_Linear) { ImPlot::SetupAxisScale(ImAxis_Y1, plot.yscale); }
 
                         if(plot.xlimits.set) { ImPlot::SetupAxisLimits(ImAxis_X1, plot.xlimits.min, plot.xlimits.max); }
                         if(plot.ylimits.set) { ImPlot::SetupAxisLimits(ImAxis_Y1, plot.ylimits.min, plot.ylimits.max); }
@@ -464,7 +485,7 @@ DWORD WINAPI thread_proc(void* param) {
 //   [x] Text
 //      - Each line is a record
 //      - Each column is a field of the record
-//   [ ] Binary need offset / stride / type
+//   [x] Binary need offset / stride / type
 // - Layout:
 //   [x] No imgui.ini
 //   [x] Automatic docking grid layout
@@ -486,6 +507,9 @@ DWORD WINAPI thread_proc(void* param) {
 //   [ ] Ringbuffer / windowed plot (keep n last points, mostly useful for pipes / data coming over time)
 //   [ ] Save as png (stb_image_write) and off-surface render
 //   [ ] Data subsampling for drawing perf
+// - Cleanup:
+//   [ ] Move stuff to more files, move apps in own directory
+//   [ ] Make XPG more standalone / clean
 
 // Parsing logic:
 // -t --text (<column>:<id>)*-> default, if not specified we could also autodetect by trying to parse as long as valid nums come out
@@ -649,6 +673,40 @@ s32 StringToInt(const std::string& s) {
         throw std::exception();
     }
     return val;
+}
+
+BinaryType StringToBinaryType(const std::string& s) {
+    std::string l = Lower(s);
+    if     (l == "f32")  return BinaryType::f32;
+    else if(l == "f64")  return BinaryType::f64;
+    else if(l == "i8" )  return BinaryType::i8;
+    else if(l == "i16")  return BinaryType::i16;
+    else if(l == "i32")  return BinaryType::i32;
+    else if(l == "i64")  return BinaryType::i64;
+    else if(l == "u8" )  return BinaryType::u8;
+    else if(l == "u16")  return BinaryType::u16;
+    else if(l == "u32")  return BinaryType::u32;
+    else if(l == "u64")  return BinaryType::u64;
+    else if(l == "void") return BinaryType::Void;
+
+    return BinaryType::None;
+}
+
+usize BinaryTypeSize(BinaryType type) {
+    switch(type) {
+        case BinaryType::f32: return 4;
+        case BinaryType::f64: return 8;
+        case BinaryType::i8 : return 1;
+        case BinaryType::i16: return 2;
+        case BinaryType::i32: return 4;
+        case BinaryType::i64: return 8;
+        case BinaryType::u8 : return 1;
+        case BinaryType::u16: return 2;
+        case BinaryType::u32: return 4;
+        case BinaryType::u64: return 8;
+        case BinaryType::Void: return 0;
+        default: return 0;
+    }
 }
 
 double StringToDouble(const std::string& s) {
@@ -1052,9 +1110,108 @@ int main(int argc, char** argv) {
         // Parse all data upfront
         if(opt_binary->count()) {
             // Parse binary input
-            u64 offset = 0;
-            for(auto& b: binary) {
+            Array<BinaryFormat> formats;
+            u64 max_size = 0;
 
+            u64 offset = 0;
+            for(auto& f: binary) {
+                std::string a, b;
+
+                BinaryFormat format = {};
+
+                std::string& e_type = f;
+                format.offset = offset;
+
+                if(SplitAtChar(f, ':', a, b)) {
+                    e_type = a;
+                    if(b.size() == 0) {
+                        Fatal("Invalid empty offset in binary format string\n");
+                    }
+
+                    if(b[0] == '+') {
+                        int off;
+                        try {
+                            off = StringToInt(b.substr(1));
+                        } catch(...) {
+                            Fatal("Invalid offset \"%s\" in binary format string\n", b.c_str());
+                        }
+                        format.offset += off;
+                    } else {
+                        int off;
+                        try {
+                            off = StringToInt(b);
+                        } catch(...) {
+                            Fatal("Invalid offset \"%s\" in binary format string\n", b.c_str());
+                        }
+                        format.offset = off;
+                    }
+                }
+
+                if(e_type.size() == 0) {
+                    Fatal("Invalid empty type in binary format string\n");
+                }
+
+                format.type = StringToBinaryType(e_type);
+                format.size = BinaryTypeSize(format.type);
+                if(format.type == BinaryType::None) {
+                    Fatal("Invalid binary type \"%s\" in binary format. Must be one of i8,i16,i32,i64,u8,u16,u32,u64,f32,f64,void\n");
+                }
+
+                offset = format.offset + format.size;
+                max_size = std::max(max_size, offset);
+
+                if(format.type != BinaryType::Void) {
+                    formats.add(format);
+                }
+            }
+
+            if(max_size >= 1 << 30) {
+                Fatal("Binary record size must be < 1GB. Got %llu bytes\n", (unsigned long long)max_size);
+            }
+
+            std::ifstream file(input, std::ios::binary);
+            if(file.fail()) {
+                Fatal("Could not read %s: %s (os error %d)\n", input.c_str(), strerror(errno), errno);
+            }
+
+            Array<u8> row(max_size);
+            while(!file.eof() && !file.fail()) {
+                file.read((char*)row.data, row.length);
+                usize bread = file.gcount();
+
+                // Eof
+                if(bread == 0 && file.eof()) {
+                    break;
+                }
+                // Truncated chunk, exit
+                if(bread != row.length) {
+                    Fatal("Read record of size %u, expected size %u. Input file is likely not a multiple of specified record size.\n", (unsigned)bread, (unsigned)row.length);
+                }
+
+                for(usize i = 0; i < formats.length; i++) {
+                    BinaryFormat& fmt = formats[i];
+                    void* ptr = row.data + fmt.offset;
+                    assert(fmt.offset + fmt.size <= row.length);
+
+                    double value = 0.0;
+                    switch(fmt.type) {
+                        case BinaryType::f32: value = (double)*(f32*)ptr; break;
+                        case BinaryType::f64: value = (double)*(f64*)ptr; break;
+                        case BinaryType::i8 : value = (double)*(s8 *)ptr; break;
+                        case BinaryType::i16: value = (double)*(s16*)ptr; break;
+                        case BinaryType::i32: value = (double)*(s32*)ptr; break;
+                        case BinaryType::i64: value = (double)*(s64*)ptr; break;
+                        case BinaryType::u8 : value = (double)*(u8 *)ptr; break;
+                        case BinaryType::u16: value = (double)*(u16*)ptr; break;
+                        case BinaryType::u32: value = (double)*(u32*)ptr; break;
+                        case BinaryType::u64: value = (double)*(u64*)ptr; break;
+                        default: assert(false);
+                    }
+
+                    data.data.add(value);
+                }
+
+                data.columns = formats.length;
             }
         } else {
             // Parse text input
@@ -1066,7 +1223,7 @@ int main(int argc, char** argv) {
 
             s64 expected_count = -1;
             s64 line_number = 0;
-            while(!file.eof()) {
+            while(!file.eof() && !file.fail()) {
                 std::getline(file, line);
                 line_number++;
 
