@@ -1296,7 +1296,7 @@ int main(int argc, char** argv) {
             format.type = StringToBinaryType(e_type);
             format.size = BinaryTypeSize(format.type);
             if(format.type == BinaryType::None) {
-                Fatal("Invalid binary type \"%s\" in binary format. Must be one of i8,i16,i32,i64,u8,u16,u32,u64,f32,f64,void\n");
+                Fatal("Invalid binary type \"%s\" in binary format. Must be one of i8,i16,i32,i64,u8,u16,u32,u64,f32,f64,void\n", e_type.c_str());
             }
 
             offset = format.offset + format.size;
