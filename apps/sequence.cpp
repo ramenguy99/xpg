@@ -66,14 +66,14 @@ using namespace glm;
 #include "types.h"
 
 struct App {
-    VulkanContext* vk;
-    VulkanWindow* window;
+    gfx::Context* vk;
+    gfx::Window* window;
 
     VkQueue queue;
 
     // Swapchain frames, index wraps around at the number of frames in flight.
     u32 frame_index;
-    Array<VulkanFrame> frames;
+    Array<gfx::Frame> frames;
     // Total frame index.
     u64 current_frame;
 
@@ -85,8 +85,8 @@ struct App {
     u64 last_frame_timestamp;
     ArrayFixed<f32, 64> frame_times;
     Array<VkDescriptorSet> descriptor_sets;
-    Array<UniformBuffer> uniform_buffers;
-    DepthBuffer depth_buffer;
+    Array<gfx::UniformBuffer> uniform_buffers;
+    gfx::DepthBuffer depth_buffer;
     
     // Playback
     bool playback_enabled;
@@ -128,27 +128,27 @@ void Draw(App* app) {
     }
     avg_frame_time /= (f32)app->frame_times.length;
 
-    SwapchainStatus swapchain_status = UpdateSwapchain(&window, vk, app->force_swapchain_update);
-    if (swapchain_status == SwapchainStatus::FAILED) {
+    gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, vk, app->force_swapchain_update);
+    if (swapchain_status == gfx::SwapchainStatus::FAILED) {
         printf("Swapchain update failed\n");
         exit(1);
     }
     app->force_swapchain_update = false;
 
-    if (swapchain_status == SwapchainStatus::MINIMIZED) {
+    if (swapchain_status == gfx::SwapchainStatus::MINIMIZED) {
         app->wait_for_events = true;
         return;
     } 
-    else if(swapchain_status == SwapchainStatus::RESIZED) {
+    else if(swapchain_status == gfx::SwapchainStatus::RESIZED) {
         // Resize framebuffer sized elements.
-        VulkanDestroyDepthBuffer(vk, app->depth_buffer);
-        app->depth_buffer = VulkanCreateDepthBuffer(vk, window.fb_width, window.fb_height);
+        gfx::DestroyDepthBuffer(vk, app->depth_buffer);
+        app->depth_buffer = gfx::CreateDepthBuffer(vk, window.fb_width, window.fb_height);
     }
 
     app->wait_for_events = false;
     
     // Acquire current frame
-    VulkanFrame& frame = app->frames[app->frame_index];
+    gfx::Frame& frame = app->frames[app->frame_index];
 
     vkWaitForFences(vk.device, 1, &frame.fence, VK_TRUE, ~0);
 
@@ -563,8 +563,8 @@ int main(int argc, char** argv) {
 
     u32 vulkan_api_version = VK_API_VERSION_1_3;
 
-    VulkanContext vk = {};
-    if (InitializeVulkan(&vk, vulkan_api_version, instance_extensions, device_extensions, true, true, true, true) != VulkanResult::SUCCESS) {
+    gfx::Context vk = {};
+    if (gfx::InitializeContext(&vk, vulkan_api_version, instance_extensions, device_extensions, true, gfx::DeviceFeatures::DYNAMIC_RENDERING, true, true) != gfx::Result::SUCCESS) {
         printf("Failed to initialize vulkan\n");
         exit(1);
     }
@@ -575,8 +575,8 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    VulkanWindow window = {};
-    if (CreateVulkanWindow(&window, vk, "XPG", 1600, 900, true) != VulkanResult::SUCCESS) {
+    gfx::Window window = {};
+    if (gfx::CreateWindowWithSwapchain(&window, vk, "XPG", 1600, 900, true) != gfx::Result::SUCCESS) {
         printf("Failed to create vulkan window\n");
         return 1;
     }
@@ -598,9 +598,9 @@ int main(int argc, char** argv) {
     VkQueue queue;
     vkGetDeviceQueue(vk.device, vk.queue_family_index, 0, &queue);
     
-    Array<VulkanFrame> frames(window.images.length);
+    Array<gfx::Frame> frames(window.images.length);
     for (usize i = 0; i < frames.length; i++) {
-        VulkanFrame& frame = frames[i];
+        gfx::Frame& frame = frames[i];
 
         VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
         pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;// | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -621,8 +621,8 @@ int main(int argc, char** argv) {
         fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         vkCreateFence(vk.device, &fence_info, 0, &frame.fence);
 
-        CreateVulkanSemaphore(vk.device, &frame.acquire_semaphore);
-        CreateVulkanSemaphore(vk.device, &frame.release_semaphore);
+        gfx::CreateGPUSemaphore(vk.device, &frame.acquire_semaphore);
+        gfx::CreateGPUSemaphore(vk.device, &frame.release_semaphore);
     }
 
     // Create descriptor pool for imgui.
@@ -801,7 +801,6 @@ int main(int argc, char** argv) {
     VkShaderModuleCreateInfo vertex_module_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
     vertex_module_info.codeSize = vertex_code.length;
     vertex_module_info.pCode = (u32*)vertex_code.data;
-
     VkShaderModule vertex_module = 0;
     vkr = vkCreateShaderModule(vk.device, &vertex_module_info, 0, &vertex_module);
     assert(vkr == VK_SUCCESS);
@@ -984,7 +983,7 @@ int main(int argc, char** argv) {
     assert(vkr == VK_SUCCESS);
 
     alloc_create_info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
-    Array<UniformBuffer> uniform_buffers(frames.length);
+    Array<gfx::UniformBuffer> uniform_buffers(frames.length);
     for (usize i = 0; i < uniform_buffers.length; i++) {
         VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         buffer_info.size = sizeof(Constants);
@@ -1012,7 +1011,7 @@ int main(int argc, char** argv) {
         vkUpdateDescriptorSets(vk.device, 1, &descriptor_write, 0, 0);
     }
 
-    DepthBuffer depth_buffer = VulkanCreateDepthBuffer(vk, window.fb_width, window.fb_height);
+    gfx::DepthBuffer depth_buffer = gfx::CreateDepthBuffer(vk, window.fb_width, window.fb_height);
 
     App app = {};
     app.frames = std::move(frames);
@@ -1065,7 +1064,7 @@ int main(int argc, char** argv) {
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
-    VulkanDestroyDepthBuffer(vk, app.depth_buffer);
+    gfx::DestroyDepthBuffer(vk, app.depth_buffer);
 
     for (usize i = 0; i < app.uniform_buffers.length; i++) {
         vmaDestroyBuffer(vk.vma, app.uniform_buffers[i].buffer, app.uniform_buffers[i].allocation);
@@ -1082,7 +1081,7 @@ int main(int argc, char** argv) {
     vkDestroyPipeline(vk.device, pipeline, 0);
 
     for (usize i = 0; i < window.image_views.length; i++) {
-        VulkanFrame& frame = app.frames[i];
+        gfx::Frame& frame = app.frames[i];
         vkDestroyFence(vk.device, frame.fence, 0);
 
         vkDestroySemaphore(vk.device, frame.acquire_semaphore, 0);

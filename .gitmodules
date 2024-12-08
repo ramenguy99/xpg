@@ -19,3 +19,9 @@
 [submodule "ext/implot"]
 	path = ext/implot
 	url = https://github.com/epezent/implot.git
+[submodule "ext/nanobind"]
+	path = ext/nanobind
+	url = https://github.com/wjakob/nanobind.git
+[submodule "ext/slang"]
+	path = ext/slang
+	url = https://github.com/shader-slang/slang.git

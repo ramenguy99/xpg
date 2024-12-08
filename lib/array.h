@@ -33,13 +33,13 @@ struct ArrayView {
     }
 
     template<usize N>
-        ArrayView(const ArrayFixed<T, N>& array) {
+    ArrayView(const ArrayFixed<T, N>& array) {
         data = (T*)array.data;
         length = array.length;
     }
 
     template<usize N>
-        ArrayView& operator=(const ArrayFixed<T, N>& array) {
+    ArrayView& operator=(const ArrayFixed<T, N>& array) {
         data = (T*)array.data;
         length = array.length;
         return *this;
@@ -135,7 +135,7 @@ struct Array {
     usize capacity = 0;
 
     Array() {}
-    Array(usize initial_length) {
+    explicit Array(usize initial_length) {
         resize(initial_length);
     }
 
@@ -181,7 +181,9 @@ struct Array {
 			grow_unchecked(new_capacity);
 		}
 
-		memcpy(data + length, arr.data, arr.length * sizeof(T));
+        for (usize i = 0; i < arr.length; i++) {
+            data[i + length] = arr.data[i];
+        }
 		length += arr.length;
 	}
 
@@ -191,7 +193,11 @@ struct Array {
     }
 
     void clear() {
+        for (usize i = 0; i < length; i++) {
+            data->~T();
+        }
         Free(data);
+        data = 0;
         capacity = 0;
         length = 0;
     }
@@ -200,7 +206,9 @@ struct Array {
         T* new_data = (T*)ZeroAlloc(new_capacity * sizeof(T));
 
         if(length > 0) {
-            memcpy(new_data, data, length * sizeof(T));
+            for (usize i = 0; i < length; i++) {
+                new_data[i] = std::move(data[i]);
+            }
             Free(data);
         }
 
@@ -236,8 +244,17 @@ struct Array {
         return data[index];
     }
 
+    const T& operator[](usize index) const {
+#if BOUNDS_CHECKING_ENABLED
+        if(index >= length) {
+            OutOfBounds(index);
+        }
+#endif
+        return data[index];
+    }
+
     ~Array() {
-        Free(data);
+        clear();
     }
 };
 
@@ -297,6 +314,37 @@ struct ArrayFixed {
         return length * sizeof(T);
     }
 };
+
+template<typename T>
+ArrayView<u8> BytesOf(T* obj) {
+    return ArrayView<u8>((u8*)obj, sizeof(T));
+}
+
+// Similar to an ArrayView, but specifically intended to be passed as a const rvalue reference
+// with an initializer list.
+template<typename T>
+struct Span {
+    const T* data;
+    size_t length;
+
+    Span(std::initializer_list<T> l) {
+        data = l.begin();
+        length = l.size();
+    }
+
+    Span(const Span& other) = delete;
+    Span& operator=(const Span& other) = delete;
+
+    const T& operator[](usize index) const {
+#if BOUNDS_CHECKING_ENABLED
+        if(index >= length) {
+            OutOfBounds(index);
+        }
+#endif
+        return data[index];
+    }
+};
+
 
 /*
 void printArray(ArrayView<int> a) {

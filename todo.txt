@@ -63,3 +63,58 @@ Project structure:
 Viewer   -
 
 
+
+
+Initializers notes:
+
+Likely ok to have an extra read-only span for this, ArrayView
+is inherently read-write.
+We can also delete copy constructor stuff ehere that allows
+it to be even more typechecked (cannot create with initializer list and then assign when list is destroyed)
+struct A {
+    int a;
+};
+
+This is would also be nice, but unfortunately the c++ compiler cant reason about it when
+it's inside a struct, only as top level param. Guess we gotta dynamically allocate.
+template<typename T, size_t N>
+using SpanFixed = T[N];
+
+template<typename T>
+struct Span {
+    const T* data;
+    size_t length;
+
+    Span(std::initializer_list<T> l) {
+        data = l.begin();
+        length = l.size();
+    }
+
+    Span(const Span& other) = delete;
+    Span& operator=(const Span& other) = delete;
+};
+
+struct B {
+    A a;
+    Span<int> span;
+};
+
+void construct_safe(const B&& b) {
+}
+B b = {
+    .a = {.a = 5},
+    .span = { 1, 2, 3 },
+};
+
+Span s = { 1, 2, 3 };
+construct_safe({
+    .a = {.a = 5},
+    .span = { 1, 2, 3},
+});
+
+Span span = { 1, 2, 3 };
+construct_safe({
+    .a = {.a = 5},
+    .span = std::move(span),
+});
+
