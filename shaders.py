@@ -32,3 +32,6 @@ for f in os.listdir(shaders_dir):
         out_path
     ]
     subprocess.run(glsl_args)
+
+# Slang:
+# C:\VulkanSDK\1.3.296.0\Bin\slangc.exe .\shaders\bigimage.comp.slang -o res\bigimage.comp.spirv -target spirv

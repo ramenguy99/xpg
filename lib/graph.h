@@ -263,6 +263,9 @@ namespace framegraph
     };
 
     struct Op {
+        // Resources used by this pass
+        Array<ResourceHandle> resources;
+
         // Barriers needed before the task
         Array<Barrier> barriers;
 
@@ -479,6 +482,19 @@ namespace framegraph
                 push_ops_task(visit, ordered_tasks, ref.task);
             }
 
+            // TODO:
+            // 
+            // Instantiate concrete resoruces for the tasks that survived
+            // - Task owned resources
+            // - External resoruces
+            //
+            // After this step every task should have a way to
+            // reference concrete resources for their inputs.
+            //
+            // The caller is then responsible for resolving concrete
+            // resources during task execution, out of the references
+            // stored here.
+
             Array<Op> ops(ordered_tasks.length);
 
             for (usize i = 0; i < ordered_tasks.length; i++) {
@@ -632,6 +648,75 @@ namespace framegraph
         // - put barriers       -> iterate over list of barrier, converting resource handle to physical resource. Use all this information to push commands
         // - write descriptors  -> ???
         // - dispatch / draw    -> execute commands
+        //
+        // 
+        // | Notes: |
+        // 
+        // Ideally the rendering would be completely decoupled from the graph creation.
+        // The only real link is the FramePlan (that contains the ordering of tasks and barriers)
+        // and the ResourceRef that are used both at graph creation time and then again
+        // at graph execution time to resolve physical resources.
+        //
+        // In theory internal / external resource creation can be deferred to any later stage
+        // and the resource lookup logic can be user defined, the framegraph only works with
+        // handles.
+        //
+        // Currently we have 2 notions of handles in the graph, ResourceRef and ResourceHandle,
+        // ResourceRef is a reference to a node in the graph, multiple nodes can have the same
+        // ResourceHandle. ResourceHandles point to concrete resources, they can be external
+        // or owned by the task.
+        // We can got from ResourceRef to physical resource with a double deref, its
+        // not clear if we could potentially do this in a single lookup.
+        // 
+        // In the current system we create resource handles at external resource creation time
+        // and at owned resource creation time, and then copy those along while creating the graph.
+        // This means if the graph is culled during planning, some of the resource handles are not
+        // interesting anymore and potentially we could throw them away.
+        // We could fix this by either replacing the handles at resolution time or just live
+        // with the fact that there can be holes in the resource array.
+        // 
+        // 
+        // Resource resolution:
+        // 
+        // After planning we need to create concrete resources for each resource handle.
+        // For owned resources we have creation information in the Resource class.
+        // For external resources we expect creation to already have happened.
+        //
+        // During rendering the task callback is called with ResourceRef, we want to probably
+        // allow the user to specify a custom resolution mechanism for external resources,
+        // this could be as simple as a function that uses an hash table to map from
+        // ResourceHandle to a ConcreteResource type.
+        // 
+        // A ConcreteResource needs to contain all the data required by a task to do its work,
+        // this should include the following:
+        // - VkImage or VkBuffer
+        // - Descriptors
+        //
+        // A task also needs pipelines and potentially other global information. Some of this
+        // could even just be captured by the lambda if defined inline with the application.
+        //
+        // If tasks are supposed to be completely self contained then they probably also need
+        // a common way to define pipelines and parameters. And retrieve this data during
+        // execution.
+        //
+        // TODO:
+        // [ ] Sketch out how some sample applications with a render graph could look like:
+        //     e.g.:
+        //      - simple shadow map + opaque draw
+        //      - bindless rendering example
+        //      - streaming data from disk (e.g. sequence / bigimage)
+        //      - library of multiple reusable passes (e.g. gbufferf, ddgi, postprocess, shadows, SSAO, SSR)
+        // [ ] Figure out what can be a convenient way to use this from python.
+        //     - graph creation based on python + shader reflection
+        //     - graph execution in python callbacks with helpers in C++ that can call callable objects in python
+        // [ ] See if we can somehow leverage shader reflection to easen creation of render graphs
+        //     technically the shader knows quite a bit about which resources are used how. 
+        //     (Still generally does not have complete information, e.g. render target / texture formats)
+        // [ ] See what is a conventient bindind model, if should have the application handle this completely
+        //     and just hand out helpers, or if the framegraph can also help with this.
+        // 
+        // [ ] Use all this information to improve the design of the framegraph
+
 
         struct External {
             ResourceRef positions;
@@ -648,27 +733,52 @@ namespace framegraph
         };
 
         struct DrawOpaque {
+            // Inputs
+            ResourceRef commands;
+            ResourceRef constants;
+            ResourceRef positions;
+
+            // Outputs
             ResourceRef feedback;
             ResourceRef color;
             ResourceRef normal_material;
             ResourceRef depth;
-
-            DrawOpaque(FrameGraph& g,
-                ResourceRef commands,
-                ResourceRef constants,
-                ResourceRef positions
-            ) {
-                TaskRef t = g.add_task("DrawOpaque");
-
-                g.read(t, commands, RU::DrawCommands);
-                g.read(t, constants, RU::Uniform);
-                g.read(t, positions, RU::VertexBuffer);
-                this->feedback = g.create_buffer(t, "feedback", { .size = 1024 }, RU::Buffer);
-                this->color = g.create_image(t, "color", { .width = 1920, .height = 1080, .format = VK_FORMAT_R16G16B16A16_SFLOAT }, RU::RenderTarget);
-                this->normal_material = g.create_image(t, "normal_material", { .width = 1920, .height = 1080, .format = VK_FORMAT_R16G16B16A16_SFLOAT }, RU::RenderTarget);
-                this->depth = g.create_image(t, "depth", { .width = 1920, .height = 1080, .format = VK_FORMAT_R16G16B16A16_SFLOAT }, RU::DepthStencilTarget);
-            }
         };
+
+        FrameGraph g;
+
+        DrawOpaque draw_opaque = {};
+        draw_opaque.commands = g.read(t, commands, RU::DrawCommands);
+        draw_opaque.constants = g.read(t, constants, RU::Uniform);
+        draw_opaque.positions = g.read(t, positions, RU::VertexBuffer);
+        draw_opaque.feedback = g.create_buffer(t, "feedback", { .size = 1024 }, RU::Buffer);
+        draw_opaque.color = g.create_image(t, "color", { .width = 1920, .height = 1080, .format = VK_FORMAT_R16G16B16A16_SFLOAT }, RU::RenderTarget);
+        draw_opaque.normal_material = g.create_image(t, "normal_material", { .width = 1920, .height = 1080, .format = VK_FORMAT_R16G16B16A16_SFLOAT }, RU::RenderTarget);
+        draw_opaque.depth = g.create_image(t, "depth", { .width = 1920, .height = 1080, .format = VK_FORMAT_R16G16B16A16_SFLOAT }, RU::DepthStencilTarget);
+
+        g.addTask("DrawOpaque", 
+            [&](ResourcePool& resources) {
+                gfx:Buffer img = resources.getBuffer(draw_opaque.commands);
+            },
+        });
+
+        // DrawOpaque& draw_opaque = g.addTask<DrawOpaque>("DrawOpaque",
+        //     [&](FrameGraph& g, TaskRef t, DrawOpaque& data) {
+        //         // Inputs
+        //         data.commands = g.read(t, commands, RU::DrawCommands);
+        //         data.constants = g.read(t, constants, RU::Uniform);
+        //         data.positions = g.read(t, positions, RU::VertexBuffer);
+
+        //         // Outputs
+        //         data.feedback = g.create_buffer(t, "feedback", { .size = 1024 }, RU::Buffer);
+        //         data.color = g.create_image(t, "color", { .width = 1920, .height = 1080, .format = VK_FORMAT_R16G16B16A16_SFLOAT }, RU::RenderTarget);
+        //         data.normal_material = g.create_image(t, "normal_material", { .width = 1920, .height = 1080, .format = VK_FORMAT_R16G16B16A16_SFLOAT }, RU::RenderTarget);
+        //         data.depth = g.create_image(t, "depth", { .width = 1920, .height = 1080, .format = VK_FORMAT_R16G16B16A16_SFLOAT }, RU::DepthStencilTarget);
+        //     },
+        //     [](gfx::Context& vk, DrawOpaque& data, ResourcePool& resources) {
+        //         gfx:Buffer img = resources.getBuffer(data.commands);
+        //     },
+        // });
 
         struct GBuffer {
             ResourceRef color;
@@ -702,7 +812,6 @@ namespace framegraph
         };
 
         // Definition
-        FrameGraph g;
         External external(g);
         DrawOpaque draw_opaque(g, external.commands, external.constants, external.positions);
         GBuffer gbuffer(g, external.constants, draw_opaque.color, draw_opaque.normal_material, draw_opaque.depth);

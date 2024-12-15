@@ -1,7 +1,7 @@
 .vs
 .vscode
-out/
-build/
-res/
+/out/
+/build/
+/res/
 imgui.ini
 __pycache__

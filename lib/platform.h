@@ -1,3 +1,5 @@
+namespace platform {
+
 struct File {
 #ifdef _WIN32
     HANDLE handle;
@@ -33,7 +35,7 @@ File OpenFile(const char* path) {
 #else
     int fd = open(path, O_RDONLY);
     assert(fd >= 0);
-    
+
     struct stat stat_buf = {};
     int stat_result = fstat(fd, &stat_buf);
     assert(stat_result >= 0);
@@ -96,7 +98,7 @@ Array<u8> ReadEntireFile(const char* path) {
 #else
     int fd = open(path, O_RDONLY);
     assert(fd >= 0);
-    
+
     struct stat stat_buf = {};
     int stat_result = fstat(fd, &stat_buf);
     assert(stat_result >= 0);
@@ -124,3 +126,26 @@ Array<u8> ReadEntireFile(const char* path) {
     return result;
 }
 
+struct Timestamp {
+    u64 value;
+};
+
+Timestamp GetTimestamp() {
+    LARGE_INTEGER l = {};
+    QueryPerformanceCounter(&l);
+
+    Timestamp result = {};
+    result.value = l.QuadPart;
+    return result;
+}
+
+f64 GetElapsed(Timestamp begin, Timestamp end) {
+    static LARGE_INTEGER frequency = {};
+    if (!frequency.QuadPart) {
+        QueryPerformanceFrequency(&frequency);
+    }
+
+    return (f64)(end.value - begin.value) / (f64)frequency.QuadPart;
+}
+
+}

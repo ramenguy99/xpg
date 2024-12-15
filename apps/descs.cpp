@@ -63,7 +63,6 @@
 #include "gfx.h"
 #include "imgui_impl.h"
 #include "buffered_stream.h"
-// #include "graph_simpler.h"
 #include "graph.h"
 
 #define SPECTRUM_USE_DARK_THEME
@@ -84,7 +83,7 @@ using glm::mat4;
 //   - start working on a c++ framegraph
 //   - slang integration / reflection / hot reloading
 //   - more python bindings
-//   - file formats 
+//   - file formats
 struct App {
     gfx::Context* vk;
     gfx::Window* window;
@@ -158,7 +157,7 @@ void Draw(App* app) {
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkr = vkBeginCommandBuffer(frame.command_buffer, &begin_info);
     assert(vkr == VK_SUCCESS);
-   
+
     vkResetFences(vk.device, 1, &frame.fence);
 
     VkClearColorValue color = { 0.1f, 0.2f, 0.4f, 1.0f };
@@ -173,17 +172,17 @@ void Draw(App* app) {
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.baseArrayLayer = 0;
     barrier.subresourceRange.layerCount = 1;
-    
+
     barrier.srcAccessMask = 0;
     barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    
+
     barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    
+
     vkCmdPipelineBarrier(frame.command_buffer,
                          VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 
-                         0, 0, 
-                         0, 0, 
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
+                         0, 0,
+                         0, 0,
                          1, &barrier);
 
     // Begin rendering.
@@ -206,7 +205,7 @@ void Draw(App* app) {
     vkCmdBeginRenderingKHR(frame.command_buffer, &rendering_info);
 
     vkCmdBindPipeline(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app->pipeline);
-    
+
 
     VkDeviceSize offsets[1] = { 0 };
     vkCmdBindVertexBuffers(frame.command_buffer, 0, 1, &app->vertex_buffer.buffer, offsets);
@@ -222,22 +221,22 @@ void Draw(App* app) {
     scissor.extent.width = window.fb_width;
     scissor.extent.height = window.fb_height;
     vkCmdSetScissor(frame.command_buffer, 0, 1, &scissor);
-    
+
     // vkCmdBindDescriptorSets(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app->layout, 0, 1, &app->descriptor_sets[app->frame_index], 0, 0);
 
     // Only needs to happen once per frame, all pipelines that share this layout will use this.
     vkCmdBindDescriptorSets(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app->layout, 0, 1, &app->descriptor_set, 0, 0);
-    
+
     vkCmdPushConstants(frame.command_buffer, app->layout, VK_SHADER_STAGE_ALL, 0, 4, &texture_index);
 
     vkCmdDraw(frame.command_buffer, 6, 1, 0, 0);
-    
+
     vkCmdEndRenderingKHR(frame.command_buffer);
-    
+
     attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     rendering_info.pDepthAttachment = 0;
     vkCmdBeginRenderingKHR(frame.command_buffer, &rendering_info);
-    
+
     ImDrawData* draw_data = ImGui::GetDrawData();
     ImGui_ImplVulkan_RenderDrawData(draw_data, frame.command_buffer);
 
@@ -249,9 +248,9 @@ void Draw(App* app) {
     barrier.dstAccessMask = 0;
     vkCmdPipelineBarrier(frame.command_buffer,
                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 
-                         0, 0, 
-                         0, 0, 
+                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0,
+                         0, 0,
+                         0, 0,
                          1, &barrier);
 
     vkr = vkEndCommandBuffer(frame.command_buffer);
@@ -260,11 +259,8 @@ void Draw(App* app) {
     vkr = gfx::Submit(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     assert(vkr == VK_SUCCESS);
 
-    gfx::PresentResult present_result = gfx::PresentFrame(&window, &frame, vk);
-    if (present_result != gfx::PresentResult::SUCCESS) {
-        printf("Failed to submit\n");
-        exit(1);
-    }
+    vkr present_result = gfx::PresentFrame(&window, &frame, vk);
+    assert(vkr == VK_SUCCESS);
 
     app->current_frame += 1;
 }
@@ -530,7 +526,7 @@ int main(int argc, char** argv) {
 
     // Gui
     gui::Destroy(&imgui_impl, vk);
-    
+
     // Window
     gfx::DestroyWindowWithSwapchain(&window, vk);
 

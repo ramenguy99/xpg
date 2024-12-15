@@ -4,6 +4,8 @@
 #define BOUNDS_CHECKING_ENABLED 1
 #endif
 
+#define SUPPORT_NON_POD 0
+
 
 template<typename T> struct Array;
 template<typename T, usize N> struct ArrayFixed;
@@ -130,6 +132,13 @@ struct ArrayView {
 
 template<typename T>
 struct Array {
+#if !SUPPORT_NON_POD
+    static_assert(std::is_trivially_destructible<T>());
+    static_assert(std::is_trivially_copyable<T>());
+    static_assert(std::is_move_assignable<T>());
+    static_assert(std::is_move_constructible<T>());
+#endif
+
     T* data = 0;
     usize length = 0;
     usize capacity = 0;
@@ -181,9 +190,13 @@ struct Array {
 			grow_unchecked(new_capacity);
 		}
 
+#if SUPPORT_NON_POD
         for (usize i = 0; i < arr.length; i++) {
             data[i + length] = arr.data[i];
         }
+#else
+        memcpy(data + length, arr.data, arr.length * sizeof(T));
+#endif
 		length += arr.length;
 	}
 
@@ -193,9 +206,11 @@ struct Array {
     }
 
     void clear() {
+#if SUPPORT_NON_POD
         for (usize i = 0; i < length; i++) {
             data->~T();
         }
+#endif
         Free(data);
         data = 0;
         capacity = 0;
@@ -206,9 +221,13 @@ struct Array {
         T* new_data = (T*)ZeroAlloc(new_capacity * sizeof(T));
 
         if(length > 0) {
+#if SUPPORT_NON_POD
             for (usize i = 0; i < length; i++) {
                 new_data[i] = std::move(data[i]);
             }
+#else
+            memcpy(new_data, data, length * sizeof(T));
+#endif
             Free(data);
         }
 
@@ -330,6 +349,16 @@ struct Span {
     Span(std::initializer_list<T> l) {
         data = l.begin();
         length = l.size();
+    }
+
+    Span(ArrayView<T> view) {
+        data = view.data;
+        length = view.length;
+    }
+
+    Span(Array<T> a) {
+        data = a.data;
+        length = a.length;
     }
 
     Span(const Span& other) = delete;

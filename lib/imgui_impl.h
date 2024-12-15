@@ -4,7 +4,7 @@ struct ImGuiImpl {
     VkDescriptorPool descriptor_pool = 0;
 };
 
-void Create(ImGuiImpl* impl, const gfx::Window& window, const gfx::Context& vk) {
+void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Context& vk) {
     // Create descriptor pool for imgui.
     VkDescriptorPoolSize pool_sizes[] = {
         { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
@@ -95,7 +95,7 @@ void Create(ImGuiImpl* impl, const gfx::Window& window, const gfx::Context& vk) 
     impl->descriptor_pool = descriptor_pool;
 }
 
-void Destroy(ImGuiImpl* impl, gfx::Context& vk) {
+void DestroyImGuiImpl(ImGuiImpl* impl, gfx::Context& vk) {
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
@@ -113,4 +113,39 @@ void EndFrame() {
     ImGui::Render();
 }
 
+void DrawStats(f32 SecondsElapsed, u32 width, u32 height)
+{
+    static f32 FrameTimes[32] = {};
+    static int FrameTimesIndex = 0;
+    
+    FrameTimes[FrameTimesIndex++] = SecondsElapsed;
+    FrameTimesIndex %= ArrayCount(FrameTimes);
+    
+    f32 AverageSecondsElapsed = 0.0f;
+    for(u32 Index = 0; Index < ArrayCount(FrameTimes); Index++)
+    {
+        AverageSecondsElapsed += FrameTimes[Index];
+    }
+    AverageSecondsElapsed /= ArrayCount(FrameTimes);
+    
+    static bool Show = true;
+    bool* p_open = &Show;
+    const float DISTANCE = 10.0f;
+    static int corner = 0;
+    ImVec2 window_pos = ImVec2((corner & 1) ? ImGui::GetIO().DisplaySize.x - DISTANCE : DISTANCE, (corner & 2) ? ImGui::GetIO().DisplaySize.y - DISTANCE : DISTANCE);
+    ImVec2 window_pos_pivot = ImVec2((corner & 1) ? 1.0f : 0.0f, (corner & 2) ? 1.0f : 0.0f);
+    ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+    ImGui::SetNextWindowBgAlpha(0.5f); // Transparent background
+    if (ImGui::Begin("Debug Data", p_open, ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoFocusOnAppearing|ImGuiWindowFlags_NoNav))
+    {
+        ImGui::Text("FPS: %.3f", 1.0f / AverageSecondsElapsed);
+        ImGui::Text("Frame Time: %.3fms", AverageSecondsElapsed * 1000.0f);
+        ImGui::Separator();
+        ImGui::Text("Window size: (%d, %.d)", width, height);
+        ImGui::End();
+    }
 }
+
+
+}
+

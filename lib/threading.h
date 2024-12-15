@@ -1,26 +1,26 @@
 #define SpinlockHint() _mm_pause()
 
-struct ConditionVariable {
-#ifdef _WIN32
-    CRITICAL_SECTION lock;
-    CONDITION_VARIABLE cv;
-#else
-    int fd;
-#endif // _WIN32
-
-    ConditionVariable() {
-#ifdef _WIN32
-        InitializeCriticalSection(&lock);
-        InitializeConditionVariable(&cv);
-#endif
-    }
-
-    void signal() {
-    }
-
-    void wait() {
-    }
-};
+// struct ConditionVariable {
+// #ifdef _WIN32
+//     CRITICAL_SECTION lock;
+//     CONDITION_VARIABLE cv;
+// #else
+//     int fd;
+// #endif // _WIN32
+// 
+//     ConditionVariable() {
+// #ifdef _WIN32
+//         InitializeCriticalSection(&lock);
+//         InitializeConditionVariable(&cv);
+// #endif
+//     }
+// 
+//     void signal() {
+//     }
+// 
+//     void wait() {
+//     }
+// };
 
 #ifdef _WIN32
 #define THREAD_PROC(x) DWORD WINAPI x(LPVOID data)

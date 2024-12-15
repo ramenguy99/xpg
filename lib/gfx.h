@@ -1,5 +1,20 @@
 namespace gfx {
 
+// Missing helpers:
+// [ ] commands (e.g. dynamic rendering, passes, dispatches, copies)
+// [ ] command buffer / pools creation (duplicate for sync and per frame)
+// [ ] descriptors:
+//     [ ] normal set creation
+//     [ ] writes
+//     [ ] bindless descriptors management helpers
+
+// IMPORTANT: do not reorder those fields without updating GetFormatInfo()
+struct FormatInfo {
+    u32 size;
+    u32 channels;
+};
+FormatInfo GetFormatInfo(VkFormat format);
+
 struct Frame
 {
     VkCommandPool command_pool;
@@ -16,11 +31,16 @@ struct Frame
     u32 current_image_index;
 };
 
+struct WindowCallbacks {
+    std::function<void()> draw;
+};
+
 struct Window
 {
     GLFWwindow* window;
     VkSurfaceKHR surface;
     VkFormat swapchain_format;
+    WindowCallbacks callbacks;
 
     // Swapchain
     u32 fb_width;
@@ -55,6 +75,11 @@ struct Context
     u32 queue_family_index;
     VmaAllocator vma;
 
+    // Sync command submission
+    VkCommandPool sync_command_pool;
+    VkCommandBuffer sync_command_buffer;
+    VkFence sync_fence;
+
     // Debug
     VkDebugReportCallbackEXT debug_callback;
 };
@@ -77,6 +102,7 @@ enum class Result
 {
     SUCCESS,
 
+    VULKAN_NOT_SUPPORTED,
     API_ERROR,
     API_OUT_OF_MEMORY,
     INVALID_VERSION,
@@ -85,6 +111,7 @@ enum class Result
     NO_VALID_DEVICE_FOUND,
     DEVICE_CREATION_FAILED,
     SWAPCHAIN_CREATION_FAILED,
+    SWAPCHAIN_OUT_OF_DATE,
     SURFACE_CREATION_FAILED,
     VMA_CREATION_FAILED,
 };
@@ -97,12 +124,6 @@ enum class SwapchainStatus
     FAILED,
 };
 
-enum class PresentResult
-{
-    SUCCESS,
-    FAILED,
-};
-
 // TODO: substitute this with more extendable logic once
 // we rework device picking logic.
 struct DeviceFeatures {
@@ -110,6 +131,7 @@ struct DeviceFeatures {
         NONE = 0,
         DESCRIPTOR_INDEXING = 1,
         DYNAMIC_RENDERING = 2,
+        SYNCHRONIZATION_2 = 4,
     };
 
     DeviceFeatures(DeviceFeaturesFlags flags): flags(flags) {}
@@ -119,19 +141,19 @@ struct DeviceFeatures {
         return (uint64_t)flags != 0;
     }
 
-    DeviceFeatures operator|(const DeviceFeaturesFlags& b) {
+    DeviceFeatures operator|(const DeviceFeaturesFlags& b) const {
         return (DeviceFeaturesFlags)((uint64_t)flags | (uint64_t)b);
     }
 
-    DeviceFeatures operator|(const DeviceFeatures& b) {
+    DeviceFeatures operator|(const DeviceFeatures& b) const {
         return (DeviceFeaturesFlags)((uint64_t)flags | (uint64_t)b.flags);
     }
 
-    DeviceFeatures operator&(const DeviceFeaturesFlags& b) {
+    DeviceFeatures operator&(const DeviceFeaturesFlags& b) const {
         return (DeviceFeaturesFlags)((uint64_t)flags & (uint64_t)b);
     }
 
-    DeviceFeatures operator&(const DeviceFeatures& b) {
+    DeviceFeatures operator&(const DeviceFeatures& b) const {
         return (DeviceFeaturesFlags)((uint64_t)flags & (uint64_t)b.flags);
     }
 
@@ -147,22 +169,29 @@ VulkanDebugReportCallback(VkDebugReportFlagsEXT flags,
 {
     // This silences warnings like "For optimal performance image layout should be VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL instead of GENERAL."
     // We'll assume other performance warnings are also not useful.
-    //if (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
-    //	return VK_FALSE;
+    // if (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
+    //     return VK_FALSE;
 
+    if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
+        logging::error("gfx/validation", "%s", pMessage);
+    }
+    else if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) {
+        logging::warning("gfx/validation", "%s", pMessage);
+    }
+    else {
+        logging::info("gfx/validation", "%s", pMessage);
+    }
+
+#ifdef _WIN32
     const char* type =
         (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
         ? "ERROR"
         : (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
         ? "WARNING"
         : "INFO";
-
     char message[4096];
-    snprintf(message, sizeof(message), "%s: %s\n", type, pMessage);
-
-
-    printf("%s", message);
-#ifdef _WIN32
+    snprintf(message, sizeof(message) - 1, "%s: %s\n", type, pMessage);
+    message[4095] = 0;
     OutputDebugStringA(message);
 #endif
 
@@ -173,12 +202,105 @@ VulkanDebugReportCallback(VkDebugReportFlagsEXT flags,
 }
 
 Result
-CreateContext(Context* vk, u32 required_version, ArrayView<const char*> instance_extensions, ArrayView<const char*> device_extensions, bool require_presentation_support, DeviceFeatures device_features, bool enable_validation_layer, bool verbose)
+Init() {
+    // Initialize glfw.
+    glfwInit();
+
+    // Check if device supports vulkan.
+    if (!glfwVulkanSupported()) {
+        return Result::VULKAN_NOT_SUPPORTED;
+    }
+
+    return Result::SUCCESS;
+}
+
+Array<const char*>
+GetPresentationInstanceExtensions()
+{
+    // Get instance extensions required by GLFW.
+    u32 glfw_instance_extensions_count;
+    const char** glfw_instance_extensions = glfwGetRequiredInstanceExtensions(&glfw_instance_extensions_count);
+
+    Array<const char*> instance_extensions(glfw_instance_extensions_count);
+    for (u32 i = 0; i < glfw_instance_extensions_count; i++) {
+        instance_extensions[i] = glfw_instance_extensions[i];
+    }
+
+    return instance_extensions;
+}
+
+
+void Callback_WindowRefresh(GLFWwindow* window) {
+    Window* w = (Window*)glfwGetWindowUserPointer(window);
+    if (w && w->callbacks.draw) {
+        w->callbacks.draw();
+    }
+}
+
+#ifdef _WIN32
+DWORD WINAPI thread_proc(void* param) {
+    HWND window = (HWND)param;
+    while (true) {
+        SendMessage(window, WM_PAINT, 0, 0);
+    }
+    return 0;
+}
+#endif
+
+void SetWindowCallbacks(Window* window, WindowCallbacks&& callbacks) {
+// #ifdef _WIN32
+//     // Redraw during move / resize
+//     HWND hwnd = glfwGetWin32Window(window->window);
+//     HANDLE thread = CreateThread(0, 0, thread_proc, hwnd, 0, 0);
+//     if (thread) {
+//         CloseHandle(thread);
+//     }
+// #endif
+
+    window->callbacks = std::move(callbacks);
+    glfwSetWindowUserPointer(window->window, window);
+    glfwSetWindowRefreshCallback(window->window, Callback_WindowRefresh);
+}
+
+void ProcessEvents(bool block) {
+    if (block) {
+        glfwWaitEvents();
+    }
+    else {
+        glfwPollEvents();
+    }
+}
+
+bool ShouldClose(const Window& window) {
+    return glfwWindowShouldClose(window.window);
+}
+
+VkResult
+CreateGPUSemaphore(VkDevice device, VkSemaphore* semaphore)
+{
+    VkSemaphoreCreateInfo semaphore_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    return vkCreateSemaphore(device, &semaphore_info, 0, semaphore);
+}
+
+struct ContextDesc {
+    u32 minimum_api_version;
+    ArrayView<const char *> instance_extensions;
+    ArrayView<const char *> device_extensions;
+    DeviceFeatures device_features;
+    bool enable_validation_layer;
+    bool enable_gpu_based_validation = false;
+};
+
+Result
+CreateContext(Context* vk, const ContextDesc&& desc)
 {
     VkResult result;
 
     // Initialize vulkan loader.
-    volkInitialize();
+    result = volkInitialize();
+    if (result != VK_SUCCESS) {
+        return Result::API_ERROR;
+    }
 
     // Query vulkan version.
     u32 version;
@@ -190,12 +312,10 @@ CreateContext(Context* vk, u32 required_version, ArrayView<const char*> instance
     u32 version_major = VK_API_VERSION_MAJOR(version);
     u32 version_minor = VK_API_VERSION_MINOR(version);
     u32 version_patch = VK_API_VERSION_PATCH(version);
-    if (verbose) {
-        printf("Vulkan API version %u.%u.%u\n", version_major, version_minor, version_patch);
-    }
+    logging::info("gfx/info", "Vulkan API version %u.%u.%u", version_major, version_minor, version_patch);
 
     // Check if required version is met.
-    if (version < required_version) {
+    if (version < desc.minimum_api_version) {
         return Result::INVALID_VERSION;
     }
 
@@ -219,24 +339,22 @@ CreateContext(Context* vk, u32 required_version, ArrayView<const char*> instance
         VkLayerProperties& l = layer_properties[i];
         if (strcmp(l.layerName, validation_layer_name) == 0) {
             validation_layer_present = true;
-            if (verbose) {
-                printf("Vulkan validation layer found\n");
-            }
+            logging::info("gfx/info", "Vulkan validation layer found");
             break;
         }
     }
-    bool use_validation_layer = validation_layer_present && enable_validation_layer;
+    bool use_validation_layer = validation_layer_present && desc.enable_validation_layer;
 
     // Application info.
     VkApplicationInfo application_info = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
-    application_info.apiVersion = required_version;
+    application_info.apiVersion = desc.minimum_api_version;
     application_info.pApplicationName = "XPG";
     application_info.applicationVersion = XPG_VERSION;
 
     // Instance info.
     VkInstanceCreateInfo info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    info.enabledExtensionCount = (u32)instance_extensions.length;
-    info.ppEnabledExtensionNames = instance_extensions.data;
+    info.enabledExtensionCount = (u32)desc.instance_extensions.length;
+    info.ppEnabledExtensionNames = desc.instance_extensions.data;
     info.pApplicationInfo = &application_info;
 
     const char* enabled_layers[1] = { validation_layer_name };
@@ -244,6 +362,14 @@ CreateContext(Context* vk, u32 required_version, ArrayView<const char*> instance
     if (use_validation_layer) {
         info.enabledLayerCount = ArrayCount(enabled_layers);
         info.ppEnabledLayerNames = enabled_layers;
+    }
+
+    VkValidationFeatureEnableEXT validation_feature_enables[] = { VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT };
+    VkValidationFeaturesEXT validation_features = { VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
+    validation_features.enabledValidationFeatureCount = 1;
+    validation_features.pEnabledValidationFeatures = validation_feature_enables;
+    if (use_validation_layer && desc.enable_gpu_based_validation) {
+        info.pNext = &validation_features;
     }
 
     // Create instance.
@@ -307,14 +433,12 @@ CreateContext(Context* vk, u32 required_version, ArrayView<const char*> instance
             picked = true;
         }
 
-        if (verbose) {
-            printf("Physical device %u:%s\n    Name: %s\n    Vulkan version: %d.%d.%d\n    Drivers version: %u\n    Vendor ID: %u\n    Device ID: %u\n    Device type: %s\n",
-                i, picked ? " (PICKED)" : "", p.deviceName,
-                VK_API_VERSION_MAJOR(p.apiVersion), VK_API_VERSION_MINOR(p.apiVersion), VK_API_VERSION_PATCH(p.apiVersion),
-                p.driverVersion, p.vendorID, p.deviceID,
-                string_VkPhysicalDeviceType(p.deviceType));
+        logging::info("gfx/info", "Physical device %u:%s\n    Name: %s\n    Vulkan version: %u.%u.%u\n    Drivers version: %u\n    Vendor ID: %u\n    Device ID: %u\n    Device type: %s\n",
+            i, picked ? " (PICKED)" : "", p.deviceName,
+            VK_API_VERSION_MAJOR(p.apiVersion), VK_API_VERSION_MINOR(p.apiVersion), VK_API_VERSION_PATCH(p.apiVersion),
+            p.driverVersion, p.vendorID, p.deviceID,
+            string_VkPhysicalDeviceType(p.deviceType));
             // PhysicalDeviceTypeToString(p.deviceType));
-        }
 
 #if 0
         // @Incomplete queue and device group information can be used to choose the appropriate device to use
@@ -364,16 +488,24 @@ CreateContext(Context* vk, u32 required_version, ArrayView<const char*> instance
     VkDeviceCreateInfo device_create_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
     device_create_info.queueCreateInfoCount = 1;
     device_create_info.pQueueCreateInfos = &queue_create_info;
-    device_create_info.enabledExtensionCount = (u32)device_extensions.length;
-    device_create_info.ppEnabledExtensionNames = device_extensions.data;
+    device_create_info.enabledExtensionCount = (u32)desc.device_extensions.length;
+    device_create_info.ppEnabledExtensionNames = desc.device_extensions.data;
     device_create_info.pEnabledFeatures = NULL;
 
     // Enabled dynamic rendering if requested.
     VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_feature{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR };
     dynamic_rendering_feature.dynamicRendering = VK_TRUE;
 
-    if (device_features & DeviceFeatures::DYNAMIC_RENDERING) {
+    if (desc.device_features & DeviceFeatures::DYNAMIC_RENDERING) {
         device_create_info.pNext = &dynamic_rendering_feature;
+    }
+
+    // Enable synchronization 2 if requested
+    VkPhysicalDeviceSynchronization2Features synchronization_2_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES };
+    synchronization_2_features.synchronization2 = true;
+    if (desc.device_features & DeviceFeatures::SYNCHRONIZATION_2) {
+        synchronization_2_features.pNext = (void*)device_create_info.pNext;
+        device_create_info.pNext = &synchronization_2_features;
     }
 
     VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
@@ -398,7 +530,7 @@ CreateContext(Context* vk, u32 required_version, ArrayView<const char*> instance
     // descriptor_indexing_features.descriptorBindingVariableDescriptorCount = VK_TRUE;
     descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
 
-    if (device_features & DeviceFeatures::DESCRIPTOR_INDEXING) {
+    if (desc.device_features & DeviceFeatures::DESCRIPTOR_INDEXING) {
         descriptor_indexing_features.pNext = const_cast<void*>(device_create_info.pNext);
         device_create_info.pNext = &descriptor_indexing_features;
     }
@@ -424,6 +556,35 @@ CreateContext(Context* vk, u32 required_version, ArrayView<const char*> instance
     VkQueue queue;
     vkGetDeviceQueue(device, queue_family_index, 0, &queue);
 
+    // Create sync command
+    VkCommandPoolCreateInfo sync_pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    sync_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;// | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    sync_pool_info.queueFamilyIndex = queue_family_index;
+
+    VkCommandPool sync_pool = {};
+    result = vkCreateCommandPool(device, &sync_pool_info, 0, &sync_pool);
+    if (result != VK_SUCCESS) {
+        return Result::API_OUT_OF_MEMORY;
+    }
+
+    VkCommandBufferAllocateInfo sync_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    sync_allocate_info.commandPool = sync_pool;
+    sync_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    sync_allocate_info.commandBufferCount = 1;
+
+    VkCommandBuffer sync_command_buffer = {};
+    result = vkAllocateCommandBuffers(device, &sync_allocate_info, &sync_command_buffer);
+    if (result != VK_SUCCESS) {
+        return Result::API_OUT_OF_MEMORY;
+    }
+
+    VkFence sync_fence = {};
+    VkFenceCreateInfo fence_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    result = vkCreateFence(device, &fence_info, 0, &sync_fence);
+    if (result != VK_SUCCESS) {
+        return Result::API_OUT_OF_MEMORY;
+    }
+
     vk->version = version;
     vk->instance = instance;
     vk->physical_device = physical_device;
@@ -432,11 +593,17 @@ CreateContext(Context* vk, u32 required_version, ArrayView<const char*> instance
     vk->queue_family_index = queue_family_index;
     vk->debug_callback = debug_callback;
     vk->vma = vma;
+    vk->sync_command_pool = sync_pool;
+    vk->sync_command_buffer = sync_command_buffer;
+    vk->sync_fence = sync_fence;
 
     return Result::SUCCESS;
 }
 
 void DestroyContext(Context* vk) {
+    vkDestroyCommandPool(vk->device, vk->sync_command_pool, 0);
+    vkDestroyFence(vk->device, vk->sync_fence, 0);
+
     // VMA
     vmaDestroyAllocator(vk->vma);
 
@@ -446,17 +613,9 @@ void DestroyContext(Context* vk) {
     vkDestroyInstance(vk->instance, 0);
 }
 
-Result
-CreateGPUSemaphore(VkDevice device, VkSemaphore* semaphore)
-{
-    VkSemaphoreCreateInfo semaphore_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    VkResult result = vkCreateSemaphore(device, &semaphore_info, 0, semaphore);
-    if (result != VK_SUCCESS) {
-        return Result::API_OUT_OF_MEMORY;
-    }
-    return Result::SUCCESS;
+void WaitIdle(Context& vk) {
+    vkDeviceWaitIdle(vk.device);
 }
-
 
 Result
 CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize frames, VkSwapchainKHR old_swapchain)
@@ -471,7 +630,7 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     swapchain_info.imageExtent.width = fb_width;
     swapchain_info.imageExtent.height = fb_height;
     swapchain_info.imageArrayLayers = 1;
-    swapchain_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    swapchain_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
     swapchain_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     swapchain_info.queueFamilyIndexCount = 1;
     swapchain_info.pQueueFamilyIndices = queue_family_indices;
@@ -568,6 +727,32 @@ SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
     return SwapchainStatus::RESIZED;
 }
 
+Frame& WaitForFrame(Window* w, const Context& vk) {
+    Frame& frame = w->frames[w->swapchain_frame_index];
+    vkWaitForFences(vk.device, 1, &frame.fence, VK_TRUE, ~0);
+    vkResetFences(vk.device, 1, &frame.fence);
+    return frame;
+}
+
+Result AcquireImage(Frame* frame, Window* window, const Context& vk)
+{
+    u32 image_index;
+    VkResult vkr = vkAcquireNextImageKHR(vk.device, window->swapchain, ~0ull, frame->acquire_semaphore, 0, &image_index);
+    if (vkr == VK_ERROR_OUT_OF_DATE_KHR) {
+        window->force_swapchain_recreate = true;
+        return Result::SWAPCHAIN_OUT_OF_DATE;
+    }
+    else if (vkr != VK_SUCCESS) {
+        return Result::API_ERROR;
+    }
+
+    frame->current_image_index = image_index;
+    frame->current_image = window->images[image_index];
+    frame->current_image_view = window->image_views[image_index];
+
+    return Result::SUCCESS;
+}
+
 Frame* AcquireNextFrame(Window* w, const Context& vk) {
     Frame& frame = w->frames[w->swapchain_frame_index];
 
@@ -588,6 +773,32 @@ Frame* AcquireNextFrame(Window* w, const Context& vk) {
     return &frame;
 }
 
+VkResult
+BeginCommands(VkCommandPool pool, VkCommandBuffer buffer, const Context& vk) {
+
+    // Reset command pool
+    VkResult vkr;
+    vkr = vkResetCommandPool(vk.device, pool, 0);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    // Record commands
+    VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkr = vkBeginCommandBuffer(buffer, &begin_info);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    return VK_SUCCESS;
+}
+
+VkResult
+EndCommands(VkCommandBuffer buffer) {
+    return vkEndCommandBuffer(buffer);
+}
+
 VkResult Submit(const Frame& frame, const Context& vk, VkSubmitFlags submit_stage_mask) {
     VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     submit_info.commandBufferCount = 1;
@@ -603,9 +814,23 @@ VkResult Submit(const Frame& frame, const Context& vk, VkSubmitFlags submit_stag
     return vkQueueSubmit(vk.queue, 1, &submit_info, frame.fence);
 }
 
-PresentResult PresentFrame(Window* w, Frame* frame, const Context& vk) {
-    SwapchainStatus swapchain_status = SwapchainStatus::READY;
+VkResult SubmitSync(const Context& vk) {
+    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &vk.sync_command_buffer;
 
+    VkResult vkr = vkQueueSubmit(vk.queue, 1, &submit_info, vk.sync_fence);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    vkWaitForFences(vk.device, 1, &vk.sync_fence, VK_TRUE, ~0);
+    vkResetFences(vk.device, 1, &vk.sync_fence);
+    return VK_SUCCESS;
+}
+
+
+VkResult PresentFrame(Window* w, Frame* frame, const Context& vk) {
     VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     present_info.swapchainCount = 1;
     present_info.pSwapchains = &w->swapchain;
@@ -617,14 +842,14 @@ PresentResult PresentFrame(Window* w, Frame* frame, const Context& vk) {
     if (vkr == VK_ERROR_OUT_OF_DATE_KHR || vkr == VK_SUBOPTIMAL_KHR) {
         w->force_swapchain_recreate = true;
     } else if (vkr != VK_SUCCESS) {
-        return PresentResult::FAILED;
+        return vkr;
     }
 
     w->swapchain_frame_index = (w->swapchain_frame_index + 1) % w->frames.length;
     frame->current_image = VK_NULL_HANDLE;
     frame->current_image_view = VK_NULL_HANDLE;
     frame->current_image_index = ~0ul;
-    return PresentResult::SUCCESS;
+    return VK_SUCCESS;
 }
 
 Result
@@ -761,6 +986,42 @@ DestroyWindowWithSwapchain(Window* w, const Context& vk)
 
 }
 
+struct ImageBarrierDesc
+{
+    VkPipelineStageFlags2 src_stage;
+    VkPipelineStageFlags2 dst_stage;
+    VkAccessFlags2 src_access;
+    VkAccessFlags2 dst_access;
+    VkImageLayout old_layout;
+    VkImageLayout new_layout;
+};
+
+void
+CmdImageBarrier(VkCommandBuffer cmd, VkImage image, const ImageBarrierDesc&& desc)
+{
+    VkImageMemoryBarrier2 barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = desc.src_access;
+    barrier.dstAccessMask = desc.dst_access;
+    barrier.srcStageMask = desc.src_stage;
+    barrier.dstStageMask = desc.dst_stage;
+    barrier.oldLayout = desc.old_layout;
+    barrier.newLayout = desc.new_layout;
+
+    VkDependencyInfo info = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    info.imageMemoryBarrierCount = 1;
+    info.pImageMemoryBarriers = &barrier;
+
+    vkCmdPipelineBarrier2(cmd, &info);
+}
+
 struct Buffer
 {
     VkBuffer buffer;
@@ -819,7 +1080,7 @@ CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, cons
 
     ArrayView<u8> map((u8*)addr, data.length);
     map.copy_exact(data);
-    
+
     vmaUnmapMemory(vk.vma, buffer->allocation);
 
     return VK_SUCCESS;
@@ -1067,7 +1328,7 @@ CreateGraphicsPipeline(GraphicsPipeline* graphics_pipeline, const Context& vk, c
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
-    
+
     graphics_pipeline->pipeline = pipeline;
     graphics_pipeline->layout = layout;
 
@@ -1079,6 +1340,236 @@ DestroyGraphicsPipeline(GraphicsPipeline* pipeline, const Context& vk) {
     vkDestroyPipelineLayout(vk.device, pipeline->layout, 0);
     vkDestroyPipeline(vk.device, pipeline->pipeline, 0);
     *pipeline = {};
+}
+
+struct ComputePipeline {
+    VkPipeline pipeline;
+    VkPipelineLayout layout;
+};
+
+struct ComputePipelineDesc {
+    Shader shader;
+    const char* entry = "main";
+    Span<PushConstantRangeDesc> push_constants;
+    Span<VkDescriptorSetLayout> descriptor_sets;
+};
+
+VkResult
+CreateComputePipeline(ComputePipeline* compute_pipeline, const Context& vk, const ComputePipelineDesc&& desc) {
+    VkResult vkr;
+
+    VkPipelineLayoutCreateInfo layout_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+    layout_info.setLayoutCount = (u32)desc.descriptor_sets.length;
+    layout_info.pSetLayouts = desc.descriptor_sets.data;
+    layout_info.pushConstantRangeCount = (u32)desc.push_constants.length;
+    layout_info.pPushConstantRanges = (VkPushConstantRange*)desc.push_constants.data;
+
+    VkPipelineLayout layout = 0;
+    vkr = vkCreatePipelineLayout(vk.device, &layout_info, 0, &layout);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    VkComputePipelineCreateInfo pipeline_create_info = { VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+    pipeline_create_info.layout = layout;
+    pipeline_create_info.stage = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+    pipeline_create_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT ;
+    pipeline_create_info.stage.pName = desc.entry;
+    pipeline_create_info.stage.module = desc.shader.shader;
+
+    VkPipeline pipeline = 0;
+    vkr = vkCreateComputePipelines(vk.device, VK_NULL_HANDLE, 1, &pipeline_create_info, 0, &pipeline);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    compute_pipeline->pipeline = pipeline;
+    compute_pipeline->layout = layout;
+
+    return VK_SUCCESS;
+}
+
+void
+DestroyComputePipeline(ComputePipeline* pipeline, const Context& vk) {
+    vkDestroyPipelineLayout(vk.device, pipeline->layout, 0);
+    vkDestroyPipeline(vk.device, pipeline->pipeline, 0);
+    *pipeline = {};
+}
+
+struct Image
+{
+    VkImage image;
+    VkImageView view;
+    VmaAllocation allocation;
+};
+
+struct ImageDesc {
+    u32 width;
+    u32 height;
+    VkFormat format;
+
+    // Vulkan flags
+    VkImageUsageFlags usage;
+
+    // VMA flags
+    VmaAllocationCreateFlags alloc_flags = 0;
+    VkMemoryPropertyFlags memory_required_flags = 0;
+    VkMemoryPropertyFlags memory_preferred_flags = 0;
+};
+
+VkResult
+CreateImage(Image* image, const Context& vk, const ImageDesc&& desc) {
+    // Create a depth buffer.
+    VkImageCreateInfo image_create_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    image_create_info.imageType = VK_IMAGE_TYPE_2D;
+    image_create_info.extent.width = desc.width;
+    image_create_info.extent.height = desc.height;
+    image_create_info.extent.depth = 1;
+    image_create_info.mipLevels = 1;
+    image_create_info.arrayLayers = 1;
+    image_create_info.format = desc.format;
+    image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_create_info.usage = desc.usage;
+    image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+
+    VmaAllocationCreateInfo alloc_create_info = {};
+    alloc_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+    alloc_create_info.flags = desc.alloc_flags;
+    alloc_create_info.requiredFlags = desc.memory_required_flags;
+    alloc_create_info.preferredFlags = desc.memory_preferred_flags;
+    alloc_create_info.priority = 1.0f;
+
+    VkImage img;
+    VmaAllocation allocation;
+    VkResult vkr = vmaCreateImage(vk.vma, &image_create_info, &alloc_create_info, &img, &allocation, nullptr);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    VkImageViewCreateInfo image_view_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    image_view_info.image = img;
+    image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    image_view_info.format = desc.format;
+    image_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_view_info.subresourceRange.levelCount = 1;
+    image_view_info.subresourceRange.layerCount = 1;
+
+    VkImageView image_view = 0;
+    vkr = vkCreateImageView(vk.device, &image_view_info, 0, &image_view);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    image->image = img;
+    image->view = image_view;
+    image->allocation = allocation;
+
+    return vkr;
+}
+
+struct ImageUploadDesc {
+    u32 width;
+    u32 height;
+    VkFormat format;
+    VkImageLayout current_image_layout;
+    VkImageLayout final_image_layout;
+};
+
+VkResult
+UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const ImageUploadDesc&& desc)
+{
+    usize pitch = (usize)desc.width * GetFormatInfo(desc.format).size;
+    assert(pitch * desc.height == data.length);
+
+    VkResult vkr;
+
+    // Create and populate staging buffer
+    Buffer staging_buffer = {};
+    vkr = CreateBufferFromData(&staging_buffer, vk, data, {
+        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+    });
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    // Issue upload
+    gfx::BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
+
+    if (desc.current_image_layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        gfx::CmdImageBarrier(vk.sync_command_buffer, image.image, {
+            .src_stage = VK_PIPELINE_STAGE_2_NONE,
+            .dst_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
+            .src_access = 0,
+            .dst_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .old_layout = desc.current_image_layout,
+            .new_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        });
+    }
+
+    VkBufferImageCopy copy = {};
+    copy.bufferOffset = 0;
+    copy.bufferRowLength = desc.width;
+    copy.bufferImageHeight = desc.height;
+    copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copy.imageSubresource.mipLevel = 0;
+    copy.imageSubresource.baseArrayLayer = 0;
+    copy.imageSubresource.layerCount = 1;
+    copy.imageExtent.width = desc.width;
+    copy.imageExtent.height = desc.height;
+    copy.imageExtent.depth = 1;
+
+    vkCmdCopyBufferToImage(vk.sync_command_buffer, staging_buffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+
+    if (desc.final_image_layout != desc.current_image_layout) {
+        gfx::CmdImageBarrier(vk.sync_command_buffer, image.image, {
+            .src_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
+            .dst_stage = VK_PIPELINE_STAGE_2_NONE,
+            .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dst_access = 0,
+            .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .new_layout = desc.final_image_layout,
+        });
+    }
+
+    gfx::EndCommands(vk.sync_command_buffer);
+
+    gfx::SubmitSync(vk);
+
+    gfx::DestroyBuffer(&staging_buffer, vk);
+
+    return VK_SUCCESS;
+}
+
+VkResult
+CreateAndUploadImage(Image* image, const Context& vk, ArrayView<u8> data, VkImageLayout layout, const ImageDesc&& desc)
+{
+    assert(desc.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+
+    VkResult vkr;
+    vkr = CreateImage(image, vk, std::move(desc));
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+    vkr = UploadImage(*image, vk, data, {
+        .width = desc.width,
+        .height = desc.height,
+        .format = desc.format,
+        .final_image_layout = layout,
+    });
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+    return VK_SUCCESS;
+}
+
+void
+DestroyImage(Image* image, const Context& vk)
+{
+    vkDestroyImageView(vk.device, image->view, 0);
+    vmaDestroyImage(vk.vma, image->image, image->allocation);
+    *image = {};
 }
 
 VkResult
@@ -1157,8 +1648,10 @@ struct BindlessDescriptorSetDesc
     Span<BindlessDescriptorSetEntryDesc> entries;
 };
 
-void CreateBindlessDescriptorSet(BindlessDescriptorSet* set, const Context& vk, const BindlessDescriptorSetDesc&& desc)
+VkResult CreateBindlessDescriptorSet(BindlessDescriptorSet* set, const Context& vk, const BindlessDescriptorSetDesc&& desc)
 {
+    VkResult vkr;
+
     usize N = desc.entries.length;
     Array<VkDescriptorSetLayoutBinding> bindings(N);
     Array<VkDescriptorBindingFlags> flags(N);
@@ -1187,7 +1680,10 @@ void CreateBindlessDescriptorSet(BindlessDescriptorSet* set, const Context& vk, 
 
     // Create layout
     VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
-    vkCreateDescriptorSetLayout(vk.device, &create_info, 0, &descriptor_layout);
+    vkr = vkCreateDescriptorSetLayout(vk.device, &create_info, 0, &descriptor_layout);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
 
     // Create pool
     VkDescriptorPoolCreateInfo descriptor_pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
@@ -1197,7 +1693,10 @@ void CreateBindlessDescriptorSet(BindlessDescriptorSet* set, const Context& vk, 
     descriptor_pool_info.poolSizeCount = (uint32_t)descriptor_pool_sizes.length;
 
     VkDescriptorPool descriptor_pool = 0;
-    vkCreateDescriptorPool(vk.device, &descriptor_pool_info, 0, &descriptor_pool);
+    vkr = vkCreateDescriptorPool(vk.device, &descriptor_pool_info, 0, &descriptor_pool);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
 
     // Create descriptor set
     VkDescriptorSetAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -1206,11 +1705,16 @@ void CreateBindlessDescriptorSet(BindlessDescriptorSet* set, const Context& vk, 
     allocate_info.descriptorSetCount = 1;
 
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
-    vkAllocateDescriptorSets(vk.device, &allocate_info, &descriptor_set);
+    vkr = vkAllocateDescriptorSets(vk.device, &allocate_info, &descriptor_set);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
 
     set->set = descriptor_set;
     set->layout = descriptor_layout;
     set->pool = descriptor_pool;
+
+    return VK_SUCCESS;
 }
 
 void
@@ -1219,6 +1723,372 @@ DestroyBindlessDescriptorSet(BindlessDescriptorSet* bindless, const Context& vk)
     vkDestroyDescriptorPool(vk.device, bindless->pool, 0);
     vkDestroyDescriptorSetLayout(vk.device, bindless->layout, 0);
     *bindless = {};
+}
+
+ //   gfx::WriteImageDescriptor(&bindless, vk, image.view, {
+ //       .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+ //       .binding = 0,
+ //       .element = 0,
+ //   });
+
+ //   gfx::Sampler linear_sampler;
+ //   gfx::CreateSampler(&linear_sampler, vk, {
+
+ //   });
+
+ //   gfx::WriteSamplerDescriptor(&bindless, vk, sampler, {
+ //       .type = VK_DESCRIPTOR_TYPE_SAMPLER,
+ //       .binding = 2,
+ //       .element = 0,
+ //   });
+
+struct Sampler {
+    VkSampler sampler;
+};
+
+struct SamplerDesc {
+    VkFilter min_filter = VK_FILTER_NEAREST;
+    VkFilter mag_filter = VK_FILTER_NEAREST;
+    VkSamplerMipmapMode mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    float mip_lod_bias = 0.0f;
+    float min_lod = 0.0f;
+    float max_lod = VK_LOD_CLAMP_NONE;
+
+    VkSamplerAddressMode u = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    VkSamplerAddressMode v = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    VkSamplerAddressMode w = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+
+    bool anisotroy_enabled = false;
+    float max_anisotropy = 0.0f;
+
+    bool compare_enable = false;
+    VkCompareOp compare_op = VK_COMPARE_OP_ALWAYS;
+};
+
+VkResult
+CreateSampler(Sampler* sampler, const Context& vk, const SamplerDesc&& desc) {
+    VkSamplerCreateInfo info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+    info.minFilter = desc.min_filter;
+    info.magFilter = desc.mag_filter;
+    info.mipmapMode = desc.mipmap_mode;
+    info.addressModeU = desc.u;
+    info.addressModeV = desc.v;
+    info.addressModeW = desc.w;
+    info.mipLodBias = desc.mip_lod_bias;
+    info.anisotropyEnable = desc.anisotroy_enabled;
+    info.maxAnisotropy = desc.max_anisotropy;
+    info.compareEnable = desc.compare_enable;
+    info.compareOp = desc.compare_op;
+    info.minLod = desc.min_lod;
+    info.maxLod = desc.max_lod;
+    info.borderColor = {};
+    info.unnormalizedCoordinates = 0;
+
+    VkSampler s = {};
+    VkResult vkr = vkCreateSampler(vk.device, &info, 0, &s);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    sampler->sampler = s;
+    return VK_SUCCESS;
+}
+
+void
+DestroySampler(Sampler* sampler, const Context& vk) {
+    vkDestroySampler(vk.device, sampler->sampler, 0);
+    *sampler = {};
+}
+
+struct ImageDescriptorWriteDesc {
+    VkImageView view;
+    VkImageLayout layout;
+
+    VkDescriptorType type;
+    u32 binding;
+    u32 element;
+};
+  
+void
+WriteImageDescriptor(VkDescriptorSet set, const Context& vk, const ImageDescriptorWriteDesc&& write)
+{
+    assert(write.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || write.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+
+    // Prepare descriptor and handle
+    VkDescriptorImageInfo desc_info = {};
+    desc_info.imageView = write.view;
+    desc_info.imageLayout = write.layout;
+
+    VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    write_descriptor_set.dstSet = set;
+    write_descriptor_set.dstArrayElement = write.element;
+    write_descriptor_set.descriptorCount = 1;
+    write_descriptor_set.pImageInfo = &desc_info;
+    write_descriptor_set.dstBinding = write.binding;
+    write_descriptor_set.descriptorType = write.type;
+
+    // Actually write the descriptor to the GPU visible heap
+    vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
+}
+
+
+struct SamplerDescriptorWriteDesc {
+    VkSampler sampler;
+    u32 binding;
+    u32 element;
+};
+  
+void
+WriteSamplerDescriptor(VkDescriptorSet set, const Context& vk, const SamplerDescriptorWriteDesc&& write)
+{
+    // Prepare descriptor and handle
+    VkDescriptorImageInfo desc_info = {};
+    desc_info.sampler = write.sampler;
+
+    VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    write_descriptor_set.dstSet = set;
+    write_descriptor_set.dstArrayElement = write.element;
+    write_descriptor_set.descriptorCount = 1;
+    write_descriptor_set.pImageInfo = &desc_info;
+    write_descriptor_set.dstBinding = write.binding;
+    write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+
+    // Actually write the descriptor to the GPU visible heap
+    vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
+}
+
+FormatInfo GetFormatInfo(VkFormat format)
+{
+    switch(format) {
+        case VK_FORMAT_UNDEFINED:                                   return { 0, 0 };
+        case VK_FORMAT_R4G4_UNORM_PACK8:                            return { 1, 2 };
+        case VK_FORMAT_R4G4B4A4_UNORM_PACK16:                       return { 2, 4 };
+        case VK_FORMAT_B4G4R4A4_UNORM_PACK16:                       return { 2, 4 };
+        case VK_FORMAT_R5G6B5_UNORM_PACK16:                         return { 2, 3 };
+        case VK_FORMAT_B5G6R5_UNORM_PACK16:                         return { 2, 3 };
+        case VK_FORMAT_R5G5B5A1_UNORM_PACK16:                       return { 2, 4 };
+        case VK_FORMAT_B5G5R5A1_UNORM_PACK16:                       return { 2, 4 };
+        case VK_FORMAT_A1R5G5B5_UNORM_PACK16:                       return { 2, 4 };
+        case VK_FORMAT_R8_UNORM:                                    return { 1, 1 };
+        case VK_FORMAT_R8_SNORM:                                    return { 1, 1 };
+        case VK_FORMAT_R8_USCALED:                                  return { 1, 1 };
+        case VK_FORMAT_R8_SSCALED:                                  return { 1, 1 };
+        case VK_FORMAT_R8_UINT:                                     return { 1, 1 };
+        case VK_FORMAT_R8_SINT:                                     return { 1, 1 };
+        case VK_FORMAT_R8_SRGB:                                     return { 1, 1 };
+        case VK_FORMAT_R8G8_UNORM:                                  return { 2, 2 };
+        case VK_FORMAT_R8G8_SNORM:                                  return { 2, 2 };
+        case VK_FORMAT_R8G8_USCALED:                                return { 2, 2 };
+        case VK_FORMAT_R8G8_SSCALED:                                return { 2, 2 };
+        case VK_FORMAT_R8G8_UINT:                                   return { 2, 2 };
+        case VK_FORMAT_R8G8_SINT:                                   return { 2, 2 };
+        case VK_FORMAT_R8G8_SRGB:                                   return { 2, 2 };
+        case VK_FORMAT_R8G8B8_UNORM:                                return { 3, 3 };
+        case VK_FORMAT_R8G8B8_SNORM:                                return { 3, 3 };
+        case VK_FORMAT_R8G8B8_USCALED:                              return { 3, 3 };
+        case VK_FORMAT_R8G8B8_SSCALED:                              return { 3, 3 };
+        case VK_FORMAT_R8G8B8_UINT:                                 return { 3, 3 };
+        case VK_FORMAT_R8G8B8_SINT:                                 return { 3, 3 };
+        case VK_FORMAT_R8G8B8_SRGB:                                 return { 3, 3 };
+        case VK_FORMAT_B8G8R8_UNORM:                                return { 3, 3 };
+        case VK_FORMAT_B8G8R8_SNORM:                                return { 3, 3 };
+        case VK_FORMAT_B8G8R8_USCALED:                              return { 3, 3 };
+        case VK_FORMAT_B8G8R8_SSCALED:                              return { 3, 3 };
+        case VK_FORMAT_B8G8R8_UINT:                                 return { 3, 3 };
+        case VK_FORMAT_B8G8R8_SINT:                                 return { 3, 3 };
+        case VK_FORMAT_B8G8R8_SRGB:                                 return { 3, 3 };
+        case VK_FORMAT_R8G8B8A8_UNORM:                              return { 4, 4 };
+        case VK_FORMAT_R8G8B8A8_SNORM:                              return { 4, 4 };
+        case VK_FORMAT_R8G8B8A8_USCALED:                            return { 4, 4 };
+        case VK_FORMAT_R8G8B8A8_SSCALED:                            return { 4, 4 };
+        case VK_FORMAT_R8G8B8A8_UINT:                               return { 4, 4 };
+        case VK_FORMAT_R8G8B8A8_SINT:                               return { 4, 4 };
+        case VK_FORMAT_R8G8B8A8_SRGB:                               return { 4, 4 };
+        case VK_FORMAT_B8G8R8A8_UNORM:                              return { 4, 4 };
+        case VK_FORMAT_B8G8R8A8_SNORM:                              return { 4, 4 };
+        case VK_FORMAT_B8G8R8A8_USCALED:                            return { 4, 4 };
+        case VK_FORMAT_B8G8R8A8_SSCALED:                            return { 4, 4 };
+        case VK_FORMAT_B8G8R8A8_UINT:                               return { 4, 4 };
+        case VK_FORMAT_B8G8R8A8_SINT:                               return { 4, 4 };
+        case VK_FORMAT_B8G8R8A8_SRGB:                               return { 4, 4 };
+        case VK_FORMAT_A8B8G8R8_UNORM_PACK32:                       return { 4, 4 };
+        case VK_FORMAT_A8B8G8R8_SNORM_PACK32:                       return { 4, 4 };
+        case VK_FORMAT_A8B8G8R8_USCALED_PACK32:                     return { 4, 4 };
+        case VK_FORMAT_A8B8G8R8_SSCALED_PACK32:                     return { 4, 4 };
+        case VK_FORMAT_A8B8G8R8_UINT_PACK32:                        return { 4, 4 };
+        case VK_FORMAT_A8B8G8R8_SINT_PACK32:                        return { 4, 4 };
+        case VK_FORMAT_A8B8G8R8_SRGB_PACK32:                        return { 4, 4 };
+        case VK_FORMAT_A2R10G10B10_UNORM_PACK32:                    return { 4, 4 };
+        case VK_FORMAT_A2R10G10B10_SNORM_PACK32:                    return { 4, 4 };
+        case VK_FORMAT_A2R10G10B10_USCALED_PACK32:                  return { 4, 4 };
+        case VK_FORMAT_A2R10G10B10_SSCALED_PACK32:                  return { 4, 4 };
+        case VK_FORMAT_A2R10G10B10_UINT_PACK32:                     return { 4, 4 };
+        case VK_FORMAT_A2R10G10B10_SINT_PACK32:                     return { 4, 4 };
+        case VK_FORMAT_A2B10G10R10_UNORM_PACK32:                    return { 4, 4 };
+        case VK_FORMAT_A2B10G10R10_SNORM_PACK32:                    return { 4, 4 };
+        case VK_FORMAT_A2B10G10R10_USCALED_PACK32:                  return { 4, 4 };
+        case VK_FORMAT_A2B10G10R10_SSCALED_PACK32:                  return { 4, 4 };
+        case VK_FORMAT_A2B10G10R10_UINT_PACK32:                     return { 4, 4 };
+        case VK_FORMAT_A2B10G10R10_SINT_PACK32:                     return { 4, 4 };
+        case VK_FORMAT_R16_UNORM:                                   return { 2, 1 };
+        case VK_FORMAT_R16_SNORM:                                   return { 2, 1 };
+        case VK_FORMAT_R16_USCALED:                                 return { 2, 1 };
+        case VK_FORMAT_R16_SSCALED:                                 return { 2, 1 };
+        case VK_FORMAT_R16_UINT:                                    return { 2, 1 };
+        case VK_FORMAT_R16_SINT:                                    return { 2, 1 };
+        case VK_FORMAT_R16_SFLOAT:                                  return { 2, 1 };
+        case VK_FORMAT_R16G16_UNORM:                                return { 4, 2 };
+        case VK_FORMAT_R16G16_SNORM:                                return { 4, 2 };
+        case VK_FORMAT_R16G16_USCALED:                              return { 4, 2 };
+        case VK_FORMAT_R16G16_SSCALED:                              return { 4, 2 };
+        case VK_FORMAT_R16G16_UINT:                                 return { 4, 2 };
+        case VK_FORMAT_R16G16_SINT:                                 return { 4, 2 };
+        case VK_FORMAT_R16G16_SFLOAT:                               return { 4, 2 };
+        case VK_FORMAT_R16G16B16_UNORM:                             return { 6, 3 };
+        case VK_FORMAT_R16G16B16_SNORM:                             return { 6, 3 };
+        case VK_FORMAT_R16G16B16_USCALED:                           return { 6, 3 };
+        case VK_FORMAT_R16G16B16_SSCALED:                           return { 6, 3 };
+        case VK_FORMAT_R16G16B16_UINT:                              return { 6, 3 };
+        case VK_FORMAT_R16G16B16_SINT:                              return { 6, 3 };
+        case VK_FORMAT_R16G16B16_SFLOAT:                            return { 6, 3 };
+        case VK_FORMAT_R16G16B16A16_UNORM:                          return { 8, 4 };
+        case VK_FORMAT_R16G16B16A16_SNORM:                          return { 8, 4 };
+        case VK_FORMAT_R16G16B16A16_USCALED:                        return { 8, 4 };
+        case VK_FORMAT_R16G16B16A16_SSCALED:                        return { 8, 4 };
+        case VK_FORMAT_R16G16B16A16_UINT:                           return { 8, 4 };
+        case VK_FORMAT_R16G16B16A16_SINT:                           return { 8, 4 };
+        case VK_FORMAT_R16G16B16A16_SFLOAT:                         return { 8, 4 };
+        case VK_FORMAT_R32_UINT:                                    return { 4, 1 };
+        case VK_FORMAT_R32_SINT:                                    return { 4, 1 };
+        case VK_FORMAT_R32_SFLOAT:                                  return { 4, 1 };
+        case VK_FORMAT_R32G32_UINT:                                 return { 8, 2 };
+        case VK_FORMAT_R32G32_SINT:                                 return { 8, 2 };
+        case VK_FORMAT_R32G32_SFLOAT:                               return { 8, 2 };
+        case VK_FORMAT_R32G32B32_UINT:                              return {12, 3 };
+        case VK_FORMAT_R32G32B32_SINT:                              return {12, 3 };
+        case VK_FORMAT_R32G32B32_SFLOAT:                            return {12, 3 };
+        case VK_FORMAT_R32G32B32A32_UINT:                           return {16, 4 };
+        case VK_FORMAT_R32G32B32A32_SINT:                           return {16, 4 };
+        case VK_FORMAT_R32G32B32A32_SFLOAT:                         return {16, 4 };
+        case VK_FORMAT_R64_UINT:                                    return { 8, 1 };
+        case VK_FORMAT_R64_SINT:                                    return { 8, 1 };
+        case VK_FORMAT_R64_SFLOAT:                                  return { 8, 1 };
+        case VK_FORMAT_R64G64_UINT:                                 return {16, 2 };
+        case VK_FORMAT_R64G64_SINT:                                 return {16, 2 };
+        case VK_FORMAT_R64G64_SFLOAT:                               return {16, 2 };
+        case VK_FORMAT_R64G64B64_UINT:                              return {24, 3 };
+        case VK_FORMAT_R64G64B64_SINT:                              return {24, 3 };
+        case VK_FORMAT_R64G64B64_SFLOAT:                            return {24, 3 };
+        case VK_FORMAT_R64G64B64A64_UINT:                           return {32, 4 };
+        case VK_FORMAT_R64G64B64A64_SINT:                           return {32, 4 };
+        case VK_FORMAT_R64G64B64A64_SFLOAT:                         return {32, 4 };
+        case VK_FORMAT_B10G11R11_UFLOAT_PACK32:                     return { 4, 3 };
+        case VK_FORMAT_E5B9G9R9_UFLOAT_PACK32:                      return { 4, 3 };
+        case VK_FORMAT_D16_UNORM:                                   return { 2, 1 };
+        case VK_FORMAT_X8_D24_UNORM_PACK32:                         return { 4, 1 };
+        case VK_FORMAT_D32_SFLOAT:                                  return { 4, 1 };
+        case VK_FORMAT_S8_UINT:                                     return { 1, 1 };
+        case VK_FORMAT_D16_UNORM_S8_UINT:                           return { 3, 2 };
+        case VK_FORMAT_D24_UNORM_S8_UINT:                           return { 4, 2 };
+        case VK_FORMAT_D32_SFLOAT_S8_UINT:                          return { 8, 2 };
+        case VK_FORMAT_BC1_RGB_UNORM_BLOCK:                         return { 8, 4 };
+        case VK_FORMAT_BC1_RGB_SRGB_BLOCK:                          return { 8, 4 };
+        case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:                        return { 8, 4 };
+        case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:                         return { 8, 4 };
+        case VK_FORMAT_BC2_UNORM_BLOCK:                             return {16, 4 };
+        case VK_FORMAT_BC2_SRGB_BLOCK:                              return {16, 4 };
+        case VK_FORMAT_BC3_UNORM_BLOCK:                             return {16, 4 };
+        case VK_FORMAT_BC3_SRGB_BLOCK:                              return {16, 4 };
+        case VK_FORMAT_BC4_UNORM_BLOCK:                             return { 8, 4 };
+        case VK_FORMAT_BC4_SNORM_BLOCK:                             return { 8, 4 };
+        case VK_FORMAT_BC5_UNORM_BLOCK:                             return {16, 4 };
+        case VK_FORMAT_BC5_SNORM_BLOCK:                             return {16, 4 };
+        case VK_FORMAT_BC6H_UFLOAT_BLOCK:                           return {16, 4 };
+        case VK_FORMAT_BC6H_SFLOAT_BLOCK:                           return {16, 4 };
+        case VK_FORMAT_BC7_UNORM_BLOCK:                             return {16, 4 };
+        case VK_FORMAT_BC7_SRGB_BLOCK:                              return {16, 4 };
+        case VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK:                     return { 8, 3 };
+        case VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK:                      return { 8, 3 };
+        case VK_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK:                   return { 8, 4 };
+        case VK_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK:                    return { 8, 4 };
+        case VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK:                   return {16, 4 };
+        case VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK:                    return {16, 4 };
+        case VK_FORMAT_EAC_R11_UNORM_BLOCK:                         return { 8, 1 };
+        case VK_FORMAT_EAC_R11_SNORM_BLOCK:                         return { 8, 1 };
+        case VK_FORMAT_EAC_R11G11_UNORM_BLOCK:                      return {16, 2 };
+        case VK_FORMAT_EAC_R11G11_SNORM_BLOCK:                      return {16, 2 };
+        case VK_FORMAT_ASTC_4x4_UNORM_BLOCK:                        return {16, 4 };
+        case VK_FORMAT_ASTC_4x4_SRGB_BLOCK:                         return {16, 4 };
+        case VK_FORMAT_ASTC_5x4_UNORM_BLOCK:                        return {16, 4 };
+        case VK_FORMAT_ASTC_5x4_SRGB_BLOCK:                         return {16, 4 };
+        case VK_FORMAT_ASTC_5x5_UNORM_BLOCK:                        return {16, 4 };
+        case VK_FORMAT_ASTC_5x5_SRGB_BLOCK:                         return {16, 4 };
+        case VK_FORMAT_ASTC_6x5_UNORM_BLOCK:                        return {16, 4 };
+        case VK_FORMAT_ASTC_6x5_SRGB_BLOCK:                         return {16, 4 };
+        case VK_FORMAT_ASTC_6x6_UNORM_BLOCK:                        return {16, 4 };
+        case VK_FORMAT_ASTC_6x6_SRGB_BLOCK:                         return {16, 4 };
+        case VK_FORMAT_ASTC_8x5_UNORM_BLOCK:                        return {16, 4 };
+        case VK_FORMAT_ASTC_8x5_SRGB_BLOCK:                         return {16, 4 };
+        case VK_FORMAT_ASTC_8x6_UNORM_BLOCK:                        return {16, 4 };
+        case VK_FORMAT_ASTC_8x6_SRGB_BLOCK:                         return {16, 4 };
+        case VK_FORMAT_ASTC_8x8_UNORM_BLOCK:                        return {16, 4 };
+        case VK_FORMAT_ASTC_8x8_SRGB_BLOCK:                         return {16, 4 };
+        case VK_FORMAT_ASTC_10x5_UNORM_BLOCK:                       return {16, 4 };
+        case VK_FORMAT_ASTC_10x5_SRGB_BLOCK:                        return {16, 4 };
+        case VK_FORMAT_ASTC_10x6_UNORM_BLOCK:                       return {16, 4 };
+        case VK_FORMAT_ASTC_10x6_SRGB_BLOCK:                        return {16, 4 };
+        case VK_FORMAT_ASTC_10x8_UNORM_BLOCK:                       return {16, 4 };
+        case VK_FORMAT_ASTC_10x8_SRGB_BLOCK:                        return {16, 4 };
+        case VK_FORMAT_ASTC_10x10_UNORM_BLOCK:                      return {16, 4 };
+        case VK_FORMAT_ASTC_10x10_SRGB_BLOCK:                       return {16, 4 };
+        case VK_FORMAT_ASTC_12x10_UNORM_BLOCK:                      return {16, 4 };
+        case VK_FORMAT_ASTC_12x10_SRGB_BLOCK:                       return {16, 4 };
+        case VK_FORMAT_ASTC_12x12_UNORM_BLOCK:                      return {16, 4 };
+        case VK_FORMAT_ASTC_12x12_SRGB_BLOCK:                       return {16, 4 };
+        case VK_FORMAT_PVRTC1_2BPP_UNORM_BLOCK_IMG:                 return { 8, 4 };
+        case VK_FORMAT_PVRTC1_4BPP_UNORM_BLOCK_IMG:                 return { 8, 4 };
+        case VK_FORMAT_PVRTC2_2BPP_UNORM_BLOCK_IMG:                 return { 8, 4 };
+        case VK_FORMAT_PVRTC2_4BPP_UNORM_BLOCK_IMG:                 return { 8, 4 };
+        case VK_FORMAT_PVRTC1_2BPP_SRGB_BLOCK_IMG:                  return { 8, 4 };
+        case VK_FORMAT_PVRTC1_4BPP_SRGB_BLOCK_IMG:                  return { 8, 4 };
+        case VK_FORMAT_PVRTC2_2BPP_SRGB_BLOCK_IMG:                  return { 8, 4 };
+        case VK_FORMAT_PVRTC2_4BPP_SRGB_BLOCK_IMG:                  return { 8, 4 };
+        case VK_FORMAT_R10X6_UNORM_PACK16:                          return { 2, 1 };
+        case VK_FORMAT_R10X6G10X6_UNORM_2PACK16:                    return { 4, 2 };
+        case VK_FORMAT_R10X6G10X6B10X6A10X6_UNORM_4PACK16:          return { 8, 4 };
+        case VK_FORMAT_R12X4_UNORM_PACK16:                          return { 2, 1 };
+        case VK_FORMAT_R12X4G12X4_UNORM_2PACK16:                    return { 4, 2 };
+        case VK_FORMAT_R12X4G12X4B12X4A12X4_UNORM_4PACK16:          return { 8, 4 };
+        case VK_FORMAT_G8B8G8R8_422_UNORM:                          return { 4, 4 };
+        case VK_FORMAT_B8G8R8G8_422_UNORM:                          return { 4, 4 };
+        case VK_FORMAT_G10X6B10X6G10X6R10X6_422_UNORM_4PACK16:      return { 8, 4 };
+        case VK_FORMAT_B10X6G10X6R10X6G10X6_422_UNORM_4PACK16:      return { 8, 4 };
+        case VK_FORMAT_G12X4B12X4G12X4R12X4_422_UNORM_4PACK16:      return { 8, 4 };
+        case VK_FORMAT_B12X4G12X4R12X4G12X4_422_UNORM_4PACK16:      return { 8, 4 };
+        case VK_FORMAT_G16B16G16R16_422_UNORM:                      return { 8, 4 };
+        case VK_FORMAT_B16G16R16G16_422_UNORM:                      return { 8, 4 };
+        case VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM:                   return { 6, 3 };
+        case VK_FORMAT_G8_B8R8_2PLANE_420_UNORM:                    return { 6, 3 };
+        case VK_FORMAT_G10X6_B10X6_R10X6_3PLANE_420_UNORM_3PACK16:  return {12, 3 };
+        case VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16:   return {12, 3 };
+        case VK_FORMAT_G12X4_B12X4_R12X4_3PLANE_420_UNORM_3PACK16:  return {12, 3 };
+        case VK_FORMAT_G12X4_B12X4R12X4_2PLANE_420_UNORM_3PACK16:   return {12, 3 };
+        case VK_FORMAT_G16_B16_R16_3PLANE_420_UNORM:                return {12, 3 };
+        case VK_FORMAT_G16_B16R16_2PLANE_420_UNORM:                 return {12, 3 };
+        case VK_FORMAT_G8_B8_R8_3PLANE_422_UNORM:                   return { 4, 3 };
+        case VK_FORMAT_G8_B8R8_2PLANE_422_UNORM:                    return { 4, 3 };
+        case VK_FORMAT_G10X6_B10X6_R10X6_3PLANE_422_UNORM_3PACK16:  return { 8, 3 };
+        case VK_FORMAT_G10X6_B10X6R10X6_2PLANE_422_UNORM_3PACK16:   return { 8, 3 };
+        case VK_FORMAT_G12X4_B12X4_R12X4_3PLANE_422_UNORM_3PACK16:  return { 8, 3 };
+        case VK_FORMAT_G12X4_B12X4R12X4_2PLANE_422_UNORM_3PACK16:   return { 8, 3 };
+        case VK_FORMAT_G16_B16_R16_3PLANE_422_UNORM:                return { 8, 3 };
+        case VK_FORMAT_G16_B16R16_2PLANE_422_UNORM:                 return { 8, 3 };
+        case VK_FORMAT_G8_B8_R8_3PLANE_444_UNORM:                   return { 3, 3 };
+        case VK_FORMAT_G10X6_B10X6_R10X6_3PLANE_444_UNORM_3PACK16:  return { 6, 3 };
+        case VK_FORMAT_G12X4_B12X4_R12X4_3PLANE_444_UNORM_3PACK16:  return { 6, 3 };
+        case VK_FORMAT_G16_B16_R16_3PLANE_444_UNORM:                return { 6, 3 };
+        default: return {};
+    }
 }
 
 }
