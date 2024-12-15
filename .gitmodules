@@ -25,3 +25,6 @@
 [submodule "ext/slang"]
 	path = ext/slang
 	url = https://github.com/shader-slang/slang.git
+[submodule "ext/zstd"]
+	path = ext/zstd
+	url = https://github.com/facebook/zstd.git
