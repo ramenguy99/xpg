@@ -31,8 +31,31 @@ struct Frame
     u32 current_image_index;
 };
 
+enum class MouseButton: u32 {
+    None = ~0u,
+    Left = GLFW_MOUSE_BUTTON_LEFT,
+    Right = GLFW_MOUSE_BUTTON_RIGHT,
+    Middle = GLFW_MOUSE_BUTTON_MIDDLE,
+};
+
+enum class Action: u32 {
+    None = ~0u,
+    Release = GLFW_RELEASE,
+    Press = GLFW_PRESS,
+    Repeat = GLFW_REPEAT,
+};
+
+enum class Modifiers: u32 {
+    Shift = GLFW_MOD_SHIFT,
+    Ctrl = GLFW_MOD_CONTROL,
+    Alt = GLFW_MOD_ALT,
+    Super = GLFW_MOD_SUPER,
+};
+
 struct WindowCallbacks {
     std::function<void()> draw;
+    std::function<void(glm::ivec2, MouseButton, Action, Modifiers)> mouse_button_event;
+    std::function<void(glm::ivec2, glm::ivec2, Modifiers)> mouse_scroll_event;
 };
 
 struct Window
@@ -237,6 +260,15 @@ void Callback_WindowRefresh(GLFWwindow* window) {
     }
 }
 
+void Callback_MouseButton(GLFWwindow* window, int button, int action, int mods) {
+    Window* w = (Window*)glfwGetWindowUserPointer(window);
+    if (w && w->callbacks.draw) {
+        glm::dvec2 pos;
+        glfwGetCursorPos(window, &pos.x, &pos.y);
+        w->callbacks.mouse_button_event((glm::ivec2)pos, (MouseButton)button, (Action)action, (Modifiers)mods);
+    }
+}
+
 #ifdef _WIN32
 DWORD WINAPI thread_proc(void* param) {
     HWND window = (HWND)param;
@@ -260,6 +292,7 @@ void SetWindowCallbacks(Window* window, WindowCallbacks&& callbacks) {
     window->callbacks = std::move(callbacks);
     glfwSetWindowUserPointer(window->window, window);
     glfwSetWindowRefreshCallback(window->window, Callback_WindowRefresh);
+    glfwSetMouseButtonCallback(window->window, Callback_MouseButton);
 }
 
 void ProcessEvents(bool block) {
@@ -1026,6 +1059,7 @@ struct Buffer
 {
     VkBuffer buffer;
     VmaAllocation allocation;
+    u64 size;
 };
 
 struct BufferDesc {
@@ -1060,6 +1094,8 @@ CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& 
 
     buffer->buffer = buf;
     buffer->allocation = allocation;
+    buffer->size = size;
+
     return VK_SUCCESS;
 }
 
@@ -1089,7 +1125,10 @@ CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, cons
 void
 DestroyBuffer(Buffer* buffer, const Context& vk)
 {
-    vmaDestroyBuffer(vk.vma, buffer->buffer, buffer->allocation);
+    if (buffer->buffer) {
+        vmaDestroyBuffer(vk.vma, buffer->buffer, buffer->allocation);
+    }
+    *buffer = {};
 }
 
 struct Shader {
@@ -1725,23 +1764,6 @@ DestroyBindlessDescriptorSet(BindlessDescriptorSet* bindless, const Context& vk)
     *bindless = {};
 }
 
- //   gfx::WriteImageDescriptor(&bindless, vk, image.view, {
- //       .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
- //       .binding = 0,
- //       .element = 0,
- //   });
-
- //   gfx::Sampler linear_sampler;
- //   gfx::CreateSampler(&linear_sampler, vk, {
-
- //   });
-
- //   gfx::WriteSamplerDescriptor(&bindless, vk, sampler, {
- //       .type = VK_DESCRIPTOR_TYPE_SAMPLER,
- //       .binding = 2,
- //       .element = 0,
- //   });
-
 struct Sampler {
     VkSampler sampler;
 };
@@ -1798,6 +1820,36 @@ void
 DestroySampler(Sampler* sampler, const Context& vk) {
     vkDestroySampler(vk.device, sampler->sampler, 0);
     *sampler = {};
+}
+
+struct BufferDescriptorWriteDesc {
+    VkBuffer buffer;
+    VkDescriptorType type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    u32 binding;
+    u32 element;
+};
+  
+void
+WriteBufferDescriptor(VkDescriptorSet set, const Context& vk, const BufferDescriptorWriteDesc&& write)
+{
+    assert(write.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+
+    // Prepare descriptor and handle
+    VkDescriptorBufferInfo desc_info = {};
+    desc_info.buffer = write.buffer;
+    desc_info.offset = 0;
+    desc_info.range = VK_WHOLE_SIZE;
+
+    VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    write_descriptor_set.dstSet = set;
+    write_descriptor_set.dstArrayElement = write.element;
+    write_descriptor_set.descriptorCount = 1;
+    write_descriptor_set.pBufferInfo = &desc_info;
+    write_descriptor_set.dstBinding = write.binding;
+    write_descriptor_set.descriptorType = write.type;
+
+    // Actually write the descriptor to the GPU visible heap
+    vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
 }
 
 struct ImageDescriptorWriteDesc {
