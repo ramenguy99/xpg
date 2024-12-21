@@ -81,14 +81,14 @@ using glm::mat4;
 // [x] Load data from disk
 // [x] First load everything from disk and decompress into chunks
 // [x] Upload all chunks
-// [ ] Implement view choice on the CPU and update descriptors
-//     [ ] Likely use instanced quads or single buffer of tris (quad count is gonna be super low, so anything works here)
-//     [ ] Zooming and panning
-// [ ] Display load state in some sort of minimap in imgui
-// [ ] Fix delta coding (likely a signed vs unsigned either here or in python)
+// [x] Implement view choice on the CPU and update descriptors
+//     [x] Likely use instanced quads or single buffer of tris (quad count is gonna be super low, so anything works here)
+//     [x] Zooming and panning
+// [x] Display load state in some sort of minimap in imgui
+// [x] Fix delta coding (issue was delta per plane vs per whole chunk)
 // [ ] Threaded loading
 // [ ] Add framegraph
-// [ ] Reimplement with minimal example
+// [ ] Reimplement with app::Application helper, compare code cut
 // [ ] Mips on last chunk
 // [ ] Non pow2 images and non multiple of chunk size
 
@@ -138,8 +138,8 @@ int main(int argc, char** argv) {
     vkr = gfx::CreateBindlessDescriptorSet(&bindless, vk, {
         .entries = {
             {
-                .count = 1,
-                .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                .count = (u32)window.frames.length,
+                .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             },
             {
                 .count = 1,
@@ -149,36 +149,12 @@ int main(int argc, char** argv) {
                 .count = 1024 * 1024,
                 .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             },
-            {
-                .count = (u32)window.frames.length,
-                .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            },
         }
         });
     if (result != gfx::Result::SUCCESS) {
         logging::error("bigimage", "Failed to create descriptor set\n");
         exit(100);
     }
-
-#if 0
-    gfx::Image image = {};
-    gfx::CreateImage(&image, vk, {
-        .width = window.fb_width,
-        .height = window.fb_height,
-        .format = window.swapchain_format,
-        .usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-        .alloc_flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
-        .memory_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        });
-
-    gfx::WriteImageDescriptor(bindless.set, vk, {
-        .view = image.view,
-        .layout = VK_IMAGE_LAYOUT_GENERAL,
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-        .binding = 0,
-        .element = 0,
-        });
-#endif
 
     gfx::Sampler sampler;
     vkr = gfx::CreateSampler(&sampler, vk, {
@@ -198,35 +174,6 @@ int main(int argc, char** argv) {
         });
 
     // Pipeline
-#if 0
-    Array<u8> code = platform::ReadEntireFile("res/bigimage.comp.spirv");
-    gfx::Shader shader = {};
-    vkr = gfx::CreateShader(&shader, vk, code);
-    if (result != gfx::Result::SUCCESS) {
-        logging::error("bigimage", "Failed to create shader\n");
-        exit(100);
-    }
-
-    gfx::ComputePipeline pipeline = {};
-    vkr = gfx::CreateComputePipeline(&pipeline, vk, {
-        .shader = shader,
-        .entry = "main",
-        .push_constants = {
-            {
-                .flags = VK_SHADER_STAGE_COMPUTE_BIT,
-                .offset = 0,
-                .size = 4,
-            },
-        },
-        .descriptor_sets = {
-            bindless.layout,
-        },
-        });
-    if (result != gfx::Result::SUCCESS) {
-        logging::error("bigimage", "Failed to create compute pipeline\n");
-        exit(100);
-    }
-#else
     Array<u8> vert_code = platform::ReadEntireFile("res/bigimage.vert.spirv");
     gfx::Shader vert_shader = {};
     vkr = gfx::CreateShader(&vert_shader, vk, vert_code);
@@ -271,7 +218,7 @@ int main(int argc, char** argv) {
         .push_constants = {
             {
                 .offset = 0,
-                .size = 28,
+                .size = 32,
             },
         },
         .descriptor_sets = {
@@ -305,12 +252,10 @@ int main(int argc, char** argv) {
             .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         });
     assert(vkr == VK_SUCCESS);
-#endif
 
     // Read image
-    Array<u8> zmip_data = platform::ReadEntireFile("N:\\scenes\\hubble\\heic0601a_test.zmip");
-    // Array<u8> zmip_data = platform::ReadEntireFile("N:\\scenes\\hubble\\heic0601a_nodiff.zmip");
-    // Array<u8> zmip_data = platform::ReadEntireFile("N:\\scenes\\hubble\\heic0601a_256_nodiff.zmip");
+    Array<u8> zmip_data = platform::ReadEntireFile("N:\\scenes\\hubble\\heic0601a_test_delta.zmip");
+    // Array<u8> zmip_data = platform::ReadEntireFile("N:\\scenes\\hubble\\heic0601a_256.zmip");
     ArrayView<u8> zmip = zmip_data;
 
 #pragma pack(push, 1)
@@ -386,10 +331,13 @@ int main(int argc, char** argv) {
                 }
                 ZSTD_decompress(interleaved.data, interleaved.length, chunk.data, chunk.length);
 
-                // // Undo delta coding
-                // for (usize i = 1; i < interleaved.length; i++) {
-                //     interleaved[i] += interleaved[i - 1];
-                // }
+                // Undo delta coding
+                usize plane_size = header.chunk_width * header.chunk_height;
+                for (usize c = 0; c < header.channels; c++) {
+                    for (usize i = 1; i < plane_size; i++) {
+                        interleaved[i + plane_size * c] += interleaved[i - 1 + plane_size * c];
+                    }
+                }
 
                 // Deinterleave planes and add alpha
                 for (usize y = 0; y < header.chunk_height; y++) {
@@ -431,50 +379,77 @@ int main(int argc, char** argv) {
     };
 
     struct App {
-        // Window stuff
-        bool wait_for_events;
-        bool closed;
+        // - Window
+        bool wait_for_events = false;
+        bool closed = false;
 
-        // Application data
+        // - Application data
         platform::Timestamp last_frame_timestamp;
-        u64 current_frame;  // Total frame index, always increasing
         Array<Chunk> chunks;
-        vec2 offset;
-        s32 zoom;
-        bool first_frame_done;
+        u64 current_frame = 0;  // Total frame index, always increasing
+        vec2 offset = vec2(0, 0);
+        s32 zoom = 0;
+        s32 max_zoom = 0;
+        bool first_frame_done = false;
+        ivec2 drag_start_offset = ivec2(0, 0);
+        ivec2 drag_start = ivec2(0, 0);
+        bool dragging = false;
+        bool show_grid = false;
 
-        // Rendering
+        // - Rendering
         VkPipeline pipeline;
         VkPipelineLayout layout;
         VkDescriptorSet descriptor_set;
-    #if 0
-        gfx::Image image;           // Application backbuffer (blitted to swapchain backbuffer)
-    #endif
         Array<gfx::Buffer> chunks_buffers; // Buffer containing chunk metadata, one per frame in flight
         gfx::Buffer vertex_buffer;
-        s32 descriptor_index;
         s32 descriptor_count;
-        u32 frame_index; // Rendering frame index, wraps around at the number of frames in flight
+        u32 frame_index = 0; // Rendering frame index, wraps around at the number of frames in flight
     };
 
     // USER: application
     App app = {};
-    app.wait_for_events = false;
     app.last_frame_timestamp = platform::GetTimestamp();
     app.pipeline = pipeline.pipeline;
     app.layout = pipeline.layout;
     app.descriptor_set = bindless.set;
-#if 0
-    app.image = image;
-#endif
-    app.descriptor_index = (s32)all_images.length - 1;
     app.descriptor_count = (s32)all_images.length;
     app.chunks_buffers = Array<gfx::Buffer>(window.frames.length);
     app.chunks = Array<Chunk>();
-    app.offset = vec2(0, 0);
-    app.zoom = 0;
-    app.frame_index = 0;
     app.vertex_buffer = vertex_buffer;
+    app.max_zoom = (s32)(level_chunk_offsets.length - 1);
+
+    auto MouseMoveEvent = [&app](ivec2 pos) {
+        if (app.dragging) {
+            ivec2 delta = pos - app.drag_start;
+            app.offset = delta + app.drag_start_offset;
+        }
+    };
+
+    auto MouseButtonEvent = [&app](ivec2 pos, gfx::MouseButton button, gfx::Action action, gfx::Modifiers mods) {
+        if (ImGui::GetIO().WantCaptureMouse) return;
+
+        if (button == gfx::MouseButton::Left) {
+            if (action == gfx::Action::Press && !app.dragging) {
+                app.dragging = true;
+                app.drag_start = pos;
+                app.drag_start_offset = app.offset;
+            }
+            else if (action == gfx::Action::Release && app.dragging) {
+                app.dragging = false;
+                app.drag_start = ivec2(0, 0);
+                app.drag_start_offset = ivec2(0, 0);
+            }
+        }
+    };
+
+    auto MouseScrollEvent = [&app](ivec2 pos, ivec2 scroll) {
+        if (ImGui::GetIO().WantCaptureMouse) return;
+
+        ivec2 old_image_pos = (pos - (ivec2)app.offset) << app.zoom;
+        app.zoom = Clamp(app.zoom - scroll.y, 0, (s32)app.max_zoom);
+        ivec2 new_image_pos = (pos - (ivec2)app.offset) << app.zoom;
+        app.offset += (new_image_pos - old_image_pos) >> app.zoom;
+    };
 
     auto Draw = [&app, &vk, &window, &bindless, &header, &level_chunk_offsets]() {
         if (app.closed) return;
@@ -496,39 +471,6 @@ int main(int argc, char** argv) {
             app.first_frame_done = true;
 
             // USER: resize (e.g. framebuffer sized elements)
-#if 0
-            VkResult vkr = gfx::CreateImage(&app.image, vk, {
-                .width = window.fb_width,
-                .height = window.fb_height,
-                .format = window.swapchain_format,
-                .usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                .alloc_flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
-                .memory_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                });
-
-            if (vkr != VK_SUCCESS) {
-                logging::error("bigimage/draw", "Failed to resize image");
-            }
-
-            {
-                VkDescriptorImageInfo desc_info = {};
-                desc_info.imageView = app.image.view;
-                desc_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-                VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-                write_descriptor_set.dstSet = bindless.set;
-                write_descriptor_set.dstArrayElement = 0; // Element 0 in the set
-                write_descriptor_set.descriptorCount = 1;
-                write_descriptor_set.pImageInfo = &desc_info;
-                write_descriptor_set.dstBinding = 0; // Here we use 0 because in our descriptor bindings, we have STORAGE_IMAGE at index 0
-                write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-
-                // Actually write the descriptor to the GPU visible heap
-                vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
-            }
-#endif
-            
-            
             ivec2 view_size = ivec2(window.fb_width, window.fb_height);
             ivec2 img_size = ivec2(header.width, header.height);
             ivec2 chunk_size = ivec2(header.chunk_width, header.chunk_height);
@@ -545,7 +487,7 @@ int main(int argc, char** argv) {
                     });
                     gfx::WriteBufferDescriptor(bindless.set, vk, {
                         .buffer = app.chunks_buffers[i].buffer,
-                        .binding = 3,
+                        .binding = 0,
                         .element = (u32)i,
                     });
                 }
@@ -553,34 +495,27 @@ int main(int argc, char** argv) {
         }
 
         // Chunks
-        ivec2 offset = app.offset;
-        ivec2 view_size = ivec2(window.fb_width, window.fb_height);
+        ivec2 offset = app.offset;                                          // In screen pixel
+        ivec2 view_size = ivec2(window.fb_width, window.fb_height);         // In screen pixel
+        ivec2 img_size = ivec2(header.width, header.height);                // In image pixels
+        ivec2 chunk_size = ivec2(header.chunk_width, header.chunk_height);  // In image pixels
 
-        ivec2 img_size = ivec2(header.width, header.height);
-        ivec2 chunk_size = ivec2(header.chunk_width, header.chunk_height);
-        ivec2 chunks = (img_size + chunk_size - ivec2(1, 1)) / chunk_size;
-        s32 chunks_per_row = chunks.x;
-
-        // ivec2 min_pixel = glm::max(-offset, 0);
-        // ivec2 max_pixel = glm::min(min_pixel + view_size, img_size);
+        // Zoom dependant
+        ivec2 z_chunk_size = chunk_size << app.zoom;                            // In image pixels
+        ivec2 chunks = (img_size + z_chunk_size - ivec2(1, 1)) / z_chunk_size;  // Total chunks in image at this zoom level
+        ivec2 remainder = (chunk_size - (view_size - offset) % chunk_size);
 
         app.chunks.length = 0;
-        for (s32 y = 0; y < img_size.y; y += chunk_size.y) {
-            for (s32 x = 0; x < img_size.x; x += chunk_size.x) {
-                ivec2 img_coords = ivec2(x, y) - offset;
+        for (s32 y = -offset.y; y < view_size.y - offset.y + remainder.y; y += chunk_size.y) {
+            for (s32 x = -offset.x; x < view_size.x - offset.x + remainder.x; x += chunk_size.x) {
+                ivec2 image_coords = ivec2(x, y) << app.zoom;
+                ivec2 chunk = image_coords / z_chunk_size;
 
                 // Skip chunks that are of bounds of the image
-                if (img_coords.x + chunk_size.x - 1 < 0 || img_coords.x /* - chunk_size.x */ >= img_size.x ||
-                    img_coords.y + chunk_size.y - 1 < 0 || img_coords.y /* - chunk_size.y */ >= img_size.y) {
-                    continue;
-                }
-
-                ivec2 chunk = img_coords / chunk_size;
-                assert(chunk.x >= 0 && chunk.x < chunks.x);
-                assert(chunk.y >= 0 && chunk.y < chunks.y);
+                if (!((chunk.x >= 0 && chunk.x < chunks.x) && (chunk.y >= 0 && chunk.y < chunks.y))) continue;
 
                 Chunk c = {};
-                c.desc_index = chunk.y * chunks_per_row + chunk.x + level_chunk_offsets[app.zoom];
+                c.desc_index = chunk.y * chunks.x + chunk.x + level_chunk_offsets[app.zoom];
                 c.position = offset + chunk * chunk_size;
 
                 app.chunks.add(c);
@@ -622,13 +557,47 @@ int main(int argc, char** argv) {
             //ImGui::ShowDemoWindow();
             int32_t texture_index = 0;
             if (ImGui::Begin("Editor")) {
-                ImGui::InputInt("Index", &app.descriptor_index);
-                app.descriptor_index = Clamp(app.descriptor_index, 0, app.descriptor_count - 1);
-
                 ImGui::InputInt("Zoom", &app.zoom);
                 app.zoom = Clamp(app.zoom, 0, (s32)level_chunk_offsets.length - 1);
 
                 ImGui::DragFloat2("Offset", &app.offset.x);
+
+                ImGui::Checkbox("Show grid", &app.show_grid);
+
+                ImGui::Separator();
+
+                // Draw minimap
+                ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                ImVec2 corner = ImGui::GetCursorScreenPos();
+                f32 size = 5.0f;
+                f32 stride = 7.0f;
+                ivec2 img_size = ivec2(header.width, header.height);                // In image pixels
+                for (s32 level = 0; level < (s32)level_chunk_offsets.length; level++) {
+                    ivec2 chunk_size = ivec2(header.chunk_width, header.chunk_height) << level;  // In image pixels
+                    ivec2 chunks = (img_size + chunk_size - ivec2(1, 1)) / chunk_size;  // Total chunks in image at this zoom level
+                    for (s32 y = 0; y < chunks.y; y++) {
+                        for (s32 x = 0; x < chunks.x; x++) {
+                            draw_list->AddRectFilled(corner + ImVec2(x * stride, y * stride), corner + ImVec2(x * stride + size, y * stride + size), 0xFF0000FF);
+                        }
+                    }
+
+                    if (level == app.zoom) {
+                        for (usize i = 0; i < app.chunks.length; i++) {
+                            Chunk& c = app.chunks[i];
+                            usize chunk_index = (usize)c.desc_index - level_chunk_offsets[app.zoom];
+                            usize x = chunk_index % chunks.x;
+                            usize y = chunk_index / chunks.x;
+                            draw_list->AddRectFilled(corner + ImVec2(x * stride, y * stride), corner + ImVec2(x * stride + size, y * stride + size), 0xFF00FF00);
+                        }
+                    }
+
+                    if (level & 1) {
+                        corner.x += chunks.x * stride + 5.0f;
+                    }
+                    else {
+                        corner.y += chunks.y * stride + 5.0f;
+                    }
+                }
             }
             ImGui::End();
 
@@ -639,78 +608,16 @@ int main(int argc, char** argv) {
             gfx::BeginCommands(frame.command_pool, frame.command_buffer, vk);
 
             // USER: draw commands
+            gfx::CmdImageBarrier(frame.command_buffer, frame.current_image, {
+                .src_stage = VK_PIPELINE_STAGE_2_NONE,
+                .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .src_access = 0,
+                .dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                });
+
             VkClearColorValue color = { 0.1f, 0.2f, 0.4f, 1.0f };
-
-#if 0
-            gfx::CmdImageBarrier(frame.command_buffer, app.image.image, {
-                .src_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                .dst_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                .src_access = VK_ACCESS_2_TRANSFER_READ_BIT,
-                .dst_access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .new_layout = VK_IMAGE_LAYOUT_GENERAL,
-                });
-
-            vkCmdBindPipeline(frame.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, app.pipeline);
-            vkCmdPushConstants(frame.command_buffer, app.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 4, &app.descriptor_index);
-            vkCmdBindDescriptorSets(frame.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, app.layout, 0, 1, &app.descriptor_set, 0, 0);
-            vkCmdDispatch(frame.command_buffer, (window.fb_width + 7) / 8, (window.fb_height + 7) / 8, 1);
-
-            gfx::CmdImageBarrier(frame.command_buffer, app.image.image, {
-                .src_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                .dst_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                .src_access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                .dst_access = VK_ACCESS_2_TRANSFER_READ_BIT,
-                .old_layout = VK_IMAGE_LAYOUT_GENERAL,
-                .new_layout = VK_IMAGE_LAYOUT_GENERAL,
-                });
-
-            gfx::CmdImageBarrier(frame.command_buffer, frame.current_image, {
-                .src_stage = VK_PIPELINE_STAGE_2_NONE,
-                .dst_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                .src_access = 0,
-                .dst_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .new_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                });
-
-            VkImageCopy regions = {};
-            regions.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            regions.srcSubresource.mipLevel = 0;
-            regions.srcSubresource.baseArrayLayer = 0;
-            regions.srcSubresource.layerCount = 1;
-            regions.dstSubresource = regions.srcSubresource;
-            regions.extent.width = window.fb_width;
-            regions.extent.height = window.fb_height;
-            regions.extent.depth = 1;
-            vkCmdCopyImage(frame.command_buffer, app.image.image, VK_IMAGE_LAYOUT_GENERAL, frame.current_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &regions);
-
-            gfx::CmdImageBarrier(frame.command_buffer, frame.current_image, {
-                .src_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                .src_access = 0,
-                .dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                });
-
-#else
-            // gfx::CmdBufferBarrier(frame.command_buffer, , {
-            //     .src_stage = VK_PIPELINE_STAGE_2_NONE,
-            //     .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            //     .src_access = 0,
-            //     .dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            //     });
-
-            gfx::CmdImageBarrier(frame.command_buffer, frame.current_image, {
-                .src_stage = VK_PIPELINE_STAGE_2_NONE,
-                .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                .src_access = 0,
-                .dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                });
-
             VkRenderingAttachmentInfo attachment_info = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
             attachment_info.imageView = frame.current_image_view;
             attachment_info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -750,21 +657,24 @@ int main(int argc, char** argv) {
 
             struct Constants {
                 vec2 scale;
-                vec2 offset;
                 vec2 inv_window_size;
+                vec2 inv_scale;
                 u32 frame_id;
+                u32 flags;
             };
+
             Constants constants = {
                 .scale = vec2(chunk_size),
-                .offset = vec2(0, 0),
                 .inv_window_size = vec2(1.0f / (f32)window.fb_width, 1.0f / (f32)window.fb_height),
+                .inv_scale = 1.0f / vec2(chunk_size),
                 .frame_id = (u32)app.frame_index,
+                .flags = (u32)app.show_grid << 0,
             };
             vkCmdPushConstants(frame.command_buffer, app.layout, VK_SHADER_STAGE_ALL, 0, sizeof(Constants), &constants);
 
             vkCmdDraw(frame.command_buffer, 6, (u32)app.chunks.length, 0, 0);
-#endif
 
+            // Draw GUI
 
             ImDrawData* draw_data = ImGui::GetDrawData();
             ImGui_ImplVulkan_RenderDrawData(draw_data, frame.command_buffer);
@@ -794,19 +704,16 @@ int main(int argc, char** argv) {
         app.frame_index = (app.frame_index + 1) % (u32)window.frames.length;
     };
 
-    auto MouseButtonEvent = [&app](ivec2 pos, gfx::MouseButton button, gfx::Action action, gfx::Modifiers mods) {
-        if (ImGui::GetIO().WantCaptureMouse) return;
-    };
-
-    auto MouseScrollEvent = [&app](ivec2 pos, ivec2 scroll, gfx::Modifiers mods) {
-        if (ImGui::GetIO().WantCaptureMouse) return;
-    };
+    ImGui_ImplGlfw_RestoreCallbacks(window.window);
 
     gfx::SetWindowCallbacks(&window, {
-        .draw = Draw,
+        .mouse_move_event = MouseMoveEvent,
         .mouse_button_event = MouseButtonEvent,
         .mouse_scroll_event = MouseScrollEvent,
+        .draw = Draw,
     });
+
+    ImGui_ImplGlfw_InstallCallbacks(window.window);
 
     while (true) {
         gfx::ProcessEvents(app.wait_for_events);
@@ -835,15 +742,9 @@ int main(int argc, char** argv) {
     gfx::DestroyBuffer(&vertex_buffer, vk);
 
     gfx::DestroySampler(&sampler, vk);
-#if 1
     gfx::DestroyShader(&vert_shader, vk);
     gfx::DestroyShader(&frag_shader, vk);
     gfx::DestroyGraphicsPipeline(&pipeline, vk);
-#else
-    gfx::DestroyImage(&app.image, vk);
-    gfx::DestroyShader(&shader, vk);
-    gfx::DestroyComputePipeline(&pipeline, vk);
-#endif
     gfx::DestroyBindlessDescriptorSet(&bindless, vk);
 
     // Gui

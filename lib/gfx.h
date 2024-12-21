@@ -53,9 +53,10 @@ enum class Modifiers: u32 {
 };
 
 struct WindowCallbacks {
-    std::function<void()> draw;
+    std::function<void(glm::ivec2)> mouse_move_event;
     std::function<void(glm::ivec2, MouseButton, Action, Modifiers)> mouse_button_event;
-    std::function<void(glm::ivec2, glm::ivec2, Modifiers)> mouse_scroll_event;
+    std::function<void(glm::ivec2, glm::ivec2)> mouse_scroll_event;
+    std::function<void()> draw;
 };
 
 struct Window
@@ -262,10 +263,26 @@ void Callback_WindowRefresh(GLFWwindow* window) {
 
 void Callback_MouseButton(GLFWwindow* window, int button, int action, int mods) {
     Window* w = (Window*)glfwGetWindowUserPointer(window);
-    if (w && w->callbacks.draw) {
-        glm::dvec2 pos;
+    if (w && w->callbacks.mouse_button_event) {
+        glm::dvec2 pos = {};
         glfwGetCursorPos(window, &pos.x, &pos.y);
         w->callbacks.mouse_button_event((glm::ivec2)pos, (MouseButton)button, (Action)action, (Modifiers)mods);
+    }
+}
+
+void Callback_Scroll(GLFWwindow* window, double x, double y) {
+    Window* w = (Window*)glfwGetWindowUserPointer(window);
+    if (w && w->callbacks.mouse_scroll_event) {
+        glm::dvec2 pos = {};
+        glfwGetCursorPos(window, &pos.x, &pos.y);
+        w->callbacks.mouse_scroll_event((glm::ivec2)pos, glm::ivec2((s32)x, (s32)y));
+    }
+}
+
+void Callback_CursorPos(GLFWwindow* window, double x, double y) {
+    Window* w = (Window*)glfwGetWindowUserPointer(window);
+    if (w && w->callbacks.mouse_move_event) {
+        w->callbacks.mouse_move_event(glm::ivec2((s32)x, (s32)y));
     }
 }
 
@@ -293,6 +310,8 @@ void SetWindowCallbacks(Window* window, WindowCallbacks&& callbacks) {
     glfwSetWindowUserPointer(window->window, window);
     glfwSetWindowRefreshCallback(window->window, Callback_WindowRefresh);
     glfwSetMouseButtonCallback(window->window, Callback_MouseButton);
+    glfwSetScrollCallback(window->window, Callback_Scroll);
+    glfwSetCursorPosCallback(window->window, Callback_CursorPos);
 }
 
 void ProcessEvents(bool block) {

@@ -15,9 +15,10 @@ struct VSOutput
 
 struct PushConstants {
     vec2 scale;
-    vec2 offset;
     vec2 inv_window_size;
+    vec2 inv_scale;
     uint frame_id;
+    uint flags;
 };
 
 [[vk::push_constant]]
@@ -29,7 +30,7 @@ struct Chunk {
     uint _padding;
 };
 
-[[vk::binding(3, 0)]]
+[[vk::binding(0, 0)]]
 StructuredBuffer<Chunk> r_chunks[];
 
 
@@ -40,7 +41,7 @@ VSOutput main(VSInput in, uint instance_id: SV_InstanceID)
     vec2 chunk_position = chunk.position;
 
     VSOutput out;
-    out.position = vec4((((in.pos * r_constants.scale + r_constants.offset + chunk_position) + 0.5) * r_constants.inv_window_size) * 2.0 - 1.0, 0.0, 1.0);
+    out.position = vec4((((in.pos * r_constants.scale + chunk_position) + 0.5) * r_constants.inv_window_size) * 2.0 - 1.0, 0.0, 1.0);
     //out.position = vec4((((in.pos * r_constants.scale) + 0.5) * r_constants.inv_window_size) * 2.0 - 1.0, 0.0, 1.0);
     out.uv = in.pos;
     out.index = chunk.desc_index;

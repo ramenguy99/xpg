@@ -31,3 +31,17 @@ template<typename T>
 T Clamp(const T& v, const T& min, const T& max) {
     return Min(Max(v, min), max);
 }
+
+bool IsPow2NonZero(usize n) {
+    return (n & (n - 1)) == 0;
+}
+
+usize AlignDown(usize v, usize a) {
+    assert(IsPow2NonZero(a));
+    return v & ~(a - 1);
+}
+
+usize AlignUp(usize v, usize a) {
+    assert(IsPow2NonZero(a));
+    return (v + (a - 1)) & ~(a - 1);
+}
