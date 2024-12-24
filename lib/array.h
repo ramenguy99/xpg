@@ -130,6 +130,7 @@ struct ArrayView {
     }
 };
 
+// TODO: aligned alloc here, also avoid zeroing before copies
 template<typename T>
 struct Array {
 #if !SUPPORT_NON_POD
@@ -254,6 +255,10 @@ struct Array {
         return ArrayView<u8>((u8*)data, size_in_bytes());
     }
 
+    ArrayView<T> slice(usize index, usize count) {
+        return ArrayView(*this).slice(index, count);
+    }
+
     T& operator[](usize index) {
 #if BOUNDS_CHECKING_ENABLED
         if(index >= length) {
@@ -331,6 +336,10 @@ struct ArrayFixed {
 
     usize size_in_bytes() {
         return length * sizeof(T);
+    }
+
+    ArrayView<T> slice(usize index, usize count) {
+        return ArrayView(*this).slice(index, count);
     }
 };
 

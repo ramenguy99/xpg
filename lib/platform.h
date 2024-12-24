@@ -20,37 +20,49 @@ struct FileReadWork {
     u64 bytes_read;
 };
 
-File OpenFile(const char* path) {
+enum class Result {
+    Success,
+    GetFileSizeError,
+    FileNotFound,
+    IOError,
+    OutOfBounds,
+};
+
+Result OpenFile(const char* path, File* result) {
 #ifdef _WIN32
     HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
-    assert(file != INVALID_HANDLE_VALUE);
+    if (file == INVALID_HANDLE_VALUE) {
+        return Result::FileNotFound;
+    }
 
     LARGE_INTEGER size_large = {};
     BOOL ok = GetFileSizeEx(file, &size_large);
-    assert(ok);
+    if (!ok) {
+        return Result::GetFileSizeError;
+    }
 
-    File result = {};
-    result.handle = file;
-    result.size = size_large.QuadPart;
+    u64 size = size_large.QuadPart;
 #else
-    int fd = open(path, O_RDONLY);
-    assert(fd >= 0);
+    int file = open(path, O_RDONLY);
+    if (file < 0) {
+        return Result::FileNotFound;
+    }
 
     struct stat stat_buf = {};
-    int stat_result = fstat(fd, &stat_buf);
-    assert(stat_result >= 0);
+    int stat_result = fstat(file, &stat_buf);
+    if (stat_result < 0) {
+    }
 
-    File result = {};
-    result.fd = fd;
-    result.size = stat_buf.st_size;
 #endif // _WIN32
+    result->handle = file;
+    result->size = size_large.QuadPart;
 
-    return result;
+    return Result::Success;
 }
 
-bool ReadAtOffset(File file, ArrayView<u8> buffer, u64 offset) {
+Result ReadAtOffset(File file, ArrayView<u8> buffer, u64 offset) {
     if (offset + buffer.length > file.size) {
-        return false;
+        return Result::OutOfBounds;
     }
 
     u64 size = buffer.length;
@@ -75,55 +87,47 @@ bool ReadAtOffset(File file, ArrayView<u8> buffer, u64 offset) {
         bool ok = bread >= 0;
 #endif // _WIN32
         if (!ok) {
-            return false;
+            return Result::IOError;
         }
 
         total_read += bread;
         offset += bread;
     }
 
-    return true;
+    return Result::Success;
 }
 
-Array<u8> ReadEntireFile(const char* path) {
-#ifdef _WIN32
-    HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
-    assert(file != INVALID_HANDLE_VALUE);
-
-    LARGE_INTEGER size_large = {};
-    BOOL ok = GetFileSizeEx(file, &size_large);
-    assert(ok);
-
-    u64 size = size_large.QuadPart;
-#else
-    int fd = open(path, O_RDONLY);
-    assert(fd >= 0);
-
-    struct stat stat_buf = {};
-    int stat_result = fstat(fd, &stat_buf);
-    assert(stat_result >= 0);
-
-    u64 size = stat_buf.st_size;
-#endif
-
-    Array<u8> result(size);
+Result ReadExact(File file, ArrayView<u8> data) {
     u64 total_read = 0;
-    while (total_read < size) {
+    while (total_read < data.length) {
 #ifdef _WIN32
-        DWORD bytes_to_read = (DWORD)Min(size - total_read, (u64)0xFFFFFFFF);
+        DWORD bytes_to_read = (DWORD)Min(data.length - total_read, (u64)0xFFFFFFFF);
         DWORD bread = 0;
 
-        ok = ReadFile(file, result.data + total_read, bytes_to_read, &bread, 0);
+        BOOL ok = ReadFile(file.handle, data.data + total_read, bytes_to_read, &bread, 0);
 #else 
         size_t bytes_to_read = size - total_read;
-        ssize_t bread = read(fd, result.data + total_read, bytes_to_read);
+        ssize_t bread = read(file.handle, result.data + total_read, bytes_to_read);
         bool ok = bread >= 0;
 #endif
-        assert(ok);
+        if (!ok) {
+            return Result::IOError;
+        }
         total_read += bread;
     }
 
-    return result;
+    return Result::Success;
+}
+
+Result ReadEntireFile(const char* path, Array<u8>* data) {
+    File f = {};
+    Result res = OpenFile(path, &f);
+    if (res != Result::Success) {
+        return res;
+    }
+
+    data->resize(f.size);
+    return ReadExact(f, *data);
 }
 
 struct Timestamp {

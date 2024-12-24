@@ -16,6 +16,14 @@ typedef double   f64;
 #define OutOfSpace() (assert(false))
 #define internal static
 
+#ifdef _WIN32
+#define AlignedAlloc(align, size) (_aligned_malloc((size), (align)))
+#define AlignedFree(ptr) (_aligned_free((ptr)))
+#else
+#define AlignedAlloc(align, size) (aligned_alloc((align), (size))
+#define AlignedFree(ptr) (free((ptr)))
+#endif
+
 
 template<typename T>
 T Max(const T& a, const T& b) {
@@ -34,6 +42,10 @@ T Clamp(const T& v, const T& min, const T& max) {
 
 bool IsPow2NonZero(usize n) {
     return (n & (n - 1)) == 0;
+}
+
+bool IsPow2(usize n) {
+    return n == 0 || IsPow2NonZero(n);
 }
 
 usize AlignDown(usize v, usize a) {

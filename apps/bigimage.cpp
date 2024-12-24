@@ -59,6 +59,8 @@
 #include "log.h"
 #include "result.h"
 #include "array.h"
+#include "hashmap.h"
+#include "bounded_lru_cache.h"
 #include "platform.h"
 #include "threading.h"
 #include "gfx.h"
@@ -87,10 +89,305 @@ using glm::mat4;
 // [x] Display load state in some sort of minimap in imgui
 // [x] Fix delta coding (issue was delta per plane vs per whole chunk)
 // [ ] Threaded loading
-// [ ] Add framegraph
+//      [ ] Populate cache synchronously every frame
+//      [ ] Freelist allocator of images and descriptors (allocate worst case bound at the start)
+//      [ ] Add a border and also upload below and above level
+//      [ ] Async upload with fallback on not ready with copy queue
+// [ ] Add framegraph?
 // [ ] Reimplement with app::Application helper, compare code cut
 // [ ] Mips on last chunk
 // [ ] Non pow2 images and non multiple of chunk size
+
+
+// The max number of used chunks is (probably it makes sense to also include neighbors here, otherwise we might trash the cache by prefetching too much).
+// max_chunks_in_frame = (1 + ceil(width / chunk_width)) * (1 + ceil(height / chunk_height))
+// max_chunks_in_use = max_chunks_in_frame * 3
+//
+// Allocator / desc management:
+// - Allocate upfront descriptors and images for max_chunks_in_use -> allocs can be uninitialized
+// - Every frame compute the chunks that are needed for these frame and issue requests for each of them.
+// - The same chunks are kept in a ring buffer for each frame in flight, after acquiring a frame we first
+//   decrement the refcount for the previous frame slot.
+// - Keep a queue of chunks with 0 refcount. As an optimization we can keep the chunks marked as already
+//   filled, to skip refilling them if the cache is large enough and we come back to recently visited areas.
+//   this can give a tweakable "history" of cached tiles for free, if this history is as large as the image 
+//   no loading will happen anymore.
+// - On the CPU we keep track for each chunk of the refcount, descriptor and state (e.g. loading/loaded/empty)
+//
+// [x] Full Sync:      
+//     [x] issue load and return desc synchronously
+//     [ ] bounded LRU cache with queue
+// [ ] Threaded sync:  issue all needed loads to pool and wait for all of them to be satisfied before drawing. 
+// [ ] Threaded async: do loading and uploads on a different thread, maybe can have pool for loading / decompressing and worker thread / main thread doing uploads, but wait at the end or at transfer buffer exaustion (do something smart with semaphores/counters?)
+// [ ] Copy queue:     do uploads with copy queue, need to do queue transfer
+// [ ] Prefetch:       after all loads are satisfied issue loads for neighbors
+// [ ] Cancellation:   we can cancel neighbors from previous frame if they are not used / neighbors in this frame. (e.g. at zoom lvl 1 we prefetch lvl 0 and 2, if moving to 2 we can cancel prefetch at 0)
+// [ ] Load all mode:  just increase the cache to the total size, issue all loads, done.
+
+#pragma pack(push, 1)
+struct ZMipHeader {
+    u64 magic;
+    u64 width;
+    u64 height;
+    u32 channels;
+    u32 chunk_width;
+    u32 chunk_height;
+    u32 levels;
+};
+struct ZMipChunk {
+    u64 offset;
+    u32 size;
+};
+#pragma pack(pop)
+
+struct ZMipLevelInfo {
+    u32 chunks_x;
+    u32 chunks_y;
+    u32 offset;
+};
+
+struct ZMipFile {
+    platform::File file;
+    ZMipHeader header;
+    Array<ZMipChunk> chunks;
+    Array<ZMipLevelInfo> levels;
+    usize largest_compressed_chunk_size;
+};
+
+struct ChunkId {
+    u32 x, y, l;
+
+    ChunkId(u32 x, u32 y, u32 l) : x(x), y(y), l(l) {}
+};
+
+struct ChunkLoadContext {
+    Array<u8> compressed_data;
+    Array<u8> interleaved;
+    Array<u8> deinterleaved;
+};
+
+ChunkLoadContext AllocChunkLoadContext(const ZMipFile& zmip) {
+    Array<u8> compressed_data(zmip.largest_compressed_chunk_size);
+    Array<u8> interleaved(zmip.header.chunk_width * zmip.header.chunk_height * zmip.header.channels);
+    Array<u8> deinterleaved(zmip.header.chunk_width * zmip.header.chunk_height * 4);
+
+    ChunkLoadContext result = {
+        .compressed_data = std::move(compressed_data),
+        .interleaved = std::move(interleaved),
+        .deinterleaved = std::move(deinterleaved),
+    };
+    return result;
+}
+
+usize GetChunkIndex(const ZMipFile& zmip, ChunkId c) {
+    ZMipLevelInfo level = zmip.levels[c.l];
+    return level.offset + (usize)c.y * level.chunks_x + c.x;
+}
+
+bool LoadChunk(ChunkLoadContext& load, const ZMipFile& zmip, ChunkId c) {
+    usize index = GetChunkIndex(zmip, c);
+    usize x = c.x;
+    usize y = c.y;
+    usize l = c.l;
+    ZMipChunk b = zmip.chunks[index];
+    if (b.offset + b.size < b.offset) {
+        logging::error("bigimage/parse/map", "offset + size overflow on chunk (%llu, %llu) at level %llu", x, y, l);
+        return false;
+    }
+    if (b.offset + b.size > zmip.file.size) {
+        logging::error("bigimage/parse/map", "offset + size out of bounds chunk (%llu, %llu) at level %llu", x, y, l);
+        return false;
+    }
+
+    ArrayView<u8> chunk = load.compressed_data.slice(0, b.size);
+    if (platform::ReadAtOffset(zmip.file, chunk, b.offset) != platform::Result::Success) {
+        logging::error("bigimage/parse/chunk", "Failed to read %u bytes at offset %llu", b.size, b.offset);
+        return false;
+    }
+    usize frame_size = ZSTD_getFrameContentSize(chunk.data, chunk.length);
+    if (frame_size != load.interleaved.length) {
+        logging::error("bigimage/parse/chunk", "Compressed chunk frame size %llu does not match expected size %llu", frame_size, load.interleaved.length);
+        return false;
+    }
+    usize zstd_code = ZSTD_decompress(load.interleaved.data, load.interleaved.length, chunk.data, chunk.length);
+    if (ZSTD_isError(zstd_code)) {
+        logging::error("bigimage/parse/chunk", "ZSTD_decompress failed with error %s (%llu)", ZSTD_getErrorName(zstd_code), zstd_code);
+        return false;
+    }
+
+    // Undo delta coding
+    usize plane_size = (usize)zmip.header.chunk_width * zmip.header.chunk_height;
+    for (usize c = 0; c < zmip.header.channels; c++) {
+        for (usize i = 1; i < plane_size; i++) {
+            load.interleaved[i + plane_size * c] += load.interleaved[i - 1 + plane_size * c];
+        }
+    }
+
+    // Deinterleave planes and add alpha
+    for (usize y = 0; y < zmip.header.chunk_height; y++) {
+        for (usize x = 0; x < zmip.header.chunk_width; x++) {
+            for (usize c = 0; c < zmip.header.channels; c++) {
+                load.deinterleaved[(y * zmip.header.chunk_width + x) * 4 + c] = load.interleaved[((zmip.header.chunk_height * c + y) * zmip.header.chunk_width) + x];
+            }
+            load.deinterleaved[(y * zmip.header.chunk_width + x) * 4 + 3] = 255;
+        }
+    }
+
+    return true;
+}
+
+ZMipFile LoadZmipFile(const char* path) 
+{
+    platform::File file = {};
+    platform::Result r = platform::OpenFile(path, &file);
+    if (r != platform::Result::Success) {
+        logging::error("bigimage/parse", "Failed to open file");
+        exit(102);
+    }
+
+    if (file.size < sizeof(ZMipHeader)) {
+        logging::error("bigimage/parse", "File smaller than header");
+        exit(102);
+    }
+
+    ZMipHeader header;
+    if (platform::ReadExact(file, BytesOf(&header)) != platform::Result::Success) {
+        logging::error("bigimage/parse", "Failed to read header from zmip file");
+        exit(102);
+    }
+
+    logging::info("bigimage/parse/header", "magic: %llu", header.magic);
+    logging::info("bigimage/parse/header", "width: %llu", header.width);
+    logging::info("bigimage/parse/header", "height: %llu", header.height);
+    logging::info("bigimage/parse/header", "channels: %u", header.channels);
+    logging::info("bigimage/parse/header", "chunk_width: %u", header.chunk_width);
+    logging::info("bigimage/parse/header", "chunk_height: %u", header.chunk_height);
+    logging::info("bigimage/parse/header", "levels: %u", header.levels);
+
+    if (header.channels != 3) {
+        logging::error("bigimage/parse", "Currently only 3 channel images are supported, got %u", header.channels);
+        exit(102);
+    }
+
+    Array<ZMipLevelInfo> levels;
+    u32 chunk_offset = 0;
+    for (usize l = 0; l < header.levels; l++) {
+        usize chunks_x = ((header.width >> l) + header.chunk_width - 1) / header.chunk_width;
+        usize chunks_y = ((header.height >> l) + header.chunk_height - 1) / header.chunk_height;
+        levels.add({
+            .chunks_x = (u32)chunks_x,
+            .chunks_y = (u32)chunks_y,
+            .offset = chunk_offset
+        });
+        chunk_offset += (u32)(chunks_x * chunks_y);
+    }
+
+    Array<ZMipChunk> chunks(chunk_offset);
+    if (platform::ReadExact(file, chunks.as_bytes()) != platform::Result::Success) {
+        logging::error("bigimage/parse", "Failed to read chunk data from zmip file");
+        exit(102);
+    }
+
+    usize largest_compressed_chunk_size = 0;
+    for (usize i = 0; i < chunks.length; i++) {
+        largest_compressed_chunk_size = Max(largest_compressed_chunk_size, (usize)chunks[i].size);
+    }
+
+    ZMipFile zmip = {
+        .file = file,
+        .header = header,
+        .chunks = std::move(chunks),
+        .levels = std::move(levels),
+        .largest_compressed_chunk_size = largest_compressed_chunk_size,
+    };
+
+    return zmip;
+}
+
+struct ChunkCache {
+    enum class LoadState: u32 {
+        Unloaded = 0,
+        Loading,
+        Loaded,
+    };
+
+    struct Chunk {
+        alignas(64) std::atomic<LoadState> state;
+        alignas(64) u32 refcount;                   // Frames in flight that use this chunk
+        u32 descriptor_index;
+    };
+
+    ChunkCache(const ZMipFile& zmip, usize count): zmip(zmip) {
+        chunks = (Chunk*)AlignedAlloc(alignof(Chunk), sizeof(Chunk) * count);
+        chunks_count = count;
+        memset(chunks, 0, sizeof(Chunk) * count);
+        load_context = AllocChunkLoadContext(zmip);
+    }
+
+    void DestroyResources(const gfx::Context& vk) {
+        for (usize i = 0; i < images.length; i++) {
+            gfx::DestroyImage(&images[i], vk);
+        }
+    }
+
+    ~ChunkCache() {
+        AlignedFree(chunks);
+    }
+
+    Chunk& get_chunk(ChunkId c) {
+        usize index = GetChunkIndex(zmip, c);
+        assert(index < chunks_count);
+        return chunks[index];
+    }
+
+    u32 request_chunk_sync(ChunkId c, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless) {
+        // Lookup state in cache
+        Chunk& chunk = get_chunk(c);
+
+        switch (chunk.state.load(std::memory_order_relaxed)) {
+            case LoadState::Unloaded: {
+                // Load from disk
+                LoadChunk(load_context, zmip, c);
+
+                // Upload to GPU sync
+                gfx::Image image = {};
+                gfx::CreateAndUploadImage(&image, vk, load_context.deinterleaved, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, {
+                    .width = zmip.header.chunk_width,
+                    .height = zmip.header.chunk_height,
+                    .format = VK_FORMAT_R8G8B8A8_UNORM,
+                    .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                    .memory_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                });
+
+                u32 descriptor_index = (u32)images.length;
+                gfx::WriteImageDescriptor(bindless.set, vk, {
+                    .view = image.view,
+                    .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                    .binding = 2,
+                    .element = descriptor_index,
+                });
+                images.add(image);
+                chunk.state.store(LoadState::Loaded, std::memory_order_relaxed);
+                chunk.descriptor_index = descriptor_index;
+            } break;
+            case LoadState::Loading: {
+                while (chunk.state.load(std::memory_order_relaxed) == LoadState::Loading) {}
+                std::atomic_thread_fence(std::memory_order_acquire);
+            } break;
+        }
+
+        chunk.refcount += 1;
+        return chunk.descriptor_index;
+    }
+
+    Chunk* chunks;
+    usize chunks_count;
+    const ZMipFile& zmip;
+    ChunkLoadContext load_context;
+
+    Array<gfx::Image> images;
+};
 
 int main(int argc, char** argv) {
     gfx::Result result;
@@ -174,7 +471,11 @@ int main(int argc, char** argv) {
         });
 
     // Pipeline
-    Array<u8> vert_code = platform::ReadEntireFile("res/bigimage.vert.spirv");
+    Array<u8> vert_code;
+    if (platform::ReadEntireFile("res/bigimage.vert.spirv", &vert_code) != platform::Result::Success) {
+        logging::error("bigimage", "Failed to read vertex shader\n");
+        exit(100);
+    }
     gfx::Shader vert_shader = {};
     vkr = gfx::CreateShader(&vert_shader, vk, vert_code);
     if (result != gfx::Result::SUCCESS) {
@@ -182,7 +483,11 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    Array<u8> frag_code = platform::ReadEntireFile("res/bigimage.frag.spirv");
+    Array<u8> frag_code;
+    if (platform::ReadEntireFile("res/bigimage.frag.spirv", &frag_code) != platform::Result::Success) {
+        logging::error("bigimage", "Failed to read fragment shader\n");
+        exit(100);
+    }
     gfx::Shader frag_shader = {};
     vkr = gfx::CreateShader(&frag_shader, vk, frag_code);
     if (result != gfx::Result::SUCCESS) {
@@ -253,125 +558,10 @@ int main(int argc, char** argv) {
         });
     assert(vkr == VK_SUCCESS);
 
+    //ZMipFile zmip = LoadZmipFile("N:\\scenes\\hubble\\heic0601a_test_delta.zmip");
+    ZMipFile zmip = LoadZmipFile("N:\\scenes\\hubble\\heic0601a_256.zmip");
+
     // Read image
-    Array<u8> zmip_data = platform::ReadEntireFile("N:\\scenes\\hubble\\heic0601a_test_delta.zmip");
-    // Array<u8> zmip_data = platform::ReadEntireFile("N:\\scenes\\hubble\\heic0601a_256.zmip");
-    ArrayView<u8> zmip = zmip_data;
-
-#pragma pack(push, 1)
-    struct ZMipHeader {
-        u64 magic;
-        u64 width;
-        u64 height;
-        u32 channels;
-        u32 chunk_width;
-        u32 chunk_height;
-        u32 levels;
-    };
-
-    struct ZMipBlock {
-        u64 offset;
-        u32 size;
-    };
-
-#pragma pack(pop)
-
-    if (zmip.length < sizeof(ZMipHeader)) {
-        logging::error("bigimage/parse", "File smaller than header");
-        exit(102);
-    }
-
-    ZMipHeader header = zmip.consume<ZMipHeader>();
-    logging::info("bigimage/parse/header", "magic: %llu", header.magic);
-    logging::info("bigimage/parse/header", "width: %llu", header.width);
-    logging::info("bigimage/parse/header", "height: %llu", header.height);
-    logging::info("bigimage/parse/header", "channels: %u", header.channels);
-    logging::info("bigimage/parse/header", "chunk_width: %u", header.chunk_width);
-    logging::info("bigimage/parse/header", "chunk_height: %u", header.chunk_height);
-    logging::info("bigimage/parse/header", "levels: %u", header.levels);
-
-    if (header.channels != 3) {
-        logging::error("bigimage/parse", "Currently only 3 channel images are supported, got %u", header.channels);
-        exit(102);
-    }
-
-    Array<ArrayView<ZMipBlock>> levels;
-
-    Array<u8> interleaved(header.chunk_width * header.chunk_height * header.channels);
-    Array<u8> deinterleaved(header.chunk_width * header.chunk_height * 4);
-    Array<gfx::Image> all_images;
-    Array<u32> level_chunk_offsets;
-
-    u32 chunk_offset = 0;
-    for (usize l = 0; l < header.levels; l++) {
-        usize chunks_x = ((header.width >> l) + header.chunk_width - 1) / header.chunk_width;
-        usize chunks_y = ((header.height >> l) + header.chunk_height - 1) / header.chunk_height;
-        levels.add(zmip.consume_view<ZMipBlock>(chunks_y * chunks_x));
-        level_chunk_offsets.add(chunk_offset);
-        chunk_offset += (u32)(chunks_x * chunks_y);
-
-        for (usize y = 0; y < chunks_y; y++) {
-            for (usize x = 0; x < chunks_x; x++) {
-                ZMipBlock b = levels[l][y * chunks_x + x];
-                if (b.offset + b.size < b.offset) {
-                    logging::error("bigimage/parse/map", "offset + size overflow on chunk (%llu, %llu) at level %llu", x, y, l);
-                    exit(102);
-                }
-                if (b.offset + b.size > zmip_data.length) {
-                    logging::error("bigimage/parse/map", "offset + size out of bounds chunk (%llu, %llu) at level %llu", x, y, l);
-                    exit(102);
-                }
-
-                // logging::info("bigimage/parse/map", "%llu | (%llu , %llu) %llu %u", l, x, y, b.offset, b.size);
-                ArrayView<u8> chunk = ArrayView<u8>(zmip_data).slice(b.offset, b.size);
-                usize frame_size = ZSTD_getFrameContentSize(chunk.data, chunk.length);
-                if (frame_size != interleaved.length) {
-                    logging::error("bigimage/parse/chunk", "Compressed chunk frame size %llu does not match expected size %llu", frame_size, interleaved.length);
-                    exit(102);
-                }
-                ZSTD_decompress(interleaved.data, interleaved.length, chunk.data, chunk.length);
-
-                // Undo delta coding
-                usize plane_size = header.chunk_width * header.chunk_height;
-                for (usize c = 0; c < header.channels; c++) {
-                    for (usize i = 1; i < plane_size; i++) {
-                        interleaved[i + plane_size * c] += interleaved[i - 1 + plane_size * c];
-                    }
-                }
-
-                // Deinterleave planes and add alpha
-                for (usize y = 0; y < header.chunk_height; y++) {
-                    for (usize x = 0; x < header.chunk_width; x++) {
-                        for (usize c = 0; c < header.channels; c++) {
-                            deinterleaved[(y * header.chunk_width + x) * 4 + c] = interleaved[((header.chunk_height * c + y) * header.chunk_width) + x];
-                        }
-                        deinterleaved[(y * header.chunk_width + x) * 4 + 3] = 255;
-                    }
-                }
-
-                // Upload image
-                gfx::Image image = {};
-                gfx::CreateAndUploadImage(&image, vk, deinterleaved, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, {
-                    .width = header.chunk_width,
-                    .height = header.chunk_height,
-                    .format = VK_FORMAT_R8G8B8A8_UNORM,
-                    .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                    .memory_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                });
-
-                gfx::WriteImageDescriptor(bindless.set, vk, {
-                    .view = image.view,
-                    .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                    .binding = 2,
-                    .element = (u32)all_images.length,
-                });
-
-                all_images.add(image);
-            }
-        }
-    }
-
     struct Chunk {
         vec2 position;
         u32 desc_index;
@@ -412,11 +602,23 @@ int main(int argc, char** argv) {
     app.pipeline = pipeline.pipeline;
     app.layout = pipeline.layout;
     app.descriptor_set = bindless.set;
-    app.descriptor_count = (s32)all_images.length;
+    app.descriptor_count = (s32)zmip.chunks.length;
     app.chunks_buffers = Array<gfx::Buffer>(window.frames.length);
     app.chunks = Array<Chunk>();
     app.vertex_buffer = vertex_buffer;
-    app.max_zoom = (s32)(level_chunk_offsets.length - 1);
+    app.max_zoom = (s32)(zmip.levels.length - 1);
+
+    // struct ThreadedLoader {
+    //     static void func(void* p_app) {
+    //         App& app = *(App*)p_app;
+    //     };
+    // };
+    // WorkerPool pool(4);
+    // pool.add_work({
+    //     .callback = ThreadedLoader::func,
+    //     .user_data = &app,
+    // });
+    ChunkCache cache(zmip, zmip.chunks.length);
 
     auto MouseMoveEvent = [&app](ivec2 pos) {
         if (app.dragging) {
@@ -451,7 +653,7 @@ int main(int argc, char** argv) {
         app.offset += (new_image_pos - old_image_pos) >> app.zoom;
     };
 
-    auto Draw = [&app, &vk, &window, &bindless, &header, &level_chunk_offsets]() {
+    auto Draw = [&app, &vk, &window, &bindless, &zmip, &cache]() {
         if (app.closed) return;
 
         platform::Timestamp timestamp = platform::GetTimestamp();
@@ -472,8 +674,8 @@ int main(int argc, char** argv) {
 
             // USER: resize (e.g. framebuffer sized elements)
             ivec2 view_size = ivec2(window.fb_width, window.fb_height);
-            ivec2 img_size = ivec2(header.width, header.height);
-            ivec2 chunk_size = ivec2(header.chunk_width, header.chunk_height);
+            ivec2 img_size = ivec2(zmip.header.width, zmip.header.height);
+            ivec2 chunk_size = ivec2(zmip.header.chunk_width, zmip.header.chunk_height);
             ivec2 max_chunks = (img_size + chunk_size - ivec2(1, 1)) / chunk_size + ivec2(1, 1);
             u64 total_max_chunks = (u64)max_chunks.x * (u64)max_chunks.y;
 
@@ -495,14 +697,14 @@ int main(int argc, char** argv) {
         }
 
         // Chunks
-        ivec2 offset = app.offset;                                          // In screen pixel
-        ivec2 view_size = ivec2(window.fb_width, window.fb_height);         // In screen pixel
-        ivec2 img_size = ivec2(header.width, header.height);                // In image pixels
-        ivec2 chunk_size = ivec2(header.chunk_width, header.chunk_height);  // In image pixels
+        ivec2 offset = app.offset;                                                    // In screen pixel
+        ivec2 view_size = ivec2(window.fb_width, window.fb_height);                   // In screen pixel
+        ivec2 img_size = ivec2(zmip.header.width, zmip.header.height);                // In image pixels
+        ivec2 chunk_size = ivec2(zmip.header.chunk_width, zmip.header.chunk_height);  // In image pixels
 
         // Zoom dependant
-        ivec2 z_chunk_size = chunk_size << app.zoom;                            // In image pixels
-        ivec2 chunks = (img_size + z_chunk_size - ivec2(1, 1)) / z_chunk_size;  // Total chunks in image at this zoom level
+        ivec2 z_chunk_size = chunk_size << app.zoom;                                  // In image pixels
+        ivec2 chunks = (img_size + z_chunk_size - ivec2(1, 1)) / z_chunk_size;        // Total chunks in image at this zoom level
         ivec2 remainder = (chunk_size - (view_size - offset) % chunk_size);
 
         app.chunks.length = 0;
@@ -515,9 +717,8 @@ int main(int argc, char** argv) {
                 if (!((chunk.x >= 0 && chunk.x < chunks.x) && (chunk.y >= 0 && chunk.y < chunks.y))) continue;
 
                 Chunk c = {};
-                c.desc_index = chunk.y * chunks.x + chunk.x + level_chunk_offsets[app.zoom];
+                c.desc_index = cache.request_chunk_sync(ChunkId((u32)chunk.x, (u32)chunk.y, (u32)app.zoom), vk, bindless);
                 c.position = offset + chunk * chunk_size;
-
                 app.chunks.add(c);
             }
         }
@@ -558,7 +759,7 @@ int main(int argc, char** argv) {
             int32_t texture_index = 0;
             if (ImGui::Begin("Editor")) {
                 ImGui::InputInt("Zoom", &app.zoom);
-                app.zoom = Clamp(app.zoom, 0, (s32)level_chunk_offsets.length - 1);
+                app.zoom = Clamp(app.zoom, 0, (s32)zmip.levels.length - 1);
 
                 ImGui::DragFloat2("Offset", &app.offset.x);
 
@@ -571,23 +772,19 @@ int main(int argc, char** argv) {
                 ImVec2 corner = ImGui::GetCursorScreenPos();
                 f32 size = 5.0f;
                 f32 stride = 7.0f;
-                ivec2 img_size = ivec2(header.width, header.height);                // In image pixels
-                for (s32 level = 0; level < (s32)level_chunk_offsets.length; level++) {
-                    ivec2 chunk_size = ivec2(header.chunk_width, header.chunk_height) << level;  // In image pixels
+                ivec2 img_size = ivec2(zmip.header.width, zmip.header.height);                // In image pixels
+                for (s32 level = 0; level < (s32)zmip.levels.length; level++) {
+                    ivec2 chunk_size = ivec2(zmip.header.chunk_width, zmip.header.chunk_height) << level;  // In image pixels
                     ivec2 chunks = (img_size + chunk_size - ivec2(1, 1)) / chunk_size;  // Total chunks in image at this zoom level
                     for (s32 y = 0; y < chunks.y; y++) {
                         for (s32 x = 0; x < chunks.x; x++) {
-                            draw_list->AddRectFilled(corner + ImVec2(x * stride, y * stride), corner + ImVec2(x * stride + size, y * stride + size), 0xFF0000FF);
-                        }
-                    }
-
-                    if (level == app.zoom) {
-                        for (usize i = 0; i < app.chunks.length; i++) {
-                            Chunk& c = app.chunks[i];
-                            usize chunk_index = (usize)c.desc_index - level_chunk_offsets[app.zoom];
-                            usize x = chunk_index % chunks.x;
-                            usize y = chunk_index / chunks.x;
-                            draw_list->AddRectFilled(corner + ImVec2(x * stride, y * stride), corner + ImVec2(x * stride + size, y * stride + size), 0xFF00FF00);
+                            ChunkCache::Chunk& c = cache.get_chunk(ChunkId(x, y, level));
+                            u32 color = 0xFF0000FF;
+                            ChunkCache::LoadState state = c.state.load(std::memory_order_relaxed);
+                            if (state == ChunkCache::LoadState::Loaded) {
+                                color = 0xFF00FF00;
+                            }
+                            draw_list->AddRectFilled(corner + ImVec2(x * stride, y * stride), corner + ImVec2(x * stride + size, y * stride + size), color);
                         }
                     }
 
@@ -732,9 +929,10 @@ int main(int argc, char** argv) {
     gfx::WaitIdle(vk);
 
     // USER: cleanup
-    for (usize i = 0; i < all_images.length; i++) {
-        gfx::DestroyImage(&all_images[i], vk);
-    }
+    // for (usize i = 0; i < all_images.length; i++) {
+    //     gfx::DestroyImage(&all_images[i], vk);
+    // }
+    cache.DestroyResources(vk);
 
     for (usize i = 0; i < app.chunks_buffers.length; i++) {
         gfx::DestroyBuffer(&app.chunks_buffers[i], vk);
