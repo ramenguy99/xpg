@@ -1580,7 +1580,7 @@ UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const Ima
 
     vkCmdCopyBufferToImage(vk.sync_command_buffer, staging_buffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
-    if (desc.final_image_layout != desc.current_image_layout) {
+    if (desc.final_image_layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
         gfx::CmdImageBarrier(vk.sync_command_buffer, image.image, {
             .src_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
             .dst_stage = VK_PIPELINE_STAGE_2_NONE,

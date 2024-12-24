@@ -35,7 +35,7 @@ endif()
 # target_link_libraries(descs PRIVATE volk_headers glfw glm VulkanMemoryAllocator)
 # target_include_directories(descs PRIVATE lib shaders ext/imgui ext/atomic_queue/include)
 
-add_executable(bigimage apps/bigimage.cpp "lib/hashmap.h" "lib/bounded_lru_cache.h")
+add_executable(bigimage apps/bigimage.cpp)
 target_link_libraries(bigimage PRIVATE volk_headers glfw glm VulkanMemoryAllocator libzstd_static)
 target_include_directories(bigimage PRIVATE lib shaders ext/imgui ext/atomic_queue/include)
 

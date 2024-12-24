@@ -1,3 +1,29 @@
+template<typename T>
+struct Pool {
+    std::vector<Array<T>> blocks;
+    usize block_size;
+    
+    Pool(usize initial_count, usize block_size = 1024): block_size(block_size) {
+        Array<T> a;
+        a.grow(Max(initial_count, block_size));
+        blocks.push_back(std::move(a));
+    }
+
+    T* alloc() {
+        if (blocks.back().length < blocks.back().capacity) {
+            Array<T> a;
+            a.grow(block_size);
+            blocks.push_back(std::move(a));
+        }
+
+        Array<T>& last = blocks.back();
+        assert(last.length < last.capacity);
+
+        last.add({});
+        return last.data + last.length - 1;
+    }
+};
+
 template <typename T>
 struct BoundedLRUCache {
     struct Entry {
@@ -6,22 +32,19 @@ struct BoundedLRUCache {
         T value;
     };
 
-    Array<Entry> nodes;
-    Entry* next_free;
+    // Backing storage for nodes
+    Pool<Entry> nodes;
+    Entry* next_free = 0;
 
+    // LRU queue
     Entry* head = 0;
     Entry* tail = 0;
 
-    BoundedLRUCache(usize length): nodes(length) {
-        next_free = nodes.data;
-        for (usize i = 1; i < nodes.length; i++) {
-            nodes[i - 1].next = &nodes[i];
-        }
-    }
+    BoundedLRUCache(usize length): nodes(length) { }
 
-    Entry* add(T&& value) {
+    Entry* alloc(T&& value) {
         if (next_free == 0) {
-            pop();
+            next_free = nodes.alloc();
         }
 
         // Pop from free list
@@ -31,40 +54,65 @@ struct BoundedLRUCache {
         // Insert new element at the head
         e->value = std::move(value);
         e->next = 0;
-        e->prev = head;
-
-        // Update old head to point to new head, if it exists
-        if (head) {
-            head->next = e;
-        }
-
-        // Set new head
-        head = e;
-
-        // If queue was empty, also set tail
-        if (!tail) {
-            tail = e;
-        }
+        e->prev = 0;
 
         return e;
     }
 
-    void pop() {
-        if (tail) {
-            Entry* e = tail;
+    void free(Entry* e) {
+        assert(e);
+        assert(e->next == 0);
+        assert(e->prev == 0);
 
-            // Add entry to free list
+        if (e) {
             e->next = next_free;
-            e->prev = 0;
             next_free = e;
+        }
+    }
 
-            // Update tail
-            tail = e->next;
+    void push(Entry* e) {
+        // If queue is empy also make this the new head
+        if (head == 0) {
+            head = e;
+        }
 
-            // Update prev link on new tail, if it exists
-            if(tail) {
-                tail->prev = 0;
+        // Update link on existing tail, if it exists
+        if (tail) {
+            tail->prev = e;
+        }
+
+        // Link element to new tail
+        e->next = tail;
+
+        // Update tail
+        tail = e;
+    }
+
+    // Pops an element from the head of the queue, this is the element that was inserted least recently.
+    Entry* pop() {
+        if (head) {
+            Entry* e = head;
+
+            // Update head
+            head = e->prev;
+
+            // Update next link on new head, if it exists
+            if(head) {
+                head->next = 0;
             }
+            
+            // Reset links, node is now outside of list.
+            e->prev = 0;
+
+            // If the queue is empty after popping, also update the tail
+            if (tail == e) {
+                tail = 0;
+            }
+
+            return e;
+        }
+        else {
+            return 0;
         }
     }
 
@@ -73,7 +121,7 @@ struct BoundedLRUCache {
         Entry* next = e->next;
         Entry* prev = e->prev;
 
-        // Pop from list
+        // Remove from queue
         if (next) {
             next->prev = prev;
         }
@@ -88,9 +136,8 @@ struct BoundedLRUCache {
             tail = next;
         }
 
-        // Push to free list
-        e->next = next_free;
+        // Reset links, node is now outside of list.
+        e->next = 0;
         e->prev = 0;
-        next_free = e;
     }
 };

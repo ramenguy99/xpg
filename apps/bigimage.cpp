@@ -5,6 +5,7 @@
 #include <functional> // std::function
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 #ifdef _WIN32
 #else
@@ -89,8 +90,8 @@ using glm::mat4;
 // [x] Display load state in some sort of minimap in imgui
 // [x] Fix delta coding (issue was delta per plane vs per whole chunk)
 // [ ] Threaded loading
-//      [ ] Populate cache synchronously every frame
-//      [ ] Freelist allocator of images and descriptors (allocate worst case bound at the start)
+//      [x] Populate cache synchronously every frame
+//      [x] Freelist allocator of images and descriptors (allocate worst case bound at the start)
 //      [ ] Add a border and also upload below and above level
 //      [ ] Async upload with fallback on not ready with copy queue
 // [ ] Add framegraph?
@@ -114,9 +115,25 @@ using glm::mat4;
 //   no loading will happen anymore.
 // - On the CPU we keep track for each chunk of the refcount, descriptor and state (e.g. loading/loaded/empty)
 //
+// LRU cache:
+// - Cache entries are in 3 possible states:
+//   - Empty: (nothing has ever been loaded on this entry, it's free for use)
+//   - In use: (some drawcall is in flight that uses this entry, this means that some chunk exists that refers to this entry and it's refcount is > 0)
+//   - Not in use: (some drawcall previously referenced this entry, it still contains it's data but it is available for reuse if needed).
+// - The cache is only managed by a single thread with this cycle:
+//   - At start entries are initialized and vulkan images are allocated, the entries start in the Empty state
+//   - Take the chunks that were used 3 frames ago and decrement the refcount of all the references.
+//     If any goes to zero put this cache entry in the "Not In Use" state. This should be a Queue of entries from which we can remove from the middle.
+//   - Take chunks that are needed for this frames and increment refcount of all the references.
+//     If any is already in use (refcount > 0), done.
+//     If one is not already in use:
+//        If the chunk still points to a valid entry, remove it from the free list.
+//        If the chunk is not valid grab a new one from the empty list.
+//     
 // [x] Full Sync:      
 //     [x] issue load and return desc synchronously
-//     [ ] bounded LRU cache with queue
+//     [x] bounded LRU cache with queue
+//     [x] Cache resizing when screen is resized (ideally only incrementally add)
 // [ ] Threaded sync:  issue all needed loads to pool and wait for all of them to be satisfied before drawing. 
 // [ ] Threaded async: do loading and uploads on a different thread, maybe can have pool for loading / decompressing and worker thread / main thread doing uploads, but wait at the end or at transfer buffer exaustion (do something smart with semaphores/counters?)
 // [ ] Copy queue:     do uploads with copy queue, need to do queue transfer
@@ -305,28 +322,76 @@ ZMipFile LoadZmipFile(const char* path)
 }
 
 struct ChunkCache {
-    enum class LoadState: u32 {
-        Unloaded = 0,
-        Loading,
-        Loaded,
+    // enum class LoadState: u32 {
+    //     Unloaded = 0,
+    //     Loading,
+    //     Loaded,
+    // };
+
+    // Entry in the cache
+    static constexpr usize INVALID_CHUNK = ~(usize)(0);
+    struct Entry {
+        usize chunk_index;
+        u32 image_index;
     };
 
+    // Information about a chunk, contains all possible chunks
     struct Chunk {
-        alignas(64) std::atomic<LoadState> state;
-        alignas(64) u32 refcount;                   // Frames in flight that use this chunk
-        u32 descriptor_index;
+        // alignas(64) std::atomic<LoadState> state;
+        u32 refcount;                   // Frames in flight that use this chunk
+        BoundedLRUCache<Entry>::Entry* lru_entry;     // Optional entry into the LRU cache. The value in the entry indexes both the images array and descriptor set.
     };
 
-    ChunkCache(const ZMipFile& zmip, usize count): zmip(zmip) {
-        chunks = (Chunk*)AlignedAlloc(alignof(Chunk), sizeof(Chunk) * count);
-        chunks_count = count;
-        memset(chunks, 0, sizeof(Chunk) * count);
+
+    ChunkCache(const ZMipFile& zmip, usize cache_size, const gfx::Context& vk, const gfx::BindlessDescriptorSet bindless): zmip(zmip), lru(cache_size) {
+        chunks_count = zmip.chunks.length;
+        chunks = (Chunk*)AlignedAlloc(alignof(Chunk), sizeof(Chunk) * chunks_count);
+        memset(chunks, 0, sizeof(Chunk) * chunks_count);
+
         load_context = AllocChunkLoadContext(zmip);
+
+        resize(cache_size, vk, bindless);
     }
 
     void DestroyResources(const gfx::Context& vk) {
         for (usize i = 0; i < images.length; i++) {
             gfx::DestroyImage(&images[i], vk);
+        }
+    }
+
+    void resize(usize cache_size, const gfx::Context& vk, const gfx::BindlessDescriptorSet bindless) {
+        if (images.length >= cache_size) {
+            // The cache does not shrink
+            return;
+        }
+
+        logging::info("bigimage/cache", "Resizing cache to size %llu", cache_size);
+        usize old_length = images.length;
+        images.resize(cache_size);
+        for (usize i = old_length; i < cache_size; i++) {
+            // Upload to GPU sync
+            gfx::CreateImage(&images[i], vk, {
+                .width = zmip.header.chunk_width,
+                .height = zmip.header.chunk_height,
+                .format = VK_FORMAT_R8G8B8A8_UNORM,
+                .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                .memory_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            });
+
+            gfx::WriteImageDescriptor(bindless.set, vk, {
+                .view = images[i].view,
+                .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                .binding = 2,
+                .element = (u32)i,
+            });
+
+            Entry e = {
+                .chunk_index = INVALID_CHUNK,
+                .image_index = (u32)i,
+            };
+            BoundedLRUCache<Entry>::Entry* lru_entry = lru.alloc(std::move(e));
+            lru.push(lru_entry);
         }
     }
 
@@ -340,45 +405,75 @@ struct ChunkCache {
         return chunks[index];
     }
 
-    u32 request_chunk_sync(ChunkId c, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless) {
+    void release_chunk(usize chunk_index) {
         // Lookup state in cache
-        Chunk& chunk = get_chunk(c);
+        Chunk& chunk = chunks[chunk_index];
+        assert(chunk.refcount > 0);
+        assert(chunk.lru_entry);
 
-        switch (chunk.state.load(std::memory_order_relaxed)) {
-            case LoadState::Unloaded: {
-                // Load from disk
-                LoadChunk(load_context, zmip, c);
+        chunk.refcount -= 1;
+        if (chunk.refcount == 0) {
+            lru.push(chunk.lru_entry);
+        }
+    }
 
-                // Upload to GPU sync
-                gfx::Image image = {};
-                gfx::CreateAndUploadImage(&image, vk, load_context.deinterleaved, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, {
-                    .width = zmip.header.chunk_width,
-                    .height = zmip.header.chunk_height,
-                    .format = VK_FORMAT_R8G8B8A8_UNORM,
-                    .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                    .memory_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                });
+    u32 request_chunk_sync(ChunkId c, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless) {
+        usize chunk_index = GetChunkIndex(zmip, c);
+        assert(chunk_index < chunks_count);
 
-                u32 descriptor_index = (u32)images.length;
-                gfx::WriteImageDescriptor(bindless.set, vk, {
-                    .view = image.view,
-                    .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                    .binding = 2,
-                    .element = descriptor_index,
-                });
-                images.add(image);
-                chunk.state.store(LoadState::Loaded, std::memory_order_relaxed);
-                chunk.descriptor_index = descriptor_index;
-            } break;
-            case LoadState::Loading: {
-                while (chunk.state.load(std::memory_order_relaxed) == LoadState::Loading) {}
-                std::atomic_thread_fence(std::memory_order_acquire);
-            } break;
+        // Lookup state in cache
+        Chunk& chunk = chunks[chunk_index];
+
+        // switch (chunk.state.load(std::memory_order_relaxed)) {
+        //     case LoadState::Unloaded: {
+                // Check if this chunk already has an entry in the cache.
+                // If it has, we can just use it, otherwise we need to populate it.
+        if (!chunk.lru_entry) {
+            // Pop an entry from the LRU cache
+            BoundedLRUCache<Entry>::Entry* e = lru.pop();
+
+            // If the entry was previously used for some other chunk
+            // invalidate the chunk that was holding on to it.
+            if (e->value.chunk_index != INVALID_CHUNK) {
+                Chunk& other = chunks[e->value.chunk_index];
+
+                // The chunk should never be in the LRU cache if it's in use.
+                assert(other.refcount == 0);
+
+                other.lru_entry = 0;
+            }
+
+            // Store which chunk this cache entry stores now. And which entry this chunk points to.
+            e->value.chunk_index = chunk_index;
+            chunk.lru_entry = e;
+
+            // Load from disk
+            LoadChunk(load_context, zmip, c);
+
+            // Upload to GPU
+            gfx::UploadImage(images[e->value.image_index], vk, load_context.deinterleaved, {
+                .width = zmip.header.chunk_width,
+                .height = zmip.header.chunk_height,
+                .format = VK_FORMAT_R8G8B8A8_UNORM,
+                .current_image_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .final_image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            });
+        }
+        else if (chunk.refcount == 0) {
+            // Remove the entry from the LRU if we are using it again
+            lru.remove(chunk.lru_entry);
         }
 
+       //         chunk.state.store(LoadState::Loaded, std::memory_order_relaxed);
+       //     } break;
+       //     case LoadState::Loading: {
+       //         while (chunk.state.load(std::memory_order_relaxed) == LoadState::Loading) {}
+       //         std::atomic_thread_fence(std::memory_order_acquire);
+       //     } break;
+       // }
+
         chunk.refcount += 1;
-        return chunk.descriptor_index;
+        return chunk.lru_entry->value.image_index;
     }
 
     Chunk* chunks;
@@ -387,6 +482,7 @@ struct ChunkCache {
     ChunkLoadContext load_context;
 
     Array<gfx::Image> images;
+    BoundedLRUCache<Entry> lru;
 };
 
 int main(int argc, char** argv) {
@@ -562,7 +658,7 @@ int main(int argc, char** argv) {
     ZMipFile zmip = LoadZmipFile("N:\\scenes\\hubble\\heic0601a_256.zmip");
 
     // Read image
-    struct Chunk {
+    struct GpuChunk {
         vec2 position;
         u32 desc_index;
         u32 _padding;
@@ -575,7 +671,6 @@ int main(int argc, char** argv) {
 
         // - Application data
         platform::Timestamp last_frame_timestamp;
-        Array<Chunk> chunks;
         u64 current_frame = 0;  // Total frame index, always increasing
         vec2 offset = vec2(0, 0);
         s32 zoom = 0;
@@ -585,6 +680,12 @@ int main(int argc, char** argv) {
         ivec2 drag_start = ivec2(0, 0);
         bool dragging = false;
         bool show_grid = false;
+
+        Array<GpuChunk> gpu_chunks;
+        Array<usize> cpu_chunks_data;
+        Array<ArrayView<usize>> cpu_chunks_per_frame;
+
+        usize total_max_chunks = 0;
 
         // - Rendering
         VkPipeline pipeline;
@@ -604,7 +705,9 @@ int main(int argc, char** argv) {
     app.descriptor_set = bindless.set;
     app.descriptor_count = (s32)zmip.chunks.length;
     app.chunks_buffers = Array<gfx::Buffer>(window.frames.length);
-    app.chunks = Array<Chunk>();
+    app.gpu_chunks = Array<GpuChunk>();
+    app.cpu_chunks_data = Array<usize>();
+    app.cpu_chunks_per_frame = Array<ArrayView<usize>>(window.frames.length);
     app.vertex_buffer = vertex_buffer;
     app.max_zoom = (s32)(zmip.levels.length - 1);
 
@@ -618,7 +721,8 @@ int main(int argc, char** argv) {
     //     .callback = ThreadedLoader::func,
     //     .user_data = &app,
     // });
-    ChunkCache cache(zmip, zmip.chunks.length);
+    //ChunkCache cache(zmip, zmip.chunks.length, vk, bindless);
+    ChunkCache cache(zmip, 0, vk, bindless);
 
     auto MouseMoveEvent = [&app](ivec2 pos) {
         if (app.dragging) {
@@ -674,15 +778,15 @@ int main(int argc, char** argv) {
 
             // USER: resize (e.g. framebuffer sized elements)
             ivec2 view_size = ivec2(window.fb_width, window.fb_height);
-            ivec2 img_size = ivec2(zmip.header.width, zmip.header.height);
             ivec2 chunk_size = ivec2(zmip.header.chunk_width, zmip.header.chunk_height);
-            ivec2 max_chunks = (img_size + chunk_size - ivec2(1, 1)) / chunk_size + ivec2(1, 1);
-            u64 total_max_chunks = (u64)max_chunks.x * (u64)max_chunks.y;
+            ivec2 max_chunks = (view_size + chunk_size - ivec2(1, 1)) / chunk_size + ivec2(1, 1);
+            usize total_max_chunks = (u64)max_chunks.x * (u64)max_chunks.y;
+            if (total_max_chunks > app.total_max_chunks) {
+                app.total_max_chunks = total_max_chunks;
 
-            if (total_max_chunks * sizeof(Chunk) >= app.chunks_buffers[0].size) {
                 for (usize i = 0; i < app.chunks_buffers.length; i++) {
                     gfx::DestroyBuffer(&app.chunks_buffers[i], vk);
-                    gfx::CreateBuffer(&app.chunks_buffers[i], vk, total_max_chunks * sizeof(Chunk), {
+                    gfx::CreateBuffer(&app.chunks_buffers[i], vk, app.total_max_chunks * sizeof(GpuChunk), {
                         .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                         .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
                         .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -693,6 +797,25 @@ int main(int argc, char** argv) {
                         .element = (u32)i,
                     });
                 }
+
+                // Resize buffer for storing gpu data to transfer to the gpu each frame
+                app.gpu_chunks.resize(app.total_max_chunks);
+
+                // Release all the chunks in use on resize
+                for (usize i = 0; i < app.cpu_chunks_per_frame.length; i++) {
+                    for (usize j = 0; j < app.cpu_chunks_per_frame[i].length; j++) {
+                        cache.release_chunk(app.cpu_chunks_per_frame[i][j]);
+                    }
+                }
+
+                // Resize buffers for chunks in flight
+                app.cpu_chunks_data.resize(app.total_max_chunks * app.cpu_chunks_per_frame.length);
+                for (usize i = 0; i < app.cpu_chunks_per_frame.length; i++) {
+                    app.cpu_chunks_per_frame[i] = app.cpu_chunks_data.slice(i * app.total_max_chunks, 0);
+                }
+
+                // Resize cache
+                cache.resize(total_max_chunks * window.frames.length, vk, bindless);
             }
         }
 
@@ -707,7 +830,17 @@ int main(int argc, char** argv) {
         ivec2 chunks = (img_size + z_chunk_size - ivec2(1, 1)) / z_chunk_size;        // Total chunks in image at this zoom level
         ivec2 remainder = (chunk_size - (view_size - offset) % chunk_size);
 
-        app.chunks.length = 0;
+        // Chunks in flight
+        ArrayView<usize>& cpu_chunks = app.cpu_chunks_per_frame[app.frame_index];
+
+        // Decrease refcount of old frame chunks
+        for (usize i = 0; i < cpu_chunks.length; i++) {
+            cache.release_chunk(cpu_chunks[i]);
+        }
+
+        // Reset chunks of the current frame.
+        cpu_chunks.length = 0;
+        app.gpu_chunks.length = 0;
         for (s32 y = -offset.y; y < view_size.y - offset.y + remainder.y; y += chunk_size.y) {
             for (s32 x = -offset.x; x < view_size.x - offset.x + remainder.x; x += chunk_size.x) {
                 ivec2 image_coords = ivec2(x, y) << app.zoom;
@@ -716,10 +849,18 @@ int main(int argc, char** argv) {
                 // Skip chunks that are of bounds of the image
                 if (!((chunk.x >= 0 && chunk.x < chunks.x) && (chunk.y >= 0 && chunk.y < chunks.y))) continue;
 
-                Chunk c = {};
-                c.desc_index = cache.request_chunk_sync(ChunkId((u32)chunk.x, (u32)chunk.y, (u32)app.zoom), vk, bindless);
-                c.position = offset + chunk * chunk_size;
-                app.chunks.add(c);
+                ChunkId id((u32)chunk.x, (u32)chunk.y, (u32)app.zoom);
+                GpuChunk c = {
+                    .position = offset + chunk * chunk_size,
+                    .desc_index = cache.request_chunk_sync(id, vk, bindless),
+                };
+
+                // Check that our upper bound of max chunks is actually respected
+                assert(cpu_chunks.length < app.total_max_chunks);
+                assert(app.gpu_chunks.length < app.total_max_chunks);
+
+                app.gpu_chunks.add(c);
+                cpu_chunks[cpu_chunks.length++] = GetChunkIndex(zmip, id);
             }
         }
 
@@ -741,8 +882,8 @@ int main(int argc, char** argv) {
                 exit(102);
             }
 
-            ArrayView<u8> map((u8*)addr, app.chunks.size_in_bytes());
-            map.copy_exact(app.chunks.as_bytes());
+            ArrayView<u8> map((u8*)addr, app.gpu_chunks.size_in_bytes());
+            map.copy_exact(app.gpu_chunks.as_bytes());
 
             vmaUnmapMemory(vk.vma, buffer.allocation);
         }
@@ -780,9 +921,14 @@ int main(int argc, char** argv) {
                         for (s32 x = 0; x < chunks.x; x++) {
                             ChunkCache::Chunk& c = cache.get_chunk(ChunkId(x, y, level));
                             u32 color = 0xFF0000FF;
-                            ChunkCache::LoadState state = c.state.load(std::memory_order_relaxed);
-                            if (state == ChunkCache::LoadState::Loaded) {
-                                color = 0xFF00FF00;
+                            // ChunkCache::LoadState state = c.state.load(std::memory_order_relaxed);
+                            if (c.lru_entry) {
+                                if (c.refcount > 0) {
+                                    color = 0xFF00FF00;
+                                }
+                                else {
+                                    color = 0xFF00FFFF;
+                                }
                             }
                             draw_list->AddRectFilled(corner + ImVec2(x * stride, y * stride), corner + ImVec2(x * stride + size, y * stride + size), color);
                         }
@@ -814,7 +960,8 @@ int main(int argc, char** argv) {
                 .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                 });
 
-            VkClearColorValue color = { 0.1f, 0.2f, 0.4f, 1.0f };
+            //VkClearColorValue color = { 0.1f, 0.2f, 0.4f, 1.0f };
+            VkClearColorValue color = { 0.1f, 0.1f, 0.1f, 1.0f };
             VkRenderingAttachmentInfo attachment_info = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
             attachment_info.imageView = frame.current_image_view;
             attachment_info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -869,7 +1016,7 @@ int main(int argc, char** argv) {
             };
             vkCmdPushConstants(frame.command_buffer, app.layout, VK_SHADER_STAGE_ALL, 0, sizeof(Constants), &constants);
 
-            vkCmdDraw(frame.command_buffer, 6, (u32)app.chunks.length, 0, 0);
+            vkCmdDraw(frame.command_buffer, 6, (u32)app.gpu_chunks.length, 0, 0);
 
             // Draw GUI
 
