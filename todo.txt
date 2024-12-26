@@ -1,3 +1,10 @@
+Backlog:
+[ ] Rename lru cache
+[ ] Cleanup project structure:
+    [ ] One directory per sample app
+    [ ] Fix build and cleanup all of them
+[ ] minimal app (multiple hooks seem to be needed, e.g. pre-gui, post-gui at least, maybe should just be a single loop one? but then more dup?)
+
 Ideas:
 - Maybe have an internal feature set kind of thing to support multiple hardware types.
   Seem important to support at least:
