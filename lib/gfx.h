@@ -1078,7 +1078,7 @@ struct Buffer
 {
     VkBuffer buffer;
     VmaAllocation allocation;
-    u64 size;
+    ArrayView<u8> map;
 };
 
 struct BufferDesc {
@@ -1089,6 +1089,7 @@ struct BufferDesc {
     VmaAllocationCreateFlags alloc_flags = 0;
     VkMemoryPropertyFlags alloc_required_flags = 0;
     VkMemoryPropertyFlags alloc_preferred_flags = 0;
+    VmaMemoryUsage alloc_usage = VMA_MEMORY_USAGE_UNKNOWN;
 };
 
 VkResult
@@ -1102,6 +1103,7 @@ CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& 
     alloc_create_info.requiredFlags = desc.alloc_required_flags;
     alloc_create_info.preferredFlags = desc.alloc_required_flags;
     alloc_create_info.flags = desc.alloc_flags;
+    alloc_create_info.usage = desc.alloc_usage;
 
     VkBuffer buf = 0;
     VmaAllocation allocation = {};
@@ -1113,7 +1115,7 @@ CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& 
 
     buffer->buffer = buf;
     buffer->allocation = allocation;
-    buffer->size = size;
+    buffer->map = ArrayView<u8>((u8*)alloc_info.pMappedData, size);
 
     return VK_SUCCESS;
 }

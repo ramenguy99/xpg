@@ -1,22 +1,25 @@
 template<typename T>
 struct Pool {
-    std::vector<Array<T>> blocks;
+    ObjArray<Array<T>> blocks;
     usize block_size;
     
     Pool(usize initial_count, usize block_size = 1024): block_size(block_size) {
         Array<T> a;
         a.grow(Max(initial_count, block_size));
-        blocks.push_back(std::move(a));
+        blocks.add(std::move(a));
     }
 
     T* alloc() {
-        if (blocks.back().length < blocks.back().capacity) {
-            Array<T> a;
-            a.grow(block_size);
-            blocks.push_back(std::move(a));
+        {
+            Array<T>& last = blocks[blocks.length - 1];
+            if (last.length < last.capacity) {
+                Array<T> a;
+                a.grow(block_size);
+                blocks.add(std::move(a));
+            }
         }
 
-        Array<T>& last = blocks.back();
+        Array<T>& last = blocks[blocks.length - 1];
         assert(last.length < last.capacity);
 
         last.add({});

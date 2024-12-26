@@ -4,9 +4,6 @@
 #define BOUNDS_CHECKING_ENABLED 1
 #endif
 
-#define SUPPORT_NON_POD 0
-
-
 template<typename T> struct Array;
 template<typename T, usize N> struct ArrayFixed;
 
@@ -130,15 +127,155 @@ struct ArrayView {
     }
 };
 
-// TODO: aligned alloc here, also avoid zeroing before copies
+template<typename T>
+struct ObjArray {
+    T* data = 0;
+    usize length = 0;
+    usize capacity = 0;
+
+    ObjArray() {}
+    explicit ObjArray(usize initial_length) {
+        resize(initial_length);
+    }
+
+    ObjArray(const ObjArray& other) = delete;
+    ObjArray& operator=(const ObjArray& other) = delete;
+
+    ObjArray& operator=(ObjArray&& other) {
+        this->data = other.data;
+        this->length = other.length;
+        this->capacity = other.capacity;
+        other.data = 0;
+        other.length = 0;
+        other.capacity = 0;
+        return *this;
+    }
+
+    ObjArray(ObjArray&& other) {
+        *this = std::move(other);
+    }
+
+    void add(const T& value) {
+        if(length == capacity) {
+            usize new_capacity = Max<usize>(8, capacity * 2);
+            grow_unchecked(new_capacity);
+        }
+
+        data[length++] = value;
+    }
+
+	void add(T&& value) {
+		if(length == capacity) {
+			usize new_capacity = Max<usize>(8, capacity * 2);
+			grow_unchecked(new_capacity);
+		}
+
+		data[length++] = std::move(value);
+	}
+
+
+	void extend(const ArrayView<T>& arr) {
+		if(length + arr.length > capacity) {
+			usize new_capacity = Max<usize>(8, MAX(capacity * 2, length + arr.length));
+			grow_unchecked(new_capacity);
+		}
+
+        // SUPPORT_NON_POD
+        for (usize i = 0; i < arr.length; i++) {
+            data[i + length] = std::move(arr.data[i]);
+        }
+        //
+
+		length += arr.length;
+	}
+
+    void resize(usize new_size) {
+        grow(new_size);
+        for (usize i = length; i < new_size; i++) {
+            new (data + i) T();
+        }
+        length = new_size;
+    }
+
+    void clear() {
+        // SUPPORT NON POD
+        for (usize i = 0; i < length; i++) {
+            data->~T();
+        }
+        //
+
+        AlignedFree(data);
+        data = 0;
+        capacity = 0;
+        length = 0;
+    }
+
+    void grow_unchecked(usize new_capacity) {
+        T* new_data = (T*)AlignedAlloc(alignof(T), new_capacity * sizeof(T));
+
+        // SUPPORT NON POD
+        for (usize i = 0; i < length; i++) {
+            new_data[i] = std::move(data[i]);
+        }
+        //
+
+        AlignedFree(data);
+        data = new_data;
+        capacity = new_capacity;
+    }
+
+    void grow(usize new_capacity) {
+        if(new_capacity < capacity)
+            return;
+
+        grow_unchecked(new_capacity);
+    }
+
+    bool is_empty() {
+        return length == 0;
+    }
+
+    usize size_in_bytes() {
+        return length * sizeof(T);
+    }
+
+    ArrayView<u8> as_bytes() {
+        return ArrayView<u8>((u8*)data, size_in_bytes());
+    }
+
+    ArrayView<T> slice(usize index, usize count) {
+        return ArrayView(*this).slice(index, count);
+    }
+
+    T& operator[](usize index) {
+#if BOUNDS_CHECKING_ENABLED
+        if(index >= length) {
+            OutOfBounds(index);
+        }
+#endif
+        return data[index];
+    }
+
+    const T& operator[](usize index) const {
+#if BOUNDS_CHECKING_ENABLED
+        if(index >= length) {
+            OutOfBounds(index);
+        }
+#endif
+        return data[index];
+    }
+
+    ~ObjArray() {
+        clear();
+    }
+};
+
 template<typename T>
 struct Array {
-#if !SUPPORT_NON_POD
     static_assert(std::is_trivially_destructible<T>());
     static_assert(std::is_trivially_copyable<T>());
     static_assert(std::is_move_assignable<T>());
     static_assert(std::is_move_constructible<T>());
-#endif
 
     T* data = 0;
     usize length = 0;
@@ -191,13 +328,8 @@ struct Array {
 			grow_unchecked(new_capacity);
 		}
 
-#if SUPPORT_NON_POD
-        for (usize i = 0; i < arr.length; i++) {
-            data[i + length] = arr.data[i];
-        }
-#else
         memcpy(data + length, arr.data, arr.length * sizeof(T));
-#endif
+
 		length += arr.length;
 	}
 
@@ -207,30 +339,18 @@ struct Array {
     }
 
     void clear() {
-#if SUPPORT_NON_POD
-        for (usize i = 0; i < length; i++) {
-            data->~T();
-        }
-#endif
-        Free(data);
+        AlignedFree(data);
         data = 0;
         capacity = 0;
         length = 0;
     }
 
     void grow_unchecked(usize new_capacity) {
-        T* new_data = (T*)ZeroAlloc(new_capacity * sizeof(T));
+        T* new_data = (T*)AlignedAlloc(alignof(T), new_capacity * sizeof(T));
 
-        if(length > 0) {
-#if SUPPORT_NON_POD
-            for (usize i = 0; i < length; i++) {
-                new_data[i] = std::move(data[i]);
-            }
-#else
-            memcpy(new_data, data, length * sizeof(T));
-#endif
-            Free(data);
-        }
+        memcpy(new_data, data, length * sizeof(T));
+        memset(new_data + length, 0, (new_capacity - length) * sizeof(T));
+        AlignedFree(data);
 
         data = new_data;
         capacity = new_capacity;

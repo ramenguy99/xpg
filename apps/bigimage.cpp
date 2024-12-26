@@ -178,6 +178,7 @@ struct ChunkId {
 };
 
 struct ChunkLoadContext {
+    const ZMipFile* zmip;
     Array<u8> compressed_data;
     Array<u8> interleaved;
     Array<u8> deinterleaved;
@@ -189,6 +190,7 @@ ChunkLoadContext AllocChunkLoadContext(const ZMipFile& zmip) {
     Array<u8> deinterleaved(zmip.header.chunk_width * zmip.header.chunk_height * 4);
 
     ChunkLoadContext result = {
+        .zmip = &zmip,
         .compressed_data = std::move(compressed_data),
         .interleaved = std::move(interleaved),
         .deinterleaved = std::move(deinterleaved),
@@ -201,7 +203,9 @@ usize GetChunkIndex(const ZMipFile& zmip, ChunkId c) {
     return level.offset + (usize)c.y * level.chunks_x + c.x;
 }
 
-bool LoadChunk(ChunkLoadContext& load, const ZMipFile& zmip, ChunkId c) {
+bool LoadChunk(ChunkLoadContext& load, ChunkId c) {
+    const ZMipFile& zmip = *load.zmip;
+
     usize index = GetChunkIndex(zmip, c);
     usize x = c.x;
     usize y = c.y;
@@ -342,56 +346,95 @@ struct ChunkCache {
         BoundedLRUCache<Entry>::Entry* lru_entry;     // Optional entry into the LRU cache. The value in the entry indexes both the images array and descriptor set.
     };
 
+    struct UploadWork {
+        ArrayView<u8> buffer_map;
+        ChunkId c;
+        BlockingCounter* work_done_counter;
+    };
 
-    ChunkCache(const ZMipFile& zmip, usize cache_size, const gfx::Context& vk, const gfx::BindlessDescriptorSet bindless): zmip(zmip), lru(cache_size) {
+    ChunkCache(const ZMipFile& zmip, usize cache_size, usize upload_buffers_count, usize num_workers,
+               const gfx::Context& vk, const gfx::BindlessDescriptorSet bindless)
+               : zmip(zmip)
+               , lru(cache_size)
+    {
         chunks_count = zmip.chunks.length;
         chunks = (Chunk*)AlignedAlloc(alignof(Chunk), sizeof(Chunk) * chunks_count);
         memset(chunks, 0, sizeof(Chunk) * chunks_count);
 
-        load_context = AllocChunkLoadContext(zmip);
+        worker_infos.resize(num_workers);
+        Array<void*> worker_info_ptr(num_workers);
+        for (usize i = 0; i < worker_infos.length; i++) {
+            worker_infos[i] = AllocChunkLoadContext(zmip);
+            worker_info_ptr[i] = &worker_infos[i];
+        }
+        worker_pool.init_with_worker_data(worker_info_ptr);
 
-        resize(cache_size, vk, bindless);
+        sync_load_context = AllocChunkLoadContext(zmip);
+
+        resize(cache_size, upload_buffers_count, vk, bindless);
     }
 
     void DestroyResources(const gfx::Context& vk) {
         for (usize i = 0; i < images.length; i++) {
             gfx::DestroyImage(&images[i], vk);
         }
+        for (usize i = 0; i < upload_buffers.length; i++) {
+            gfx::DestroyBuffer(&upload_buffers[i], vk);
+        }
     }
 
-    void resize(usize cache_size, const gfx::Context& vk, const gfx::BindlessDescriptorSet bindless) {
-        if (images.length >= cache_size) {
-            // The cache does not shrink
-            return;
+    void resize(usize cache_size, usize upload_buffers_count, const gfx::Context& vk, const gfx::BindlessDescriptorSet bindless) {
+        // The cache does not shrink
+        if (images.length < cache_size) {
+            // Add missing images
+            logging::info("bigimage/cache", "Resizing cache to size %llu", cache_size);
+            usize old_length = images.length;
+            images.resize(cache_size);
+            for (usize i = old_length; i < images.length; i++) {
+                // Alloc image
+                gfx::CreateImage(&images[i], vk, {
+                    .width = zmip.header.chunk_width,
+                    .height = zmip.header.chunk_height,
+                    .format = VK_FORMAT_R8G8B8A8_UNORM,
+                    .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                    .memory_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                });
+
+                // Write descriptor
+                gfx::WriteImageDescriptor(bindless.set, vk, {
+                    .view = images[i].view,
+                    .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                    .binding = 2,
+                    .element = (u32)i,
+                });
+
+                Entry e = {
+                    .chunk_index = INVALID_CHUNK,
+                    .image_index = (u32)i,
+                };
+                BoundedLRUCache<Entry>::Entry* lru_entry = lru.alloc(std::move(e));
+                lru.push(lru_entry);
+            }
         }
 
-        logging::info("bigimage/cache", "Resizing cache to size %llu", cache_size);
-        usize old_length = images.length;
-        images.resize(cache_size);
-        for (usize i = old_length; i < cache_size; i++) {
-            // Upload to GPU sync
-            gfx::CreateImage(&images[i], vk, {
-                .width = zmip.header.chunk_width,
-                .height = zmip.header.chunk_height,
-                .format = VK_FORMAT_R8G8B8A8_UNORM,
-                .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                .memory_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            });
+        // The cache does not shrink
+        if (upload_buffers.length < upload_buffers_count) {
+            // Add missing upload buffers
+            logging::info("bigimage/cache", "Adding upload buffers to size %llu", upload_buffers_count);
+            usize old_length = upload_buffers.length;
+            upload_buffers.resize(upload_buffers_count);
 
-            gfx::WriteImageDescriptor(bindless.set, vk, {
-                .view = images[i].view,
-                .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                .binding = 2,
-                .element = (u32)i,
-            });
+            for (usize i = old_length; i < upload_buffers.length; i++) {
+                CreateBuffer(&upload_buffers[i], vk, zmip.header.chunk_width * zmip.header.chunk_height * 4, {
+                    .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                    .alloc_flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+                    .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+                });
+            }
 
-            Entry e = {
-                .chunk_index = INVALID_CHUNK,
-                .image_index = (u32)i,
-            };
-            BoundedLRUCache<Entry>::Entry* lru_entry = lru.alloc(std::move(e));
-            lru.push(lru_entry);
+            // Add missing work items
+            work_items.resize(upload_buffers_count);
         }
     }
 
@@ -417,6 +460,161 @@ struct ChunkCache {
         }
     }
 
+    static void worker_func(WorkerPool::WorkerInfo* worker_info, void* user_data) {
+        UploadWork& work = *(UploadWork*)user_data;
+        ChunkLoadContext& ctx = *(ChunkLoadContext*)worker_info->data;
+
+        // Load chunk from disk
+        LoadChunk(ctx, work.c);
+
+        // Write chunk to mapped buffer
+        work.buffer_map.copy_exact(ctx.deinterleaved);
+
+        // Signal that this work item is done
+        work.work_done_counter->signal();
+    }
+
+    void request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32> output_descriptors, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless) {
+        platform::Timestamp begin = platform::GetTimestamp();
+
+        // For now we assert that we don't have batches larger than the prepared staging buffers.
+        // In theory we could tweak this and do the upload in multiple stages, which in theory
+        // can also be useful to overlap loading and upload work for lower latency.
+        assert(chunk_ids.length <= upload_buffers.length);
+
+        // Arm counter to know when work is done
+        work_done_counter.arm(chunk_ids.length);
+
+        // Issue work to threads
+        usize chunks_to_upload = 0;
+        for (usize i = 0; i < chunk_ids.length; i++) {
+            ChunkId c = chunk_ids[i];
+            usize chunk_index = GetChunkIndex(zmip, c);
+            assert(chunk_index < chunks_count);
+
+            // Lookup state in cache
+            Chunk& chunk = chunks[chunk_index];
+            UploadWork& work = work_items[i];
+            work.c = c;
+            work.buffer_map = upload_buffers[i].map;
+            work.work_done_counter = &work_done_counter;
+
+            if (!chunk.lru_entry) {
+                chunks_to_upload += 1;
+                worker_pool.add_work({
+                    .callback = worker_func,
+                    .user_data = &work,
+                });
+            }
+            else {
+                // Fill chunks for which we did not submit work
+                output_descriptors[i] = chunk.lru_entry->value.image_index;
+
+                // Remove the entry from the LRU queue if we are using it again
+                if (chunk.refcount == 0) {
+                    lru.remove(chunk.lru_entry);
+                }
+
+                // This item generated no work, signal the counter to not count it when waiting
+                work_done_counter.signal();
+            }
+
+            chunk.refcount += 1;
+        }
+
+        // Return early if no uploads needed
+        if (chunks_to_upload == 0) return;
+
+        // Wait for all work done
+        work_done_counter.wait();
+
+        platform::Timestamp mid = platform::GetTimestamp();
+
+        // Issue upload commands to GPU
+        gfx::BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
+
+        for (usize i = 0; i < chunk_ids.length; i++) {
+            ChunkId c = chunk_ids[i];
+            usize chunk_index = GetChunkIndex(zmip, c);
+            assert(chunk_index < chunks_count);
+
+            // Lookup state in cache
+            Chunk& chunk = chunks[chunk_index];
+
+            // Skip chunks for which we did not submit work
+            if (chunk.lru_entry) {
+                continue;
+            }
+
+            // Pop an entry from the LRU cache
+            BoundedLRUCache<Entry>::Entry* e = lru.pop();
+
+            // If the entry was previously used for some other chunk
+            // invalidate the chunk that was holding on to it.
+            if (e->value.chunk_index != INVALID_CHUNK) {
+                Chunk& other = chunks[e->value.chunk_index];
+
+                // The chunk should never be in the LRU cache if it's in use.
+                assert(other.refcount == 0);
+
+                other.lru_entry = 0;
+            }
+
+            // Fill the output descriptor
+            output_descriptors[i] = e->value.image_index;
+
+            // Store which chunk this cache entry stores now. And which entry this chunk points to.
+            e->value.chunk_index = chunk_index;
+            chunk.lru_entry = e;
+
+            gfx::Image& image = images[e->value.image_index];
+
+            // Transition image to transfer dest layout
+            gfx::CmdImageBarrier(vk.sync_command_buffer, image.image, {
+                .src_stage = VK_PIPELINE_STAGE_2_NONE,
+                .dst_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
+                .src_access = 0,
+                .dst_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .new_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            });
+
+            // Issue copy
+            VkBufferImageCopy copy = {};
+            copy.bufferOffset = 0;
+            copy.bufferRowLength = zmip.header.chunk_width;
+            copy.bufferImageHeight = zmip.header.chunk_height;
+            copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copy.imageSubresource.mipLevel = 0;
+            copy.imageSubresource.baseArrayLayer = 0;
+            copy.imageSubresource.layerCount = 1;
+            copy.imageExtent.width = zmip.header.chunk_width;
+            copy.imageExtent.height = zmip.header.chunk_height;
+            copy.imageExtent.depth = 1;
+
+            vkCmdCopyBufferToImage(vk.sync_command_buffer, upload_buffers[i].buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+
+            // Transition images to shader read layout
+            gfx::CmdImageBarrier(vk.sync_command_buffer, image.image, {
+                .src_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
+                .dst_stage = VK_PIPELINE_STAGE_2_NONE,
+                .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                .dst_access = 0,
+                .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .new_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            });
+        }
+
+        gfx::EndCommands(vk.sync_command_buffer);
+
+        // Submit and wait
+        gfx::SubmitSync(vk);
+
+        platform::Timestamp end = platform::GetTimestamp();
+        logging::info("bigimage/cache/batch", "Chunks: %4llu / %4llu | Load: %12.6f | Upload: %12.6f", 
+            chunks_to_upload, chunk_ids.length, platform::GetElapsed(begin, mid) * 1000.0, platform::GetElapsed(mid, end) * 1000.0);
+    }
+
     u32 request_chunk_sync(ChunkId c, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless) {
         usize chunk_index = GetChunkIndex(zmip, c);
         assert(chunk_index < chunks_count);
@@ -428,6 +626,14 @@ struct ChunkCache {
         //     case LoadState::Unloaded: {
                 // Check if this chunk already has an entry in the cache.
                 // If it has, we can just use it, otherwise we need to populate it.
+        //         chunk.state.store(LoadState::Loaded, std::memory_order_relaxed);
+        //     } break;
+        //     case LoadState::Loading: {
+        //         while (chunk.state.load(std::memory_order_relaxed) == LoadState::Loading) {}
+        //         std::atomic_thread_fence(std::memory_order_acquire);
+        //     } break;
+        // }
+
         if (!chunk.lru_entry) {
             // Pop an entry from the LRU cache
             BoundedLRUCache<Entry>::Entry* e = lru.pop();
@@ -447,30 +653,28 @@ struct ChunkCache {
             e->value.chunk_index = chunk_index;
             chunk.lru_entry = e;
 
+            platform::Timestamp begin = platform::GetTimestamp();
             // Load from disk
-            LoadChunk(load_context, zmip, c);
+            LoadChunk(sync_load_context, c);
+
+            platform::Timestamp mid = platform::GetTimestamp();
 
             // Upload to GPU
-            gfx::UploadImage(images[e->value.image_index], vk, load_context.deinterleaved, {
+            gfx::UploadImage(images[e->value.image_index], vk, sync_load_context.deinterleaved, {
                 .width = zmip.header.chunk_width,
                 .height = zmip.header.chunk_height,
                 .format = VK_FORMAT_R8G8B8A8_UNORM,
                 .current_image_layout = VK_IMAGE_LAYOUT_UNDEFINED,
                 .final_image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             });
+
+            platform::Timestamp end = platform::GetTimestamp();
+            logging::info("bigimage/cache/load", "Load: %12.6f | Upload: %12.6f", platform::GetElapsed(begin, mid), platform::GetElapsed(mid, end));
         }
         else if (chunk.refcount == 0) {
             // Remove the entry from the LRU if we are using it again
             lru.remove(chunk.lru_entry);
         }
-
-       //         chunk.state.store(LoadState::Loaded, std::memory_order_relaxed);
-       //     } break;
-       //     case LoadState::Loading: {
-       //         while (chunk.state.load(std::memory_order_relaxed) == LoadState::Loading) {}
-       //         std::atomic_thread_fence(std::memory_order_acquire);
-       //     } break;
-       // }
 
         chunk.refcount += 1;
         return chunk.lru_entry->value.image_index;
@@ -479,10 +683,17 @@ struct ChunkCache {
     Chunk* chunks;
     usize chunks_count;
     const ZMipFile& zmip;
-    ChunkLoadContext load_context;
 
     Array<gfx::Image> images;
     BoundedLRUCache<Entry> lru;
+    ChunkLoadContext sync_load_context;
+
+    Array<gfx::Buffer> upload_buffers;
+
+    ObjArray<ChunkLoadContext> worker_infos;
+    Array<UploadWork> work_items;
+    WorkerPool worker_pool;
+    BlockingCounter work_done_counter;
 };
 
 int main(int argc, char** argv) {
@@ -680,10 +891,14 @@ int main(int argc, char** argv) {
         ivec2 drag_start = ivec2(0, 0);
         bool dragging = false;
         bool show_grid = false;
+        bool batched_chunk_upload = true;
+        // bool batched_chunk_upload = false;
 
         Array<GpuChunk> gpu_chunks;
         Array<usize> cpu_chunks_data;
         Array<ArrayView<usize>> cpu_chunks_per_frame;
+        Array<ChunkId> batch_inputs;
+        Array<u32> batch_outputs;
 
         usize total_max_chunks = 0;
 
@@ -711,18 +926,7 @@ int main(int argc, char** argv) {
     app.vertex_buffer = vertex_buffer;
     app.max_zoom = (s32)(zmip.levels.length - 1);
 
-    // struct ThreadedLoader {
-    //     static void func(void* p_app) {
-    //         App& app = *(App*)p_app;
-    //     };
-    // };
-    // WorkerPool pool(4);
-    // pool.add_work({
-    //     .callback = ThreadedLoader::func,
-    //     .user_data = &app,
-    // });
-    //ChunkCache cache(zmip, zmip.chunks.length, vk, bindless);
-    ChunkCache cache(zmip, 0, vk, bindless);
+    ChunkCache cache(zmip, 0, 0, 1, vk, bindless);
 
     auto MouseMoveEvent = [&app](ivec2 pos) {
         if (app.dragging) {
@@ -815,8 +1019,17 @@ int main(int argc, char** argv) {
                 }
 
                 // Resize cache
-                cache.resize(total_max_chunks * window.frames.length, vk, bindless);
+                cache.resize(total_max_chunks * window.frames.length, total_max_chunks, vk, bindless);
+                app.batch_inputs.resize(total_max_chunks);
+                app.batch_outputs.resize(total_max_chunks);
             }
+        }
+
+        // Acquire current frame
+        gfx::Frame& frame = gfx::WaitForFrame(&window, vk);
+        gfx::Result ok = gfx::AcquireImage(&frame, &window, vk);
+        if (ok != gfx::Result::SUCCESS) {
+            return;
         }
 
         // Chunks
@@ -841,6 +1054,8 @@ int main(int argc, char** argv) {
         // Reset chunks of the current frame.
         cpu_chunks.length = 0;
         app.gpu_chunks.length = 0;
+        app.batch_inputs.length = 0;
+
         for (s32 y = -offset.y; y < view_size.y - offset.y + remainder.y; y += chunk_size.y) {
             for (s32 x = -offset.x; x < view_size.x - offset.x + remainder.x; x += chunk_size.x) {
                 ivec2 image_coords = ivec2(x, y) << app.zoom;
@@ -850,9 +1065,17 @@ int main(int argc, char** argv) {
                 if (!((chunk.x >= 0 && chunk.x < chunks.x) && (chunk.y >= 0 && chunk.y < chunks.y))) continue;
 
                 ChunkId id((u32)chunk.x, (u32)chunk.y, (u32)app.zoom);
+
+                u32 desc_index = UINT32_MAX;
+                if (app.batched_chunk_upload) {
+                    app.batch_inputs.add(id);
+                }
+                else {
+                    desc_index = cache.request_chunk_sync(id, vk, bindless);
+                }
                 GpuChunk c = {
                     .position = offset + chunk * chunk_size,
-                    .desc_index = cache.request_chunk_sync(id, vk, bindless),
+                    .desc_index = desc_index,
                 };
 
                 // Check that our upper bound of max chunks is actually respected
@@ -864,11 +1087,13 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Acquire current frame
-        gfx::Frame& frame = gfx::WaitForFrame(&window, vk);
-        gfx::Result ok = gfx::AcquireImage(&frame, &window, vk);
-        if (ok != gfx::Result::SUCCESS) {
-            return;
+        // Upload 
+        if (app.batched_chunk_upload) {
+            app.batch_outputs.resize(app.batch_inputs.length);
+            cache.request_chunk_batch(app.batch_inputs, app.batch_outputs, vk, bindless);
+            for (usize i = 0; i < app.batch_outputs.length; i++) {
+                app.gpu_chunks[i].desc_index = app.batch_outputs[i];
+            }
         }
 
         {
