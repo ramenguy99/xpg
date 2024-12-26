@@ -474,19 +474,29 @@ struct ChunkCache {
         work.work_done_counter->signal();
     }
 
-    void request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32> output_descriptors, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless) {
-        platform::Timestamp begin = platform::GetTimestamp();
+    void request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32> output_descriptors, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless, VkCommandBuffer cmd) {
+        // Debug check that the same chunk is not requested twice
+        for (usize i = 0; i < chunk_ids.length; i++) {
+            for (usize j = i + 1; j < chunk_ids.length; j++) {
+                assert(GetChunkIndex(zmip, chunk_ids[i]) != GetChunkIndex(zmip, chunk_ids[j]));
+            }
+        }
 
         // For now we assert that we don't have batches larger than the prepared staging buffers.
         // In theory we could tweak this and do the upload in multiple stages, which in theory
         // can also be useful to overlap loading and upload work for lower latency.
         assert(chunk_ids.length <= upload_buffers.length);
 
+        // If no work to upload, early out
+        if (chunk_ids.length == 0) {
+            return;
+        }
+
         // Arm counter to know when work is done
         work_done_counter.arm(chunk_ids.length);
 
         // Issue work to threads
-        usize chunks_to_upload = 0;
+        usize uploaded_chunks = 0;
         for (usize i = 0; i < chunk_ids.length; i++) {
             ChunkId c = chunk_ids[i];
             usize chunk_index = GetChunkIndex(zmip, c);
@@ -500,18 +510,17 @@ struct ChunkCache {
             work.work_done_counter = &work_done_counter;
 
             if (!chunk.lru_entry) {
-                chunks_to_upload += 1;
+                uploaded_chunks += 1;
                 worker_pool.add_work({
                     .callback = worker_func,
                     .user_data = &work,
                 });
             }
             else {
-                // Fill chunks for which we did not submit work
                 output_descriptors[i] = chunk.lru_entry->value.image_index;
 
-                // Remove the entry from the LRU queue if we are using it again
                 if (chunk.refcount == 0) {
+                    // Remove the entry from the LRU queue if we are using it again
                     lru.remove(chunk.lru_entry);
                 }
 
@@ -522,17 +531,16 @@ struct ChunkCache {
             chunk.refcount += 1;
         }
 
-        // Return early if no uploads needed
-        if (chunks_to_upload == 0) return;
-
         // Wait for all work done
+        platform::Timestamp begin = platform::GetTimestamp();
         work_done_counter.wait();
-
         platform::Timestamp mid = platform::GetTimestamp();
 
-        // Issue upload commands to GPU
-        gfx::BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
+        if (uploaded_chunks == 0) {
+            return;
+        }
 
+        // Issue upload commands to GPU
         for (usize i = 0; i < chunk_ids.length; i++) {
             ChunkId c = chunk_ids[i];
             usize chunk_index = GetChunkIndex(zmip, c);
@@ -541,7 +549,7 @@ struct ChunkCache {
             // Lookup state in cache
             Chunk& chunk = chunks[chunk_index];
 
-            // Skip chunks for which we did not submit work
+            // Fill and skip chunks for which we did not submit work
             if (chunk.lru_entry) {
                 continue;
             }
@@ -570,10 +578,10 @@ struct ChunkCache {
             gfx::Image& image = images[e->value.image_index];
 
             // Transition image to transfer dest layout
-            gfx::CmdImageBarrier(vk.sync_command_buffer, image.image, {
-                .src_stage = VK_PIPELINE_STAGE_2_NONE,
+            gfx::CmdImageBarrier(cmd, image.image, {
+                .src_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                 .dst_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
-                .src_access = 0,
+                .src_access = VK_ACCESS_2_SHADER_READ_BIT,
                 .dst_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
                 .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
                 .new_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -592,27 +600,21 @@ struct ChunkCache {
             copy.imageExtent.height = zmip.header.chunk_height;
             copy.imageExtent.depth = 1;
 
-            vkCmdCopyBufferToImage(vk.sync_command_buffer, upload_buffers[i].buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+            vkCmdCopyBufferToImage(cmd, upload_buffers[i].buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
             // Transition images to shader read layout
-            gfx::CmdImageBarrier(vk.sync_command_buffer, image.image, {
+            gfx::CmdImageBarrier(cmd, image.image, {
                 .src_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
-                .dst_stage = VK_PIPELINE_STAGE_2_NONE,
+                .dst_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                 .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                .dst_access = 0,
+                .dst_access = VK_ACCESS_2_SHADER_READ_BIT,
                 .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 .new_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             });
         }
-
-        gfx::EndCommands(vk.sync_command_buffer);
-
-        // Submit and wait
-        gfx::SubmitSync(vk);
-
         platform::Timestamp end = platform::GetTimestamp();
-        logging::info("bigimage/cache/batch", "Chunks: %4llu / %4llu | Load: %12.6f | Upload: %12.6f", 
-            chunks_to_upload, chunk_ids.length, platform::GetElapsed(begin, mid) * 1000.0, platform::GetElapsed(mid, end) * 1000.0);
+
+        logging::info("bigimage/cache/batch", "Chunks: %4llu / %4llu | Load: %12.6f | Commands: %12.6f",  uploaded_chunks, chunk_ids.length, platform::GetElapsed(begin, mid) * 1000.0, platform::GetElapsed(end, end) * 1000.0);
     }
 
     u32 request_chunk_sync(ChunkId c, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless) {
@@ -877,7 +879,7 @@ int main(int argc, char** argv) {
 
     struct App {
         // - Window
-        bool wait_for_events = false;
+        bool wait_for_events = true;
         bool closed = false;
 
         // - Application data
@@ -892,7 +894,6 @@ int main(int argc, char** argv) {
         bool dragging = false;
         bool show_grid = false;
         bool batched_chunk_upload = true;
-        // bool batched_chunk_upload = false;
 
         Array<GpuChunk> gpu_chunks;
         Array<usize> cpu_chunks_data;
@@ -925,8 +926,9 @@ int main(int argc, char** argv) {
     app.cpu_chunks_per_frame = Array<ArrayView<usize>>(window.frames.length);
     app.vertex_buffer = vertex_buffer;
     app.max_zoom = (s32)(zmip.levels.length - 1);
+    app.offset = vec2(100, 100);
 
-    ChunkCache cache(zmip, 0, 0, 1, vk, bindless);
+    ChunkCache cache(zmip, 0, 0, 8, vk, bindless);
 
     auto MouseMoveEvent = [&app](ivec2 pos) {
         if (app.dragging) {
@@ -1056,8 +1058,9 @@ int main(int argc, char** argv) {
         app.gpu_chunks.length = 0;
         app.batch_inputs.length = 0;
 
-        for (s32 y = -offset.y; y < view_size.y - offset.y + remainder.y; y += chunk_size.y) {
-            for (s32 x = -offset.x; x < view_size.x - offset.x + remainder.x; x += chunk_size.x) {
+
+        for (s32 y = Max(-offset.y, 0); y < view_size.y - offset.y + remainder.y; y += chunk_size.y) {
+            for (s32 x = Max(-offset.x, 0); x < view_size.x - offset.x + remainder.x; x += chunk_size.x) {
                 ivec2 image_coords = ivec2(x, y) << app.zoom;
                 ivec2 chunk = image_coords / z_chunk_size;
 
@@ -1087,93 +1090,100 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Upload 
-        if (app.batched_chunk_upload) {
-            app.batch_outputs.resize(app.batch_inputs.length);
-            cache.request_chunk_batch(app.batch_inputs, app.batch_outputs, vk, bindless);
-            for (usize i = 0; i < app.batch_outputs.length; i++) {
-                app.gpu_chunks[i].desc_index = app.batch_outputs[i];
-            }
-        }
-
-        {
-            // Upload chunks
-            gfx::Buffer& buffer = app.chunks_buffers[app.frame_index];
-
-            void* addr = 0;
-            VkResult vkr = vmaMapMemory(vk.vma, buffer.allocation, &addr);
-            if (vkr != VK_SUCCESS) {
-                logging::error("bigimage/draw", "Failed to map chunk buffer memory");
-                exit(102);
-            }
-
-            ArrayView<u8> map((u8*)addr, app.gpu_chunks.size_in_bytes());
-            map.copy_exact(app.gpu_chunks.as_bytes());
-
-            vmaUnmapMemory(vk.vma, buffer.allocation);
-        }
-
-
-
-        {
-            gui::BeginFrame();
-
-            // USER: gui
-            gui::DrawStats(dt, window.fb_width, window.fb_height);
-
-            //ImGui::ShowDemoWindow();
-            int32_t texture_index = 0;
-            if (ImGui::Begin("Editor")) {
-                ImGui::InputInt("Zoom", &app.zoom);
-                app.zoom = Clamp(app.zoom, 0, (s32)zmip.levels.length - 1);
-
-                ImGui::DragFloat2("Offset", &app.offset.x);
-
-                ImGui::Checkbox("Show grid", &app.show_grid);
-
-                ImGui::Separator();
-
-                // Draw minimap
-                ImDrawList* draw_list = ImGui::GetWindowDrawList();
-                ImVec2 corner = ImGui::GetCursorScreenPos();
-                f32 size = 5.0f;
-                f32 stride = 7.0f;
-                ivec2 img_size = ivec2(zmip.header.width, zmip.header.height);                // In image pixels
-                for (s32 level = 0; level < (s32)zmip.levels.length; level++) {
-                    ivec2 chunk_size = ivec2(zmip.header.chunk_width, zmip.header.chunk_height) << level;  // In image pixels
-                    ivec2 chunks = (img_size + chunk_size - ivec2(1, 1)) / chunk_size;  // Total chunks in image at this zoom level
-                    for (s32 y = 0; y < chunks.y; y++) {
-                        for (s32 x = 0; x < chunks.x; x++) {
-                            ChunkCache::Chunk& c = cache.get_chunk(ChunkId(x, y, level));
-                            u32 color = 0xFF0000FF;
-                            // ChunkCache::LoadState state = c.state.load(std::memory_order_relaxed);
-                            if (c.lru_entry) {
-                                if (c.refcount > 0) {
-                                    color = 0xFF00FF00;
-                                }
-                                else {
-                                    color = 0xFF00FFFF;
-                                }
-                            }
-                            draw_list->AddRectFilled(corner + ImVec2(x * stride, y * stride), corner + ImVec2(x * stride + size, y * stride + size), color);
-                        }
-                    }
-
-                    if (level & 1) {
-                        corner.x += chunks.x * stride + 5.0f;
-                    }
-                    else {
-                        corner.y += chunks.y * stride + 5.0f;
-                    }
-                }
-            }
-            ImGui::End();
-
-            gui::EndFrame();
-        }
-
         {
             gfx::BeginCommands(frame.command_pool, frame.command_buffer, vk);
+
+            // USER: pre-gui, but with frame
+
+            // Upload chunks
+            //logging::info("debug/start", "%u", app.frame_index);
+            if (app.batched_chunk_upload) {
+                app.batch_outputs.resize(app.batch_inputs.length);
+                cache.request_chunk_batch(app.batch_inputs, app.batch_outputs, vk, bindless, frame.command_buffer);
+                for (usize i = 0; i < app.batch_outputs.length; i++) {
+                    app.gpu_chunks[i].desc_index = app.batch_outputs[i];
+                    //logging::info("debug/chunk", "    %llu: %u", i, app.batch_outputs[i]);
+                }
+            }
+
+            // Upload chunk info buffer
+            {
+                gfx::Buffer& buffer = app.chunks_buffers[app.frame_index];
+
+                void* addr = 0;
+                VkResult vkr = vmaMapMemory(vk.vma, buffer.allocation, &addr);
+                if (vkr != VK_SUCCESS) {
+                    logging::error("bigimage/draw", "Failed to map chunk buffer memory");
+                    exit(102);
+                }
+
+                ArrayView<u8> map((u8*)addr, app.gpu_chunks.size_in_bytes());
+                map.copy_exact(app.gpu_chunks.as_bytes());
+
+                vmaUnmapMemory(vk.vma, buffer.allocation);
+            }
+
+
+
+
+            {
+                gui::BeginFrame();
+
+                // USER: gui
+                gui::DrawStats(dt, window.fb_width, window.fb_height);
+
+                //ImGui::ShowDemoWindow();
+                int32_t texture_index = 0;
+                if (ImGui::Begin("Editor")) {
+                    ImGui::InputInt("Zoom", &app.zoom);
+                    app.zoom = Clamp(app.zoom, 0, (s32)zmip.levels.length - 1);
+
+                    ImGui::DragFloat2("Offset", &app.offset.x);
+
+                    ImGui::Checkbox("Show grid", &app.show_grid);
+
+                    ImGui::Checkbox("Batched upload", &app.batched_chunk_upload);
+
+                    ImGui::Separator();
+
+                    // Draw minimap
+                    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                    ImVec2 corner = ImGui::GetCursorScreenPos();
+                    f32 size = 5.0f;
+                    f32 stride = 7.0f;
+                    ivec2 img_size = ivec2(zmip.header.width, zmip.header.height);                // In image pixels
+                    for (s32 level = 0; level < (s32)zmip.levels.length; level++) {
+                        ivec2 chunk_size = ivec2(zmip.header.chunk_width, zmip.header.chunk_height) << level;  // In image pixels
+                        ivec2 chunks = (img_size + chunk_size - ivec2(1, 1)) / chunk_size;  // Total chunks in image at this zoom level
+                        for (s32 y = 0; y < chunks.y; y++) {
+                            for (s32 x = 0; x < chunks.x; x++) {
+                                ChunkCache::Chunk& c = cache.get_chunk(ChunkId(x, y, level));
+                                u32 color = 0xFF0000FF;
+                                // ChunkCache::LoadState state = c.state.load(std::memory_order_relaxed);
+                                if (c.lru_entry) {
+                                    if (c.refcount > 0) {
+                                        color = 0xFF00FF00;
+                                    }
+                                    else {
+                                        color = 0xFF00FFFF;
+                                    }
+                                }
+                                draw_list->AddRectFilled(corner + ImVec2(x * stride, y * stride), corner + ImVec2(x * stride + size, y * stride + size), color);
+                            }
+                        }
+
+                        if (level & 1) {
+                            corner.x += chunks.x * stride + 5.0f;
+                        }
+                        else {
+                            corner.y += chunks.y * stride + 5.0f;
+                        }
+                    }
+                }
+                ImGui::End();
+
+                gui::EndFrame();
+            }
 
             // USER: draw commands
             gfx::CmdImageBarrier(frame.command_buffer, frame.current_image, {
