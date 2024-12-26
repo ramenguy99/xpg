@@ -5,3 +5,4 @@
 /res/
 imgui.ini
 __pycache__
+/debug-build/

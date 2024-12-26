@@ -321,10 +321,11 @@ struct ChunkCache {
         BlockingCounter* work_done_counter;
     };
 
-    ChunkCache(const ZMipFile& zmip, usize cache_size, usize upload_buffers_count, usize num_workers,
+    ChunkCache(const ZMipFile& zmip, usize cache_size, usize upload_buffers_count, usize num_workers, usize num_frames_in_flight,
                const gfx::Context& vk, const gfx::BindlessDescriptorSet bindless)
                : zmip(zmip)
                , lru(cache_size)
+               , upload_buffers(num_frames_in_flight)
     {
         // Allocate space for chunk metadata
         chunks.resize(zmip.chunks.length);
@@ -349,8 +350,10 @@ struct ChunkCache {
         for (usize i = 0; i < images.length; i++) {
             gfx::DestroyImage(&images[i], vk);
         }
-        for (usize i = 0; i < upload_buffers.length; i++) {
-            gfx::DestroyBuffer(&upload_buffers[i], vk);
+        for (usize frame_index = 0; frame_index < upload_buffers.length; frame_index++) {
+            for (usize i = 0; i < upload_buffers[frame_index].length; i++) {
+                gfx::DestroyBuffer(&upload_buffers[frame_index][i], vk);
+            }
         }
     }
 
@@ -393,15 +396,17 @@ struct ChunkCache {
         if (upload_buffers.length < upload_buffers_count) {
             // Add missing upload buffers
             logging::info("bigimage/cache", "Adding upload buffers to size %llu", upload_buffers_count);
-            usize old_length = upload_buffers.length;
-            upload_buffers.resize(upload_buffers_count);
+            for(usize frame_index = 0; frame_index < upload_buffers.length; frame_index++) {
+                usize old_length = upload_buffers[frame_index].length;
+                upload_buffers[frame_index].resize(upload_buffers_count);
 
-            for (usize i = old_length; i < upload_buffers.length; i++) {
-                CreateBuffer(&upload_buffers[i], vk, zmip.header.chunk_width * zmip.header.chunk_height * 4, {
-                    .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                    .alloc_flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-                    .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-                });
+                for (usize i = old_length; i < upload_buffers[frame_index].length; i++) {
+                    CreateBuffer(&upload_buffers[frame_index][i], vk, zmip.header.chunk_width * zmip.header.chunk_height * 4, {
+                        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                        .alloc_flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+                        .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+                    });
+                }
             }
 
             // Add missing work items
@@ -440,7 +445,7 @@ struct ChunkCache {
         work.work_done_counter->signal();
     }
 
-    void request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32> output_descriptors, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless, VkCommandBuffer cmd) {
+    void request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32> output_descriptors, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless, VkCommandBuffer cmd, u32 frame_index) {
         // Debug check that the same chunk is not requested twice
         for (usize i = 0; i < chunk_ids.length; i++) {
             for (usize j = i + 1; j < chunk_ids.length; j++) {
@@ -459,7 +464,7 @@ struct ChunkCache {
         // with correct contents makes more sense, scrolling seems to be smooth enough
         // with delays and I'd rather not have to worry about knowing if the frame i'm
         // looking at finished loading or not.
-        assert(chunk_ids.length <= upload_buffers.length);
+        assert(chunk_ids.length <= upload_buffers[frame_index].length);
 
         // If no work to upload, early out
         if (chunk_ids.length == 0) {
@@ -479,7 +484,7 @@ struct ChunkCache {
             Chunk& chunk = chunks[chunk_index];
             Work& work = work_items[i];
             work.c = c;
-            work.buffer_map = upload_buffers[i].map;
+            work.buffer_map = upload_buffers[frame_index][i].map;
             work.work_done_counter = &work_done_counter;
 
             if (!chunk.lru_entry) {
@@ -507,6 +512,7 @@ struct ChunkCache {
         // Wait for all work done
         platform::Timestamp begin = platform::GetTimestamp();
         work_done_counter.wait();
+        assert(work_done_counter.count == 0);
         platform::Timestamp mid = platform::GetTimestamp();
 
         if (uploaded_chunks == 0) {
@@ -572,7 +578,7 @@ struct ChunkCache {
             copy.imageExtent.height = zmip.header.chunk_height;
             copy.imageExtent.depth = 1;
 
-            vkCmdCopyBufferToImage(cmd, upload_buffers[i].buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+            vkCmdCopyBufferToImage(cmd, upload_buffers[frame_index][i].buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
             // Transition images to shader read layout
             gfx::CmdImageBarrier(cmd, image.image, {
@@ -655,9 +661,9 @@ struct ChunkCache {
     ChunkLoadContext sync_load_context;
 
     // Async upload
-    Array<gfx::Buffer> upload_buffers;       // Pool of staging buffers for upload
-    ObjArray<ChunkLoadContext> worker_infos; // Worker data, one per worker thread
-    Array<Work> work_items;                  // Work data, one per work item
+    ObjArray<Array<gfx::Buffer>> upload_buffers; // Pool of staging buffers for upload, one pool for each frame.
+    ObjArray<ChunkLoadContext> worker_infos;     // Worker data, one per worker thread
+    Array<Work> work_items;                      // Work data, one per work item
     WorkerPool worker_pool;
     BlockingCounter work_done_counter;
 };
@@ -887,7 +893,7 @@ int main(int argc, char** argv) {
     app.vertex_buffer = vertex_buffer;
     app.max_zoom = (s32)(zmip.levels.length - 1);
 
-    ChunkCache cache(zmip, 0, 0, 8, vk, bindless);
+    ChunkCache cache(zmip, 0, 0, 8, window.frames.length, vk, bindless);
 
     auto MouseMoveEvent = [&app](ivec2 pos) {
         if (app.dragging) {
@@ -1059,9 +1065,14 @@ int main(int argc, char** argv) {
             // Upload chunks
             if (app.batched_chunk_upload) {
                 app.batch_outputs.resize(app.batch_inputs.length);
-                cache.request_chunk_batch(app.batch_inputs, app.batch_outputs, vk, bindless, frame.command_buffer);
+                cache.request_chunk_batch(app.batch_inputs, app.batch_outputs, vk, bindless, frame.command_buffer, app.frame_index);
                 for (usize i = 0; i < app.batch_outputs.length; i++) {
                     app.gpu_chunks[i].desc_index = app.batch_outputs[i];
+
+                    // Check that the same chunk is not used twice
+                    for (usize j = i + 1; j < app.batch_outputs.length; j++) {
+                        assert(app.batch_outputs[i] != app.batch_outputs[j]);
+                    }
                 }
             }
 

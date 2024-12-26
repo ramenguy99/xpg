@@ -26,7 +26,7 @@ struct BufferedStream {
     InitProc init_proc = nullptr;
     FillProc fill_proc = nullptr;
 
-    static void work_callback(void* data) {
+    static void work_callback(WorkerPool::WorkerInfo* worker_info, void* data) {
         Entry* entry = (Entry*)data;
         while (true) {
             // Check if work has been canceled

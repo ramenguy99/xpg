@@ -30,6 +30,9 @@ if (MSVC AND ${XPG_MSVC_ANALYZE})
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /analyze")
 endif()
 
+if (NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-volatile -Wno-nullability-completeness")
+endif()
 
 # add_executable(descs apps/descs.cpp  "lib/imgui_impl.h" "lib/result.h" "lib/graph.h" )
 # target_link_libraries(descs PRIVATE volk_headers glfw glm VulkanMemoryAllocator)

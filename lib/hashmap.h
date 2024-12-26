@@ -68,9 +68,9 @@ struct HashMap {
         assert(IsPow2(new_capacity));
         if (new_capacity <= capacity) return;
 
-        u64* new_hashes = ZeroAlloc(new_capacity * sizeof(u64));
-        K* new_keys = ZeroAlloc(new_capacity * sizeof(K));
-        V* new_values = ZeroAlloc(new_capacity * sizeof(V));
+        u64* new_hashes = (u64*)ZeroAlloc(new_capacity * sizeof(u64));
+        K* new_keys = (K*)ZeroAlloc(new_capacity * sizeof(K));
+        V* new_values = (V*)ZeroAlloc(new_capacity * sizeof(V));
 
         u64 mask = new_capacity - 1;
         for (usize i = 0; i < capacity; i++) {
