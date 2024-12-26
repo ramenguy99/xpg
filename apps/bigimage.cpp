@@ -58,7 +58,7 @@
 #include "result.h"
 #include "array.h"
 #include "hashmap.h"
-#include "bounded_lru_cache.h"
+#include "pool.h"
 #include "platform.h"
 #include "threading.h"
 #include "gfx.h"
@@ -311,7 +311,7 @@ struct ChunkCache {
     // Information about a chunk, contains all possible chunks
     struct Chunk {
         u32 refcount;                                 // Frames in flight that use this chunk
-        BoundedLRUCache<Entry>::Entry* lru_entry;     // Optional entry into the LRU cache. The value in the entry indexes both the images array and descriptor set.
+        PoolQueue<Entry>::Entry* lru_entry;     // Optional entry into the LRU cache. The value in the entry indexes both the images array and descriptor set.
     };
 
     // Struct passed to worker threads to load a chunk
@@ -387,7 +387,7 @@ struct ChunkCache {
                     .chunk_index = INVALID_CHUNK,
                     .image_index = (u32)i,
                 };
-                BoundedLRUCache<Entry>::Entry* lru_entry = lru.alloc(std::move(e));
+                PoolQueue<Entry>::Entry* lru_entry = lru.alloc(std::move(e));
                 lru.push(lru_entry);
             }
         }
@@ -533,7 +533,7 @@ struct ChunkCache {
             }
 
             // Pop an entry from the LRU cache
-            BoundedLRUCache<Entry>::Entry* e = lru.pop();
+            PoolQueue<Entry>::Entry* e = lru.pop();
 
             // If the entry was previously used for some other chunk
             // invalidate the chunk that was holding on to it.
@@ -603,7 +603,7 @@ struct ChunkCache {
 
         if (!chunk.lru_entry) {
             // Pop an entry from the LRU cache
-            BoundedLRUCache<Entry>::Entry* e = lru.pop();
+            PoolQueue<Entry>::Entry* e = lru.pop();
 
             // If the entry was previously used for some other chunk
             // invalidate the chunk that was holding on to it.
@@ -655,7 +655,7 @@ struct ChunkCache {
 
     // LRU cache of images
     Array<gfx::Image> images;
-    BoundedLRUCache<Entry> lru;
+    PoolQueue<Entry> lru;
 
     // Sync upload
     ChunkLoadContext sync_load_context;

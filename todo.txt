@@ -1,8 +1,9 @@
 Backlog:
-[ ] Rename lru cache
+[x] Rename lru cache
 [ ] Cleanup project structure:
-    [ ] One directory per sample app
     [ ] Fix build and cleanup all of them
+    [ ] One directory per sample app
+    [ ] Normal build instead of unity?
 [ ] minimal app (multiple hooks seem to be needed, e.g. pre-gui, post-gui at least, maybe should just be a single loop one? but then more dup?)
 
 Ideas:

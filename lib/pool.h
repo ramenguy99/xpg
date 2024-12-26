@@ -1,9 +1,17 @@
+// A grow-only pool allocator.
+// 
+// This allocator provides two main features:
+// 1. Allocations are batched into blocks of configurable size.
+// 2. Allocations are guaranteed to be stable, e.g. pointers that are returned will always be valid as long as the allocator lives.
+// 
+// This is a useful building blocks for creating more
+// useful freelist-like allocators.
 template<typename T>
-struct Pool {
+struct PoolAllocator {
     ObjArray<Array<T>> blocks;
     usize block_size;
     
-    Pool(usize initial_count, usize block_size = 1024): block_size(block_size) {
+    PoolAllocator(usize initial_count, usize block_size = 1024): block_size(block_size) {
         Array<T> a;
         a.grow(Max(initial_count, block_size));
         blocks.add(std::move(a));
@@ -27,8 +35,12 @@ struct Pool {
     }
 };
 
+// A free list of nodes backed by a pool allocator and a FIFO queue.
+//
+// These two data structures are combined to allow sharing links
+// and allowing to store links inline with the user value.
 template <typename T>
-struct BoundedLRUCache {
+struct PoolQueue {
     struct Entry {
         Entry* next;
         Entry* prev;
@@ -36,14 +48,14 @@ struct BoundedLRUCache {
     };
 
     // Backing storage for nodes
-    Pool<Entry> nodes;
+    PoolAllocator<Entry> nodes;
     Entry* next_free = 0;
 
-    // LRU queue
+    // FIFO queue
     Entry* head = 0;
     Entry* tail = 0;
 
-    BoundedLRUCache(usize length): nodes(length) { }
+    PoolQueue(usize length): nodes(length) { }
 
     Entry* alloc(T&& value) {
         if (next_free == 0) {
