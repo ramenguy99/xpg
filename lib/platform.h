@@ -42,6 +42,8 @@ Result OpenFile(const char* path, File* result) {
     }
 
     u64 size = size_large.QuadPart;
+    result->handle = file;
+    result->size = size_large.QuadPart;
 #else
     int file = open(path, O_RDONLY);
     if (file < 0) {
@@ -52,10 +54,9 @@ Result OpenFile(const char* path, File* result) {
     int stat_result = fstat(file, &stat_buf);
     if (stat_result < 0) {
     }
-
+    result->fd = file;
+    result->size = stat_buf.st_size;
 #endif // _WIN32
-    result->handle = file;
-    result->size = size_large.QuadPart;
 
     return Result::Success;
 }
@@ -106,8 +107,8 @@ Result ReadExact(File file, ArrayView<u8> data) {
 
         BOOL ok = ReadFile(file.handle, data.data + total_read, bytes_to_read, &bread, 0);
 #else 
-        size_t bytes_to_read = size - total_read;
-        ssize_t bread = read(file.handle, result.data + total_read, bytes_to_read);
+        size_t bytes_to_read = data.length - total_read;
+        ssize_t bread = read(file.fd, data.data + total_read, bytes_to_read);
         bool ok = bread >= 0;
 #endif
         if (!ok) {
@@ -134,6 +135,7 @@ struct Timestamp {
     u64 value;
 };
 
+#ifdef _WIN32
 Timestamp GetTimestamp() {
     LARGE_INTEGER l = {};
     QueryPerformanceCounter(&l);
@@ -151,5 +153,19 @@ f64 GetElapsed(Timestamp begin, Timestamp end) {
 
     return (f64)(end.value - begin.value) / (f64)frequency.QuadPart;
 }
+#else
+Timestamp GetTimestamp() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    
+    Timestamp result = {};
+    result.value = (u64)ts.tv_sec * 1000000000 + (u64) ts.tv_nsec;
+    return result;
+}
+
+f64 GetElapsed(Timestamp begin, Timestamp end) {
+    return (f64)(end.value - begin.value) * 1e-9;
+}
+#endif
 
 }

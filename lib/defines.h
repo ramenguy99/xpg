@@ -20,7 +20,7 @@ typedef double   f64;
 #define AlignedAlloc(align, size) (_aligned_malloc((size), (align)))
 #define AlignedFree(ptr) (_aligned_free((ptr)))
 #else
-#define AlignedAlloc(align, size) (aligned_alloc((align), (size))
+#define AlignedAlloc(align, size) (aligned_alloc((align), (size)))
 #define AlignedFree(ptr) (free((ptr)))
 #endif
 

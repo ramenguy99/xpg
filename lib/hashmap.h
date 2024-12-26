@@ -58,7 +58,7 @@ struct HashMap {
         Free(values);
     }
 
-    void hash_key(const K& k) {
+    usize hash_key(const K& k) {
         u64 hash = Hash(k);
         if (k == HASH_EMPTY) return HASH_EMPTY + 1;
         else return hash;

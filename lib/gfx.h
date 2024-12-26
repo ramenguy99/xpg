@@ -900,7 +900,7 @@ VkResult PresentFrame(Window* w, Frame* frame, const Context& vk) {
     w->swapchain_frame_index = (w->swapchain_frame_index + 1) % w->frames.length;
     frame->current_image = VK_NULL_HANDLE;
     frame->current_image_view = VK_NULL_HANDLE;
-    frame->current_image_index = ~0ul;
+    frame->current_image_index = ~(u32)0;
     return VK_SUCCESS;
 }
 

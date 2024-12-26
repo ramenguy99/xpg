@@ -81,7 +81,7 @@ struct BufferedStream {
         }
 
         // After worker is done, ensure all writes from the worker are complete.
-        std::atomic_thread_fence(std::memory_order::memory_order_acquire);
+        std::atomic_thread_fence(std::memory_order_acquire);
 
         // Initialize entry and submit work to pool.
         entry->state.store(EntryState::Filling, std::memory_order_relaxed);
@@ -148,7 +148,7 @@ struct BufferedStream {
 
         // Wait for frame to be ready
         while (buffer[buffer_index].state.load(std::memory_order_relaxed) != EntryState::Done);
-        std::atomic_thread_fence(std::memory_order::memory_order_acquire);
+        std::atomic_thread_fence(std::memory_order_acquire);
 
         T value = buffer[buffer_index].value;
 

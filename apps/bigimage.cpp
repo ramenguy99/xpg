@@ -721,7 +721,7 @@ int main(int argc, char** argv) {
                 .type = VK_DESCRIPTOR_TYPE_SAMPLER,
             },
             {
-                .count = 1024 * 1024,
+                .count = 1024,
                 .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             },
         }
