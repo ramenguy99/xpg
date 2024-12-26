@@ -1,11 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <utility> // std::move
+#include <utility>    // std::move
 #include <functional> // std::function
-#include <mutex>
-#include <unordered_map>
-#include <vector>
 
 #ifdef _WIN32
 #else
@@ -67,7 +64,6 @@
 #include "gfx.h"
 #include "imgui_impl.h"
 #include "buffered_stream.h"
-// #include "graph.h"
 
 #define SPECTRUM_USE_DARK_THEME
 #include "imgui_spectrum.h"
@@ -89,57 +85,20 @@ using glm::mat4;
 //     [x] Zooming and panning
 // [x] Display load state in some sort of minimap in imgui
 // [x] Fix delta coding (issue was delta per plane vs per whole chunk)
-// [ ] Threaded loading
-//      [x] Populate cache synchronously every frame
-//      [x] Freelist allocator of images and descriptors (allocate worst case bound at the start)
-//      [ ] Add a border and also upload below and above level
-//      [ ] Async upload with fallback on not ready with copy queue
-// [ ] Add framegraph?
-// [ ] Reimplement with app::Application helper, compare code cut
-// [ ] Mips on last chunk
-// [ ] Non pow2 images and non multiple of chunk size
-
-
-// The max number of used chunks is (probably it makes sense to also include neighbors here, otherwise we might trash the cache by prefetching too much).
-// max_chunks_in_frame = (1 + ceil(width / chunk_width)) * (1 + ceil(height / chunk_height))
-// max_chunks_in_use = max_chunks_in_frame * 3
-//
-// Allocator / desc management:
-// - Allocate upfront descriptors and images for max_chunks_in_use -> allocs can be uninitialized
-// - Every frame compute the chunks that are needed for these frame and issue requests for each of them.
-// - The same chunks are kept in a ring buffer for each frame in flight, after acquiring a frame we first
-//   decrement the refcount for the previous frame slot.
-// - Keep a queue of chunks with 0 refcount. As an optimization we can keep the chunks marked as already
-//   filled, to skip refilling them if the cache is large enough and we come back to recently visited areas.
-//   this can give a tweakable "history" of cached tiles for free, if this history is as large as the image 
-//   no loading will happen anymore.
-// - On the CPU we keep track for each chunk of the refcount, descriptor and state (e.g. loading/loaded/empty)
-//
-// LRU cache:
-// - Cache entries are in 3 possible states:
-//   - Empty: (nothing has ever been loaded on this entry, it's free for use)
-//   - In use: (some drawcall is in flight that uses this entry, this means that some chunk exists that refers to this entry and it's refcount is > 0)
-//   - Not in use: (some drawcall previously referenced this entry, it still contains it's data but it is available for reuse if needed).
-// - The cache is only managed by a single thread with this cycle:
-//   - At start entries are initialized and vulkan images are allocated, the entries start in the Empty state
-//   - Take the chunks that were used 3 frames ago and decrement the refcount of all the references.
-//     If any goes to zero put this cache entry in the "Not In Use" state. This should be a Queue of entries from which we can remove from the middle.
-//   - Take chunks that are needed for this frames and increment refcount of all the references.
-//     If any is already in use (refcount > 0), done.
-//     If one is not already in use:
-//        If the chunk still points to a valid entry, remove it from the free list.
-//        If the chunk is not valid grab a new one from the empty list.
-//     
 // [x] Full Sync:      
 //     [x] issue load and return desc synchronously
 //     [x] bounded LRU cache with queue
 //     [x] Cache resizing when screen is resized (ideally only incrementally add)
-// [ ] Threaded sync:  issue all needed loads to pool and wait for all of them to be satisfied before drawing. 
+// [x] Threaded sync:  issue all needed loads to pool and wait for all of them to be satisfied before drawing. 
 // [ ] Threaded async: do loading and uploads on a different thread, maybe can have pool for loading / decompressing and worker thread / main thread doing uploads, but wait at the end or at transfer buffer exaustion (do something smart with semaphores/counters?)
-// [ ] Copy queue:     do uploads with copy queue, need to do queue transfer
+//     [ ] Copy queue:     do uploads with copy queue, need to do queue transfer
 // [ ] Prefetch:       after all loads are satisfied issue loads for neighbors
 // [ ] Cancellation:   we can cancel neighbors from previous frame if they are not used / neighbors in this frame. (e.g. at zoom lvl 1 we prefetch lvl 0 and 2, if moving to 2 we can cancel prefetch at 0)
 // [ ] Load all mode:  just increase the cache to the total size, issue all loads, done.
+// [ ] Add framegraph?
+// [ ] Reimplement with app::Application helper, compare code cut
+// [ ] Mips on last chunk
+// [ ] Non pow2 images and non multiple of chunk size
 
 #pragma pack(push, 1)
 struct ZMipHeader {
@@ -325,13 +284,23 @@ ZMipFile LoadZmipFile(const char* path)
     return zmip;
 }
 
+// LRU cache of image chunks:
+// - Cache entries are in 3 possible states:
+//   - Empty: (nothing has ever been loaded on this entry, it's free for use)                                                            | refcount = 0, entry = null
+//   - In use: (some drawcall is in flight that uses this entry)                                                                         | refcount > 0, entry = valid
+//   - Not in use: (some drawcall previously referenced this entry, it still contains it's data but it is available for reuse if needed) | refcount = 0, entry = valid
+// - The cache is managed by the main thread with this cycle:
+//   - START:  At start entries are initialized and vulkan images are allocated, the entries start in the Empty state
+//   - RESIZE: We can allocated additional blocks to the cache, entry pointers stay valid because the PooledQueue ensures pointers are stable.
+//   - Main loop:
+//       - Take the chunks that were used when this frame was in flight the last time and decrement the refcount of all the references.
+//         If any goes to zero put this cache entry in the "Not In Use" state. This should is a queue of entries from which we can remove from the middle.
+//       - Take chunks that are needed for this frames and increment refcount of all the references.
+//         If the chunk is already in use (refcount > 0) we are done.
+//         If the chunk is not already in use:
+//            If the chunk still points to a valid cache entry, remove it from the free list.
+//            If the chunk cache entry is not valid grab a new one from the empty list and fill it (and invalidate the previous chunk that referred to it, if any).
 struct ChunkCache {
-    // enum class LoadState: u32 {
-    //     Unloaded = 0,
-    //     Loading,
-    //     Loaded,
-    // };
-
     // Entry in the cache
     static constexpr usize INVALID_CHUNK = ~(usize)(0);
     struct Entry {
@@ -341,12 +310,12 @@ struct ChunkCache {
 
     // Information about a chunk, contains all possible chunks
     struct Chunk {
-        // alignas(64) std::atomic<LoadState> state;
-        u32 refcount;                   // Frames in flight that use this chunk
+        u32 refcount;                                 // Frames in flight that use this chunk
         BoundedLRUCache<Entry>::Entry* lru_entry;     // Optional entry into the LRU cache. The value in the entry indexes both the images array and descriptor set.
     };
 
-    struct UploadWork {
+    // Struct passed to worker threads to load a chunk
+    struct Work {
         ArrayView<u8> buffer_map;
         ChunkId c;
         BlockingCounter* work_done_counter;
@@ -357,10 +326,10 @@ struct ChunkCache {
                : zmip(zmip)
                , lru(cache_size)
     {
-        chunks_count = zmip.chunks.length;
-        chunks = (Chunk*)AlignedAlloc(alignof(Chunk), sizeof(Chunk) * chunks_count);
-        memset(chunks, 0, sizeof(Chunk) * chunks_count);
+        // Allocate space for chunk metadata
+        chunks.resize(zmip.chunks.length);
 
+        // Initialize workers for async
         worker_infos.resize(num_workers);
         Array<void*> worker_info_ptr(num_workers);
         for (usize i = 0; i < worker_infos.length; i++) {
@@ -369,8 +338,10 @@ struct ChunkCache {
         }
         worker_pool.init_with_worker_data(worker_info_ptr);
 
+        // Initialize laod context for sync operation
         sync_load_context = AllocChunkLoadContext(zmip);
 
+        // Resize the cache with the starting size
         resize(cache_size, upload_buffers_count, vk, bindless);
     }
 
@@ -438,13 +409,8 @@ struct ChunkCache {
         }
     }
 
-    ~ChunkCache() {
-        AlignedFree(chunks);
-    }
-
     Chunk& get_chunk(ChunkId c) {
         usize index = GetChunkIndex(zmip, c);
-        assert(index < chunks_count);
         return chunks[index];
     }
 
@@ -461,7 +427,7 @@ struct ChunkCache {
     }
 
     static void worker_func(WorkerPool::WorkerInfo* worker_info, void* user_data) {
-        UploadWork& work = *(UploadWork*)user_data;
+        Work& work = *(Work*)user_data;
         ChunkLoadContext& ctx = *(ChunkLoadContext*)worker_info->data;
 
         // Load chunk from disk
@@ -483,8 +449,16 @@ struct ChunkCache {
         }
 
         // For now we assert that we don't have batches larger than the prepared staging buffers.
-        // In theory we could tweak this and do the upload in multiple stages, which in theory
+        // In theory we could tweak this and do the upload in multiple stages, which
         // can also be useful to overlap loading and upload work for lower latency.
+        // This would require multiple submits and waits, which may not be optimal
+        // to do on the frame queue, ideally this could be overlapped with other work
+        // and potentially even with previous frame (allowing lag in the presentation).
+        //
+        // For a GUI application like this I think having slightly slower frames but
+        // with correct contents makes more sense, scrolling seems to be smooth enough
+        // with delays and I'd rather not have to worry about knowing if the frame i'm
+        // looking at finished loading or not.
         assert(chunk_ids.length <= upload_buffers.length);
 
         // If no work to upload, early out
@@ -500,11 +474,10 @@ struct ChunkCache {
         for (usize i = 0; i < chunk_ids.length; i++) {
             ChunkId c = chunk_ids[i];
             usize chunk_index = GetChunkIndex(zmip, c);
-            assert(chunk_index < chunks_count);
 
             // Lookup state in cache
             Chunk& chunk = chunks[chunk_index];
-            UploadWork& work = work_items[i];
+            Work& work = work_items[i];
             work.c = c;
             work.buffer_map = upload_buffers[i].map;
             work.work_done_counter = &work_done_counter;
@@ -544,7 +517,6 @@ struct ChunkCache {
         for (usize i = 0; i < chunk_ids.length; i++) {
             ChunkId c = chunk_ids[i];
             usize chunk_index = GetChunkIndex(zmip, c);
-            assert(chunk_index < chunks_count);
 
             // Lookup state in cache
             Chunk& chunk = chunks[chunk_index];
@@ -614,27 +586,14 @@ struct ChunkCache {
         }
         platform::Timestamp end = platform::GetTimestamp();
 
-        logging::info("bigimage/cache/batch", "Chunks: %4llu / %4llu | Load: %12.6f | Commands: %12.6f",  uploaded_chunks, chunk_ids.length, platform::GetElapsed(begin, mid) * 1000.0, platform::GetElapsed(end, end) * 1000.0);
+        // logging::info("bigimage/cache/batch", "Chunks: %4llu / %4llu | Load: %12.6f | Commands: %12.6f",  uploaded_chunks, chunk_ids.length, platform::GetElapsed(begin, mid) * 1000.0, platform::GetElapsed(end, end) * 1000.0);
     }
 
     u32 request_chunk_sync(ChunkId c, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless) {
         usize chunk_index = GetChunkIndex(zmip, c);
-        assert(chunk_index < chunks_count);
 
         // Lookup state in cache
         Chunk& chunk = chunks[chunk_index];
-
-        // switch (chunk.state.load(std::memory_order_relaxed)) {
-        //     case LoadState::Unloaded: {
-                // Check if this chunk already has an entry in the cache.
-                // If it has, we can just use it, otherwise we need to populate it.
-        //         chunk.state.store(LoadState::Loaded, std::memory_order_relaxed);
-        //     } break;
-        //     case LoadState::Loading: {
-        //         while (chunk.state.load(std::memory_order_relaxed) == LoadState::Loading) {}
-        //         std::atomic_thread_fence(std::memory_order_acquire);
-        //     } break;
-        // }
 
         if (!chunk.lru_entry) {
             // Pop an entry from the LRU cache
@@ -682,25 +641,35 @@ struct ChunkCache {
         return chunk.lru_entry->value.image_index;
     }
 
-    Chunk* chunks;
-    usize chunks_count;
+    // ZMip file
     const ZMipFile& zmip;
 
+    // Chunks metadata
+    Array<Chunk> chunks;
+
+    // LRU cache of images
     Array<gfx::Image> images;
     BoundedLRUCache<Entry> lru;
+
+    // Sync upload
     ChunkLoadContext sync_load_context;
 
-    Array<gfx::Buffer> upload_buffers;
-
-    ObjArray<ChunkLoadContext> worker_infos;
-    Array<UploadWork> work_items;
+    // Async upload
+    Array<gfx::Buffer> upload_buffers;       // Pool of staging buffers for upload
+    ObjArray<ChunkLoadContext> worker_infos; // Worker data, one per worker thread
+    Array<Work> work_items;                  // Work data, one per work item
     WorkerPool worker_pool;
     BlockingCounter work_done_counter;
 };
 
 int main(int argc, char** argv) {
-    gfx::Result result;
+    if (argc != 2) {
+        printf("Usage: %s FILE\n", argv[0]);
+        exit(1);
+    }
+    ZMipFile zmip = LoadZmipFile(argv[1]);
 
+    gfx::Result result;
     result = gfx::Init();
     if (result != gfx::Result::SUCCESS) {
         logging::error("bigimage", "Failed to initialize platform\n");
@@ -721,7 +690,7 @@ int main(int argc, char** argv) {
         .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
         .enable_validation_layer = true,
         //        .enable_gpu_based_validation = true,
-        });
+    });
     if (result != gfx::Result::SUCCESS) {
         logging::error("bigimage", "Failed to initialize vulkan\n");
         exit(100);
@@ -867,9 +836,6 @@ int main(int argc, char** argv) {
         });
     assert(vkr == VK_SUCCESS);
 
-    //ZMipFile zmip = LoadZmipFile("N:\\scenes\\hubble\\heic0601a_test_delta.zmip");
-    ZMipFile zmip = LoadZmipFile("N:\\scenes\\hubble\\heic0601a_256.zmip");
-
     // Read image
     struct GpuChunk {
         vec2 position;
@@ -881,26 +847,24 @@ int main(int argc, char** argv) {
         // - Window
         bool wait_for_events = true;
         bool closed = false;
-
-        // - Application data
-        platform::Timestamp last_frame_timestamp;
-        u64 current_frame = 0;  // Total frame index, always increasing
-        vec2 offset = vec2(0, 0);
-        s32 zoom = 0;
-        s32 max_zoom = 0;
         bool first_frame_done = false;
+
+        // - UI
+        platform::Timestamp last_frame_timestamp;
         ivec2 drag_start_offset = ivec2(0, 0);
         ivec2 drag_start = ivec2(0, 0);
         bool dragging = false;
+        vec2 offset = vec2(0, 0);
+        s32 zoom = 0;
+        s32 max_zoom = 0;
         bool show_grid = false;
         bool batched_chunk_upload = true;
 
+        // - Bigimage
         Array<GpuChunk> gpu_chunks;
-        Array<usize> cpu_chunks_data;
-        Array<ArrayView<usize>> cpu_chunks_per_frame;
+        ObjArray<Array<usize>> cpu_chunks;
         Array<ChunkId> batch_inputs;
         Array<u32> batch_outputs;
-
         usize total_max_chunks = 0;
 
         // - Rendering
@@ -909,7 +873,6 @@ int main(int argc, char** argv) {
         VkDescriptorSet descriptor_set;
         Array<gfx::Buffer> chunks_buffers; // Buffer containing chunk metadata, one per frame in flight
         gfx::Buffer vertex_buffer;
-        s32 descriptor_count;
         u32 frame_index = 0; // Rendering frame index, wraps around at the number of frames in flight
     };
 
@@ -919,14 +882,10 @@ int main(int argc, char** argv) {
     app.pipeline = pipeline.pipeline;
     app.layout = pipeline.layout;
     app.descriptor_set = bindless.set;
-    app.descriptor_count = (s32)zmip.chunks.length;
     app.chunks_buffers = Array<gfx::Buffer>(window.frames.length);
-    app.gpu_chunks = Array<GpuChunk>();
-    app.cpu_chunks_data = Array<usize>();
-    app.cpu_chunks_per_frame = Array<ArrayView<usize>>(window.frames.length);
+    app.cpu_chunks = ObjArray<Array<usize>>(window.frames.length);
     app.vertex_buffer = vertex_buffer;
     app.max_zoom = (s32)(zmip.levels.length - 1);
-    app.offset = vec2(100, 100);
 
     ChunkCache cache(zmip, 0, 0, 8, vk, bindless);
 
@@ -1008,16 +967,16 @@ int main(int argc, char** argv) {
                 app.gpu_chunks.resize(app.total_max_chunks);
 
                 // Release all the chunks in use on resize
-                for (usize i = 0; i < app.cpu_chunks_per_frame.length; i++) {
-                    for (usize j = 0; j < app.cpu_chunks_per_frame[i].length; j++) {
-                        cache.release_chunk(app.cpu_chunks_per_frame[i][j]);
+                for (usize i = 0; i < app.cpu_chunks.length; i++) {
+                    for (usize j = 0; j < app.cpu_chunks[i].length; j++) {
+                        cache.release_chunk(app.cpu_chunks[i][j]);
                     }
+                    app.cpu_chunks[i].length = 0;
                 }
 
                 // Resize buffers for chunks in flight
-                app.cpu_chunks_data.resize(app.total_max_chunks * app.cpu_chunks_per_frame.length);
-                for (usize i = 0; i < app.cpu_chunks_per_frame.length; i++) {
-                    app.cpu_chunks_per_frame[i] = app.cpu_chunks_data.slice(i * app.total_max_chunks, 0);
+                for (usize i = 0; i < app.cpu_chunks.length; i++) {
+                    app.cpu_chunks[i].grow(app.total_max_chunks);
                 }
 
                 // Resize cache
@@ -1046,7 +1005,7 @@ int main(int argc, char** argv) {
         ivec2 remainder = (chunk_size - (view_size - offset) % chunk_size);
 
         // Chunks in flight
-        ArrayView<usize>& cpu_chunks = app.cpu_chunks_per_frame[app.frame_index];
+        Array<usize>& cpu_chunks = app.cpu_chunks[app.frame_index];
 
         // Decrease refcount of old frame chunks
         for (usize i = 0; i < cpu_chunks.length; i++) {
@@ -1058,10 +1017,12 @@ int main(int argc, char** argv) {
         app.gpu_chunks.length = 0;
         app.batch_inputs.length = 0;
 
-
-        for (s32 y = Max(-offset.y, 0); y < view_size.y - offset.y + remainder.y; y += chunk_size.y) {
-            for (s32 x = Max(-offset.x, 0); x < view_size.x - offset.x + remainder.x; x += chunk_size.x) {
-                ivec2 image_coords = ivec2(x, y) << app.zoom;
+        for (s32 y = 0; y < view_size.y + remainder.y; y += chunk_size.y) {
+            for (s32 x = 0; x < view_size.x + remainder.x; x += chunk_size.x) {
+                if (x < (s32)app.offset.x || y < (s32)app.offset.y) {
+                    continue;
+                }
+                ivec2 image_coords = (ivec2(x, y) - ivec2(app.offset)) << app.zoom;
                 ivec2 chunk = image_coords / z_chunk_size;
 
                 // Skip chunks that are of bounds of the image
@@ -1096,13 +1057,11 @@ int main(int argc, char** argv) {
             // USER: pre-gui, but with frame
 
             // Upload chunks
-            //logging::info("debug/start", "%u", app.frame_index);
             if (app.batched_chunk_upload) {
                 app.batch_outputs.resize(app.batch_inputs.length);
                 cache.request_chunk_batch(app.batch_inputs, app.batch_outputs, vk, bindless, frame.command_buffer);
                 for (usize i = 0; i < app.batch_outputs.length; i++) {
                     app.gpu_chunks[i].desc_index = app.batch_outputs[i];
-                    //logging::info("debug/chunk", "    %llu: %u", i, app.batch_outputs[i]);
                 }
             }
 
@@ -1122,9 +1081,6 @@ int main(int argc, char** argv) {
 
                 vmaUnmapMemory(vk.vma, buffer.allocation);
             }
-
-
-
 
             {
                 gui::BeginFrame();
@@ -1159,7 +1115,6 @@ int main(int argc, char** argv) {
                             for (s32 x = 0; x < chunks.x; x++) {
                                 ChunkCache::Chunk& c = cache.get_chunk(ChunkId(x, y, level));
                                 u32 color = 0xFF0000FF;
-                                // ChunkCache::LoadState state = c.state.load(std::memory_order_relaxed);
                                 if (c.lru_entry) {
                                     if (c.refcount > 0) {
                                         color = 0xFF00FF00;
@@ -1279,7 +1234,6 @@ int main(int argc, char** argv) {
         vkr = gfx::PresentFrame(&window, &frame, vk);
         assert(vkr == VK_SUCCESS);
 
-        app.current_frame += 1;
         app.frame_index = (app.frame_index + 1) % (u32)window.frames.length;
     };
 
@@ -1311,9 +1265,6 @@ int main(int argc, char** argv) {
     gfx::WaitIdle(vk);
 
     // USER: cleanup
-    // for (usize i = 0; i < all_images.length; i++) {
-    //     gfx::DestroyImage(&all_images[i], vk);
-    // }
     cache.DestroyResources(vk);
 
     for (usize i = 0; i < app.chunks_buffers.length; i++) {
