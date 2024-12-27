@@ -85,11 +85,6 @@ struct Plot {
     AxisLimits histogram_range;
 };
 
-struct Data {
-    Array<double> data;
-    s64 columns = 0;
-};
-
 struct App {
     // Swapchain frames, index wraps around at the number of frames in flight.
     gfx::Context* vk;
@@ -100,7 +95,7 @@ struct App {
     bool closed;
 
     //- Application data.
-    Data data;
+    ObjArray<Array<double>> data;
     std::vector<Plot> plots;
 };
 
@@ -183,9 +178,6 @@ void Draw(App* app) {
     // ImGui::ShowDemoWindow();
     // ImPlot::ShowDemoWindow();
     {
-        usize count = app->data.columns > 0 ? app->data.data.length / app->data.columns : 0;
-        usize stride = app->data.columns * sizeof(double);
-
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
         if(ImGui::Begin("Window###window", NULL, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
@@ -233,7 +225,7 @@ void Draw(App* app) {
                         for(auto& line: plot.lines) {
                             int x = line.x;
                             for(auto& range: line.ys) {
-                                for(s32 y = range.begin; y <= std::min(range.end, (s32)app->data.columns - 1); y++) {
+                                for(s32 y = range.begin; y <= std::min(range.end, (s32)app->data.length - 1); y++) {
                                     u64 per_line_style_vars = 0;
                                     if(!plot.markers.empty()) {
                                         ImPlot::PushStyleVar(ImPlotStyleVar_Marker, plot.markers[y_idx % plot.markers.size()]);
@@ -256,16 +248,21 @@ void Draw(App* app) {
 
                                     if(plot.kind == PlotKind::Plot) {
                                         if(x != -1) {
+                                            Array<double>& arr_x = app->data[x];
+                                            Array<double>& arr_y = app->data[y];
+                                            usize count = Min(arr_x.length, arr_y.length);
                                             ImPlot::GetterXY<ImPlot::IndexerIdx<double>, ImPlot::IndexerIdx<double>> getter(
-                                                ImPlot::IndexerIdx<double>(app->data.data.data + x, (int)count, 0, (int)stride),
-                                                ImPlot::IndexerIdx<double>(app->data.data.data + y, (int)count, 0, (int)stride),
+                                                ImPlot::IndexerIdx<double>(arr_x.data, (int)count),
+                                                ImPlot::IndexerIdx<double>(arr_y.data, (int)count),
                                                 (int)count
                                             );
                                             ImPlot::PlotLineEx(name.c_str(), getter, flags);
                                         } else {
+                                            Array<double>& arr_y = app->data[y];
+                                            usize count = arr_y.length;
                                             ImPlot::GetterXY<ImPlot::IndexerLin, ImPlot::IndexerIdx<double>> getter(
                                                 ImPlot::IndexerLin(1, 0),
-                                                ImPlot::IndexerIdx<double>(app->data.data.data + y, (int)count, 0, (int)stride),
+                                                ImPlot::IndexerIdx<double>(arr_y.data, (int)count),
                                                 (int)count
                                             );
                                             ImPlot::PlotLineEx(name.c_str(), getter, flags);
@@ -275,12 +272,9 @@ void Draw(App* app) {
                                         if(plot.histogram_range.set) {
                                             range = ImPlotRange(plot.histogram_range.min, plot.histogram_range.max);
                                         }
-                                        Array<double> values(count);
-                                        for(usize i = 0; i < count; i++) {
-                                            values[i] = app->data.data.data[i * app->data.columns + y];
-                                        }
+                                        Array<double>& values = app->data[y];
                                         ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL,0.5f);
-                                        ImPlot::PlotHistogram(name.c_str(), values.data, (int)count, plot.histogram_bins, 1.0, range, plot.histogram_flags);
+                                        ImPlot::PlotHistogram(name.c_str(), values.data, (int)values.length, plot.histogram_bins, 1.0, range, plot.histogram_flags);
                                     }
 
                                     y_idx += 1;
@@ -1099,8 +1093,8 @@ int main(int argc, char** argv) {
     CLI::App args{"Command line utility for plotting"};
 
     // Define options
-    std::string input;
-    args.add_option("input", input, "Input file or empty for stdin");
+    std::vector<std::string> inputs;
+    args.add_option("input", inputs, "Input files or - for stdin. If not given also uses stdin");
 
     std::vector<std::string> binary;
     CLI::Option* opt_binary = args.add_option("-b,--binary", binary, "Binary format");
@@ -1134,7 +1128,23 @@ int main(int argc, char** argv) {
     // Configure log level
     logging::set_log_level(verbose ? logging::LogLevel::Trace : logging::LogLevel::Error);
 
-    Data data = {};
+    ObjArray<Array<double>> data;
+
+    // Validate inputs
+    if(inputs.size() == 0) {
+        inputs.push_back("-");
+    } else {
+        bool found_stdin = false;
+        for(std::string& input: inputs) {
+            if (input == "-") {
+                if(found_stdin) {
+                    Fatal("Standard input argument \"-\" can only be passed once");
+                }
+                found_stdin = true;
+            }
+        }
+    }
+
     // Parse all data upfront
     if(opt_binary->count()) {
         // Parse binary input
@@ -1197,121 +1207,145 @@ int main(int argc, char** argv) {
             Fatal("Binary record size must be < 1GB. Got %llu bytes\n", (unsigned long long)max_size);
         }
 
-        FILE* file;
-        if(input == "") {
-            freopen(NULL, "rb", stdin);
-            file = stdin;
-        } else {
-            file = fopen(input.c_str(), "rb");
-        }
+        // Allocate an array for each column.
+        data.resize(formats.length * inputs.size());
 
-        if(!file || ferror(file)) {
-            Fatal("Could not read %s: %s (os error %d)\n", input.c_str(), strerror(errno), errno);
-        }
+        for(usize input_index = 0; input_index < inputs.size(); input_index++) {
+            std::string& input = inputs[input_index];
 
-        Array<u8> row(max_size);
-        while(!feof(file) && !ferror(file)) {
-            size_t count_read = fread(row.data, row.length, 1, file);
-
-            // Read failed
-            if(count_read != 1) {
-                if(ferror(file)) {
-                    Fatal("Failed to read a record of size %u. Input file is likely not a multiple of specified record size.\n", (unsigned)row.length);
-                }
-                if(feof(file)) {
-                    break;
-                }
-                continue;
+            FILE* file;
+            if(input == "-") {
+                freopen(NULL, "rb", stdin);
+                file = stdin;
+            } else {
+                file = fopen(input.c_str(), "rb");
             }
 
-            for(usize i = 0; i < formats.length; i++) {
-                BinaryFormat& fmt = formats[i];
-                void* ptr = row.data + fmt.offset;
-                assert(fmt.offset + fmt.size <= row.length);
-
-                double value = 0.0;
-                switch(fmt.type) {
-                    case BinaryType::f32: value = (double)*(f32*)ptr; break;
-                    case BinaryType::f64: value = (double)*(f64*)ptr; break;
-                    case BinaryType::i8 : value = (double)*(s8 *)ptr; break;
-                    case BinaryType::i16: value = (double)*(s16*)ptr; break;
-                    case BinaryType::i32: value = (double)*(s32*)ptr; break;
-                    case BinaryType::i64: value = (double)*(s64*)ptr; break;
-                    case BinaryType::u8 : value = (double)*(u8 *)ptr; break;
-                    case BinaryType::u16: value = (double)*(u16*)ptr; break;
-                    case BinaryType::u32: value = (double)*(u32*)ptr; break;
-                    case BinaryType::u64: value = (double)*(u64*)ptr; break;
-                    default: assert(false);
-                }
-
-                data.data.add(value);
+            if(!file || ferror(file)) {
+                Fatal("Could not read %s: %s (os error %d)\n", input.c_str(), strerror(errno), errno);
             }
-        }
 
-        if(input != "") {
-            fclose(file);
-        }
+            Array<u8> row(max_size);
+            while(!feof(file) && !ferror(file)) {
+                size_t count_read = fread(row.data, row.length, 1, file);
 
-        data.columns = formats.length;
-    } else {
-        // Parse text input
-        std::string line;
-
-        std::istream* stream;
-        if(input == "") {
-            stream = &std::cin;
-        } else {
-            stream = new std::ifstream (input);
-        }
-
-        if(stream->fail()) {
-            Fatal("Could not read %s: %s (os error %d)\n", input.c_str(), strerror(errno), errno);
-        }
-
-        s64 expected_count = -1;
-        s64 line_number = 0;
-        while(!stream->eof() && !stream->fail()) {
-            std::getline(*stream, line);
-            line_number++;
-
-            const char* end = line.c_str() + line.size();
-            const char* it = line.c_str();
-
-            s64 count = 0;
-            while(it != end) {
-                char* next_it;
-                double val = 0.0;
-                try {
-                    val = strtod(it, &next_it);
-                    if(next_it == it) {
-                        throw std::exception();
+                // Read failed
+                if(count_read != 1) {
+                    if(ferror(file)) {
+                        Fatal("Failed to read a record of size %u. Input file is likely not a multiple of specified record size.\n", (unsigned)row.length);
                     }
-                    it = next_it;
-                    count += 1;
-
-                    data.data.add(val);
-                } catch (...) {
-                    Fatal("%s(%d): Failed to parse value \"%s\"\n", input.c_str(), line_number,  it);
+                    if(feof(file)) {
+                        break;
+                    }
+                    continue;
                 }
-                // Skip whitespace
-                while(it != end && std::isspace(*it)) it++;
+
+                for(usize i = 0; i < formats.length; i++) {
+                    BinaryFormat& fmt = formats[i];
+                    void* ptr = row.data + fmt.offset;
+                    assert(fmt.offset + fmt.size <= row.length);
+
+                    double value = 0.0;
+                    switch(fmt.type) {
+                        case BinaryType::f32: value = (double)*(f32*)ptr; break;
+                        case BinaryType::f64: value = (double)*(f64*)ptr; break;
+                        case BinaryType::i8 : value = (double)*(s8 *)ptr; break;
+                        case BinaryType::i16: value = (double)*(s16*)ptr; break;
+                        case BinaryType::i32: value = (double)*(s32*)ptr; break;
+                        case BinaryType::i64: value = (double)*(s64*)ptr; break;
+                        case BinaryType::u8 : value = (double)*(u8 *)ptr; break;
+                        case BinaryType::u16: value = (double)*(u16*)ptr; break;
+                        case BinaryType::u32: value = (double)*(u32*)ptr; break;
+                        case BinaryType::u64: value = (double)*(u64*)ptr; break;
+                        default: assert(false);
+                    }
+
+                    data[formats.length * input_index + i].add(value);
+                }
             }
 
-            if(count == 0) continue;
-
-            if(expected_count == -1) {
-                expected_count = count;
-            } else if(expected_count != count) {
-                Fatal("%s(%d): Expected %d columns, found %d\n", input.c_str(), line_number, expected_count, count);
+            if(input != "-") {
+                fclose(file);
             }
         }
-        if(expected_count <= 0) {
-            Fatal("Empty input\n");
+    } else {
+        usize columns = 0;
+        for(usize input_index = 0; input_index < inputs.size(); input_index++) {
+            std::string& input = inputs[input_index];
+
+            // Parse text input
+            std::string line;
+
+            std::istream* stream;
+            if(input == "-") {
+                stream = &std::cin;
+            } else {
+                stream = new std::ifstream (input);
+            }
+
+            if(stream->fail()) {
+                Fatal("Could not read %s: %s (os error %d)\n", input.c_str(), strerror(errno), errno);
+            }
+
+            s64 expected_count = -1;
+            s64 line_number = 0;
+            while(!stream->eof() && !stream->fail()) {
+                std::getline(*stream, line);
+                line_number++;
+
+                const char* end = line.c_str() + line.size();
+                const char* it = line.c_str();
+
+                s64 count = 0;
+                while(it != end) {
+                    // Skip whitespace
+                    while(it != end && std::isspace(*it)) it++;
+
+                    char* next_it;
+                    // Parse a value
+                    double val = 0.0;
+                    try {
+                        val = strtod(it, &next_it);
+                        if(next_it == it) {
+                            throw std::exception();
+                        }
+                        it = next_it;
+                    } catch (...) {
+                        Fatal("%s(%d): Failed to parse value \"%s\"\n", input.c_str(), line_number,  it);
+                    }
+
+                    if(expected_count == -1) {
+                        // If this is the first row add an empty column for each element
+                        data.add({});
+                    } else if(count >= expected_count) {
+                        // If this is not the first row we expect up to this amount of items in a row
+                        Fatal("%s(%d): Expected %d columns, found more\n", input.c_str(), line_number, expected_count);
+                    }
+
+                    // Add element to column and increase column index
+                    data[columns + count].add(val);
+                    count += 1;
+                }
+
+                // Allow empty rows
+                if(count == 0) continue;
+
+                // Check that we have the right amount of rows after the first.
+                if(expected_count == -1) {
+                    expected_count = count;
+                } else if(expected_count != count) {
+                    Fatal("%s(%d): Expected %d columns, found %d\n", input.c_str(), line_number, expected_count, count);
+                }
+            }
+            if(expected_count <= 0) {
+                Fatal("Empty input\n");
+            }
+            if(input != "-") {
+                delete stream;
+            }
+
+            columns += expected_count;
         }
-        if(input != "") {
-            delete stream;
-        }
-        data.columns = expected_count;
     }
 
     std::vector<Plot> plots;
