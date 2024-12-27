@@ -1215,8 +1215,7 @@ int main(int argc, char** argv) {
 
             FILE* file;
             if(input == "-") {
-                freopen(NULL, "rb", stdin);
-                file = stdin;
+                file = freopen(NULL, "rb", stdin);
             } else {
                 file = fopen(input.c_str(), "rb");
             }

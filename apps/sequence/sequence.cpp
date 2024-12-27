@@ -1,6 +1,8 @@
 #include <xpg/gui.h>
 #include <xpg/buffered_stream.h>
 
+#include <math.h>
+
 using glm::vec2;
 using glm::ivec2;
 using glm::vec3;

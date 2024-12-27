@@ -33,7 +33,7 @@ if (MSVC AND ${XPG_MSVC_ANALYZE})
 endif()
 
 if (NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-volatile -Wno-nullability-completeness")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-volatile -Wno-nullability-completeness -fPIC")
 endif()
 
 # Library

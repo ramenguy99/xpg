@@ -2,6 +2,7 @@
 
 #include "defines.h"
 #include <utility>
+#include <string.h>
 
 #ifndef BOUNDS_CHECKING_ENABLED
 #define BOUNDS_CHECKING_ENABLED 1
