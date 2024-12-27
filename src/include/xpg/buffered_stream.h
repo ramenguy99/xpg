@@ -1,3 +1,7 @@
+#pragma once
+
+#include <xpg/threading.h>
+
 template<typename T>
 struct BufferedStream {
     typedef std::function<T(u64, u64, bool)> InitProc;
@@ -14,9 +18,17 @@ struct BufferedStream {
         alignas(64) std::atomic<EntryState> state;
         alignas(64) T value;
         FillProc fill_proc;
+
+        // Obj arrray requires a move assignment operator, but atomic does not have one.
+        Entry& operator=(Entry&& other) {
+            this->state.store(state.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            this->value = std::move(value);
+            this->fill_proc = std::move(fill_proc);
+            return *this;
+        }
     };
 
-    Array<Entry> buffer;
+    ObjArray<Entry> buffer;
     u64 buffer_offset = 0;
     u64 stream_cursor = 0;
     u64 stream_length = 0;

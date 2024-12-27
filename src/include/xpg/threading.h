@@ -1,3 +1,10 @@
+#pragma once
+
+#include <atomic>
+#include <atomic_queue/atomic_queue.h>
+
+#include "platform.h"
+
 #define SpinlockHint() _mm_pause()
 
 // struct ConditionVariable {

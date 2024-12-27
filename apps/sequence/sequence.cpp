@@ -1,67 +1,11 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <utility> // std::move
-#include <functional> // std::function
+#include <xpg/gui.h>
+#include <xpg/buffered_stream.h>
 
-
-#ifdef _WIN32
-#else
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <semaphore.h>
-#include <pthread.h>
-#endif
-
-#define VOLK_IMPLEMENTATION
-#include <volk.h>
-#include <vulkan/vk_enum_string_helper.h>
-
-#define VMA_STATIC_VULKAN_FUNCTIONS 1
-#define VMA_IMPLEMENTATION
-#include <vk_mem_alloc.h>
-
-#define _GLFW_VULKAN_STATIC
-#ifdef _WIN32
-#define GLFW_EXPOSE_NATIVE_WIN32
-#endif
-#include <GLFW/glfw3.h>
-
-
-#define GLM_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-
-#define XPG_VERSION 0
-
-#undef APIENTRY
-#define IMGUI_DEFINE_MATH_OPERATORS
-#include <imgui.h>
-#include <imgui.cpp>
-#include <imgui_demo.cpp>
-#include <imgui_draw.cpp>
-#include <imgui_tables.cpp>
-#include <imgui_widgets.cpp>
-
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_glfw.cpp>
-
-#undef VK_NO_PROTOTYPES
-#include <backends/imgui_impl_vulkan.h>
-#include <backends/imgui_impl_vulkan.cpp>
-
-#include <atomic_queue/atomic_queue.h>
-
-#include "defines.h"
-#include "array.h"
-#include "platform.h"
-#include "threading.h"
-#include "gfx.h"
-#include "buffered_stream.h"
-
-using namespace glm;
+using glm::vec2;
+using glm::ivec2;
+using glm::vec3;
+using glm::vec4;
+using glm::mat4;
 
 #include "types.h"
 
@@ -85,18 +29,18 @@ struct App {
     u64 last_frame_timestamp;
     ArrayFixed<f32, 64> frame_times;
     Array<VkDescriptorSet> descriptor_sets;
-    Array<gfx::UniformBuffer> uniform_buffers;
+    Array<gfx::Buffer> uniform_buffers;
     gfx::DepthBuffer depth_buffer;
-    
+
     // Playback
     bool playback_enabled;
     u32 num_playback_frames;
     u32 playback_frame;
     f64 playback_delta;
 
-    BufferedStream<FileReadWork> mesh_stream;
+    BufferedStream<platform::FileReadWork> mesh_stream;
     ArrayView<u8> vertex_map;
-    File mesh_file;
+    platform::File mesh_file;
     u32 num_vertices;
     u32 num_indices;
 
@@ -128,7 +72,7 @@ void Draw(App* app) {
     }
     avg_frame_time /= (f32)app->frame_times.length;
 
-    gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, vk, app->force_swapchain_update);
+    gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, vk);
     if (swapchain_status == gfx::SwapchainStatus::FAILED) {
         printf("Swapchain update failed\n");
         exit(1);
@@ -138,15 +82,19 @@ void Draw(App* app) {
     if (swapchain_status == gfx::SwapchainStatus::MINIMIZED) {
         app->wait_for_events = true;
         return;
-    } 
+    }
     else if(swapchain_status == gfx::SwapchainStatus::RESIZED) {
         // Resize framebuffer sized elements.
-        gfx::DestroyDepthBuffer(vk, app->depth_buffer);
-        app->depth_buffer = gfx::CreateDepthBuffer(vk, window.fb_width, window.fb_height);
+        gfx::DestroyDepthBuffer(&app->depth_buffer, vk);
+        VkResult vkr = gfx::CreateDepthBuffer(&app->depth_buffer, vk, window.fb_width, window.fb_height);
+        if(vkr != VK_SUCCESS) {
+            printf("Depth buffer resize failed\n");
+            exit(1);
+        }
     }
 
     app->wait_for_events = false;
-    
+
     // Acquire current frame
     gfx::Frame& frame = app->frames[app->frame_index];
 
@@ -158,7 +106,7 @@ void Draw(App* app) {
         app->force_swapchain_update = true;
         return;
     }
-    
+
     // Playback update
     if (app->playback_enabled) {
         app->playback_delta += dt;
@@ -169,9 +117,7 @@ void Draw(App* app) {
 
 
     // ImGui
-    ImGui_ImplGlfw_NewFrame();
-    ImGui_ImplVulkan_NewFrame();
-    ImGui::NewFrame();
+    gui::BeginFrame();
 
     ImGui::DockSpaceOverViewport(NULL, ImGuiDockNodeFlags_PassthruCentralNode);
 
@@ -179,7 +125,7 @@ void Draw(App* app) {
         struct Getter {
             static float fn(void* data, int index) {
                 App* a = (App*)data;
-                
+
                 usize i = (index - (a->current_frame % a->frame_times.length) + a->frame_times.length) % a->frame_times.length;
                 return 1.0f / a->frame_times[a->frame_times.length - i - 1];
             }
@@ -212,8 +158,10 @@ void Draw(App* app) {
             if (frame_index < app->mesh_stream.stream_cursor + app->mesh_stream.buffer.length) {
                 u64 delta = frame_index - app->mesh_stream.stream_cursor;
                 u64 buffer_index = (app->mesh_stream.buffer_offset + delta) % app->mesh_stream.buffer.length;
-                
+
                 u32 color = 0xFF000000;
+
+                using platform::FileReadWork;
                 BufferedStream<FileReadWork>::EntryState state = app->mesh_stream.buffer[buffer_index].state.load(std::memory_order_relaxed);
                 switch (state) {
                 case BufferedStream<FileReadWork>::EntryState::Empty: color = 0xFF000000; break;
@@ -236,10 +184,10 @@ void Draw(App* app) {
     }
     ImGui::End();
     ImGui::ShowDemoWindow();
-    
+
     // Render imgui.
     ImGui::Render();
-    
+
     // Reset command pool
     vkr = vkResetCommandPool(vk.device, frame.command_pool, 0);
     assert(vkr == VK_SUCCESS);
@@ -249,7 +197,7 @@ void Draw(App* app) {
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkr = vkBeginCommandBuffer(frame.command_buffer, &begin_info);
     assert(vkr == VK_SUCCESS);
-   
+
     vkResetFences(vk.device, 1, &frame.fence);
 
     VkClearColorValue color = { 0.1f, 0.2f, 0.4f, 1.0f };
@@ -264,17 +212,17 @@ void Draw(App* app) {
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.baseArrayLayer = 0;
     barrier.subresourceRange.layerCount = 1;
-    
+
     barrier.srcAccessMask = 0;
     barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    
+
     barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    
+
     vkCmdPipelineBarrier(frame.command_buffer,
                          VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 
-                         0, 0, 
-                         0, 0, 
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
+                         0, 0,
+                         0, 0,
                          1, &barrier);
 
     {
@@ -288,17 +236,17 @@ void Draw(App* app) {
         barrier.subresourceRange.levelCount = 1;
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = 1;
-        
+
         barrier.srcAccessMask = 0;
         barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-        
+
         barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        
+
         vkCmdPipelineBarrier(frame.command_buffer,
                              VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 
-                             0, 0, 
-                             0, 0, 
+                             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0,
+                             0, 0,
+                             0, 0,
                              1, &barrier);
     }
 
@@ -331,7 +279,7 @@ void Draw(App* app) {
     vkCmdBeginRenderingKHR(frame.command_buffer, &rendering_info);
 
     vkCmdBindPipeline(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app->pipeline);
-    
+
 
     //u32 animation_frame = app->current_frame % app->num_frames;
     u32 size = app->num_vertices * sizeof(vec3);
@@ -342,7 +290,7 @@ void Draw(App* app) {
     ReadAtOffset(app->mesh_file, vertices.as_bytes(), 12 + (u64)size * animation_frame);
     memcpy(app->vertex_map.data + buffer_offset, vertices.data, size);
 #else
-    FileReadWork w = app->mesh_stream.get_frame(app->playback_frame);
+    platform::FileReadWork w = app->mesh_stream.get_frame(app->playback_frame);
     memcpy(app->vertex_map.data + buffer_offset, w.buffer.data, size);
 #endif
 
@@ -350,7 +298,7 @@ void Draw(App* app) {
     vkCmdBindVertexBuffers(frame.command_buffer, 0, 1, &app->vertex_buffer, offsets);
 
     vkCmdBindIndexBuffer(frame.command_buffer, app->index_buffer, 0, VK_INDEX_TYPE_UINT32);
-    
+
     VkViewport viewport = {};
     viewport.width = (f32)window.fb_width;
     viewport.height = (f32)window.fb_height;
@@ -362,7 +310,7 @@ void Draw(App* app) {
     scissor.extent.width = window.fb_width;
     scissor.extent.height = window.fb_height;
     vkCmdSetScissor(frame.command_buffer, 0, 1, &scissor);
-    
+
     vec3 camera_position = vec3(2, -8, 2) * 2.0f;
     vec3 camera_target = vec3(0, 0, 0);
     f32 fov = 45.0f;
@@ -370,20 +318,19 @@ void Draw(App* app) {
 
     Constants* constants = app->uniform_buffers[app->frame_index].map.as_type<Constants>();
     constants->color = vec3(0.8, 0.8, 0.8);
-    constants->transform = perspective(fov, ar, 0.01f, 100.0f) * lookAt(camera_position, camera_target, vec3(0, 1, 0));
+    constants->transform = glm::perspective(fov, ar, 0.01f, 100.0f) * glm::lookAt(camera_position, camera_target, vec3(0, 1, 0));
 
     vkCmdBindDescriptorSets(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app->layout, 0, 1, &app->descriptor_sets[app->frame_index], 0, 0);
 
     vkCmdDrawIndexed(frame.command_buffer, app->num_indices, 1, 0, 0, 0);
-    
+
     vkCmdEndRenderingKHR(frame.command_buffer);
-    
+
     attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     rendering_info.pDepthAttachment = 0;
     vkCmdBeginRenderingKHR(frame.command_buffer, &rendering_info);
-    
-    ImDrawData* draw_data = ImGui::GetDrawData();
-    ImGui_ImplVulkan_RenderDrawData(draw_data, frame.command_buffer);
+
+    gui::Render(frame.command_buffer);
 
     vkCmdEndRenderingKHR(frame.command_buffer);
 
@@ -393,17 +340,17 @@ void Draw(App* app) {
     barrier.dstAccessMask = 0;
     vkCmdPipelineBarrier(frame.command_buffer,
                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 
-                         0, 0, 
-                         0, 0, 
+                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0,
+                         0, 0,
+                         0, 0,
                          1, &barrier);
 
     vkr = vkEndCommandBuffer(frame.command_buffer);
     assert(vkr == VK_SUCCESS);
-    
+
     // Submit commands
     VkPipelineStageFlags submit_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    
+
     VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &frame.command_buffer;
@@ -412,11 +359,11 @@ void Draw(App* app) {
     submit_info.pWaitDstStageMask = &submit_stage_mask;
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = &frame.release_semaphore;
-    
-        
+
+
     vkr = vkQueueSubmit(app->queue, 1, &submit_info, frame.fence);
     assert(vkr == VK_SUCCESS);
-    
+
     // Present
     VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     present_info.swapchainCount = 1;
@@ -432,7 +379,7 @@ void Draw(App* app) {
         printf("Failed to submit\n");
         exit(1);
     }
-    
+
     // // Wait
     // vkr = vkDeviceWaitIdle(vk.device);
     // assert(vkr == VK_SUCCESS);
@@ -440,10 +387,10 @@ void Draw(App* app) {
     app->current_frame += 1;
 }
 
-internal void
+static void
 Callback_Key(GLFWwindow* window, int key, int scancode, int action, int mods) {
     App* app = (App*)glfwGetWindowUserPointer(window);
-    
+
     if (action == GLFW_PRESS || action == GLFW_REPEAT) {
         if (key == GLFW_KEY_ESCAPE) {
             glfwSetWindowShouldClose(app->window->window, true);
@@ -466,12 +413,12 @@ Callback_Key(GLFWwindow* window, int key, int scancode, int action, int mods) {
     }
 }
 
-internal void
+static void
 Callback_WindowResize(GLFWwindow* window, int width, int height) {
     App* app = (App*)glfwGetWindowUserPointer(window);
 }
 
-internal void
+static void
 Callback_WindowRefresh(GLFWwindow* window) {
     App* app = (App*)glfwGetWindowUserPointer(window);
     if (app) {
@@ -490,7 +437,9 @@ DWORD WINAPI thread_proc(void* param) {
 #endif
 
 int main(int argc, char** argv) {
-    File file = OpenFile(argv[1]);
+    platform::File file = {};
+    platform::Result open_result = OpenFile(argv[1], &file);
+    assert(open_result == platform::Result::Success);
 
     Array<u8> header(12);
     ReadAtOffset(file, header, 0);
@@ -504,14 +453,17 @@ int main(int argc, char** argv) {
     ReadAtOffset(file, indices.as_bytes(), N * V * sizeof(vec3) + header.length);
 
     u64 size = V * sizeof(vec3);
-    
+
     u32 WORKERS = 4;
     u32 BUFFER_SIZE = (u32)8;
 
     Array<u8> loaded_data(size * BUFFER_SIZE);
     ArrayView<u8> loaded_data_view = loaded_data;
 
-    WorkerPool pool(WORKERS);
+    WorkerPool pool;
+    pool.init(WORKERS);
+
+    using platform::FileReadWork;
     BufferedStream<FileReadWork> mesh_stream(N, BUFFER_SIZE, &pool,
         // Init
         [=](u64 index, u64 buffer_index, bool high_priority) mutable {
@@ -537,67 +489,43 @@ int main(int argc, char** argv) {
         }
     );
 
-    // Initialize glfw.
-    glfwInit();
-
-    // Check if device supports vulkan.
-    if (!glfwVulkanSupported()) {
-        printf("Vulkan not found!\n");
-        exit(1);
+    gfx::Result result;
+    result = gfx::Init();
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("sequence", "Failed to initialize platform\n");
     }
 
-    // Get instance extensions required by GLFW.
-    u32 glfw_instance_extensions_count;
-    const char** glfw_instance_extensions = glfwGetRequiredInstanceExtensions(&glfw_instance_extensions_count);
-
-    // Vulkan initialization.
-    Array<const char*> instance_extensions;
-    for(u32 i = 0; i < glfw_instance_extensions_count; i++) {
-        instance_extensions.add(glfw_instance_extensions[i]);
-    }
+    Array<const char*> instance_extensions = gfx::GetPresentationInstanceExtensions();
     instance_extensions.add("VK_EXT_debug_report");
-    
+
     Array<const char*> device_extensions;
     device_extensions.add("VK_KHR_swapchain");
     device_extensions.add("VK_KHR_dynamic_rendering");
 
-    u32 vulkan_api_version = VK_API_VERSION_1_3;
-
     gfx::Context vk = {};
-    if (gfx::InitializeContext(&vk, vulkan_api_version, instance_extensions, device_extensions, true, gfx::DeviceFeatures::DYNAMIC_RENDERING, true, true) != gfx::Result::SUCCESS) {
-        printf("Failed to initialize vulkan\n");
-        exit(1);
+    result = gfx::CreateContext(&vk, {
+        .minimum_api_version = (u32)VK_API_VERSION_1_3,
+        .instance_extensions = instance_extensions,
+        .device_extensions = device_extensions,
+        .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
+        .enable_validation_layer = true,
+        //        .enable_gpu_based_validation = true,
+    });
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("sequence", "Failed to initialize vulkan\n");
+        exit(100);
     }
-
-    // Check if queue family supports image presentation.
-    if (!glfwGetPhysicalDevicePresentationSupport(vk.instance, vk.physical_device, vk.queue_family_index)) {
-        printf("Device does not support image presentation\n");
-        exit(1);
-    }
-
     gfx::Window window = {};
-    if (gfx::CreateWindowWithSwapchain(&window, vk, "XPG", 1600, 900, true) != gfx::Result::SUCCESS) {
+    if (gfx::CreateWindowWithSwapchain(&window, vk, "XPG", 1600, 900) != gfx::Result::SUCCESS) {
         printf("Failed to create vulkan window\n");
         return 1;
     }
 
-#if 1
-#ifdef _WIN32
-    // Redraw during move / resize
-    HWND hwnd = glfwGetWin32Window(window.window);
-    HANDLE thread = CreateThread(0, 0, thread_proc, hwnd, 0, 0);
-    if (thread) {
-        CloseHandle(thread);
-    }
-#endif
-#endif
-
     // Initialize queue and command allocator.
-    VkResult result;
-
+    VkResult vkr;
     VkQueue queue;
     vkGetDeviceQueue(vk.device, vk.queue_family_index, 0, &queue);
-    
+
     Array<gfx::Frame> frames(window.images.length);
     for (usize i = 0; i < frames.length; i++) {
         gfx::Frame& frame = frames[i];
@@ -605,17 +533,17 @@ int main(int argc, char** argv) {
         VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
         pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;// | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         pool_info.queueFamilyIndex = vk.queue_family_index;
-    
-        result = vkCreateCommandPool(vk.device, &pool_info, 0, &frame.command_pool);
-        assert(result == VK_SUCCESS);
+
+        vkr = vkCreateCommandPool(vk.device, &pool_info, 0, &frame.command_pool);
+        assert(vkr == VK_SUCCESS);
 
         VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
         allocate_info.commandPool = frame.command_pool;
         allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocate_info.commandBufferCount = 1;
 
-        result = vkAllocateCommandBuffers(vk.device, &allocate_info, &frame.command_buffer);
-        assert(result == VK_SUCCESS);
+        vkr = vkAllocateCommandBuffers(vk.device, &allocate_info, &frame.command_buffer);
+        assert(vkr == VK_SUCCESS);
 
         VkFenceCreateInfo fence_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
         fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -625,136 +553,18 @@ int main(int argc, char** argv) {
         gfx::CreateGPUSemaphore(vk.device, &frame.release_semaphore);
     }
 
-    // Create descriptor pool for imgui.
-    VkDescriptorPoolSize imgui_pool_sizes[] = {
-        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
-    };
-
-    VkDescriptorPoolCreateInfo imgui_descriptor_pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-    imgui_descriptor_pool_info.flags = 0;
-    imgui_descriptor_pool_info.maxSets = 1;
-    imgui_descriptor_pool_info.pPoolSizes = imgui_pool_sizes;
-    imgui_descriptor_pool_info.poolSizeCount = ArrayCount(imgui_pool_sizes);
-
-    VkDescriptorPool imgui_descriptor_pool = 0;
-    vkCreateDescriptorPool(vk.device, &imgui_descriptor_pool_info, 0, &imgui_descriptor_pool);
-
     // Setup window callbacks
     glfwSetWindowSizeCallback(window.window, Callback_WindowResize);
     glfwSetWindowRefreshCallback(window.window, Callback_WindowRefresh);
     glfwSetKeyCallback(window.window, Callback_Key);
 
-    // Initialize ImGui.
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-
-    if (!ImGui_ImplGlfw_InitForVulkan(window.window, true)) {
-        printf("Failed to initialize ImGui\n");
-        exit(1);
-    }
-
-    // TODO: Format, MSAA
-    ImGui_ImplVulkan_InitInfo imgui_vk_init_info = {};
-    imgui_vk_init_info.Instance = vk.instance;
-    imgui_vk_init_info.PhysicalDevice = vk.physical_device;
-    imgui_vk_init_info.Device = vk.device;
-    imgui_vk_init_info.QueueFamily = vk.queue_family_index;
-    imgui_vk_init_info.Queue = queue;
-    imgui_vk_init_info.PipelineCache = 0;
-    imgui_vk_init_info.DescriptorPool = imgui_descriptor_pool;
-    imgui_vk_init_info.Subpass = 0;
-    imgui_vk_init_info.MinImageCount = (u32)window.images.length;
-    imgui_vk_init_info.ImageCount = (u32)window.images.length;
-    imgui_vk_init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-    imgui_vk_init_info.UseDynamicRendering = true;
-    imgui_vk_init_info.ColorAttachmentFormat = window.swapchain_format;
-    struct ImGuiCheckResult {
-        static void fn(VkResult res) {
-            assert(res == VK_SUCCESS);
-        }
-    };
-    imgui_vk_init_info.CheckVkResultFn = ImGuiCheckResult::fn;
-    
-    if (!ImGui_ImplVulkan_Init(&imgui_vk_init_info, VK_NULL_HANDLE)) {
-        printf("Failed to initialize Vulkan imgui backend\n");
-        exit(1);
-    }
-
-    // Upload font texture.
-    {
-        VkCommandPool command_pool = frames[0].command_pool;
-        VkCommandBuffer command_buffer= frames[0].command_buffer;
-
-        // Reset command buffer.
-        VkResult vkr = vkResetCommandPool(vk.device, command_pool, 0);
-        assert(vkr == VK_SUCCESS);
-
-        // Begin recording commands.
-        VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkr = vkBeginCommandBuffer(command_buffer, &begin_info);
-        assert(vkr == VK_SUCCESS);
-
-        // Create fonts texture.
-        ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
-        
-        // End recording commands.
-        vkr = vkEndCommandBuffer(command_buffer);
-        assert(vkr == VK_SUCCESS);
-        
-        // Submit commands.
-		VkPipelineStageFlags submit_stage_mask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-
-        VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-        submit_info.commandBufferCount = 1;
-        submit_info.pCommandBuffers = &command_buffer;
-        // submit_info.waitSemaphoreCount = 0;
-        // submit_info.pWaitSemaphores = 0;
-        // submit_info.pWaitDstStageMask = 0;
-        // submit_info.signalSemaphoreCount = 0;
-        // submit_info.pSignalSemaphores = 0;
-            
-        vkr = vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE);
-        assert(vkr == VK_SUCCESS);
-
-        // Wait for idle.
-        vkr = vkDeviceWaitIdle(vk.device);
-        assert(vkr == VK_SUCCESS);
-    }
-    
-#if 0
-    Array<u8> header(12);
-    File file = OpenFile("N:\\scenes\\smpl\\all_frames_20.bin");
-    ReadAtOffset(file, header, 0);
-
-    ArrayView<u8> parser = header;
-    usize N = parser.consume<u32>();
-    usize V = parser.consume<u32>();
-    usize I = parser.consume<u32>();
-#endif
-
-#if 0
-    Array<u8> mesh_data = ReadEntireFile("N:\\scenes\\smpl\\all_frames_20.bin");
-    assert(mesh_data.length > 0);
-    
-    ArrayView<u8> parser = mesh_data;
-    usize N = parser.consume<u32>();
-    usize V = parser.consume<u32>();
-    usize I = parser.consume<u32>();
-
-    // Allocate vertex and index buffers.
-    ArrayView<vec3> vertices = parser.consume_view<vec3>(V * N);
-    ArrayView<u32> indices = parser.consume_view<u32>(I);
-    assert(parser.length == 0);
-#endif
-
-    VkResult vkr;
+    gui::ImGuiImpl imgui_impl;
+    gui::CreateImGuiImpl(&imgui_impl, window, vk, {});
 
     VkBufferCreateInfo vertex_buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     vertex_buffer_info.size = sizeof(vec3) * V * window.images.length;
     vertex_buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-     
+
     VkBufferCreateInfo index_buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     index_buffer_info.size = indices.size_in_bytes();
     index_buffer_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
@@ -765,7 +575,7 @@ int main(int argc, char** argv) {
     alloc_create_info.flags = 0;
         // VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT  <- Host can access, useful if usage=AUTO, not necessary if require HOST_VISIBLE
         // VMA_ALLOCATION_CREATE_MAPPED_BIT              <- Persistently mapped, not needed for upload once usage as we are doing here, we will manually map and unmap.
-     
+
     VkBuffer vertex_buffer = 0;
     VmaAllocation vertex_allocation = {};
     alloc_create_info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
@@ -782,12 +592,6 @@ int main(int argc, char** argv) {
 
 
     void* map;
-
-    // vmaMapMemory(vma, vertex_allocation, &map);
-    // ArrayView<u8> vertex_map((u8*)map, vertex_buffer_info.size);
-    // vertex_map.copy_exact(vertices.as_bytes());
-    // vmaUnmapMemory(vma, vertex_allocation);
-
     vmaMapMemory(vk.vma, index_allocation, &map);
     ArrayView<u8> index_map((u8*)map, index_buffer_info.size);
     index_map.copy_exact(indices.as_bytes());
@@ -795,8 +599,16 @@ int main(int argc, char** argv) {
 
 
     // Create graphics pipeline.
-    Array<u8> vertex_code = ReadEntireFile("res/basic.vert.spirv");
-    Array<u8> fragment_code = ReadEntireFile("res/basic.frag.spirv");
+    Array<u8> vertex_code;
+    if (platform::ReadEntireFile("res/basic.vert.spirv", &vertex_code) != platform::Result::Success) {
+        logging::error("sequence", "Failed to read vertex shader\n");
+        exit(100);
+    }
+    Array<u8> fragment_code;
+    if (platform::ReadEntireFile("res/basic.frag.spirv", &fragment_code) != platform::Result::Success) {
+        logging::error("sequence", "Failed to read fragment shader\n");
+        exit(100);
+    }
 
     VkShaderModuleCreateInfo vertex_module_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
     vertex_module_info.codeSize = vertex_code.length;
@@ -901,7 +713,7 @@ int main(int argc, char** argv) {
     rendering_create_info.colorAttachmentCount = 1;
     rendering_create_info.pColorAttachmentFormats = color_formats;
     rendering_create_info.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
-    
+
     // Layout
     VkDescriptorSetLayoutBinding binding = {};
     binding.binding = 0;
@@ -928,7 +740,7 @@ int main(int argc, char** argv) {
     VkGraphicsPipelineCreateInfo pipeline_create_info = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
     pipeline_create_info.pNext = &rendering_create_info;
     pipeline_create_info.flags = 0;
-    
+
     // Shaders
     pipeline_create_info.stageCount = 2;
     pipeline_create_info.pStages = stages;
@@ -967,7 +779,7 @@ int main(int argc, char** argv) {
 
     VkDescriptorPool descriptor_pool = 0;
     vkCreateDescriptorPool(vk.device, &descriptor_pool_info, 0, &descriptor_pool);
-    
+
     Array<VkDescriptorSetLayout> descriptor_set_layouts(frames.length);
     for (usize i = 0; i < descriptor_set_layouts.length; i++) {
         descriptor_set_layouts[i] = descriptor_set_layout;
@@ -983,13 +795,13 @@ int main(int argc, char** argv) {
     assert(vkr == VK_SUCCESS);
 
     alloc_create_info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
-    Array<gfx::UniformBuffer> uniform_buffers(frames.length);
+    Array<gfx::Buffer> uniform_buffers(frames.length);
     for (usize i = 0; i < uniform_buffers.length; i++) {
         VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         buffer_info.size = sizeof(Constants);
         buffer_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 
-        
+
         VmaAllocationInfo alloc_info = {};
         vkr = vmaCreateBuffer(vk.vma, &buffer_info, &alloc_create_info, &uniform_buffers[i].buffer, &uniform_buffers[i].allocation, &alloc_info);
         assert(vkr == VK_SUCCESS);
@@ -1011,7 +823,9 @@ int main(int argc, char** argv) {
         vkUpdateDescriptorSets(vk.device, 1, &descriptor_write, 0, 0);
     }
 
-    gfx::DepthBuffer depth_buffer = gfx::CreateDepthBuffer(vk, window.fb_width, window.fb_height);
+    gfx::DepthBuffer depth_buffer;
+    vkr = gfx::CreateDepthBuffer(&depth_buffer, vk, window.fb_width, window.fb_height);
+    assert(vkr == VK_SUCCESS);
 
     App app = {};
     app.frames = std::move(frames);
@@ -1056,15 +870,14 @@ int main(int argc, char** argv) {
 
 
     // Wait
-    vkDeviceWaitIdle(vk.device);
+    gfx::WaitIdle(vk);
 
     pool.destroy();
-    
-    ImGui_ImplVulkan_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
 
-    gfx::DestroyDepthBuffer(vk, app.depth_buffer);
+    gfx::DestroyDepthBuffer(&app.depth_buffer, vk);
+
+    vkDestroyDescriptorPool(vk.device, descriptor_pool, 0);
+    vkDestroyDescriptorSetLayout(vk.device, descriptor_set_layout, 0);
 
     for (usize i = 0; i < app.uniform_buffers.length; i++) {
         vmaDestroyBuffer(vk.vma, app.uniform_buffers[i].buffer, app.uniform_buffers[i].allocation);
@@ -1072,8 +885,6 @@ int main(int argc, char** argv) {
 
     vmaDestroyBuffer(vk.vma, vertex_buffer, vertex_allocation);
     vmaDestroyBuffer(vk.vma, index_buffer, index_allocation);
-
-    vmaDestroyAllocator(vk.vma);
 
     vkDestroyShaderModule(vk.device, vertex_module, 0);
     vkDestroyShaderModule(vk.device, fragment_module, 0);
@@ -1090,20 +901,13 @@ int main(int argc, char** argv) {
         vkFreeCommandBuffers(vk.device, frame.command_pool, 1, &frame.command_buffer);
         vkDestroyCommandPool(vk.device, frame.command_pool, 0);
     }
-    
-    // Window stuff
-    vkDestroyDescriptorSetLayout(vk.device, descriptor_set_layout, 0);
-    vkDestroyDescriptorPool(vk.device, descriptor_pool, 0);
-    vkDestroyDescriptorPool(vk.device, imgui_descriptor_pool, 0);
-    for (usize i = 0; i < window.image_views.length; i++) {
-        vkDestroyImageView(vk.device, window.image_views[i], 0);
-    }
-    vkDestroySwapchainKHR(vk.device, window.swapchain, 0);
-    vkDestroySurfaceKHR(vk.instance, window.surface, 0);
 
-    vkDestroyDevice(vk.device, 0);
-	vkDestroyDebugReportCallbackEXT(vk.instance, vk.debug_callback, 0);
-    vkDestroyInstance(vk.instance, 0);
+    // Gui
+    gui::DestroyImGuiImpl(&imgui_impl, vk);
 
-    //system("pause");
+    // Window
+    gfx::DestroyWindowWithSwapchain(&window, vk);
+
+    // Context
+    gfx::DestroyContext(&vk);
 }

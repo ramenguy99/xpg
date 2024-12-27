@@ -1,17 +1,21 @@
-u64 Hash(u64 x) 
+#pragma once
+
+#include <defines.h>
+
+inline u64 Hash(u64 x) 
 {
     x *= 0xff51afd7ed558ccd;
     x ^= x >> 32;
     return x;
 }
 
-u64 Hash(u8  x) { return Hash((u64)x); }; 
-u64 Hash(u16 x) { return Hash((u64)x); };  
-u64 Hash(u32 x) { return Hash((u64)x); };  
-u64 Hash(s8  x) { return Hash((u64)x); };  
-u64 Hash(s16 x) { return Hash((u64)x); };  
-u64 Hash(s32 x) { return Hash((u64)x); };  
-u64 Hash(s64 x) { return Hash((u64)x); };  
+inline u64 Hash(u8  x) { return Hash((u64)x); }; 
+inline u64 Hash(u16 x) { return Hash((u64)x); };  
+inline u64 Hash(u32 x) { return Hash((u64)x); };  
+inline u64 Hash(s8  x) { return Hash((u64)x); };  
+inline u64 Hash(s16 x) { return Hash((u64)x); };  
+inline u64 Hash(s32 x) { return Hash((u64)x); };  
+inline u64 Hash(s64 x) { return Hash((u64)x); };  
 
 template<typename T>
 u64 Hash(T* p)
@@ -19,7 +23,7 @@ u64 Hash(T* p)
     return Hash((u64)p);
 }
 
-u64 HashBytes(u8* bytes, usize length) {
+inline u64 HashBytes(u8* bytes, usize length) {
     u64 x = 0xcbf29ce484222325;
     for (usize i = 0; i < length; i++) {
         x ^= bytes[i];

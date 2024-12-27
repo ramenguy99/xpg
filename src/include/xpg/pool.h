@@ -1,3 +1,7 @@
+#pragma once
+
+#include "array.h"
+
 // A grow-only pool allocator.
 // 
 // This allocator provides two main features:

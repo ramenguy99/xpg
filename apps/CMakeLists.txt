@@ -1,0 +1,5 @@
+add_subdirectory(bigimage)
+add_subdirectory(descs)
+add_subdirectory(sequence)
+add_subdirectory(plot)
+# add_subdirectory(minimal)

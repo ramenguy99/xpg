@@ -1,3 +1,5 @@
+#pragma once
+
 namespace Spectrum {
     namespace { // Unnamed namespace, since we only use this here.
         unsigned int Color(unsigned int c) {

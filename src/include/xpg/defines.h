@@ -1,3 +1,9 @@
+#pragma once
+
+#include <stdint.h>
+#include <stdlib.h>
+#include <assert.h>
+
 typedef uint8_t  u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -14,7 +20,6 @@ typedef double   f64;
 #define Free(p) free((p))
 #define OutOfBounds(i) (assert(false))
 #define OutOfSpace() (assert(false))
-#define internal static
 
 #ifdef _WIN32
 #define AlignedAlloc(align, size) (_aligned_malloc((size), (align)))
@@ -40,20 +45,20 @@ T Clamp(const T& v, const T& min, const T& max) {
     return Min(Max(v, min), max);
 }
 
-bool IsPow2NonZero(usize n) {
+inline bool IsPow2NonZero(usize n) {
     return (n & (n - 1)) == 0;
 }
 
-bool IsPow2(usize n) {
+inline bool IsPow2(usize n) {
     return n == 0 || IsPow2NonZero(n);
 }
 
-usize AlignDown(usize v, usize a) {
+inline usize AlignDown(usize v, usize a) {
     assert(IsPow2NonZero(a));
     return v & ~(a - 1);
 }
 
-usize AlignUp(usize v, usize a) {
+inline usize AlignUp(usize v, usize a) {
     assert(IsPow2NonZero(a));
     return (v + (a - 1)) & ~(a - 1);
 }

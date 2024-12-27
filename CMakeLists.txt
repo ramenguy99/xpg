@@ -5,8 +5,9 @@ project(XGP VERSION 1.0 LANGUAGES CXX)
 set (CMAKE_CXX_STANDARD 20)
 
 # XPG options
+set(XPG_BUILD_APPS ON CACHE BOOL "Build XPG applications")
 set(XPG_PYTHON ON CACHE BOOL "Build XPG python module")
-set(XPG_MSVC_ANALYZE OFF CACHE BOOL "Build XPG python module")
+set(XPG_MSVC_ANALYZE OFF CACHE BOOL "Build with /analyze when using MSVC (heavily increases build times)")
 
 # Configure GLFW
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "Build GLFW examples")
@@ -19,6 +20,7 @@ set(ZSTD_BUILD_PROGRAMS OFF)
 set(ZSTD_MULTITHREAD_SUPPORT OFF)
 set(ZSTD_LEGACY_SUPPORT OFF)
 
+# Add external dependencies
 add_subdirectory(ext/glfw)
 add_subdirectory(ext/volk)
 add_subdirectory(ext/glm)
@@ -34,38 +36,60 @@ if (NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-volatile -Wno-nullability-completeness")
 endif()
 
-# add_executable(descs apps/descs.cpp  "lib/imgui_impl.h" "lib/result.h" "lib/graph.h" )
-# target_link_libraries(descs PRIVATE volk_headers glfw glm VulkanMemoryAllocator)
-# target_include_directories(descs PRIVATE lib shaders ext/imgui ext/atomic_queue/include)
+# Library
+add_library(xpg STATIC
+    src/include/xpg/array.h
+    src/include/xpg/buffered_stream.h
+    src/include/xpg/defines.h
+    src/include/xpg/gfx.h
+    src/include/xpg/graph.h
+    src/include/xpg/gui.h
+    src/include/xpg/hashmap.h
+    src/include/xpg/log.h
+    src/include/xpg/platform.h
+    src/include/xpg/pool.h
+    src/include/xpg/threading.h
+    src/lib/gfx.cpp
+    src/lib/platform.cpp
+    src/lib/gui.cpp
+)
 
-add_executable(bigimage apps/bigimage.cpp )
-target_link_libraries(bigimage PRIVATE volk_headers glfw glm VulkanMemoryAllocator libzstd_static)
-target_include_directories(bigimage PRIVATE lib shaders ext/imgui ext/atomic_queue/include)
+target_include_directories(xpg PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>/src/include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>/ext/imgui
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>/ext/atomic_queue/include
+    $<INSTALL_INTERFACE:include>
+)
 
-# add_executable(sequence apps/sequence.cpp)
-# target_link_libraries(sequence PRIVATE volk_headers glfw glm VulkanMemoryAllocator)
-# target_include_directories(sequence PRIVATE lib shaders ext/imgui ext/atomic_queue/include)
-#
-# add_executable(plot apps/plot.cpp)
-# target_link_libraries(plot PRIVATE volk_headers glfw glm VulkanMemoryAllocator)
-# target_include_directories(plot PRIVATE lib shaders ext/imgui ext/implot ext/atomic_queue/include ext/CLI11)
-#
-# if(XPG_PYTHON)
-#
-# # Find python
-# if (CMAKE_VERSION VERSION_LESS 3.18)
-#   set(DEV_MODULE Development)
-# else()
-#   set(DEV_MODULE Development.Module)
-# endif()
-# find_package(Python 3.8 COMPONENTS Interpreter ${DEV_MODULE} REQUIRED)
-#
-# # Add nanobind
-# add_subdirectory(ext/nanobind)
-#
-# # Create python module
-# nanobind_add_module(xpg python/module.cpp)
-# target_link_libraries(xpg PRIVATE volk_headers glfw glm VulkanMemoryAllocator)
-# target_include_directories(xpg PRIVATE lib shaders ext/imgui ext/implot ext/atomic_queue/include)
-#
-# endif()
+target_link_libraries(xpg PUBLIC volk_headers glfw glm VulkanMemoryAllocator)
+
+if (MSVC OR CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
+    target_compile_definitions(xpg PUBLIC _CRT_SECURE_NO_WARNINGS)
+endif()
+
+
+# Add apps
+if (XPG_BUILD_APPS)
+    add_subdirectory(apps)
+endif()
+
+
+# Python module
+if(XPG_PYTHON)
+
+# Find python
+if (CMAKE_VERSION VERSION_LESS 3.18)
+  set(DEV_MODULE Development)
+else()
+  set(DEV_MODULE Development.Module)
+endif()
+find_package(Python 3.8 COMPONENTS Interpreter ${DEV_MODULE} REQUIRED)
+
+# Add nanobind
+add_subdirectory(ext/nanobind)
+
+# Create python module
+nanobind_add_module(pyxpg src/python/module.cpp)
+target_link_libraries(pyxpg PRIVATE xpg)
+
+endif()

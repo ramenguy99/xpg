@@ -1,79 +1,9 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <utility> // std::move
-#include <functional> // std::function
-#include <mutex>
-#include <unordered_map>
-
-#ifdef _WIN32
-#else
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <semaphore.h>
-#include <pthread.h>
-#endif
-
-#define VOLK_IMPLEMENTATION
-#include <volk.h>
-#include <vulkan/vk_enum_string_helper.h>
-
-#define VMA_STATIC_VULKAN_FUNCTIONS 1
-#define VMA_IMPLEMENTATION
-#include <vk_mem_alloc.h>
-
-#define _GLFW_VULKAN_STATIC
-#ifdef _WIN32
-#define GLFW_EXPOSE_NATIVE_WIN32
-#endif
-#include <GLFW/glfw3.h>
-
-
-#undef APIENTRY
-#define IMGUI_DEFINE_MATH_OPERATORS
-#include <imgui.h>
-#include <imgui.cpp>
-#include <imgui_demo.cpp>
-#include <imgui_draw.cpp>
-#include <imgui_tables.cpp>
-#include <imgui_widgets.cpp>
-
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_glfw.cpp>
-
-#undef VK_NO_PROTOTYPES
-#include <backends/imgui_impl_vulkan.h>
-#include <backends/imgui_impl_vulkan.cpp>
-
-#include <atomic_queue/atomic_queue.h>
-
-#define GLM_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-
-#define XPG_VERSION 0
-
-#include "defines.h"
-#include "result.h"
-#include "array.h"
-#include "platform.h"
-#include "threading.h"
-#include "gfx.h"
-#include "imgui_impl.h"
-#include "buffered_stream.h"
-#include "graph.h"
-
-#define SPECTRUM_USE_DARK_THEME
-#include "imgui_spectrum.h"
-#include "roboto-medium.h"
+#include <xpg/gui.h>
 
 using glm::vec2;
 using glm::vec3;
 using glm::vec4;
 using glm::mat4;
-#include "types.h"
 
 // TODO:
 // - Cleanup:
@@ -84,6 +14,7 @@ using glm::mat4;
 //   - slang integration / reflection / hot reloading
 //   - more python bindings
 //   - file formats
+
 struct App {
     gfx::Context* vk;
     gfx::Window* window;
@@ -237,8 +168,7 @@ void Draw(App* app) {
     rendering_info.pDepthAttachment = 0;
     vkCmdBeginRenderingKHR(frame.command_buffer, &rendering_info);
 
-    ImDrawData* draw_data = ImGui::GetDrawData();
-    ImGui_ImplVulkan_RenderDrawData(draw_data, frame.command_buffer);
+    gui::Render(frame.command_buffer);
 
     vkCmdEndRenderingKHR(frame.command_buffer);
 
@@ -259,7 +189,7 @@ void Draw(App* app) {
     vkr = gfx::Submit(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     assert(vkr == VK_SUCCESS);
 
-    vkr present_result = gfx::PresentFrame(&window, &frame, vk);
+    vkr = gfx::PresentFrame(&window, &frame, vk);
     assert(vkr == VK_SUCCESS);
 
     app->current_frame += 1;
@@ -268,60 +198,45 @@ void Draw(App* app) {
 
 
 int main(int argc, char** argv) {
-    framegraph::test();
-    exit(1);
-
-    // Initialize glfw.
-    glfwInit();
-
-    // Check if device supports vulkan.
-    if (!glfwVulkanSupported()) {
-        printf("Vulkan not found!\n");
-        exit(1);
+    gfx::Result result;
+    result = gfx::Init();
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("descs", "Failed to initialize platform\n");
     }
 
-    // Get instance extensions required by GLFW.
-    u32 glfw_instance_extensions_count;
-    const char** glfw_instance_extensions = glfwGetRequiredInstanceExtensions(&glfw_instance_extensions_count);
-
-    // Vulkan initialization.
-    Array<const char*> instance_extensions;
-    for (u32 i = 0; i < glfw_instance_extensions_count; i++) {
-        instance_extensions.add(glfw_instance_extensions[i]);
-    }
+    Array<const char*> instance_extensions = gfx::GetPresentationInstanceExtensions();
     instance_extensions.add("VK_EXT_debug_report");
 
     Array<const char*> device_extensions;
     device_extensions.add("VK_KHR_swapchain");
     device_extensions.add("VK_KHR_dynamic_rendering");
 
-    u32 vulkan_api_version = VK_API_VERSION_1_2;
-
     gfx::Context vk = {};
-    if (gfx::CreateContext(&vk, vulkan_api_version, instance_extensions, device_extensions, true, gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING, true, true) != gfx::Result::SUCCESS) {
-        printf("Failed to initialize vulkan\n");
-        exit(1);
-    }
-
-    // Check if queue family supports image presentation.
-    // TODO: remove this once device picking logic is better
-    if (!glfwGetPhysicalDevicePresentationSupport(vk.instance, vk.physical_device, vk.queue_family_index)) {
-        printf("Device does not support image presentation\n");
-        exit(1);
+    result = gfx::CreateContext(&vk, {
+        .minimum_api_version = (u32)VK_API_VERSION_1_3,
+        .instance_extensions = instance_extensions,
+        .device_extensions = device_extensions,
+        .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
+        .enable_validation_layer = true,
+        //        .enable_gpu_based_validation = true,
+    });
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("descs", "Failed to initialize vulkan\n");
+        exit(100);
     }
 
     gfx::Window window = {};
-    if (gfx::CreateWindowWithSwapchain(&window, vk, "XPG", 1600, 900, true) != gfx::Result::SUCCESS) {
-        printf("Failed to create vulkan window\n");
-        return 1;
+    result = gfx::CreateWindowWithSwapchain(&window, vk, "XPG", 1600, 900);
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("descs", "Failed to create vulkan window\n");
+        exit(100);
     }
 
     gui::ImGuiImpl imgui_impl;
-    gui::Create(&imgui_impl, window, vk);
-
-    uint32_t MAX_DESCRIPTOR_COUNT = 100000;
+    gui::CreateImGuiImpl(&imgui_impl, window, vk, {});
 
     // BINDLES SLIM SETUP START
+    uint32_t MAX_DESCRIPTOR_COUNT = 100000;
 
     gfx::BindlessDescriptorSet bindless = {};
     gfx::CreateBindlessDescriptorSet(&bindless, vk, {
@@ -347,16 +262,20 @@ int main(int argc, char** argv) {
     // PIPELINE SETUP START
     VkResult vkr;
 
-    //Array<u8> vertex_code = ReadEntireFile("res/bindless.vert.spirv");
-    Array<u8> vertex_code = ReadEntireFile("res/bindless_slang.vert.spv");
-
-    //Array<u8> fragment_code = ReadEntireFile("res/bindless.frag.spirv");
-    Array<u8> fragment_code = ReadEntireFile("res/bindless_slang.frag.spv");
-
+    Array<u8> vertex_code;
+    if (platform::ReadEntireFile("res/bindless_slang.vert.spv", &vertex_code) != platform::Result::Success) {
+        logging::error("descs", "Failed to read vertex shader\n");
+        exit(100);
+    }
     gfx::Shader vertex_shader = {};
     vkr = gfx::CreateShader(&vertex_shader, vk, vertex_code);
     assert(vkr == VK_SUCCESS);
 
+    Array<u8> fragment_code;
+    if (platform::ReadEntireFile("res/bindless_slang.frag.spv", &fragment_code) != platform::Result::Success) {
+        logging::error("descs", "Failed to read fragment shader\n");
+        exit(100);
+    }
     gfx::Shader fragment_shader = {};
     vkr = gfx::CreateShader(&fragment_shader, vk, fragment_code);
     assert(vkr == VK_SUCCESS);
@@ -525,13 +444,11 @@ int main(int argc, char** argv) {
     gfx::DestroyBindlessDescriptorSet(&bindless, vk);
 
     // Gui
-    gui::Destroy(&imgui_impl, vk);
+    gui::DestroyImGuiImpl(&imgui_impl, vk);
 
     // Window
     gfx::DestroyWindowWithSwapchain(&window, vk);
 
     // Context
     gfx::DestroyContext(&vk);
-
-    //system("pause");
 }

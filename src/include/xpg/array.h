@@ -1,5 +1,8 @@
 #pragma once
 
+#include "defines.h"
+#include <utility>
+
 #ifndef BOUNDS_CHECKING_ENABLED
 #define BOUNDS_CHECKING_ENABLED 1
 #endif

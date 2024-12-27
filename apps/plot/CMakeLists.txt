@@ -1,0 +1,7 @@
+add_executable(plot
+    imgui_spectrum.h
+    roboto-medium.h
+    plot.cpp
+)
+target_link_libraries(plot PRIVATE xpg)
+target_include_directories(plot PRIVATE ../../ext/implot ../../ext/CLI11)
