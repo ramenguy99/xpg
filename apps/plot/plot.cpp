@@ -367,16 +367,6 @@ Callback_WindowRefresh(GLFWwindow* window) {
     }
 }
 
-#ifdef _WIN32
-DWORD WINAPI thread_proc(void* param) {
-    HWND window = (HWND)param;
-    while (true) {
-        SendMessage(window, WM_PAINT, 0, 0);
-    }
-    return 0;
-}
-#endif
-
 // TODO:
 // - Input types:
 //   [x] File
@@ -431,27 +421,41 @@ DWORD WINAPI thread_proc(void* param) {
 //   plot - -p :0- m=o,s,d s=4 w=4 t=title x=xlabel y=ylable g=false c=red,green,blue b=0 t=1000 l=0 r=1000
 
 // Plot (-p):
+//  - lines
+//  x:y             <list[<scalar>:<range>> (general syntax, x y can be omitted)
+//   :y                                     (equivalent to 0:y)
+//   :                                      (everything is a y, default)
+//  1:3-5                                   (use 1 as x, use 3,4,5 as y)
+//  1:3-                                    (use 1 as x, use all after 3 as y)
 //  - style:
-//  m | marker <list[char]>
-//  s | size   <int>
-//  w | width  <int>
-//  c | color  <list[string]>
-//  g | grid   <bool> = true
+//  m | marker      <list[char]>            (o s d ^ v l r x p a n)
+//  s | size        <int>                   (marker size in pixels)
+//  w | width       <int>                   (line width in pixels)
+//  c | color       <list[string]>          (red, green, blue...)
+//  g | grid        <bool>                  (true,false)
 //  - labels:
-//  T | title  <string>
-//  X | xaxis label <string>
-//  Y | yaxis label <string>
+//  n | name        <string>                (line name)
+//  T | title       <string>
+//  X | xlabel      <string>
+//  Y | ylabel      <string>
 //  - limits:
-//  t | top    <scalar>
-//  b | bottom <scalar>
-//  l | left   <scalar>
-//  r | right  <scalar>
+//  xlim | xlimit   <range>                 (x axis limit, automatic otherwise)
+//  ylim | ylimit   <range>                 (x axis limit, automatic otherwise)
 //  - scale
-//  x <string>
-//  y <string>
+//  xscale          <string>                (symlog, log, lin)
+//  yscale          <string>                (symlog, log, lin)
+//
+// Histogram (-t) supports plot options and additionally:
+// b   | bin        <int|string>            (number of bins or strategy, one of
+//                                           sqrt, sturges, rice, scott)
+// h   | horizontal <bool>                  (horizontal histogram)
+// cdf | cumulative <bool>                  (plot cdf instead of histogram)
+// norm | normalize <bool>                  (normalize histogram or cdf)
+// r   | range      <range>                 (range of included values)
+//
+// Not implemented:
 //  - layout:
-//  q | quadrant <scalar, scalar>
-
+//  q | quadrant    <scalar, scalar>
 
 // - Plot text data from stdin (x, y)
 //   plot - -p 0:1
@@ -462,12 +466,46 @@ DWORD WINAPI thread_proc(void* param) {
 
 // - Scatter plot
 //   plot - --style m=<marker>[,size] l=<line>[,width]
-
 // Notes:
 // - For formatting and layout it would be nice to have a very simple cmdline syntax to specify where inputs come from and where outputs go
 //      - Needs to be intuitive and easy to remember -> simplest case must be minimal
 //      - would be nice if we have a syntax for repeat/use until last (kind of like a small regex)
 
+
+const char* doc = R"(
+Plot (-p):
+- lines
+    x:y               <list[<scalar>:<range>]> (general syntax, x y can be omitted)
+     :y                                        (equivalent to 0:y)
+     :                                         (everything is a y, default)
+    1:3-5                                      (use 1 as x, use 3,4,5 as y)
+    1:3-                                       (use 1 as x, use all after 3 as y)
+- style:
+    m | marker        <list[char]>             (o s d ^ v l r x p a n)
+    s | size          <int>                    (marker size in pixels)
+    w | width         <int>                    (line width in pixels)
+    c | color         <list[string]>           (red, green, blue...)
+    g | grid          <bool>                   (true,false)
+- labels:
+    n | name          <string>                 (line name)
+    T | title         <string>
+    X | xlabel        <string>
+    Y | ylabel        <string>
+- limits:
+    xlim | xlimit     <range>                  (x axis limit, automatic otherwise)
+    ylim | ylimit     <range>                  (x axis limit, automatic otherwise)
+- scale
+    xscale            <string>                 (symlog, log, lin)
+    yscale            <string>                 (symlog, log, lin)
+
+Histogram (-t) supports plot options and additionally:
+    b    | bin        <int|string>             (number of bins or strategy, one of
+                                                sqrt, sturges, rice, scott)
+    h    | horizontal <bool>                   (horizontal histogram)
+    cdf  | cumulative <bool>                   (plot cdf instead of histogram)
+    norm | normalize  <bool>                   (normalize histogram or cdf)
+    r    | range      <range>                  (range of included values)
+)";
 
 ImPlotMarker CharToMarker(char c) {
     switch(c) {
@@ -1094,16 +1132,16 @@ int main(int argc, char** argv) {
 
     // Define options
     std::vector<std::string> inputs;
-    args.add_option("input", inputs, "Input files or - for stdin. If not given also uses stdin");
+    args.add_option("input", inputs, "Input files or - for stdin. If not given stdin is assumed");
 
     std::vector<std::string> binary;
     CLI::Option* opt_binary = args.add_option("-b,--binary", binary, "Binary format");
 
     std::vector<std::vector<std::string>> plots_options;
-    args.add_option("-p,--plot", plots_options, "Plot, followed by input range and options")->take_all()->expected(0,-1);
+    args.add_option("-p,--plot", plots_options, "Plot, followed by input range and options (see below)")->take_all()->expected(0,-1);
 
     std::vector<std::vector<std::string>> histogram_options;
-    args.add_option("-t,--hist", histogram_options, "Histogram, followed by input range and options")->take_all()->expected(0,-1);
+    args.add_option("-t,--hist", histogram_options, "Histogram, followed by input range and options (see below)")->take_all()->expected(0,-1);
 
     int window_width = 1600;
     args.add_option("-W,--width", window_width, "Window width")->check(CLI::Range(1, 100000));
@@ -1122,6 +1160,8 @@ int main(int argc, char** argv) {
 
     bool enable_vulkan_validation = false;
     args.add_flag("--vulkan-validation", enable_vulkan_validation, "Enable vulkan validation layer, if available");
+
+    args.footer(doc);
 
     CLI11_PARSE(args, argc, argv);
 
