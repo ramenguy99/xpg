@@ -19,7 +19,7 @@ struct BufferedStream {
         alignas(64) T value;
         FillProc fill_proc;
 
-        // Obj arrray requires a move assignment operator, but atomic does not have one.
+        // Obj array requires a move assignment operator, but atomic does not have one.
         Entry& operator=(Entry&& other) {
             this->state.store(state.load(std::memory_order_relaxed), std::memory_order_relaxed);
             this->value = std::move(value);

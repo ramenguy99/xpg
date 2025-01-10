@@ -165,7 +165,7 @@ struct ObjArray {
             grow_unchecked(new_capacity);
         }
 
-        data[length++] = value;
+        new(data + length++) T(value);
     }
 
 	void add(T&& value) {
@@ -174,7 +174,7 @@ struct ObjArray {
 			grow_unchecked(new_capacity);
 		}
 
-		data[length++] = std::move(value);
+        new(data + length++) T(std::move(value));
 	}
 
 
@@ -186,7 +186,7 @@ struct ObjArray {
 
         // SUPPORT_NON_POD
         for (usize i = 0; i < arr.length; i++) {
-            data[i + length] = std::move(arr.data[i]);
+            new(data + length++) T(std::move(arr.data[i]));
         }
         //
 
@@ -204,7 +204,7 @@ struct ObjArray {
     void clear() {
         // SUPPORT NON POD
         for (usize i = 0; i < length; i++) {
-            data->~T();
+            data[i].~T();
         }
         //
 
@@ -219,7 +219,10 @@ struct ObjArray {
 
         // SUPPORT NON POD
         for (usize i = 0; i < length; i++) {
-            new_data[i] = std::move(data[i]);
+            new(new_data + i) T(std::move(data[i]));
+
+            // Destroy old element (even if we moved out we should still destroy the old object)
+            data[i].~T();
         }
         //
 

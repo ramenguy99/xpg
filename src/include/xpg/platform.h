@@ -14,7 +14,7 @@
 #include <pthread.h>
 #endif
 
-#include <xpg/array.h>
+#include "array.h"
 
 namespace platform {
 

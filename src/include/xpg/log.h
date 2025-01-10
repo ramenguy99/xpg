@@ -5,8 +5,6 @@
 #include <stdarg.h>
 #include <atomic>
 
-#include "defines.h"
-
 // NOTE: this will only do checking in msvc with versions that support /analyze
 #ifdef _MSC_VER
 #include <stddef.h>
@@ -24,6 +22,7 @@
   __attribute__((__format__(__printf__, format_param, dots_param)))
 #endif
 
+#include "defines.h"
 
 namespace logging
 {
@@ -56,37 +55,24 @@ inline void log_internal(const char* level_string, const char* ctx, const char* 
     printf("\n");
 }
 
-inline void error(const char* ctx, PRINTF_FORMAT const char* fmt, ...) {
-    if (g_log_level.load(std::memory_order_relaxed) > LogLevel::Error) {
-        return;
+#define DEFINE_LOG_FUNC(name, level, str) \
+    PRINTF_FORMAT_ATTR(2,3) \
+    inline void name(const char* ctx, PRINTF_FORMAT const char* fmt, ...) { \
+        if (g_log_level.load(std::memory_order_relaxed) > LogLevel::level) { \
+            return; \
+        } \
+        va_list args; \
+        va_start(args, fmt); \
+        log_internal(str, ctx, fmt, args); \
+        va_end(args); \
     }
 
-    va_list args;
-    va_start(args, fmt);
-    log_internal("error", ctx, fmt, args);
-    va_end(args);
-}
+DEFINE_LOG_FUNC(error,   Error, "error")
+DEFINE_LOG_FUNC(warning, Warning, "warning")
+DEFINE_LOG_FUNC(debug, Debug, "debug")
+DEFINE_LOG_FUNC(info, Info, "info")
+DEFINE_LOG_FUNC(trace, Trace, "trace")
 
-inline void warning(const char* ctx, PRINTF_FORMAT const char* fmt, ...) {
-    if (g_log_level.load(std::memory_order_relaxed) > LogLevel::Warning) {
-        return;
-    }
-
-    va_list args;
-    va_start(args, fmt);
-    log_internal("warning", ctx, fmt, args);
-    va_end(args);
-}
-
-inline void info(const char* ctx, PRINTF_FORMAT const char* fmt, ...) {
-    if (g_log_level.load(std::memory_order_relaxed) > LogLevel::Info) {
-        return;
-    }
-
-    va_list args;
-    va_start(args, fmt);
-    log_internal("info", ctx, fmt, args);
-    va_end(args);
-}
+#undef DEFINE_LOG_FUNC
 
 }

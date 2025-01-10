@@ -774,7 +774,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
         format = formats[0].format;
     }
 
-    logging::info("gfx/window", "Swapchain format: %s\n", string_VkFormat(format));
+    logging::info("gfx/window", "Swapchain format: %s", string_VkFormat(format));
 
     // Retrieve framebuffer size.
     u32 fb_width = surface_capabilities.currentExtent.width;

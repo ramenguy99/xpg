@@ -20,6 +20,21 @@ set(ZSTD_BUILD_PROGRAMS OFF)
 set(ZSTD_MULTITHREAD_SUPPORT OFF)
 set(ZSTD_LEGACY_SUPPORT OFF)
 
+# # Configure slang
+# set(SLANG_ENABLE_CUDA OFF)
+# set(SLANG_ENABLE_OPTIX OFF)
+# set(SLANG_ENABLE_NVAPI OFF)
+# set(SLANG_ENABLE_XLIB OFF)
+# set(SLANG_ENABLE_SLANG_RHI OFF)
+# # set(SLANG_ENABLE_TESTS OFF) broken?
+# set(SLANG_ENABLE_EXAMPLES OFF)
+# set(SLANG_ENABLE_REPLAYER OFF)
+# set(SLANG_EMBED_STDLIB_SOURCE OFF)
+# set(SLANG_EMBED_STDLIB ON)
+# set(SLANG_LIB_TYPE STATIC)
+# set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
+# add_subdirectory(ext/slang)
+
 # Add external dependencies
 add_subdirectory(ext/glfw)
 add_subdirectory(ext/volk)
