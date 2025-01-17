@@ -1,6 +1,8 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/shared_ptr.h>
+#include <nanobind/stl/optional.h>
+#include <nanobind/stl/array.h>
 
 #include <xpg/gfx.h>
 #include <xpg/gui.h>
@@ -74,7 +76,26 @@ private:
 
 namespace nb = nanobind;
 
-NB_MODULE(xpg, m) {
+
+typedef ImU32 Color;
+// enum WindowFlags {
+//     NONE = 0x0,
+//     NO_TITLE_BAR = 0x1,
+// };
+
+// nb::tuple ImGui_begin(std::string name, std::optional<bool> open, WindowFlags window_flags) {
+nb::tuple ImGui_begin(const char* name, std::optional<bool> open, ImGuiWindowFlags_ window_flags) {
+    //..
+    printf("%s", name);
+    return nb::make_tuple(true, false);
+}
+
+ImGuiStyle& ImGui_get_style() {
+    ImGui::CreateContext();
+    return ImGui::GetStyle();
+}
+
+NB_MODULE(pyxpg, m) {
     nb::class_<Context>(m, "Context")
         .def(nb::init<>())
     ;
@@ -83,4 +104,37 @@ NB_MODULE(xpg, m) {
         .def(nb::init<std::shared_ptr<Context>, const::std::string&, u32, u32>())
         .def("run", &Window::run)
     ;
+
+    nb::module_ mod_imgui = m.def_submodule("imgui", "ImGui bindings for XPG");
+    #include "generated_imgui.inc"
+
+    // TODO: missing likely more
+    nb::class_<ImVec2>(mod_imgui, "Vec2")
+        .def_rw("x", &ImVec2::x)
+        .def_rw("y", &ImVec2::y);
+    nb::class_<ImVec4>(mod_imgui, "Vec4")
+        .def_rw("x", &ImVec4::x)
+        .def_rw("y", &ImVec4::y)
+        .def_rw("z", &ImVec4::z)
+        .def_rw("w", &ImVec4::w);
+
+    // Examples:
+    // nb::class_<ImGuiStyle>(mod_imgui, "Style")
+    //     .def_rw("alpha", &ImGuiStyle::Alpha)
+    //     .def_rw("window_padding", &ImGuiStyle::WindowPadding);
+
+    // nb::enum_<WindowFlags>(m2, "WindowFlags")
+    //     .value("NONE", WindowFlags::NONE)
+    //     .value("NO_TITLE_BAR", WindowFlags::NO_TITLE_BAR)
+    //     .export_values();
+
+    // mod_imgui.def("begin", ImGui_begin);
+    // mod_imgui.def("get_style", ImGui_get_style, nb::rv_policy::reference);
+
+
+
+    // $!
+    // !$
+
+
 }

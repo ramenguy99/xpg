@@ -2,14 +2,41 @@ from dataclasses import dataclass
 import json
 import os
 import re
-from typing import Union
+from typing import List, Optional
+from enum import Flag, auto
+import io
 
 # TODO:
 # [x] How to handle Refs (pyimgui used to do this with pass in and multiple return values, but I never really liked it that much, but probably no other option)
 # [x] Default values
-# [ ] Generate nanobind forwarders of the funcs
+# [x] Test this!
+# [x] Generate nanobind forwarders of the funcs
+#      [x] Nanobind enums
+#      [x] Funcs -> can some wrappers be forwarded to imgui directly?
+#                   careful about (basically wherever we do something special on the python function type):
+#                       - return values with tuples
+#                       - preformatted strings
+#                       - optional / none to pointer (maybe nanobind handles this?)
+#                       - structs?
 # [ ] Wrappers for ImGui objects (e.g. Context, FontAtlas, Style) -> see how to share those with c++
-# [ ] Test this!
+
+# Notes:
+# - store more info when converting types to python types for args (e.g. we would like to know original enum/flag stuff)
+# - looks like we have some overloads with type suffix, check how to disable this during binding gen if possible, we would prefer overloading in python here.
+# - also need to store metadata to know how to make the return value out of one of the params (e.g. pass by ref that param and then return it in tuple)
+# - for types ideally we would work with a more AST like structure from the start, we now have too much string stuff going on
+
+# Doable stuff
+# [x] Fix opt return value to first
+# [x] Tuple to float array to tuple back (don't think order guarantee holds for c++ tuple)
+# [x] optional str_id to char* (just .has_value() also fix bool and ret type)
+# [x] memoryview to bytes somehow (see if nanobind has something)
+#
+# [x] Skip fucking remove references still in dear_bindings, currently no arg for that, can add and PR? Or use my own fork
+# [ ] Generate structs (no fields at first, maybe some are useful, like IO)
+# [ ] Implement some structs with method (DrawList comes to mind, rest never used (yet))
+# [ ] ImVec2 to tuple conversion (or maybe just use imvec2 directly in signature and create helpers from python to it, to me makes more sense)
+# [ ] ImU32 color too, probably conversion should also be on python side from float4 to u32 with some helper
 
 DEFINES = {
     # "IMGUI_DISABLE_OBSOLETE_FUNCTIONS",
@@ -21,7 +48,8 @@ OUT = True
 data = json.load(open(os.path.join(os.path.dirname(__file__), "..", "ext", "dear_bindings", "xpg_imgui.json"), "r"))
 
 if OUT:
-    out_file = open(os.path.join(os.path.dirname(__file__), "pyimgui.py"), "w")
+    out_file = open(os.path.join(os.path.dirname(__file__), "pyimgui.pyi"), "w")
+    out_cpp_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "generated_imgui.inc"), "w")
 
 pascal_re = re.compile(r'(?<!^)(?=[A-Z])')
 def pascal_to_scream_case(name: str):
@@ -39,28 +67,38 @@ def out(*args, **kwargs):
     if OUT:
         print(*args, **kwargs, file=out_file)
 
+cpp_contents = io.StringIO()
+def out_cpp(*args, **kwargs):
+    print(*args, **kwargs, file=cpp_contents)
+    if OUT:
+        print(*args, **kwargs, file=out_cpp_file)
+
 out("from enum import IntEnum, IntFlag")
-out("from typing import Tuple")
+out("from typing import Tuple, Optional")
 out("")
-out("class ID(object): ...")
-out("class Viewport(object): ...")
-out("class ImDrawList(object): ...")
-out("class ImFont(object): ...")
-out("class WindowClass(object): ...")
-out("class Payload(object): ...")
-out("class Storage(object): ...")
-out("class ImTextureID(object): ...")
-out("class ImDrawListSharedData(object): ...")
-out("class PlatformIO(object): ...")
+out("class ID: ...")
+out("class Vec2: ...")
+out("class Vec4: ...")
+out("class Color: ...")
+out("class Viewport: ...")
+out("class DrawList: ...")
+out("class Font: ...")
+out("class WindowClass: ...")
+out("class Payload: ...")
+out("class Storage: ...")
+out("class TextureID: ...")
+out("class DrawListSharedData: ...")
+out("class PlatformIO: ...")
+out("class Style: ...")
+out("class size_t: ...")
+out("class double: ...")
 out("")
-# out("ImVec2: type = Tuple[float, float]")
-# out("ImVec4: type = Tuple[float, float, float, float]")
-# out("")
 
 for enum in data["enums"]:
     flags: str = enum["is_flags_enum"]
     name: str = enum["name"]
     elems: str = enum["elements"]
+    orig: str = enum["original_fully_qualified_name"]
 
     base_class = "IntFlag" if flags else "IntEnum"
 
@@ -75,6 +113,11 @@ for enum in data["enums"]:
     if name.endswith("_"):
         enum_name = enum_name[:-1]
     out(f"class {enum_name}({base_class}):")
+
+    extra_flag = ""
+    if flags:
+        extra_flag = ", nb::is_flag()"
+    out_cpp(f'nb::enum_<{orig}>(mod_imgui, "{enum_name}", nb::is_arithmetic() {extra_flag})')
 
     for elem in elems:
         name = elem["name"]
@@ -123,10 +166,13 @@ for enum in data["enums"]:
             elem_name = "Key_" + elem_name
         elem_name = pascal_to_scream_case(elem_name)
         if flags:
-            out(4 * " " + f"{elem_name} = 0x{value:x}")
+            out(" " * 4 + f"{elem_name} = 0x{value:x}")
         else:
-            out(4 * " " + f"{elem_name} = {value}")
+            out(" " * 4 + f"{elem_name} = {value}")
+        out_cpp(" " * 4 + f'.value("{elem_name}", {name})')
+    out_cpp(" " * 4 + ";")
     out("")
+    out_cpp("")
 
     #     print(e["name"], e["original_fully_qualified_name"])
 
@@ -142,35 +188,74 @@ for s in data["structs"]:
     pass
     # print(s["name"])
 
-@dataclass
-class Ptr():
-    t: str
+class TypeFlag(Flag):
+    IS_OUTPUT = auto()
+    IS_USER_TYPE = auto()
+    IS_PTR = auto()
+    IS_REF = auto()
+    IS_PTR_FROM_OPTION = auto()
+    IS_REMOVED_PTR = auto()
+    IS_OPTIONAL = auto()
+    IS_BUILTIN = auto()
 
-def type_to_str(typ: dict) -> Union[str, Ptr]:
+@dataclass
+class ArrayTypeInfo:
+    typ: str
+    count: int
+
+@dataclass
+class TypeInfo:
+    name: str
+    cpp_name: str
+    flags: TypeFlag
+    array: Optional[ArrayTypeInfo]
+
+@dataclass
+class Arg:
+    name: str
+    type: TypeInfo
+    default: Optional[str]
+
+def read_type(typ: dict) -> TypeInfo:
     type_decl = typ["declaration"]
     type_desc = typ["description"]
 
-    if type_decl == "ImVec2":
-        return "Tuple[float, float]"
-    if type_decl == "ImVec4":
-        return "Tuple[float, float, float, float]"
+    flags = TypeFlag(0)
+    array = None
+    # if type_decl == "ImVec2":
+        # name = "Tuple[float, float]"
+    # elif type_decl == "ImVec4":
+        # name = "Tuple[float, float, float, float]"
     if type_decl == "ImU32":
-        return "Tuple[int, int, int, int]"
-    if type_decl == "double":
-        return "float"
-    if type_decl == "const void*":
-        return "memoryview"
-    if type_decl == "const char*":
-        return "str"
-    if type_decl == "size_t":
-        return "int"
-
-    if type_desc["kind"] == "Pointer":
+        # name = "Tuple[int, int, int, int]"
+        name = "Color"
+    # elif type_decl == "double":
+    #     flags |= TypeFlag.IS_BUILTIN
+    #     name = "float"
+    elif type_decl == "const void*":
+        name = "memoryview"
+    elif type_decl == "const char*":
+        name = "str"
+    # elif type_decl == "size_t":
+    #     flags |= TypeFlag.IS_BUILTIN
+    #     name = "int"
+    elif type_desc["kind"] == "Pointer":
         inner = type_desc["inner_type"]
+        flags |= TypeFlag.IS_PTR
+        if "is_reference" in type_desc:
+            flags |= TypeFlag.IS_REF
         if inner["kind"] == "Builtin":
-            return Ptr(inner["builtin_type"])
-        if inner["name"] == "size_t":
-            return Ptr("int")
+            name = inner["builtin_type"]
+            flags |= TypeFlag.IS_BUILTIN
+            flags |= TypeFlag.IS_OUTPUT
+            flags |= TypeFlag.IS_REMOVED_PTR
+        elif inner["name"] == "size_t":
+            name = "int"
+            flags |= TypeFlag.IS_BUILTIN
+            flags |= TypeFlag.IS_OUTPUT
+        elif "storage_classes" in inner and "const" in inner["storage_classes"]:
+            name = inner["name"]
+            flags |= TypeFlag.IS_USER_TYPE
         elif "name" in inner:
             assert inner["name"] in {
                 "ImDrawList",
@@ -181,32 +266,39 @@ def type_to_str(typ: dict) -> Union[str, Ptr]:
                 "ImDrawListSharedData",
                 "ImGuiStorage",
                 "ImGuiPlatformIO",
+                "ImGuiStyle",
             }, inner
-            type_str: str = inner["name"]
+            name = inner["name"]
+            flags |= TypeFlag.IS_USER_TYPE
         else:
             assert False, f"{func_name} {typ}"
     elif type_desc["kind"] == "Array":
         inner = type_desc["inner_type"]
         assert inner["kind"] == "Builtin", inner
         builtin = inner["builtin_type"]
-        return Ptr("Tuple[" + ", ".join([builtin] * int(type_desc["bounds"])) + "]")
+        count = int(type_desc["bounds"])
+        name = "Tuple[" + ", ".join([builtin] * count) + "]"
+        flags |= TypeFlag.IS_OUTPUT
+        array = ArrayTypeInfo(builtin, count)
     else:
-        type_str: str = type_decl
+        name = type_decl
+        flags |= TypeFlag.IS_USER_TYPE
 
-    if type_str.startswith("ImGui"):
-        type_str = type_str[5:]
+    if name.startswith("ImGui"):
+        name = name[5:]
+    if name.startswith("Im"):
+        name = name[2:]
 
-    return type_str
+    return TypeInfo(name, type_decl, flags, array)
+
+all_funcs = set()
+overloads = []
 
 # Functions
 for f in data["functions"]:
     func_name: str = f["name"]
     # print(f["original_fully_qualified_name"])
     module = func_name.split("_")[0]
-
-    # if "original_class" in f:
-    #     # print(f["original_class"], name, f["original_fully_qualified_name"])
-    #     continue
 
     if f["is_imstr_helper"]:
         continue
@@ -217,48 +309,48 @@ for f in data["functions"]:
     if f["is_default_argument_helper"]:
         continue
 
+    # Skip methods
     if "original_class" in f:
         continue
 
     # Skip specific functions we dont need
     if func_name in {
-        # Context stuff
+        # Context stuff (don't need)
         "ImGui_CreateContext",
         "ImGui_DestroyContext",
         "ImGui_GetCurrentContext",
         "ImGui_SetCurrentContext",
-
-        # IO
-        "ImGui_GetIO",
-
-        # InputText
-        "ImGui_InputText",          # Requires special handling instead of callback
-        "ImGui_InputTextMultiline", # Requires special handling instead of callback
-        "ImGui_InputTextWithHint",  # Requires special handling instead of callback
-
-        # Style
-        "ImGui_GetStyle",
-        "ImGui_StyleColorsDark",
-        "ImGui_StyleColorsLight",
-        "ImGui_StyleColorsClassic",
-
-        # Frame handling
+        # Frame handling (don't need)
         "ImGui_NewFrame",
         "ImGui_Render",
         "ImGui_EndFrame",
         "ImGui_GetDrawData",
+        # ID (don't need?)
+        "ImGui_GetID",
+        "ImGui_GetIDStr",
+        "ImGui_BeginChildID",
+        "ImGui_SetNextWindowViewport",
+        "ImGui_OpenPopupID",
+        "ImGui_TableSetupColumn",
+        # Float is double
+        "ImGui_InputDouble",
+        # Memory stuff (don't need)
+        "ImGui_GetAllocatorFunctions",
+        "ImGui_SetAllocatorFunctions",
+        "ImGui_MemAlloc",
+        "ImGui_MemFree",
 
-        # Show stuff
-        "ImGui_ShowDemoWindow",
-        "ImGui_ShowMetricsWindow",
-        "ImGui_ShowDebugLogWindow",
-        "ImGui_ShowStackToolWindow",
-        "ImGui_ShowAboutWindow",
-        "ImGui_ShowStyleEditor",
-        "ImGui_ShowStyleSelector",
-        "ImGui_ShowFontSelector",
-        "ImGui_ShowUserGuide",
-
+        # TODO:
+        "ImGui_GetIO",
+        # InputText
+        "ImGui_InputText",          # Requires special handling instead of callback
+        "ImGui_InputTextMultiline", # Requires special handling instead of callback
+        "ImGui_InputTextWithHint",  # Requires special handling instead of callback
+        # Plot
+        "ImGui_PlotLines",
+        "ImGui_PlotHistogram",
+        # .ini
+        "ImGui_SaveIniSettingsToMemory",
         # Weird API
         "ImGui_GetStyleColorVec4",
         "ImGui_ListBox",
@@ -268,27 +360,8 @@ for f in data["functions"]:
         "ImGui_IsMousePosValid",
         "ImGui_ColorPicker4",
         "ImGui_ColorConvertHSVtoRGB",
-
-        # Plot (can be made more ergonomic manually)
-        "ImGui_PlotLines",
-        "ImGui_PlotHistogram",
-
-        # ID
-        "ImGui_GetID",
-        "ImGui_GetIDStr",
-        "ImGui_BeginChildID",
-        "ImGui_SetNextWindowViewport",
-        "ImGui_OpenPopupID",
-        "ImGui_TableSetupColumn",
-
-        # Float is double
-        "ImGui_InputDouble",
-
-        # Memory stuff
-        "ImGui_GetAllocatorFunctions",
-        "ImGui_SetAllocatorFunctions",
-        "ImGui_MemAlloc",
-        "ImGui_MemFree",
+        "ImGui_TextUnformatted",               # Substring of text, no need for this
+        "ImGui_GetDrawListSharedData",         # Internal only struct def
     }:
         continue
 
@@ -318,11 +391,25 @@ for f in data["functions"]:
     if "Platform" in func_name:
         continue
 
+    # Check overloads
+    cpp_name = f["original_fully_qualified_name"]
+    if cpp_name in all_funcs:
+        overloads.append(f)
+    else:
+        all_funcs.add(cpp_name)
+
     assert func_name.startswith("ImGui_"), func_name
-    out(f"def {pascal_to_snake_case(func_name[6:])}(", end="")
-    args = []
+    py_func_name = pascal_to_snake_case(func_name[6:])
+
+    out(f"def {py_func_name}(", end="")
+
+
+    args: List[Arg] = []
 
     additional_ret = None
+    additional_ret_type = None
+    additional_ret_name = None
+
     for a in f["arguments"]:
         arg_name = a["name"]
         if arg_name == "in":
@@ -335,19 +422,22 @@ for f in data["functions"]:
         if "type" not in a:
             assert False, a
 
-        type_str = type_to_str(a["type"])
+        typ = read_type(a["type"])
 
-        if isinstance(type_str, Ptr):
+        if typ.flags & TypeFlag.IS_OUTPUT:
             assert additional_ret == None, additional_ret
-            type_str = type_str.t
-            additional_ret = type_str
+            additional_ret = typ.name
+            additional_ret_name = arg_name
+            additional_ret_type = typ
 
 
-        default_value = ""
+        default_value = None
         if "default_value" in a:
             default: str = a["default_value"]
             if default == "NULL":
                 default_value = "None"
+                typ.name = f"Optional[{typ.name}]"
+                typ.flags |= TypeFlag.IS_OPTIONAL
             elif default.startswith("ImVec2") or default.startswith("ImVec4"):
                 nums = default.split("(")[1][:-1]
                 nums = nums.replace("f", "")
@@ -361,104 +451,197 @@ for f in data["functions"]:
                 default_value = default[:-1]
             else:
                 default_value = str(default)
+        args.append(Arg(arg_name, typ, default_value))
 
-        arg_str = f'{arg_name}: {type_str}'
-        if default_value:
-            arg_str += f"={default_value}"
-        args.append(arg_str)
+    args_str: List[str] = []
+    for arg in args:
+        arg_str = f'{arg.name}: {arg.type.name}'
+        if arg.default is not None:
+            arg_str += f"={arg.default}"
+        args_str.append(arg_str)
 
-    out(", ".join(args), end="")
+
+    # Python fuc
+    out(", ".join(args_str), end="")
     out(f")", end="")
     ret = f["return_type"]
+    ret_type = read_type(ret)
     ret_str = ""
-    if additional_ret != None:
+
+    has_ret: bool = True
+    has_add_ret: bool = False
+
+    if additional_ret is not None:
+        has_add_ret = True
         if ret["declaration"] == "void":
+            has_ret = False
             ret_str = additional_ret
         else:
-            ret_str = f"Tuple[{type_to_str(ret)}, {additional_ret}]"
+            ret_str = f"Tuple[{ret_type.name}, {additional_ret}]"
     else:
-        if ret["declaration"] != "void":
-            ret_str = type_to_str(ret)
+        if ret["declaration"] == "void":
+            has_ret = True
+        else:
+            ret_str = ret_type.name
 
     if ret_str:
         out(f" -> {ret_str}", end="")
-
     out(f": ...")
 
 
-    # if f["is_unformatted_helper"]:
-    #     continue
+    # CPP func
+    def type_str_to_cpp(typ: str, ret: bool=False) -> str:
+        if typ.startswith("Optional["):
+            assert typ.endswith("]"), typ
+            name = type_str_to_cpp(typ[9:-1])
+            return f"std::optional<{name}>"
+        elif typ.startswith("Tuple["):
+            if ret:
+                return "nb::tuple"
+            else:
+                assert typ.endswith("]"), typ
+                return "std::tuple<" + ", ".join([type_str_to_cpp(t) for t in typ[6:-1].split(", ")]) + ">"
+        elif typ == "memoryview":
+            return "std::vector<uint8_t>"
+        elif typ == "str":
+            return "const char*"
+        else:
+            return typ
 
-    # if module == "ImGui":
-    #     print(name)
+    def type_to_cpp(typ: TypeInfo, ret: bool=False):
+        if typ.array is not None:
+            return f"std::array<{type_str_to_cpp(typ.array.typ)}, {typ.array.count}>"
+        elif typ.flags & TypeFlag.IS_USER_TYPE:
+            if typ.name.startswith("Optional["):
+                if typ.flags & TypeFlag.IS_PTR:
+                    print(typ.flags)
+                    return f"std::optional<{typ.cpp_name[:-1]}*>"
+                else:
+                    return f"std::optional<{typ.cpp_name}>"
+            else:
+                return typ.cpp_name
+        else:
+            return type_str_to_cpp(typ.name)
 
-    # if name.startswith("ImGui_"):
-    #     pass
-    # elif name.startswith("ImVector_"):
-    #     # Skip ImVector for now, likely want a separate class for this + conversion helper from tuple/list/numpy array
-    #     pass
-    # elif name.startswith("ImStr_"):
-    #     # Skip for now, not sure if we need this, ideally same as above with builtin helpers
-    #     pass
-    # elif name.startswith("ImGuiStyle_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.style.func
-    #     pass
-    # elif name.startswith("ImGuiIO_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImGuiInputTextCallbackData_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImGuiPayload_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImGuiTextFilter_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImGuiStorage_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImGuiListClipper_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImTextBuffer_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImColor_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImGuiTextBuffer_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImDrawCmd_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImDrawListSplitter_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImDrawList_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImDrawData_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImFontGlyphRangesBuilder"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImFontAtlas_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImFontGlypRanges_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImFontAtlasCustomRect_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImFont_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # elif name.startswith("ImGuiViewport_"):
-    #     # Skip for now, ideally this goes to separate module, e.g. imgui.io.func
-    #     pass
-    # else:
-    #     assert False, name
+    out_cpp(f"mod_imgui.def(\"{py_func_name}\",")
+    out_cpp(" " * 4 + "[] (", end="")
+    cpp_args_str: List[str] = []
+    nb_args_str: List[str] = []
+    for arg in args:
+        cpp_args_str.append(f"{type_to_cpp(arg.type)} {arg.name}")
+        nb_str = f"nb::arg(\"{arg.name}\")"
+        if arg.default:
+            if arg.default == "None":
+                default_value = "nb::none()"
+            elif arg.default == "True":
+                default_value = "true"
+            elif arg.default == "False":
+                default_value = "false"
+            elif arg.default.startswith("("):
+                assert arg.default.endswith(")")
+                default_value = "nb::make_tuple" + arg.default
+            else:
+                default_value = arg.default
+
+            nb_str += f" = {default_value}"
+        nb_args_str.append(nb_str)
+    out_cpp(", ".join(cpp_args_str), end="")
+
+    if has_ret:
+        if has_add_ret:
+            out_cpp(f") -> nb::tuple {{")
+        else:
+            out_cpp(f") -> {type_to_cpp(ret_type, True)} {{")
+    else:
+        if has_add_ret:
+            out_cpp(f") -> {type_to_cpp(additional_ret_type, True)} {{")
+        else:
+            out_cpp(f") {{")
+
+
+    # Output function call
+
+    # Return value cases:
+    # - Out parameter: [yes, no]
+    # - Void return: [yes, no]
+    #
+    #  ret   out
+    #  ---   ---
+    #  yes | yes:  return make_tuple(call, out);
+    #   no | yes:  call; return out;
+    #  yes |  no:  return call;
+    #   no |  no:  call;
+    def out_call():
+        arg_call_names = []
+        for arg in args:
+            if arg.type.array is not None:
+                name = f"{arg.name}.data()"
+            elif arg.type.name == "memoryview":
+                name = f"{arg.name}.data()"
+            elif arg.type.flags & TypeFlag.IS_PTR and not arg.type.flags & TypeFlag.IS_REF:
+                if arg.type.flags & TypeFlag.IS_OPTIONAL:
+                    # name = f"&{arg.name}.value()"
+                    if arg.type.flags & TypeFlag.IS_USER_TYPE:
+                        name = f"{arg.name}.has_value() ? {arg.name}.value() : NULL"
+                    else:
+                        name = f"{arg.name}.has_value() ? &{arg.name}.value() : NULL"
+                else:
+                    if arg.type.flags & TypeFlag.IS_REMOVED_PTR:
+                        name = f"&{arg.name}"
+                    else:
+                        name = f"{arg.name}"
+            elif arg.type.flags & TypeFlag.IS_OPTIONAL:
+                name = f"{arg.name}.has_value() ? {arg.name}.value() : NULL"
+            else:
+                name = arg.name
+            arg_call_names.append(name)
+        out_cpp(f["original_fully_qualified_name"] + "(" + ", ".join(arg_call_names) + ")", end="")
+
+    def out_add_ret():
+        out_cpp(f"{additional_ret_name}", end="")
+
+    if not has_ret:
+        out_cpp(" " * 8, end="")
+        out_call()
+        out_cpp(";")
+        if has_add_ret:
+            out_cpp(" " * 8 + "return ", end="")
+            out_add_ret()
+            out_cpp(";")
+    else:
+        if has_add_ret:
+            # Can't do inline because call needs to happen before ret, arg eval order to tuple is unspecified
+            out_cpp(" " * 8 + "auto _call = ", end="")
+            out_call()
+            out_cpp(";")
+            out_cpp(" " * 8 + "auto _ret = ", end="")
+            out_add_ret()
+            out_cpp(";")
+            out_cpp(" " * 8 + "return nb::make_tuple(_call, _ret);")
+        else:
+            out_cpp(" " * 8 + "return ", end="")
+            out_call()
+            out_cpp(";")
+
+    out_cpp(" " * 4 + f"}}", end="")
+    if nb_args_str:
+        out_cpp(", ", end="")
+    out_cpp(", ".join(nb_args_str), end="")
+    out_cpp(f");\n")
+
+
+with open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "module.cpp"), "r") as module_file:
+    next_lines = []
+    skip = False
+    for l in module_file.readlines():
+        if "!$" in l:
+            skip = False
+
+        if not skip:
+            next_lines.append(l)
+
+        if "$!" in l:
+            skip = True
+            next_lines.append(cpp_contents.getvalue())
+
+open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "module.cpp"), "w").write("".join(next_lines))
