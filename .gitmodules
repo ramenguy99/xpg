@@ -22,9 +22,6 @@
 [submodule "ext/nanobind"]
 	path = ext/nanobind
 	url = https://github.com/wjakob/nanobind.git
-[submodule "ext/slang"]
-	path = ext/slang
-	url = https://github.com/shader-slang/slang.git
 [submodule "ext/zstd"]
 	path = ext/zstd
 	url = https://github.com/facebook/zstd.git
