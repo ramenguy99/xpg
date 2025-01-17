@@ -27,4 +27,4 @@
 	url = https://github.com/facebook/zstd.git
 [submodule "ext/dear_bindings"]
 	path = ext/dear_bindings
-	url = https://github.com/dearimgui/dear_bindings.git
+	url = git@github.com:ramenguy99/dear_bindings.git
