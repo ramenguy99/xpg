@@ -75,4 +75,7 @@ struct ChunkCache {
     Array<Work> work_items;                      // Work data, one per work item
     WorkerPool worker_pool;
     BlockingCounter work_done_counter;
+
+    // Stats
+    u64 chunk_memory_size;
 };

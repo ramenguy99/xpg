@@ -69,6 +69,13 @@ void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx:
             PoolQueue<Entry>::Entry* lru_entry = lru.alloc(std::move(e));
             lru.push(lru_entry);
         }
+        if(images.length > 0) {
+            VmaAllocationInfo info;
+            vmaGetAllocationInfo(vk.vma, images[0].allocation, &info);
+            chunk_memory_size = info.size;
+        } else {
+            chunk_memory_size = 0;
+        }
     }
 
     // The cache does not shrink

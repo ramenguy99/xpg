@@ -475,11 +475,18 @@ int main(int argc, char** argv) {
 
                     ImGui::Separator();
 
+                    ImGui::Text("Image size: %llu x %llu", zmip.header.width, zmip.header.height);
+                    ImGui::Text("Loaded chunks: %llu / %llu", cache.images.length, cache.chunks.length);
+                    ImGui::Text("Memory: %.2f / %.2f MiB", cache.chunk_memory_size * cache.images.length / 1024.0 / 1024.0,  cache.chunk_memory_size * cache.chunks.length / 1024.0 / 1024.0);
+                    ImGui::Text("File size: %.2f MiB", zmip.file.size / 1024.0 / 1024.0);
+
+                    ImGui::Separator();
+
                     // Draw minimap
                     ImDrawList* draw_list = ImGui::GetWindowDrawList();
                     ImVec2 corner = ImGui::GetCursorScreenPos();
-                    f32 size = 5.0f;
-                    f32 stride = 7.0f;
+                    f32 size = 4.0f;
+                    f32 stride = 5.0f;
                     ivec2 img_size = ivec2(zmip.header.width, zmip.header.height);                // In image pixels
                     for (s32 level = 0; level < (s32)zmip.levels.length; level++) {
                         ivec2 chunk_size = ivec2(zmip.header.chunk_width, zmip.header.chunk_height) << level;  // In image pixels
@@ -487,7 +494,7 @@ int main(int argc, char** argv) {
                         for (s32 y = 0; y < chunks.y; y++) {
                             for (s32 x = 0; x < chunks.x; x++) {
                                 ChunkCache::Chunk& c = cache.get_chunk(ChunkId(x, y, level));
-                                u32 color = 0xFF0000FF;
+                                u32 color = 0xFF0000BB;
                                 if (c.lru_entry) {
                                     if (c.refcount > 0) {
                                         color = 0xFF00FF00;
