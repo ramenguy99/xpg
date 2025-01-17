@@ -501,8 +501,22 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     swapchain_info.pQueueFamilyIndices = queue_family_indices;
     swapchain_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     swapchain_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    // NOTE: About smooth resize:
+    // - On windows it looks like with IMMEDIATE and MAILBOX then we have no artifacts.
+    // - Perfect solution would be to use WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE
+    //   to change the presentation mode. However you then need to do vsync
+    //   in some other way if you don't want to run at 500 fps during resize.
+    //   This likely entails calling into DirectComposition / DWM stuff.
+    // - Maybe can also try in software to never queue more than one frame? Does not seem to make any difference
+    // - Still need to check on linux
+    //
+    // See:
+    // - Raph levien blog: https://raphlinus.github.io/rust/gui/2019/06/21/smooth-resize-test.html
+    // - Winit discussion: https://github.com/rust-windowing/winit/issues/786
     swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
-    //swapchain_info.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+    // swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+    // swapchain_info.presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+    // swapchain_info.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
     swapchain_info.oldSwapchain = old_swapchain;
 
     VkSwapchainKHR swapchain;

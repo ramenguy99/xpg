@@ -11,10 +11,11 @@
 #include <vk_mem_alloc.h>                   // Vulkan Memory Allocator
 
 #define _GLFW_VULKAN_STATIC
+#include <GLFW/glfw3.h>                     // GLFW Windowing
 #ifdef _WIN32
 #define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
 #endif
-#include <GLFW/glfw3.h>                     // GLFW Windowing
 #undef APIENTRY
 
 #define GLM_DEPTH_ZERO_TO_ONE
