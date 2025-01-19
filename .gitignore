@@ -6,3 +6,10 @@
 imgui.ini
 __pycache__
 /debug-build/
+/pyxpg
+
+test.svg
+test.dot
+CMakeSettings.json
+*.bak
+/scripts/pyimgui.pyi

@@ -106,5 +106,12 @@ add_subdirectory(ext/nanobind)
 # Create python module
 nanobind_add_module(pyxpg src/python/module.cpp)
 target_link_libraries(pyxpg PRIVATE xpg)
+# set_target_properties(pyxpg PROPERTIES OUTPUT_NAME "xpg")
+nanobind_add_stub(pyxpg_stub
+  MODULE pyxpg
+  OUTPUT pyxpg.pyi
+  PYTHON_PATH $<TARGET_FILE_DIR:pyxpg>
+  DEPENDS pyxpg
+)
 
 endif()

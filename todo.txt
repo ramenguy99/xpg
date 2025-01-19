@@ -1,5 +1,5 @@
 Python:
-[ ] Imgui bindings with dear_bindings:
+[-] Imgui bindings with dear_bindings:
     python .\dear_bindings.py -o pyxpg_imgui_2 ..\imgui\imgui.h --nogeneratedefaultargfunctions
     -> json file looks straight forward for binding gen, nice that we can match API 1 to 1 with what we use in xpg
     -> not yet clear if we can also do ImPlot with this, or if we need internal stuff too. But good starting point.
@@ -8,13 +8,17 @@ Python:
         -> we probably dont want to do weird cython / ffi stuff in python
         -> we probably want to autogen implementation of the nanobind bindings on the C++ side
         -> we probably want a set of manually generated pythonic helpers for commonly used stuff
-    [ ] Implement IM_ASSERT to throw exception? or maybe even just std::abort, probably easier
-[ ] gfx and gui bindings for window / vulkan / gui
-[ ] Slang bindings for compiling and for reflection
+    [ ] Implement IM_ASSERT to throw exception? or maybe even just std::abort / std::assert, probably easier
+[x] gfx and gui bindings for window / vulkan / gui
+[-] Slang bindings for compiling and for reflection -> waiting on cross platform static builds
 [ ] Framegraph implementation on top of reflection for easy prototyping of pipelines/shaders
     -> interesting here would be how much perf we can have when sharing data through arrays, e.g. textures, buffers, uniforms
     -> also interesting if we want to have a full python framegraph or if we can somehow leverage python callables
        + some python bindings to reuse at least the synchronization / traversal logic implemented in C++
+
+QOL:
+- cmake install thingy
+- CI for builds / python deploy
 
 Backlog:
 [x] Rename lru cache
