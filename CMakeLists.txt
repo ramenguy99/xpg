@@ -1,13 +1,16 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.22)
 
 project(XGP VERSION 1.0 LANGUAGES CXX)
 
 set (CMAKE_CXX_STANDARD 20)
 
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+
 # XPG options
 set(XPG_BUILD_APPS ON CACHE BOOL "Build XPG applications")
 set(XPG_PYTHON ON CACHE BOOL "Build XPG python module")
 set(XPG_MSVC_ANALYZE OFF CACHE BOOL "Build with /analyze when using MSVC (heavily increases build times)")
+set(XPG_SLANG_PREBUILT_BINARIES ON CACHE BOOL "Download and use SLANG prebuilt binaries")
 
 # Configure GLFW
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "Build GLFW examples")
@@ -69,6 +72,41 @@ add_library(xpg STATIC
     src/lib/gui.cpp
 )
 
+# Download SLANG prebuilt binaries
+if (XPG_SLANG_PREBUILT_BINARIES)
+    include(FetchContent)
+    FetchContent_Declare(
+       slang-prebuilt-windows
+       URL      https://github.com/ramenguy99/build-slang/releases/download/v2025.2.2/slang-x64-windows-v2025.2.2.zip
+    )
+    FetchContent_Declare(
+       slang-prebuilt-linux
+       URL      https://github.com/ramenguy99/build-slang/releases/download/v2025.2.2/slang-x64-linux-v2025.2.2.zip
+    )
+
+    if(MSVC)
+        message("Downloading SLANG prebuilt binaries for windows")
+        FetchContent_MakeAvailable(slang-prebuilt-windows)
+        set(SLANG_PREBUILT_ROOT ${slang-prebuilt-windows_SOURCE_DIR} )
+    elseif(APPLE)
+        message(FATAL_ERROR "SLANG prebuilt binaries not available for APPLE")
+    elseif(UNIX)
+        message("Downloading SLANG prebuilt binaries for linux")
+        FetchContent_MakeAvailable(slang-prebuilt-linux)
+        set(SLANG_PREBUILT_ROOT ${slang-prebuilt-linux_SOURCE_DIR} )
+    else()
+        message(FATAL_ERROR "SLANG prebuilt binaries not available for unknown platform")
+    endif()
+
+    set(debug_configs "Debug")
+    set(release_configs "RelWithDebInfo,Release")
+
+    add_library(slang INTERFACE)
+    target_link_directories(slang INTERFACE ${SLANG_PREBUILT_ROOT}/$<$<CONFIG:${debug_configs}>:Debug>""$<$<CONFIG:${release_configs}>:Release>/lib)
+    target_include_directories(slang INTERFACE ${SLANG_PREBUILT_ROOT}/$<$<CONFIG:${debug_configs}>:Debug>$<$<CONFIG:${release_configs}>:Release>/include)
+    target_link_libraries(slang INTERFACE slang core compiler-core lz4 miniz slang-cpp-parser slang-rt)
+endif()
+
 target_include_directories(xpg PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>/src/include
     $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>/ext/imgui
@@ -76,7 +114,7 @@ target_include_directories(xpg PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(xpg PUBLIC volk_headers glfw glm VulkanMemoryAllocator)
+target_link_libraries(xpg PUBLIC volk_headers glfw glm VulkanMemoryAllocator slang)
 
 if (MSVC OR CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
     target_compile_definitions(xpg PUBLIC _CRT_SECURE_NO_WARNINGS)
