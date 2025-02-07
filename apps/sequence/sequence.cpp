@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
     u64 size = V * sizeof(vec3);
 
     u32 WORKERS = 4;
-    u32 BUFFER_SIZE = (u32)8;
+    u32 BUFFER_SIZE = (u32)16;
 
     Array<u8> loaded_data(size * BUFFER_SIZE);
     ArrayView<u8> loaded_data_view = loaded_data;
@@ -126,8 +126,8 @@ int main(int argc, char** argv) {
         u32 num_indices;
 
         // Rendering
-        VkBuffer vertex_buffer;
-        VkBuffer index_buffer;
+        gfx::Buffer vertex_buffer;
+        gfx::Buffer index_buffer;
         VkPipeline pipeline;
         VkPipelineLayout layout;
     };
@@ -135,6 +135,7 @@ int main(int argc, char** argv) {
     VkResult vkr;
 
     gfx::Buffer vertex_buffer = {};
+
     vkr = gfx::CreateBuffer(&vertex_buffer, vk, sizeof(vec3) * V * window.images.length, {
         .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
@@ -264,8 +265,8 @@ int main(int argc, char** argv) {
     app.wait_for_events = true;
     app.frame_times.resize(ArrayCount(app.frame_times.data));
     app.last_frame_timestamp = platform::GetTimestamp();
-    app.vertex_buffer = vertex_buffer.buffer;
-    app.index_buffer = index_buffer.buffer;
+    app.vertex_buffer = vertex_buffer;
+    app.index_buffer = index_buffer;
     app.pipeline = pipeline.pipeline;
     app.descriptor_sets = std::move(descriptor_sets);
     app.uniform_buffers = std::move(uniform_buffers);
@@ -409,24 +410,65 @@ int main(int argc, char** argv) {
         // Reset command pool
         gfx::BeginCommands(frame.command_pool, frame.command_buffer, vk);
 
-        gfx::CmdImageBarrier(frame.command_buffer, frame.current_image, {
-            .src_stage = VK_PIPELINE_STAGE_2_NONE,
-            .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .src_access = 0,
-            .dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        //u32 animation_frame = app.current_frame % app.num_frames;
+        u32 size = app.num_vertices * sizeof(vec3);
+        u32 buffer_offset = size * app.frame_index;
+
+    #if 0
+        Array<vec3> vertices(app.num_vertices);
+        ReadAtOffset(app.mesh_file, vertices.as_bytes(), 12 + (u64)size * animation_frame);
+        memcpy(app.vertex_map.data + buffer_offset, vertices.data, size);
+    #else
+        platform::FileReadWork w = app.mesh_stream.get_frame(app.playback_frame);
+        memcpy(app.vertex_map.data + buffer_offset, w.buffer.data, size);
+    #endif
+
+        // Flush caches on the CPU if the memory is not coherent (make available)
+        VkMemoryPropertyFlags properties = {};
+        vmaGetAllocationMemoryProperties(vk.vma, app.vertex_buffer.allocation, &properties);
+        if(!(properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+            VmaAllocationInfo info = {};
+            vmaGetAllocationInfo(vk.vma, app.vertex_buffer.allocation, &info);
+
+            VkMappedMemoryRange range = { VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE };
+            range.memory = info.deviceMemory;
+            usize offset = info.offset + buffer_offset;
+            range.offset = AlignDown(offset, 4096);
+            range.size = Min(AlignUp(size, 4096), info.size - offset);
+            vkFlushMappedMemoryRanges(vk.device, 1, &range);
+        }
+
+        // Invalidate caches on the GPU (make visible)
+        // NOTE: I dont' think any memory barrier is needed here,
+        // because submitting to the queue already counts as one.
+        gfx::CmdBarriers(frame.command_buffer, {
+            // .memory = {
+            //     {
+            //         .src_stage = VK_PIPELINE_STAGE_2_HOST_BIT,
+            //         .dst_stage = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
+            //         .src_access = VK_ACCESS_2_HOST_WRITE_BIT,
+            //         .dst_access = VK_ACCESS_2_MEMORY_READ_BIT,
+            //     },
+            //     {
+            //         .src_stage = VK_PIPELINE_STAGE_2_NONE,
+            //         .dst_stage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+            //         .src_access = 0,
+            //         .dst_access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            //     },
+            // },
+            .image = {
+                {
+                    .image = frame.current_image,
+                    .src_stage = VK_PIPELINE_STAGE_2_NONE,
+                    .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    .src_access = 0,
+                    .dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                    .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+                    .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                },
+            }
         });
 
-        gfx::CmdImageBarrier(frame.command_buffer, app.depth_buffer.image, {
-            .src_stage = VK_PIPELINE_STAGE_2_NONE,
-            .dst_stage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-            .src_access = 0,
-            .dst_access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .new_layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-            .aspect_mask = VK_IMAGE_ASPECT_DEPTH_BIT,
-        });
 
         // Begin rendering.
         VkClearColorValue color = { 0.1f, 0.2f, 0.4f, 1.0f };
@@ -451,23 +493,10 @@ int main(int argc, char** argv) {
 
         vkCmdBindPipeline(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app.pipeline);
 
-        //u32 animation_frame = app.current_frame % app.num_frames;
-        u32 size = app.num_vertices * sizeof(vec3);
-        u32 buffer_offset = size * app.frame_index;
-
-    #if 0
-        Array<vec3> vertices(app.num_vertices);
-        ReadAtOffset(app.mesh_file, vertices.as_bytes(), 12 + (u64)size * animation_frame);
-        memcpy(app.vertex_map.data + buffer_offset, vertices.data, size);
-    #else
-        platform::FileReadWork w = app.mesh_stream.get_frame(app.playback_frame);
-        memcpy(app.vertex_map.data + buffer_offset, w.buffer.data, size);
-    #endif
-
         VkDeviceSize offsets[1] = { buffer_offset };
-        vkCmdBindVertexBuffers(frame.command_buffer, 0, 1, &app.vertex_buffer, offsets);
+        vkCmdBindVertexBuffers(frame.command_buffer, 0, 1, &app.vertex_buffer.buffer, offsets);
 
-        vkCmdBindIndexBuffer(frame.command_buffer, app.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdBindIndexBuffer(frame.command_buffer, app.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
         VkViewport viewport = {};
         viewport.width = (f32)window.fb_width;
@@ -511,7 +540,8 @@ int main(int argc, char** argv) {
         gui::Render(frame.command_buffer);
         gfx::CmdEndRendering(frame.command_buffer);
 
-        gfx::CmdImageBarrier(frame.command_buffer, frame.current_image, {
+        gfx::CmdImageBarrier(frame.command_buffer, {
+            .image = frame.current_image,
             .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
             .dst_stage = VK_PIPELINE_STAGE_2_NONE,
             .src_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,

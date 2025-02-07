@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gfx.h"
+
 namespace framegraph
 {
     // Graph
@@ -38,7 +40,7 @@ namespace framegraph
         bool is_input() {
             return !is_output();
         }
-        
+
         bool is_external() {
             return (index_input_output & (1 << 30)) != 0;
         }
@@ -102,7 +104,7 @@ namespace framegraph
             .last_stage = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT, // Should this be vertex shader?
             .access = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,
         };
-        
+
         constexpr ResourceUsage BufferRO{
             .flags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
@@ -115,7 +117,7 @@ namespace framegraph
             .last_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             .access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
         };
-        
+
         constexpr ResourceUsage ImageRO {
             .flags = VK_IMAGE_USAGE_STORAGE_BIT,
             .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
@@ -233,13 +235,13 @@ namespace framegraph
         ResourceUsage usage;
         ResourceHandle resource;
     };
-    
+
     struct ResourceNodeOut {
         TaskRef task;
         Array<ResourceRef> edges;
 
         const char* name; // TODO: update with owned string
-        
+
         ResourceHandle resource;
     };
 
@@ -284,14 +286,14 @@ namespace framegraph
     };
 
     // Graph properties:
-    // - Two types of nodes: 
+    // - Two types of nodes:
     //     - tasks: represents some computation (a lambda)
     //     - resources: represents a reference to a resource (+ usage flags / state flags)
     // - Directred edges:
     //     - Always connect a resource to a node or a node to a resource
     //     - Resources only have 1 incoming edge, but many outgoing
     //     - Tasks can have many incoming and outgoing edges
-    
+
     struct FrameGraph {
         Array<TaskNode> tasks;
 
@@ -415,7 +417,7 @@ namespace framegraph
         ResourceRef create_buffer(TaskRef t, const char* name, BufferDesc desc, ResourceUsage usage) {
             ResourceRef ref = add_output(t, name);
             ResourceNodeOut& node = get_output_resource(ref);
-            
+
             node.resource = add_resource(false);
             Resource& res = get_resource(node.resource);
             res.type = ResourceType::Buffer;
@@ -430,7 +432,7 @@ namespace framegraph
         ResourceRef create_image(TaskRef t, const char* name, ImageDesc desc, ResourceUsage usage) {
             ResourceRef ref = add_output(t, name);
             ResourceNodeOut& node = get_output_resource(ref);
-            
+
             node.resource = add_resource(false);
             Resource& res = get_resource(node.resource);
             res.type = ResourceType::Image;
@@ -485,7 +487,7 @@ namespace framegraph
             }
 
             // TODO:
-            // 
+            //
             // Instantiate concrete resoruces for the tasks that survived
             // - Task owned resources
             // - External resoruces
@@ -622,11 +624,12 @@ namespace framegraph
         }
     };
 
+#if 0
     void test() {
         // TODO:
         //
         // | On graph only (FrameGraph API) |
-        //  
+        //
         // Define graph: (also from python)
         // - create / read / write resources
         // - import / export resources
@@ -651,9 +654,9 @@ namespace framegraph
         // - write descriptors  -> ???
         // - dispatch / draw    -> execute commands
         //
-        // 
+        //
         // | Notes: |
-        // 
+        //
         // Ideally the rendering would be completely decoupled from the graph creation.
         // The only real link is the FramePlan (that contains the ordering of tasks and barriers)
         // and the ResourceRef that are used both at graph creation time and then again
@@ -669,17 +672,17 @@ namespace framegraph
         // or owned by the task.
         // We can got from ResourceRef to physical resource with a double deref, its
         // not clear if we could potentially do this in a single lookup.
-        // 
+        //
         // In the current system we create resource handles at external resource creation time
         // and at owned resource creation time, and then copy those along while creating the graph.
         // This means if the graph is culled during planning, some of the resource handles are not
         // interesting anymore and potentially we could throw them away.
         // We could fix this by either replacing the handles at resolution time or just live
         // with the fact that there can be holes in the resource array.
-        // 
-        // 
+        //
+        //
         // Resource resolution:
-        // 
+        //
         // After planning we need to create concrete resources for each resource handle.
         // For owned resources we have creation information in the Resource class.
         // For external resources we expect creation to already have happened.
@@ -688,7 +691,7 @@ namespace framegraph
         // allow the user to specify a custom resolution mechanism for external resources,
         // this could be as simple as a function that uses an hash table to map from
         // ResourceHandle to a ConcreteResource type.
-        // 
+        //
         // A ConcreteResource needs to contain all the data required by a task to do its work,
         // this should include the following:
         // - VkImage or VkBuffer
@@ -712,11 +715,11 @@ namespace framegraph
         //     - graph creation based on python + shader reflection
         //     - graph execution in python callbacks with helpers in C++ that can call callable objects in python
         // [ ] See if we can somehow leverage shader reflection to easen creation of render graphs
-        //     technically the shader knows quite a bit about which resources are used how. 
+        //     technically the shader knows quite a bit about which resources are used how.
         //     (Still generally does not have complete information, e.g. render target / texture formats)
         // [ ] See what is a conventient bindind model, if should have the application handle this completely
         //     and just hand out helpers, or if the framegraph can also help with this.
-        // 
+        //
         // [ ] Use all this information to improve the design of the framegraph
 
 
@@ -758,7 +761,7 @@ namespace framegraph
         draw_opaque.normal_material = g.create_image(t, "normal_material", { .width = 1920, .height = 1080, .format = VK_FORMAT_R16G16B16A16_SFLOAT }, RU::RenderTarget);
         draw_opaque.depth = g.create_image(t, "depth", { .width = 1920, .height = 1080, .format = VK_FORMAT_R16G16B16A16_SFLOAT }, RU::DepthStencilTarget);
 
-        g.addTask("DrawOpaque", 
+        g.addTask("DrawOpaque",
             [&](ResourcePool& resources) {
                 gfx:Buffer img = resources.getBuffer(draw_opaque.commands);
             },
@@ -785,7 +788,7 @@ namespace framegraph
         struct GBuffer {
             ResourceRef color;
 
-            GBuffer(FrameGraph& g, 
+            GBuffer(FrameGraph& g,
                     ResourceRef constants,
                     ResourceRef color,
                     ResourceRef normal_material,
@@ -847,7 +850,7 @@ namespace framegraph
 
                     // TODO: Execute barrier
                 }
-                
+
                 // Execute task
                 op.task(vk)
             }
@@ -876,7 +879,7 @@ namespace framegraph
         TaskRef t2 = g.add_task("PostProcess");
         ResourceRef post_rt_in = g.add_input(t2, "RenderTarget");
         g.add_output(t2, "RenderTarget");
-        
+
         g.connect(v_out, shadow_v_in);
         g.connect(v_out, opaque_v_in);
 
@@ -894,9 +897,10 @@ namespace framegraph
 
                 // Execute barrier
             }
-            
+
             // Execute task
         }
 #endif
     }
 }
+#endif

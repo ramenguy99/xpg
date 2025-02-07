@@ -876,13 +876,28 @@ DestroyWindowWithSwapchain(Window* w, const Context& vk)
 
 }
 
+void CmdMemoryBarrier(VkCommandBuffer cmd, const MemoryBarrierDesc &&desc)
+{
+    VkMemoryBarrier2 barrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+    barrier.srcAccessMask = desc.src_access;
+    barrier.dstAccessMask = desc.dst_access;
+    barrier.srcStageMask = desc.src_stage;
+    barrier.dstStageMask = desc.dst_stage;
+
+    VkDependencyInfo info = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    info.memoryBarrierCount= 1;
+    info.pMemoryBarriers = &barrier;
+
+    vkCmdPipelineBarrier2(cmd, &info);
+}
+
 void
-CmdImageBarrier(VkCommandBuffer cmd, VkImage image, const ImageBarrierDesc&& desc)
+CmdImageBarrier(VkCommandBuffer cmd, const ImageBarrierDesc&& desc)
 {
     VkImageMemoryBarrier2 barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
+    barrier.image = desc.image;
     barrier.subresourceRange.aspectMask = desc.aspect_mask;
     barrier.subresourceRange.baseMipLevel = 0;
     barrier.subresourceRange.levelCount = 1;
@@ -898,6 +913,49 @@ CmdImageBarrier(VkCommandBuffer cmd, VkImage image, const ImageBarrierDesc&& des
     VkDependencyInfo info = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
     info.imageMemoryBarrierCount = 1;
     info.pImageMemoryBarriers = &barrier;
+
+    vkCmdPipelineBarrier2(cmd, &info);
+}
+
+void CmdBarriers(VkCommandBuffer cmd, const BarriersDesc &&desc)
+{
+    assert(desc.image.length <= 32 && desc.memory.length <= 32);
+
+    VkMemoryBarrier2* memory_barriers = (VkMemoryBarrier2*)alloca(sizeof(VkMemoryBarrier2) * desc.memory.length);
+    for (usize i = 0; i < desc.memory.length; i++) {
+        VkMemoryBarrier2& barrier = memory_barriers[i];
+        barrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+        barrier.srcAccessMask = desc.memory[i].src_access;
+        barrier.dstAccessMask = desc.memory[i].dst_access;
+        barrier.srcStageMask = desc.memory[i].src_stage;
+        barrier.dstStageMask = desc.memory[i].dst_stage;
+    }
+
+    VkImageMemoryBarrier2* image_barriers = (VkImageMemoryBarrier2*)alloca(sizeof(VkImageMemoryBarrier2) * desc.image.length);
+    for (usize i = 0; i < desc.image.length; i++) {
+        VkImageMemoryBarrier2& barrier = image_barriers[i];
+        barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = desc.image[i].image;
+        barrier.subresourceRange.aspectMask = desc.image[i].aspect_mask;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = desc.image[i].src_access;
+        barrier.dstAccessMask = desc.image[i].dst_access;
+        barrier.srcStageMask = desc.image[i].src_stage;
+        barrier.dstStageMask = desc.image[i].dst_stage;
+        barrier.oldLayout = desc.image[i].old_layout;
+        barrier.newLayout = desc.image[i].new_layout;
+    }
+
+    VkDependencyInfo info = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    info.memoryBarrierCount= desc.memory.length;
+    info.pMemoryBarriers = memory_barriers;
+    info.imageMemoryBarrierCount = desc.image.length;
+    info.pImageMemoryBarriers = image_barriers;
 
     vkCmdPipelineBarrier2(cmd, &info);
 }
@@ -1283,7 +1341,8 @@ UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const Ima
     gfx::BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
 
     if (desc.current_image_layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-        gfx::CmdImageBarrier(vk.sync_command_buffer, image.image, {
+        gfx::CmdImageBarrier(vk.sync_command_buffer, {
+            .image = image.image,
             .src_stage = VK_PIPELINE_STAGE_2_NONE,
             .dst_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
             .src_access = 0,
@@ -1308,7 +1367,8 @@ UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const Ima
     vkCmdCopyBufferToImage(vk.sync_command_buffer, staging_buffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
     if (desc.final_image_layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-        gfx::CmdImageBarrier(vk.sync_command_buffer, image.image, {
+        gfx::CmdImageBarrier(vk.sync_command_buffer, {
+            .image = image.image,
             .src_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
             .dst_stage = VK_PIPELINE_STAGE_2_NONE,
             .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,

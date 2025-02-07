@@ -8,8 +8,12 @@
 #include <nanobind/intrusive/ref.h>
 #include <nanobind/intrusive/counter.inl>
 
+#include <slang.h>
+#include <slang-com-ptr.h>
+
 #include <xpg/gfx.h>
 #include <xpg/gui.h>
+
 
 namespace nb = nanobind;
 
@@ -327,6 +331,63 @@ bool test2(std::function<bool()> callable) {
     return callable();
 }
 
+struct SlangType {
+    slang::TypeReflection::Kind kind;
+
+    // Layout - common
+    SlangParameterCategory category;
+    usize size;
+    usize alignment;
+    usize stride; // ALIGN_UP(size, alignment)
+};
+
+struct SlangLayout {
+
+};
+
+struct SlangVariable {
+    std::string name;
+    SlangType type;
+    SlangLayout layout;
+};
+
+struct SlangType_Struct {
+    std::vector<SlangVariable> fields;
+};
+
+struct SlangType_Array {
+    SlangType element_type;
+    usize count;
+};
+
+struct SlangType_Vector {
+    SlangType element_type;
+    u32 count;
+};
+
+struct SlangType_Matrix {
+    SlangType element_type;
+    u32 rows;
+    u32 columns;
+};
+
+struct SlangType_Resource {
+    SlangResourceShape shape;
+    SlangResourceAccess access;
+    SlangType type;
+};
+
+struct SlangType_Container {
+    // Content
+    SlangType element_type;
+};
+
+struct Program {
+    // Global scope
+
+    // Entry point
+};
+
 NB_MODULE(pyxpg, m) {
     nb::intrusive_init(
         [](PyObject *o) noexcept {
@@ -425,9 +486,54 @@ NB_MODULE(pyxpg, m) {
     // mod_imgui.def("get_style", ImGui_get_style, nb::rv_policy::reference);
 
 
+    // SLANG
+    // nb::module_ mod_slang = m.def_submodule("slang", "Slang bindings for XPG");
+    // nb::enum_<slang::TypeReflection::Kind>(mod_slang, "TypeKind")
+    //   .def("None", slang::TypeReflection::Kind::None)
+    //   .def("Struct", slang::TypeReflection::Kind::Struct)
+    //   .def("Array", slang::TypeReflection::Kind::Array)
+    //   .def("Matrix", slang::TypeReflection::Kind::Matrix)
+    //   .def("Vector", slang::TypeReflection::Kind::Vector)
+    //   .def("Scalar", slang::TypeReflection::Kind::Scalar)
+    //   .def("ConstantBuffer", slang::TypeReflection::Kind::ConstantBuffer)
+    //   .def("Resource", slang::TypeReflection::Kind::Resource)
+    //   .def("SamplerState", slang::TypeReflection::Kind::SamplerState)
+    //   .def("TextureBuffer", slang::TypeReflection::Kind::TextureBuffer)
+    //   .def("ShaderStorageBuffer", slang::TypeReflection::Kind::ShaderStorageBuffer)
+    //   .def("ParameterBlock", slang::TypeReflection::Kind::ParameterBlock)
+    //   .def("GenericTypeParameter", slang::TypeReflection::Kind::GenericTypeParameter)
+    //   .def("Interface", slang::TypeReflection::Kind::Interface)
+    //   .def("OutputStream", slang::TypeReflection::Kind::OutputStream)
+    //   .def("Specialized", slang::TypeReflection::Kind::Specialized)
+    //   .def("Feedback", slang::TypeReflection::Kind::Feedback)
+    //   .def("Pointer", slang::TypeReflection::Kind::Pointer)
+    //   .def("DynamicResource", slang::TypeReflection::Kind::DynamicResource)
+    // ;
+
+    // nb::enum_<slang::TypeReflection::ScalarType>(mod_slang, "ScalarType")
+    //     .def("None", slang::TypeReflection::ScalarType::None)
+    //     .def("Void", slang::TypeReflection::ScalarType::Void)
+    //     .def("Bool", slang::TypeReflection::ScalarType::Bool)
+    //     .def("Int32", slang::TypeReflection::ScalarType::Int32)
+    //     .def("UInt32", slang::TypeReflection::ScalarType::UInt32)
+    //     .def("Int64", slang::TypeReflection::ScalarType::Int64)
+    //     .def("UInt64", slang::TypeReflection::ScalarType::UInt64)
+    //     .def("Float16", slang::TypeReflection::ScalarType::Float16)
+    //     .def("Float32", slang::TypeReflection::ScalarType::Float32)
+    //     .def("Float64", slang::TypeReflection::ScalarType::Float64)
+    //     .def("Int8", slang::TypeReflection::ScalarType::Int8)
+    //     .def("UInt8", slang::TypeReflection::ScalarType::UInt8)
+    //     .def("Int16", slang::TypeReflection::ScalarType::Int16)
+    //     .def("UInt16", slang::TypeReflection::ScalarType::UInt16)
+    // ;
+
+
 
     // $!
     // !$
+
+
+
 
 
 }

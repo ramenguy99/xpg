@@ -254,8 +254,19 @@ VkResult PresentFrame(Window* w, Frame* frame, const Context& vk);
 VkResult BeginCommands(VkCommandPool pool, VkCommandBuffer buffer, const Context& vk);
 VkResult EndCommands(VkCommandBuffer buffer);
 
+struct MemoryBarrierDesc
+{
+    VkPipelineStageFlags2 src_stage;
+    VkPipelineStageFlags2 dst_stage;
+    VkAccessFlags2 src_access;
+    VkAccessFlags2 dst_access;
+};
+
+void CmdMemoryBarrier(VkCommandBuffer cmd, const MemoryBarrierDesc&& desc);
+
 struct ImageBarrierDesc
 {
+    VkImage image;
     VkPipelineStageFlags2 src_stage;
     VkPipelineStageFlags2 dst_stage;
     VkAccessFlags2 src_access;
@@ -265,7 +276,14 @@ struct ImageBarrierDesc
     VkImageAspectFlags aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
 };
 
-void CmdImageBarrier(VkCommandBuffer cmd, VkImage image, const ImageBarrierDesc&& desc);
+void CmdImageBarrier(VkCommandBuffer cmd, const ImageBarrierDesc&& desc);
+
+struct BarriersDesc {
+    Span<MemoryBarrierDesc> memory;
+    Span<ImageBarrierDesc> image;
+};
+
+void CmdBarriers(VkCommandBuffer cmd, const BarriersDesc&& desc);
 
 struct RenderingAttachmentDesc {
     VkImageView view;
