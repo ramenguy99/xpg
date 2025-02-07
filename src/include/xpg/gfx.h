@@ -187,10 +187,18 @@ enum class Modifiers: u32 {
     Super = GLFW_MOD_SUPER,
 };
 
+enum class Key: u32 {
+    Escape = GLFW_KEY_ESCAPE,
+    Space = GLFW_KEY_SPACE,
+    Period = GLFW_KEY_PERIOD,
+    Comma = GLFW_KEY_COMMA,
+};
+
 struct WindowCallbacks {
     std::function<void(glm::ivec2)> mouse_move_event;
     std::function<void(glm::ivec2, MouseButton, Action, Modifiers)> mouse_button_event;
     std::function<void(glm::ivec2, glm::ivec2)> mouse_scroll_event;
+    std::function<void(Key, Action, Modifiers)> key_event;
     std::function<void()> draw;
 };
 
@@ -226,6 +234,7 @@ struct Window
 
 Result CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 width, u32 height);
 void DestroyWindowWithSwapchain(Window* w, const Context& vk);
+void CloseWindow(const Window& window);
 
 //- Input
 void Callback_WindowRefresh(GLFWwindow* window);
@@ -253,9 +262,35 @@ struct ImageBarrierDesc
     VkAccessFlags2 dst_access;
     VkImageLayout old_layout;
     VkImageLayout new_layout;
+    VkImageAspectFlags aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
 };
 
 void CmdImageBarrier(VkCommandBuffer cmd, VkImage image, const ImageBarrierDesc&& desc);
+
+struct RenderingAttachmentDesc {
+    VkImageView view;
+    VkAttachmentLoadOp load_op;
+    VkAttachmentStoreOp store_op;
+    VkClearValue clear;
+};
+
+struct DepthAttachmentDesc {
+    VkImageView view;
+    VkAttachmentLoadOp load_op;
+    VkAttachmentStoreOp store_op;
+    float clear;
+};
+
+struct BeginRenderingDesc {
+    Span<RenderingAttachmentDesc> color;
+    DepthAttachmentDesc depth;
+    // RenderingAttachmentDesc stencil;
+    u32 width;
+    u32 height;
+};
+
+void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc);
+void CmdEndRendering(VkCommandBuffer cmd);
 
 // - Shaders
 struct Shader {
@@ -466,28 +501,28 @@ struct SamplerDesc {
 VkResult CreateSampler(Sampler* sampler, const Context& vk, const SamplerDesc&& desc);
 void DestroySampler(Sampler* sampler, const Context& vk);
 
-//- Bindless
-struct BindlessDescriptorSet
+//- Descriptors
+struct DescriptorSet
 {
     VkDescriptorSet set;
     VkDescriptorSetLayout layout;
     VkDescriptorPool pool;
 };
 
-struct BindlessDescriptorSetEntryDesc
+struct DescriptorSetEntryDesc
 {
     u32 count;
     VkDescriptorType type;
 };
 
-struct BindlessDescriptorSetDesc
+struct DescriptorSetDesc
 {
-    Span<BindlessDescriptorSetEntryDesc> entries;
+    Span<DescriptorSetEntryDesc> entries;
+    VkDescriptorBindingFlags flags;
 };
 
-VkResult CreateBindlessDescriptorSet(BindlessDescriptorSet* set, const Context& vk, const BindlessDescriptorSetDesc&& desc);
-void DestroyBindlessDescriptorSet(BindlessDescriptorSet* bindless, const Context& vk);
-
+VkResult CreateDescriptorSet(DescriptorSet* set, const Context& vk, const DescriptorSetDesc&& desc);
+void DestroyDescriptorSet(DescriptorSet* bindless, const Context& vk);
 
 
 //- Descriptor writes

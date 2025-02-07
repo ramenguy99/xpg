@@ -16,6 +16,64 @@ Python:
     -> also interesting if we want to have a full python framegraph or if we can somehow leverage python callables
        + some python bindings to reuse at least the synchronization / traversal logic implemented in C++
 
+Descriptors:
+- To run a pipeline need to bind the related descriptor sets
+- Those can be known statically or learned through reflections
+- No need to rebind across pipelines if these can be shared
+- Need to do this in increasing frequency, because after binding something incompatible the later descriptors are disturbed
+
+Framegraph:
+- The 3 main advantages are:
+    - automatic barriers on resources
+    - memory aliasing
+    - ideally library of reusable components -> would be very nice, but unknown how easy to get the ergonomics right for this
+- Not obvious how to handle descriptors in this case:
+    - Gray: the user does not need to care
+        - descriptors for owned resources are allocated by the render pass
+        - descriptors for external resources are provided on render
+        - granularity is per descriptor, which means we HAVE to do copies CPU -> GPU or GPU -> GPU on draw
+        - can we somehow extend this to work per set?
+        - binding frequency and granularity does not necessarily match ownership
+    - User in control:
+        - Pipelines have a well defined layout. At creation time we know what descriptors we can generate or validate this layout.
+        - Descriptors are really just part of the signature of a render pass. Together with other parameters that might be required.
+        [ ] Think about an API that allows us to define either statically or dynamically the descriptor sets that should be passed when invoking this pass.
+        - The global constants problem:
+            It is very likely that you have some scene constants that are the same for all shaders in an app.
+            On descriptor set 0 you might have (among other things) a constant buffer for those constants.
+            On shader side those are reusing the same struct -> always in sync.
+            On c++ side we can do the same thing, just share the struct. (hopefully can make this work with slang somehow)
+            On binding side this descriptor set can be the same for all compatible pipelines.
+- Static vs dynamic graph:
+    - Graph built per frame. Can specify all needed params every time -> requires caching, at least for owned resources.
+    - Graph built per at startup and then run.
+        [ ] How does the user pass dynamic parameters to the graph?
+            -> Keep handles (either the task object itself or some returned reference)?
+            -> Everything through function pointers? Seems messy and hard to get right, control flow will be very weird, almost impossible to do threading then.
+            -> Try to design some tasks and see how those could look like: (simple: copy, full screen pass. more comples: ping pong blur, gen mips, draw opaque, gbuffer, shadows).
+- Another API would be to do state tracking on a resource (likely manually or through helpers for each usage on binding) and then deduce barriers:
+    - maybe more flexible when prototyping?
+    - more similar to d3d11 / opengl approach
+    - less efficient potentially? Extra work done for you can maybe be opt in?
+    - Is specifying barriers really that annoying if we have sync helpers (to validate with vulkan sync helper lib -> this looks similar to what we were doing and could be a nice set of helpers / reference)
+- Thoughts:
+    In favor of graphs:
+        - Composability of self-contained parts (if possible to achieve in a sane way)
+    Against graphs:
+        - I don't think the flamegraph is the correct unit of granularity for simple programs / prototyping -> too retained:
+            - hard to share descriptor layouts
+            - can't control order of execution of passes -> how to know what needs to be rebound -> maybe need to always rebind from scratch or do complex state management.
+            - hard to do dependency injection in the meat of the passes
+        - Framegraph can be built on top of this API if you need it
+        - Resource creation can be done manually at init time
+        - API MUST be immediate mode when calling render passes
+        - We can have synchronization helpers on resources instead of frame graphs.
+        - Reusable components can be more flexible instead of requiring retained mode processing.
+            -> sketch API of how this could look like
+    [ ] Try to rewrite our exmaples and a viewer-like app with both styles, see what looks better.
+        -> can try to do something a vulkan backend for aitviewer
+        -> also want to support more advanced use cases like indirect rendering, batched meshes, per frame upload with triple buffering, gpu driven stuff, raytracing, etc..
+
 QOL:
 - cmake install thingy
 - CI for builds / python deploy

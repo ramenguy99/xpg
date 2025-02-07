@@ -42,14 +42,14 @@ struct ChunkCache {
     };
 
     ChunkCache(const ZMipFile& zmip, usize cache_size, usize upload_buffers_count, usize num_workers, usize num_frames_in_flight,
-        const gfx::Context& vk, const gfx::BindlessDescriptorSet bindless);
+        const gfx::Context& vk, const gfx::DescriptorSet& descriptor_set);
 
     void destroy_resources(const gfx::Context& vk);
-    void resize(usize cache_size, usize upload_buffers_count, const gfx::Context& vk, const gfx::BindlessDescriptorSet bindless);
+    void resize(usize cache_size, usize upload_buffers_count, const gfx::Context& vk, const gfx::DescriptorSet descriptor_set);
     void release_chunk(usize chunk_index);
     static void worker_func(WorkerPool::WorkerInfo* worker_info, void* user_data);
-    void request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32> output_descriptors, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless, VkCommandBuffer cmd, u32 frame_index);
-    u32 request_chunk_sync(ChunkId c, const gfx::Context& vk, const gfx::BindlessDescriptorSet& bindless);
+    void request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32> output_descriptors, const gfx::Context& vk, const gfx::DescriptorSet& descriptor_set, VkCommandBuffer cmd, u32 frame_index);
+    u32 request_chunk_sync(ChunkId c, const gfx::Context& vk, const gfx::DescriptorSet& descriptor_set);
 
     inline Chunk& get_chunk(ChunkId c) {
         usize index = GetChunkIndex(zmip, c);

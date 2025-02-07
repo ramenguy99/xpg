@@ -238,8 +238,8 @@ int main(int argc, char** argv) {
     // BINDLES SLIM SETUP START
     uint32_t MAX_DESCRIPTOR_COUNT = 100000;
 
-    gfx::BindlessDescriptorSet bindless = {};
-    gfx::CreateBindlessDescriptorSet(&bindless, vk, {
+    gfx::DescriptorSet bindless = {};
+    gfx::CreateDescriptorSet(&bindless, vk, {
         .entries = {
             {
                 .count = 1000,
@@ -441,7 +441,7 @@ int main(int argc, char** argv) {
     gfx::DestroyShader(&vertex_shader, vk);
     gfx::DestroyShader(&fragment_shader, vk);
     gfx::DestroyGraphicsPipeline(&pipeline, vk);
-    gfx::DestroyBindlessDescriptorSet(&bindless, vk);
+    gfx::DestroyDescriptorSet(&bindless, vk);
 
     // Gui
     gui::DestroyImGuiImpl(&imgui_impl, vk);

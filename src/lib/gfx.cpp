@@ -106,6 +106,13 @@ void Callback_CursorPos(GLFWwindow* window, double x, double y) {
     }
 }
 
+void Callback_Key(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    Window* w = (Window*)glfwGetWindowUserPointer(window);
+    if (w && w->callbacks.key_event) {
+        w->callbacks.key_event((Key)key, (Action)action, (Modifiers)mods);
+    }
+}
+
 #ifdef _WIN32
 DWORD WINAPI thread_proc(void* param) {
     HWND window = (HWND)param;
@@ -132,6 +139,7 @@ void SetWindowCallbacks(Window* window, WindowCallbacks&& callbacks) {
     glfwSetMouseButtonCallback(window->window, Callback_MouseButton);
     glfwSetScrollCallback(window->window, Callback_Scroll);
     glfwSetCursorPosCallback(window->window, Callback_CursorPos);
+    glfwSetKeyCallback(window->window, Callback_Key);
 }
 
 void ProcessEvents(bool block) {
@@ -145,6 +153,10 @@ void ProcessEvents(bool block) {
 
 bool ShouldClose(const Window& window) {
     return glfwWindowShouldClose(window.window);
+}
+
+void CloseWindow(const Window& window) {
+    glfwSetWindowShouldClose(window.window, 1);
 }
 
 VkResult
@@ -632,6 +644,7 @@ Result AcquireImage(Frame* frame, Window* window, const Context& vk)
     return Result::SUCCESS;
 }
 
+// @API(frame): Deprecated in favor of split acquire / wait?
 Frame* AcquireNextFrame(Window* w, const Context& vk) {
     Frame& frame = w->frames[w->swapchain_frame_index];
 
@@ -870,7 +883,7 @@ CmdImageBarrier(VkCommandBuffer cmd, VkImage image, const ImageBarrierDesc&& des
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = image;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.aspectMask = desc.aspect_mask;
     barrier.subresourceRange.baseMipLevel = 0;
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.baseArrayLayer = 0;
@@ -887,6 +900,49 @@ CmdImageBarrier(VkCommandBuffer cmd, VkImage image, const ImageBarrierDesc&& des
     info.pImageMemoryBarriers = &barrier;
 
     vkCmdPipelineBarrier2(cmd, &info);
+}
+
+void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc)
+{
+    ArrayFixed<VkRenderingAttachmentInfo, 8> attachment_info(desc.color.length);
+    for(usize i = 0; i < desc.color.length; i++) {
+        attachment_info[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        attachment_info[i].imageView = desc.color[i].view;
+        attachment_info[i].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        attachment_info[i].resolveMode = VK_RESOLVE_MODE_NONE;
+        attachment_info[i].loadOp = desc.color[i].load_op;
+        attachment_info[i].storeOp = desc.color[i].store_op;
+        attachment_info[i].clearValue = desc.color[i].clear;
+    }
+
+    VkRenderingAttachmentInfo depth { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+    depth.imageView = desc.depth.view;
+    depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depth.resolveMode = VK_RESOLVE_MODE_NONE;
+    depth.loadOp = desc.depth.load_op;
+    depth.storeOp = desc.depth.store_op;
+    depth.clearValue.depthStencil.depth = desc.depth.clear;
+
+    VkRenderingInfo rendering_info = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+    rendering_info.renderArea.extent.width = desc.width;
+    rendering_info.renderArea.extent.height = desc.height;
+    rendering_info.layerCount = 1;
+    rendering_info.viewMask = 0;
+    rendering_info.colorAttachmentCount = attachment_info.length;
+    rendering_info.pColorAttachments = attachment_info.data;
+    rendering_info.pDepthAttachment = 0;
+    rendering_info.pStencilAttachment = 0;
+
+    if (depth.imageView) {
+        rendering_info.pDepthAttachment = &depth;
+    }
+
+    vkCmdBeginRenderingKHR(cmd, &rendering_info);
+}
+
+void CmdEndRendering(VkCommandBuffer cmd)
+{
+    vkCmdEndRendering(cmd);
 }
 
 VkResult
@@ -1012,6 +1068,7 @@ CreateGraphicsPipeline(GraphicsPipeline* graphics_pipeline, const Context& vk, c
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
     depth_stencil_state.depthTestEnable = desc.depth.test;
     depth_stencil_state.depthWriteEnable = desc.depth.write;
+    depth_stencil_state.depthCompareOp = desc.depth.op;
 
     Array<VkPipelineColorBlendAttachmentState> attachments(desc.attachments.length);
     for (usize i = 0; i < attachments.length; i++)
@@ -1358,7 +1415,7 @@ DestroyDepthBuffer(DepthBuffer* depth_buffer, const Context& vk)
     *depth_buffer = {};
 }
 
-VkResult CreateBindlessDescriptorSet(BindlessDescriptorSet* set, const Context& vk, const BindlessDescriptorSetDesc&& desc)
+VkResult CreateDescriptorSet(DescriptorSet* set, const Context& vk, const DescriptorSetDesc&& desc)
 {
     VkResult vkr;
 
@@ -1372,9 +1429,7 @@ VkResult CreateBindlessDescriptorSet(BindlessDescriptorSet* set, const Context& 
         bindings[i].descriptorType = desc.entries[i].type;
         bindings[i].descriptorCount = desc.entries[i].count;
         bindings[i].stageFlags = VK_SHADER_STAGE_ALL;
-        flags[i] =
-            VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
-            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        flags[i] = desc.flags;
         descriptor_pool_sizes[i] = { desc.entries[i].type, desc.entries[i].count };
     }
 
@@ -1428,11 +1483,11 @@ VkResult CreateBindlessDescriptorSet(BindlessDescriptorSet* set, const Context& 
 }
 
 void
-DestroyBindlessDescriptorSet(BindlessDescriptorSet* bindless, const Context& vk)
+DestroyDescriptorSet(DescriptorSet* set, const Context& vk)
 {
-    vkDestroyDescriptorPool(vk.device, bindless->pool, 0);
-    vkDestroyDescriptorSetLayout(vk.device, bindless->layout, 0);
-    *bindless = {};
+    vkDestroyDescriptorPool(vk.device, set->pool, 0);
+    vkDestroyDescriptorSetLayout(vk.device, set->layout, 0);
+    *set = {};
 }
 
 VkResult
@@ -1473,7 +1528,7 @@ DestroySampler(Sampler* sampler, const Context& vk) {
 void
 WriteBufferDescriptor(VkDescriptorSet set, const Context& vk, const BufferDescriptorWriteDesc&& write)
 {
-    assert(write.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    assert(write.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || write.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 
     // Prepare descriptor and handle
     VkDescriptorBufferInfo desc_info = {};

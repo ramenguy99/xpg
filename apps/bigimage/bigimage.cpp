@@ -77,8 +77,8 @@ int main(int argc, char** argv) {
     VkResult vkr;
 
     // Descriptors
-    gfx::BindlessDescriptorSet bindless = {};
-    vkr = gfx::CreateBindlessDescriptorSet(&bindless, vk, {
+    gfx::DescriptorSet descriptor_set = {};
+    vkr = gfx::CreateDescriptorSet(&descriptor_set, vk, {
         .entries = {
             {
                 .count = (u32)window.frames.length,
@@ -92,8 +92,11 @@ int main(int argc, char** argv) {
                 .count = 1024,
                 .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             },
-        }
+        },
+        .flags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT ||
+            VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
         });
+
     if (result != gfx::Result::SUCCESS) {
         logging::error("bigimage", "Failed to create descriptor set\n");
         exit(100);
@@ -110,7 +113,7 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    gfx::WriteSamplerDescriptor(bindless.set, vk, {
+    gfx::WriteSamplerDescriptor(descriptor_set.set, vk, {
         .sampler = sampler.sampler,
         .binding = 1,
         .element = 0,
@@ -173,7 +176,7 @@ int main(int argc, char** argv) {
             },
         },
         .descriptor_sets = {
-            bindless.layout,
+            descriptor_set.layout,
         },
         .attachments = {
             {
@@ -249,13 +252,13 @@ int main(int argc, char** argv) {
     app.last_frame_timestamp = platform::GetTimestamp();
     app.pipeline = pipeline.pipeline;
     app.layout = pipeline.layout;
-    app.descriptor_set = bindless.set;
+    app.descriptor_set = descriptor_set.set;
     app.chunks_buffers = Array<gfx::Buffer>(window.frames.length);
     app.cpu_chunks = ObjArray<Array<usize>>(window.frames.length);
     app.vertex_buffer = vertex_buffer;
     app.max_zoom = (s32)(zmip.levels.length - 1);
 
-    ChunkCache cache(zmip, 0, 0, 8, window.frames.length, vk, bindless);
+    ChunkCache cache(zmip, 0, 0, 8, window.frames.length, vk, descriptor_set);
 
     auto MouseMoveEvent = [&app](ivec2 pos) {
         if (app.dragging) {
@@ -290,7 +293,7 @@ int main(int argc, char** argv) {
         app.offset += (new_image_pos - old_image_pos) >> app.zoom;
     };
 
-    auto Draw = [&app, &vk, &window, &bindless, &zmip, &cache]() {
+    auto Draw = [&app, &vk, &window, &descriptor_set, &zmip, &cache]() {
         if (app.closed) return;
 
         platform::Timestamp timestamp = platform::GetTimestamp();
@@ -324,7 +327,7 @@ int main(int argc, char** argv) {
                         .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
                         .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                     });
-                    gfx::WriteBufferDescriptor(bindless.set, vk, {
+                    gfx::WriteBufferDescriptor(descriptor_set.set, vk, {
                         .buffer = app.chunks_buffers[i].buffer,
                         .binding = 0,
                         .element = (u32)i,
@@ -348,7 +351,7 @@ int main(int argc, char** argv) {
                 }
 
                 // Resize cache
-                cache.resize(total_max_chunks * window.frames.length, total_max_chunks, vk, bindless);
+                cache.resize(total_max_chunks * window.frames.length, total_max_chunks, vk, descriptor_set);
                 app.batch_inputs.resize(total_max_chunks);
                 app.batch_outputs.resize(total_max_chunks);
             }
@@ -403,7 +406,7 @@ int main(int argc, char** argv) {
                     app.batch_inputs.add(id);
                 }
                 else {
-                    desc_index = cache.request_chunk_sync(id, vk, bindless);
+                    desc_index = cache.request_chunk_sync(id, vk, descriptor_set);
                 }
                 GpuChunk c = {
                     .position = offset + chunk * chunk_size,
@@ -427,7 +430,7 @@ int main(int argc, char** argv) {
             // Upload chunks
             if (app.batched_chunk_upload) {
                 app.batch_outputs.resize(app.batch_inputs.length);
-                cache.request_chunk_batch(app.batch_inputs, app.batch_outputs, vk, bindless, frame.command_buffer, app.frame_index);
+                cache.request_chunk_batch(app.batch_inputs, app.batch_outputs, vk, descriptor_set, frame.command_buffer, app.frame_index);
                 for (usize i = 0; i < app.batch_outputs.length; i++) {
                     app.gpu_chunks[i].desc_index = app.batch_outputs[i];
 
@@ -653,7 +656,7 @@ int main(int argc, char** argv) {
     gfx::DestroyShader(&vert_shader, vk);
     gfx::DestroyShader(&frag_shader, vk);
     gfx::DestroyGraphicsPipeline(&pipeline, vk);
-    gfx::DestroyBindlessDescriptorSet(&bindless, vk);
+    gfx::DestroyDescriptorSet(&descriptor_set, vk);
 
     // Gui
     gui::DestroyImGuiImpl(&imgui_impl, vk);
