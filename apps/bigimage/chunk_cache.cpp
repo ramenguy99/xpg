@@ -40,7 +40,7 @@ void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx:
     // The cache does not shrink
     if (images.length < cache_size) {
         // Add missing images
-        logging::info("bigimage/cache", "Resizing cache to size %llu", cache_size);
+        logging::info("bigimage/cache", "Resizing cache to size %zu", cache_size);
         usize old_length = images.length;
         images.resize(cache_size);
         for (usize i = old_length; i < images.length; i++) {
@@ -81,7 +81,7 @@ void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx:
     // The cache does not shrink
     if (upload_buffers.length < upload_buffers_count) {
         // Add missing upload buffers
-        logging::info("bigimage/cache", "Adding upload buffers to size %llu", upload_buffers_count);
+        logging::info("bigimage/cache", "Adding upload buffers to size %zu", upload_buffers_count);
         for(usize frame_index = 0; frame_index < upload_buffers.length; frame_index++) {
             usize old_length = upload_buffers[frame_index].length;
             upload_buffers[frame_index].resize(upload_buffers_count);
@@ -237,7 +237,8 @@ void ChunkCache::request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32
         gfx::Image& image = images[e->value.image_index];
 
         // Transition image to transfer dest layout
-        gfx::CmdImageBarrier(cmd, image.image, {
+        gfx::CmdImageBarrier(cmd, {
+            .image = image.image, 
             .src_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
             .dst_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
             .src_access = VK_ACCESS_2_SHADER_READ_BIT,
@@ -262,7 +263,8 @@ void ChunkCache::request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32
         vkCmdCopyBufferToImage(cmd, upload_buffers[frame_index][i].buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
         // Transition images to shader read layout
-        gfx::CmdImageBarrier(cmd, image.image, {
+        gfx::CmdImageBarrier(cmd, {
+            .image = image.image, 
             .src_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
             .dst_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
             .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,

@@ -13,3 +13,7 @@ test.dot
 CMakeSettings.json
 *.bak
 /scripts/pyimgui.pyi
+
+/build-release
+/build-debug
+/ext/slang

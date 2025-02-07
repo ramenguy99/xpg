@@ -60,7 +60,7 @@ struct ReflectingPrinting
     Result compileAndReflectModule(slang::ISession* session, ComPtr<slang::IModule> module)
     {
         SCOPED_OBJECT();
-        printComment("program");
+        printComment("program\n");
 
         ComPtr<slang::IBlob> diagnostics;
         Result result = SLANG_OK;

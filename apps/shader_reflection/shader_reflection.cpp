@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include <slang-gfx.h>
 #include <slang-com-ptr.h>
 #include <slang.h>

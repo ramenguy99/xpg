@@ -200,7 +200,8 @@ struct Gui: public nb::intrusive_base {
         gfx::Frame& frame = frame_obj.frame;
         gfx::Window& window = this->window->window;
 
-        gfx::CmdImageBarrier(frame.command_buffer, frame.current_image, {
+        gfx::CmdImageBarrier(frame.command_buffer, {
+            .image = frame.current_image,
             .src_stage = VK_PIPELINE_STAGE_2_NONE,
             .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
             .src_access = 0,
@@ -233,7 +234,8 @@ struct Gui: public nb::intrusive_base {
 
         vkCmdEndRenderingKHR(frame.command_buffer);
 
-        gfx::CmdImageBarrier(frame.command_buffer, frame.current_image, {
+        gfx::CmdImageBarrier(frame.command_buffer, {
+            .image = frame.current_image,
             .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
             .dst_stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
             .src_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,

@@ -289,7 +289,7 @@ struct RenderingAttachmentDesc {
     VkImageView view;
     VkAttachmentLoadOp load_op;
     VkAttachmentStoreOp store_op;
-    VkClearValue clear;
+    VkClearColorValue clear;
 };
 
 struct DepthAttachmentDesc {

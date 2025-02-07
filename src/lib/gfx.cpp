@@ -970,7 +970,7 @@ void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc)
         attachment_info[i].resolveMode = VK_RESOLVE_MODE_NONE;
         attachment_info[i].loadOp = desc.color[i].load_op;
         attachment_info[i].storeOp = desc.color[i].store_op;
-        attachment_info[i].clearValue = desc.color[i].clear;
+        attachment_info[i].clearValue.color = desc.color[i].clear;
     }
 
     VkRenderingAttachmentInfo depth { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
