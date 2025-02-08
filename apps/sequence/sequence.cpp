@@ -11,6 +11,8 @@ using glm::mat4;
 
 #include "types.h"
 
+#define DIRECT_UPLOAD 1
+
 int main(int argc, char** argv) {
     platform::File file = {};
     platform::Result open_result = OpenFile(argv[1], &file);
@@ -120,13 +122,13 @@ int main(int argc, char** argv) {
         f64 playback_delta;
 
         BufferedStream<platform::FileReadWork> mesh_stream;
-        ArrayView<u8> vertex_map;
         platform::File mesh_file;
         u32 num_vertices;
         u32 num_indices;
 
         // Rendering
-        gfx::Buffer vertex_buffer;
+        gfx::Buffer vertex_buffer_upload;
+        gfx::Buffer vertex_buffer_gpu;
         gfx::Buffer index_buffer;
         VkPipeline pipeline;
         VkPipelineLayout layout;
@@ -134,13 +136,32 @@ int main(int argc, char** argv) {
 
     VkResult vkr;
 
-    gfx::Buffer vertex_buffer = {};
 
-    vkr = gfx::CreateBuffer(&vertex_buffer, vk, sizeof(vec3) * V * window.images.length, {
-        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+    gfx::Buffer vertex_buffer_upload = {};
+#if !DIRECT_UPLOAD
+    vkr = gfx::CreateBuffer(&vertex_buffer_upload, vk, sizeof(vec3) * V * window.images.length, {
+        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
         .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-        .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    });
+    assert(vkr == VK_SUCCESS);
+#endif
+
+    gfx::Buffer vertex_buffer_gpu = {};
+    vkr = gfx::CreateBuffer(&vertex_buffer_gpu, vk, sizeof(vec3) * V * window.images.length, {
+        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT 
+#if !DIRECT_UPLOAD
+            | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+#endif
+        ,
+// #if DIRECT_UPLOAD
+        .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
+// #endif
+        .alloc_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+// #if DIRECT_UPLOAD
+        | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+// #endif
+        ,
     });
     assert(vkr == VK_SUCCESS);
 
@@ -265,7 +286,8 @@ int main(int argc, char** argv) {
     app.wait_for_events = true;
     app.frame_times.resize(ArrayCount(app.frame_times.data));
     app.last_frame_timestamp = platform::GetTimestamp();
-    app.vertex_buffer = vertex_buffer;
+    app.vertex_buffer_upload = vertex_buffer_upload;
+    app.vertex_buffer_gpu = vertex_buffer_gpu;
     app.index_buffer = index_buffer;
     app.pipeline = pipeline.pipeline;
     app.descriptor_sets = std::move(descriptor_sets);
@@ -276,7 +298,6 @@ int main(int argc, char** argv) {
     app.num_playback_frames = (u32)N;
     app.num_vertices = (u32)V;
     app.num_indices = (u32)I;
-    app.vertex_map = vertex_buffer.map;
     app.mesh_file = file;
     app.mesh_stream = std::move(mesh_stream);
 
@@ -419,16 +440,29 @@ int main(int argc, char** argv) {
         ReadAtOffset(app.mesh_file, vertices.as_bytes(), 12 + (u64)size * animation_frame);
         memcpy(app.vertex_map.data + buffer_offset, vertices.data, size);
     #else
+    #if DIRECT_UPLOAD
         platform::FileReadWork w = app.mesh_stream.get_frame(app.playback_frame);
-        memcpy(app.vertex_map.data + buffer_offset, w.buffer.data, size);
+        platform::Timestamp begin = platform::GetTimestamp();
+        memcpy(app.vertex_buffer_gpu.map.data + buffer_offset, w.buffer.data, size);
+        double elapsed = platform::GetElapsed(begin, platform::GetTimestamp());
+        logging::info("sequence", "memcpy to device: %6.3fms (%6.3fGB/s) (%6.3f MB)", elapsed * 1000, (double)size / elapsed / (1024 * 1024 * 1024), (double)size / (1024 * 1024));
+    #else
+        platform::FileReadWork w = app.mesh_stream.get_frame(app.playback_frame);
+
+        platform::Timestamp begin = platform::GetTimestamp();
+        memcpy(app.vertex_buffer_upload.map.data + buffer_offset, w.buffer.data, size);
+        double elapsed = platform::GetElapsed(begin, platform::GetTimestamp());
+        logging::info("sequence", "memcpy to host: %6.3fms (%6.3fGB/s) (%6.3f MB)", elapsed * 1000, (double)size / elapsed / (1024 * 1024 * 1024), (double)size / (1024 * 1024));
+    #endif
     #endif
 
+#if DIRECT_UPLOAD
         // Flush caches on the CPU if the memory is not coherent (make available)
         VkMemoryPropertyFlags properties = {};
-        vmaGetAllocationMemoryProperties(vk.vma, app.vertex_buffer.allocation, &properties);
+        vmaGetAllocationMemoryProperties(vk.vma, app.vertex_buffer_gpu.allocation, &properties);
         if(!(properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
             VmaAllocationInfo info = {};
-            vmaGetAllocationInfo(vk.vma, app.vertex_buffer.allocation, &info);
+            vmaGetAllocationInfo(vk.vma, app.vertex_buffer_gpu.allocation, &info);
 
             VkMappedMemoryRange range = { VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE };
             range.memory = info.deviceMemory;
@@ -437,6 +471,13 @@ int main(int argc, char** argv) {
             range.size = Min(AlignUp(size, 4096), info.size - offset);
             vkFlushMappedMemoryRanges(vk.device, 1, &range);
         }
+#else
+        VkBufferCopy region;
+        region.srcOffset = buffer_offset;
+        region.dstOffset = buffer_offset;
+        region.size = size;
+        vkCmdCopyBuffer(frame.command_buffer, app.vertex_buffer_upload.buffer, app.vertex_buffer_gpu.buffer, 1, &region);
+#endif
 
         // Invalidate caches on the GPU (make visible)
         // NOTE: I dont' think any memory barrier is needed here,
@@ -494,7 +535,7 @@ int main(int argc, char** argv) {
         vkCmdBindPipeline(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app.pipeline);
 
         VkDeviceSize offsets[1] = { buffer_offset };
-        vkCmdBindVertexBuffers(frame.command_buffer, 0, 1, &app.vertex_buffer.buffer, offsets);
+        vkCmdBindVertexBuffers(frame.command_buffer, 0, 1, &app.vertex_buffer_gpu.buffer, offsets);
 
         vkCmdBindIndexBuffer(frame.command_buffer, app.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
@@ -521,7 +562,7 @@ int main(int argc, char** argv) {
 
         vkCmdBindDescriptorSets(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app.layout, 0, 1, &app.descriptor_sets[app.frame_index].set, 0, 0);
 
-        vkCmdDrawIndexed(frame.command_buffer, app.num_indices, 1, 0, 0, 0);
+        // vkCmdDrawIndexed(frame.command_buffer, app.num_indices, 1, 0, 0, 0);
 
         gfx::CmdEndRendering(frame.command_buffer);
 
@@ -623,7 +664,10 @@ int main(int argc, char** argv) {
         gfx::DestroyBuffer(&app.uniform_buffers[i], vk);
     }
 
-    gfx::DestroyBuffer(&vertex_buffer, vk);
+    gfx::DestroyBuffer(&vertex_buffer_gpu, vk);
+#if !DIRECT_UPLOAD
+    gfx::DestroyBuffer(&vertex_buffer_upload, vk);
+#endif
     gfx::DestroyBuffer(&index_buffer, vk);
 
     gfx::DestroyShader(&vertex_shader, vk);
