@@ -8,7 +8,7 @@
 #define BOUNDS_CHECKING_ENABLED 1
 #endif
 
-template<typename T> struct Array;
+template<typename T, usize ALIGN=alignof(T)> struct Array;
 template<typename T, usize N> struct ArrayFixed;
 
 template<typename T>
@@ -29,7 +29,14 @@ struct ArrayView {
         length = array.length;
     }
 
-    ArrayView& operator=(const Array<T>& array) {
+    template<usize ALIGN>
+    ArrayView(const Array<T, ALIGN>& array) {
+        data = array.data;
+        length = array.length;
+    }
+
+    template<usize ALIGN>
+    ArrayView& operator=(const Array<T, ALIGN>& array) {
         data = array.data;
         length = array.length;
         return *this;
@@ -277,7 +284,7 @@ struct ObjArray {
     }
 };
 
-template<typename T>
+template<typename T, usize ALIGN>
 struct Array {
     static_assert(std::is_trivially_destructible<T>());
     static_assert(std::is_trivially_copyable<T>());
@@ -297,6 +304,8 @@ struct Array {
     Array& operator=(const Array& other) = delete;
 
     Array& operator=(Array&& other) {
+        AlignedFree(this->data);
+
         this->data = other.data;
         this->length = other.length;
         this->capacity = other.capacity;
@@ -353,7 +362,7 @@ struct Array {
     }
 
     void grow_unchecked(usize new_capacity) {
-        T* new_data = (T*)AlignedAlloc(alignof(T), new_capacity * sizeof(T));
+        T* new_data = (T*)AlignedAlloc(ALIGN, new_capacity * sizeof(T));
 
         memcpy(new_data, data, length * sizeof(T));
         memset(new_data + length, 0, (new_capacity - length) * sizeof(T));

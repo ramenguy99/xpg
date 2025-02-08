@@ -34,7 +34,7 @@ int main(int argc, char** argv) {
     u32 WORKERS = 4;
     u32 BUFFER_SIZE = (u32)16;
 
-    Array<u8> loaded_data(size * BUFFER_SIZE);
+    Array<u8, 4096> loaded_data(AlignUp(size, 4096) * BUFFER_SIZE);
     ArrayView<u8> loaded_data_view = loaded_data;
 
     WorkerPool pool;
@@ -48,7 +48,7 @@ int main(int argc, char** argv) {
 
             w.file = file;
             w.offset = 12 + size * index;
-            w.buffer = loaded_data_view.slice(buffer_index * size, size);
+            w.buffer = loaded_data_view.slice(buffer_index * AlignUp(size, 4096), size);
             w.do_chunks = true;
 
             return w;
@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
         .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
         .enable_validation_layer = true,
         .enable_gpu_based_validation = false,
-        .preferred_frames_in_flight = 3,
+        .preferred_frames_in_flight = 2,
     });
     // vk.copy_queue = VK_NULL_HANDLE;
 
@@ -130,8 +130,8 @@ int main(int argc, char** argv) {
         u32 num_indices;
 
         // Rendering
-        gfx::Buffer vertex_buffer_upload;
-        gfx::Buffer vertex_buffer_gpu;
+        Array<gfx::Buffer> vertex_buffers_upload;
+        Array<gfx::Buffer> vertex_buffers_gpu;
         gfx::Buffer index_buffer;
         VkPipeline pipeline;
         VkPipelineLayout layout;
@@ -142,42 +142,47 @@ int main(int argc, char** argv) {
     VkResult vkr;
 
 
-    gfx::Buffer vertex_buffer_upload = {};
+    Array<gfx::Buffer> vertex_buffers_upload(window.frames.length);
+    Array<gfx::Buffer> vertex_buffers_gpu(window.frames.length);
+    for(usize i = 0; i < window.frames.length; i++) {
 #if !DIRECT_UPLOAD
-    vkr = gfx::CreateBuffer(&vertex_buffer_upload, vk, sizeof(vec3) * V * window.images.length, {
-        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-    });
-    assert(vkr == VK_SUCCESS);
-    VkMemoryPropertyFlags upload_properties = {};
-    vmaGetAllocationMemoryProperties(vk.vma, vertex_buffer_upload.allocation, &upload_properties);
+        vkr = gfx::CreateBuffer(&vertex_buffers_upload[i], vk, sizeof(vec3) * V, {
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_DEDICATED_ALLOCATION,
+            .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+            .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+        });
+        assert(vkr == VK_SUCCESS);
+        VkMemoryPropertyFlags upload_properties = {};
+        vmaGetAllocationMemoryProperties(vk.vma, vertex_buffers_upload[i].allocation, &upload_properties);
 #endif
 
-    gfx::Buffer vertex_buffer_gpu = {};
-    vkr = gfx::CreateBuffer(&vertex_buffer_gpu, vk, sizeof(vec3) * V * window.images.length, {
-        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
-#if !DIRECT_UPLOAD
-            | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-#endif
-        ,
-// #if DIRECT_UPLOAD
-        .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
-// #endif
-        .alloc_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-// #if DIRECT_UPLOAD
-        | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-// #endif
-        ,
-    });
-    assert(vkr == VK_SUCCESS);
-    VkMemoryPropertyFlags gpu_properties = {};
-    vmaGetAllocationMemoryProperties(vk.vma, vertex_buffer_gpu.allocation, &gpu_properties);
+        vkr = gfx::CreateBuffer(&vertex_buffers_gpu[i], vk, sizeof(vec3) * V, {
+            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+    #if !DIRECT_UPLOAD
+                | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+    #endif
+            ,
+    #if DIRECT_UPLOAD
+            .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
+    #else
+            .alloc_flags = VMA_DEDICATED_ALLOCATION,
+    #endif
+            .alloc_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    #if DIRECT_UPLOAD
+            | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+    #endif
+            ,
+            .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+        });
+        assert(vkr == VK_SUCCESS);
+        VkMemoryPropertyFlags gpu_properties = {};
+        vmaGetAllocationMemoryProperties(vk.vma, vertex_buffers_gpu[i].allocation, &gpu_properties);
+    }
 
     gfx::Buffer index_buffer = {};
     vkr = gfx::CreateBufferFromData(&index_buffer, vk, indices.as_bytes(), {
         .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
         .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     });
@@ -302,8 +307,8 @@ int main(int argc, char** argv) {
     app.wait_for_events = true;
     app.frame_times.resize(ArrayCount(app.frame_times.data));
     app.last_frame_timestamp = platform::GetTimestamp();
-    app.vertex_buffer_upload = vertex_buffer_upload;
-    app.vertex_buffer_gpu = vertex_buffer_gpu;
+    app.vertex_buffers_upload = std::move(vertex_buffers_upload);
+    app.vertex_buffers_gpu = std::move(vertex_buffers_gpu);
     app.index_buffer = index_buffer;
     app.pipeline = pipeline.pipeline;
     app.descriptor_sets = std::move(descriptor_sets);
@@ -452,7 +457,6 @@ int main(int argc, char** argv) {
 
         //u32 animation_frame = app.current_frame % app.num_frames;
         u32 size = app.num_vertices * sizeof(vec3);
-        u32 buffer_offset = size * app.frame_index;
 
     #if 0
         Array<vec3> vertices(app.num_vertices);
@@ -462,14 +466,14 @@ int main(int argc, char** argv) {
     #if DIRECT_UPLOAD
         platform::FileReadWork w = app.mesh_stream.get_frame(app.playback_frame);
         platform::Timestamp begin = platform::GetTimestamp();
-        memcpy(app.vertex_buffer_gpu.map.data + buffer_offset, w.buffer.data, size);
+        memcpy(app.vertex_buffers_gpu[app.frame_index].map.data, w.buffer.data, size);
         double elapsed = platform::GetElapsed(begin, platform::GetTimestamp());
         // logging::info("sequence", "memcpy to device: %6.3fms (%6.3fGB/s) (%6.3f MB)", elapsed * 1000, (double)size / elapsed / (1024 * 1024 * 1024), (double)size / (1024 * 1024));
     #else
         platform::FileReadWork w = app.mesh_stream.get_frame(app.playback_frame);
 
         platform::Timestamp begin = platform::GetTimestamp();
-        memcpy(app.vertex_buffer_upload.map.data + buffer_offset, w.buffer.data, size);
+        memcpy(app.vertex_buffers_upload[app.frame_index].map.data, w.buffer.data, size);
         double elapsed = platform::GetElapsed(begin, platform::GetTimestamp());
         // logging::info("sequence", "memcpy to host: %6.3fms (%6.3fGB/s) (%6.3f MB)", elapsed * 1000, (double)size / elapsed / (1024 * 1024 * 1024), (double)size / (1024 * 1024));
     #endif
@@ -478,36 +482,35 @@ int main(int argc, char** argv) {
 #if DIRECT_UPLOAD
         // Flush caches on the CPU if the memory is not coherent (make available)
         VkMemoryPropertyFlags properties = {};
-        vmaGetAllocationMemoryProperties(vk.vma, app.vertex_buffer_gpu.allocation, &properties);
+        vmaGetAllocationMemoryProperties(vk.vma, app.vertex_buffers_gpu[app.frame_index].allocation, &properties);
         if(!(properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
             VmaAllocationInfo info = {};
-            vmaGetAllocationInfo(vk.vma, app.vertex_buffer_gpu.allocation, &info);
+            vmaGetAllocationInfo(vk.vma, app.vertex_buffers_gpu[app.frame_index].allocation, &info);
 
             VkMappedMemoryRange range = { VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE };
             range.memory = info.deviceMemory;
-            usize offset = info.offset + buffer_offset;
-            range.offset = AlignDown(offset, 4096);
-            range.size = Min(AlignUp(size, 4096), info.size - offset);
+            range.offset = 0;
+            range.size = VK_WHOLE_SIZE;
             vkFlushMappedMemoryRanges(vk.device, 1, &range);
         }
 #else
         if(vk.copy_queue != VK_NULL_HANDLE) {
             gfx::BeginCommands(frame.copy_command_pool, frame.copy_command_buffer, vk);
             VkBufferCopy region;
-            region.srcOffset = buffer_offset;
-            region.dstOffset = buffer_offset;
+            region.srcOffset = 0;
+            region.dstOffset = 0;
             region.size = size;
-            vkCmdCopyBuffer(frame.copy_command_buffer, app.vertex_buffer_upload.buffer, app.vertex_buffer_gpu.buffer, 1, &region);
+            vkCmdCopyBuffer(frame.copy_command_buffer, app.vertex_buffers_upload[app.frame_index].buffer, app.vertex_buffers_gpu[app.frame_index].buffer, 1, &region);
 
             // Queue transfer on copy queue
             gfx::CmdBufferBarrier(frame.copy_command_buffer, {
-                .buffer = app.vertex_buffer_gpu.buffer,
+                .buffer = app.vertex_buffers_gpu[app.frame_index].buffer,
                 .src_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
                 .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
                 .src_queue = vk.copy_queue_family_index,
                 .dst_queue = vk.queue_family_index,
-                .offset = buffer_offset,
-                .size = size,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
             });
 
             gfx::EndCommands(frame.copy_command_buffer);
@@ -527,20 +530,18 @@ int main(int argc, char** argv) {
 
             // Queue transfer on Graphics queue
             gfx::CmdBufferBarrier(frame.command_buffer, {
-                .buffer = app.vertex_buffer_gpu.buffer,
+                .buffer = app.vertex_buffers_gpu[app.frame_index].buffer,
                 .dst_stage = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
                 .dst_access = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,
                 .src_queue = vk.copy_queue_family_index,
                 .dst_queue = vk.queue_family_index,
-                .offset = buffer_offset,
-                .size = size,
             });
         } else {
             VkBufferCopy region;
-            region.srcOffset = buffer_offset;
-            region.dstOffset = buffer_offset;
+            region.srcOffset = 0;
+            region.dstOffset = 0;
             region.size = size;
-            vkCmdCopyBuffer(frame.command_buffer, app.vertex_buffer_upload.buffer, app.vertex_buffer_gpu.buffer, 1, &region);
+            vkCmdCopyBuffer(frame.command_buffer, app.vertex_buffers_upload[app.frame_index].buffer, app.vertex_buffers_gpu[app.frame_index].buffer, 1, &region);
         }
 #endif
 
@@ -599,8 +600,8 @@ int main(int argc, char** argv) {
 
         vkCmdBindPipeline(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app.pipeline);
 
-        VkDeviceSize offsets[1] = { buffer_offset };
-        vkCmdBindVertexBuffers(frame.command_buffer, 0, 1, &app.vertex_buffer_gpu.buffer, offsets);
+        VkDeviceSize offsets[1] = { 0 };
+        vkCmdBindVertexBuffers(frame.command_buffer, 0, 1, &app.vertex_buffers_gpu[app.frame_index].buffer, offsets);
 
         vkCmdBindIndexBuffer(frame.command_buffer, app.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
@@ -763,12 +764,12 @@ int main(int argc, char** argv) {
     for (usize i = 0; i < window.frames.length; i++) {
         gfx::DestroyGPUSemaphore(vk.device, app.render_done_semaphores[i]);
         gfx::DestroyGPUSemaphore(vk.device, app.copy_done_semaphores[i]);
+        gfx::DestroyBuffer(&app.vertex_buffers_gpu[i], vk);
+    #if !DIRECT_UPLOAD
+        gfx::DestroyBuffer(&app.vertex_buffers_upload[i], vk);
+    #endif
     }
 
-    gfx::DestroyBuffer(&vertex_buffer_gpu, vk);
-#if !DIRECT_UPLOAD
-    gfx::DestroyBuffer(&vertex_buffer_upload, vk);
-#endif
     gfx::DestroyBuffer(&index_buffer, vk);
 
     gfx::DestroyShader(&vertex_shader, vk);
