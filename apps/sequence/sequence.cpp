@@ -185,6 +185,7 @@ int main(int argc, char** argv) {
         .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
         .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
     });
     assert(vkr == VK_SUCCESS);
 

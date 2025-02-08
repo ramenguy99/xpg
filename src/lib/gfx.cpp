@@ -1536,7 +1536,7 @@ CreateDepthBuffer(DepthBuffer* depth_buffer, const Context& vk, u32 width, u32 h
     image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
 
     VmaAllocationCreateInfo alloc_create_info = {};
-    alloc_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+    alloc_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
     alloc_create_info.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
     alloc_create_info.priority = 1.0f;
 

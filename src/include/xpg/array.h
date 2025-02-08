@@ -24,11 +24,6 @@ struct ArrayView {
     }
 
 
-    ArrayView(const Array<T>& array) {
-        data = array.data;
-        length = array.length;
-    }
-
     template<usize ALIGN>
     ArrayView(const Array<T, ALIGN>& array) {
         data = array.data;

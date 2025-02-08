@@ -460,7 +460,7 @@ struct BufferDesc {
     VmaAllocationCreateFlags alloc_flags = 0;
     VkMemoryPropertyFlags alloc_required_flags = 0;
     VkMemoryPropertyFlags alloc_preferred_flags = 0;
-    VmaMemoryUsage alloc_usage = VMA_MEMORY_USAGE_UNKNOWN;
+    VmaMemoryUsage alloc_usage = VMA_MEMORY_USAGE_AUTO;
 };
 
 VkResult CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& desc);
