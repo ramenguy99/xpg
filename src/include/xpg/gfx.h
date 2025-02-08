@@ -105,7 +105,10 @@ struct Context
     VkDevice device;
     VkQueue queue;
     u32 queue_family_index;
+    VkQueue copy_queue;
+    u32 copy_queue_family_index;
     VmaAllocator vma;
+    uint32_t preferred_frames_in_flight = 2;
 
     // Sync command submission
     VkCommandPool sync_command_pool;
@@ -123,6 +126,7 @@ struct ContextDesc {
     DeviceFeatures device_features;
     bool enable_validation_layer;
     bool enable_gpu_based_validation = false;
+    uint32_t preferred_frames_in_flight = 2;
 };
 
 Result Init();
@@ -131,6 +135,7 @@ Result CreateContext(Context* vk, const ContextDesc&& desc);
 void DestroyContext(Context* vk);
 void WaitIdle(Context& vk);
 VkResult CreateGPUSemaphore(VkDevice device, VkSemaphore* semaphore);
+void DestroyGPUSemaphore(VkDevice device, VkSemaphore semaphore);
 
 //- Swapchain
 enum class SwapchainStatus
@@ -149,6 +154,9 @@ struct Frame
 {
     VkCommandPool command_pool;
     VkCommandBuffer command_buffer;
+
+    VkCommandPool copy_command_pool;
+    VkCommandBuffer copy_command_buffer;
 
     VkSemaphore acquire_semaphore;
     VkSemaphore release_semaphore;
@@ -263,6 +271,21 @@ struct MemoryBarrierDesc
 };
 
 void CmdMemoryBarrier(VkCommandBuffer cmd, const MemoryBarrierDesc&& desc);
+
+struct BufferBarrierDesc
+{
+    VkBuffer buffer;
+    VkPipelineStageFlags2 src_stage;
+    VkPipelineStageFlags2 dst_stage;
+    VkAccessFlags2 src_access;
+    VkAccessFlags2 dst_access;
+    u32 src_queue = VK_QUEUE_FAMILY_IGNORED;
+    u32 dst_queue = VK_QUEUE_FAMILY_IGNORED;
+    u64 offset = 0;
+    u64 size = VK_WHOLE_SIZE;
+};
+
+void CmdBufferBarrier(VkCommandBuffer cmd, const BufferBarrierDesc&& desc);
 
 struct ImageBarrierDesc
 {

@@ -11,7 +11,7 @@ using glm::mat4;
 
 #include "types.h"
 
-#define DIRECT_UPLOAD 1
+#define DIRECT_UPLOAD 0
 
 int main(int argc, char** argv) {
     platform::File file = {};
@@ -87,7 +87,10 @@ int main(int argc, char** argv) {
         .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
         .enable_validation_layer = true,
         .enable_gpu_based_validation = false,
+        .preferred_frames_in_flight = 3,
     });
+    // vk.copy_queue = VK_NULL_HANDLE;
+
     if (result != gfx::Result::SUCCESS) {
         logging::error("sequence", "Failed to initialize vulkan\n");
         exit(100);
@@ -132,6 +135,8 @@ int main(int argc, char** argv) {
         gfx::Buffer index_buffer;
         VkPipeline pipeline;
         VkPipelineLayout layout;
+        Array<VkSemaphore> copy_done_semaphores;
+        Array<VkSemaphore> render_done_semaphores;
     };
 
     VkResult vkr;
@@ -145,11 +150,13 @@ int main(int argc, char** argv) {
         .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
     });
     assert(vkr == VK_SUCCESS);
+    VkMemoryPropertyFlags upload_properties = {};
+    vmaGetAllocationMemoryProperties(vk.vma, vertex_buffer_upload.allocation, &upload_properties);
 #endif
 
     gfx::Buffer vertex_buffer_gpu = {};
     vkr = gfx::CreateBuffer(&vertex_buffer_gpu, vk, sizeof(vec3) * V * window.images.length, {
-        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT 
+        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
 #if !DIRECT_UPLOAD
             | VK_BUFFER_USAGE_TRANSFER_DST_BIT
 #endif
@@ -164,6 +171,8 @@ int main(int argc, char** argv) {
         ,
     });
     assert(vkr == VK_SUCCESS);
+    VkMemoryPropertyFlags gpu_properties = {};
+    vmaGetAllocationMemoryProperties(vk.vma, vertex_buffer_gpu.allocation, &gpu_properties);
 
     gfx::Buffer index_buffer = {};
     vkr = gfx::CreateBufferFromData(&index_buffer, vk, indices.as_bytes(), {
@@ -282,6 +291,13 @@ int main(int argc, char** argv) {
     vkr = gfx::CreateDepthBuffer(&depth_buffer, vk, window.fb_width, window.fb_height);
     assert(vkr == VK_SUCCESS);
 
+    Array<VkSemaphore> copy_done_semaphores(window.frames.length);
+    Array<VkSemaphore> render_done_semaphores(window.frames.length);
+    for(usize i = 0; i < window.frames.length; i++) {
+        gfx::CreateGPUSemaphore(vk.device, &copy_done_semaphores[i]);
+        gfx::CreateGPUSemaphore(vk.device, &render_done_semaphores[i]);
+    }
+
     App app = {};
     app.wait_for_events = true;
     app.frame_times.resize(ArrayCount(app.frame_times.data));
@@ -300,6 +316,9 @@ int main(int argc, char** argv) {
     app.num_indices = (u32)I;
     app.mesh_file = file;
     app.mesh_stream = std::move(mesh_stream);
+
+    app.copy_done_semaphores = std::move(copy_done_semaphores);
+    app.render_done_semaphores = std::move(render_done_semaphores);
 
     auto Draw = [&app, &vk, &window] () {
         if (app.closed) return;
@@ -445,14 +464,14 @@ int main(int argc, char** argv) {
         platform::Timestamp begin = platform::GetTimestamp();
         memcpy(app.vertex_buffer_gpu.map.data + buffer_offset, w.buffer.data, size);
         double elapsed = platform::GetElapsed(begin, platform::GetTimestamp());
-        logging::info("sequence", "memcpy to device: %6.3fms (%6.3fGB/s) (%6.3f MB)", elapsed * 1000, (double)size / elapsed / (1024 * 1024 * 1024), (double)size / (1024 * 1024));
+        // logging::info("sequence", "memcpy to device: %6.3fms (%6.3fGB/s) (%6.3f MB)", elapsed * 1000, (double)size / elapsed / (1024 * 1024 * 1024), (double)size / (1024 * 1024));
     #else
         platform::FileReadWork w = app.mesh_stream.get_frame(app.playback_frame);
 
         platform::Timestamp begin = platform::GetTimestamp();
         memcpy(app.vertex_buffer_upload.map.data + buffer_offset, w.buffer.data, size);
         double elapsed = platform::GetElapsed(begin, platform::GetTimestamp());
-        logging::info("sequence", "memcpy to host: %6.3fms (%6.3fGB/s) (%6.3f MB)", elapsed * 1000, (double)size / elapsed / (1024 * 1024 * 1024), (double)size / (1024 * 1024));
+        // logging::info("sequence", "memcpy to host: %6.3fms (%6.3fGB/s) (%6.3f MB)", elapsed * 1000, (double)size / elapsed / (1024 * 1024 * 1024), (double)size / (1024 * 1024));
     #endif
     #endif
 
@@ -472,11 +491,57 @@ int main(int argc, char** argv) {
             vkFlushMappedMemoryRanges(vk.device, 1, &range);
         }
 #else
-        VkBufferCopy region;
-        region.srcOffset = buffer_offset;
-        region.dstOffset = buffer_offset;
-        region.size = size;
-        vkCmdCopyBuffer(frame.command_buffer, app.vertex_buffer_upload.buffer, app.vertex_buffer_gpu.buffer, 1, &region);
+        if(vk.copy_queue != VK_NULL_HANDLE) {
+            gfx::BeginCommands(frame.copy_command_pool, frame.copy_command_buffer, vk);
+            VkBufferCopy region;
+            region.srcOffset = buffer_offset;
+            region.dstOffset = buffer_offset;
+            region.size = size;
+            vkCmdCopyBuffer(frame.copy_command_buffer, app.vertex_buffer_upload.buffer, app.vertex_buffer_gpu.buffer, 1, &region);
+
+            // Queue transfer on copy queue
+            gfx::CmdBufferBarrier(frame.copy_command_buffer, {
+                .buffer = app.vertex_buffer_gpu.buffer,
+                .src_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
+                .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                .src_queue = vk.copy_queue_family_index,
+                .dst_queue = vk.queue_family_index,
+                .offset = buffer_offset,
+                .size = size,
+            });
+
+            gfx::EndCommands(frame.copy_command_buffer);
+
+            VkPipelineStageFlags stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+            VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            submit_info.commandBufferCount = 1;
+            submit_info.pCommandBuffers = &frame.copy_command_buffer;
+            submit_info.waitSemaphoreCount = app.current_frame >= app.render_done_semaphores.length ? 1 : 0;
+            submit_info.pWaitSemaphores = &app.render_done_semaphores[app.frame_index];
+            submit_info.pWaitDstStageMask = &stage_mask;
+            submit_info.signalSemaphoreCount = 1;
+            submit_info.pSignalSemaphores = &app.copy_done_semaphores[app.frame_index];
+            VkResult vkr = vkQueueSubmit(vk.copy_queue, 1, &submit_info, VK_NULL_HANDLE);
+            assert(vkr == VK_SUCCESS);
+
+            // Queue transfer on Graphics queue
+            gfx::CmdBufferBarrier(frame.command_buffer, {
+                .buffer = app.vertex_buffer_gpu.buffer,
+                .dst_stage = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
+                .dst_access = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,
+                .src_queue = vk.copy_queue_family_index,
+                .dst_queue = vk.queue_family_index,
+                .offset = buffer_offset,
+                .size = size,
+            });
+        } else {
+            VkBufferCopy region;
+            region.srcOffset = buffer_offset;
+            region.dstOffset = buffer_offset;
+            region.size = size;
+            vkCmdCopyBuffer(frame.command_buffer, app.vertex_buffer_upload.buffer, app.vertex_buffer_gpu.buffer, 1, &region);
+        }
 #endif
 
         // Invalidate caches on the GPU (make visible)
@@ -562,7 +627,7 @@ int main(int argc, char** argv) {
 
         vkCmdBindDescriptorSets(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app.layout, 0, 1, &app.descriptor_sets[app.frame_index].set, 0, 0);
 
-        // vkCmdDrawIndexed(frame.command_buffer, app.num_indices, 1, 0, 0, 0);
+        vkCmdDrawIndexed(frame.command_buffer, app.num_indices, 1, 0, 0, 0);
 
         gfx::CmdEndRendering(frame.command_buffer);
 
@@ -594,8 +659,39 @@ int main(int argc, char** argv) {
         gfx::EndCommands(frame.command_buffer);
 
         VkResult vkr;
+#if DIRECT_UPLOAD
         vkr = gfx::Submit(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+#else
+        if(vk.copy_queue == VK_NULL_HANDLE) {
+            vkr = gfx::Submit(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        } else {
+            VkSemaphore wait_semaphores[] = {
+                frame.acquire_semaphore,
+                app.copy_done_semaphores[app.frame_index],
+            };
+
+            VkPipelineStageFlags wait_stages[] = {
+                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+            };
+
+            VkSemaphore signal_semaphores[] = {
+                frame.release_semaphore,
+                app.render_done_semaphores[app.frame_index],
+            };
+
+            VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            submit_info.commandBufferCount = 1;
+            submit_info.pCommandBuffers = &frame.command_buffer;
+            submit_info.waitSemaphoreCount = 2;
+            submit_info.pWaitSemaphores = wait_semaphores,
+            submit_info.pWaitDstStageMask = wait_stages;
+            submit_info.signalSemaphoreCount = 2;
+            submit_info.pSignalSemaphores = signal_semaphores;
+            vkr = vkQueueSubmit(vk.queue, 1, &submit_info, frame.fence);
+        }
         assert(vkr == VK_SUCCESS);
+#endif
 
         vkr = gfx::PresentFrame(&window, &frame, vk);
         assert(vkr == VK_SUCCESS);
@@ -662,6 +758,11 @@ int main(int argc, char** argv) {
 
     for (usize i = 0; i < app.uniform_buffers.length; i++) {
         gfx::DestroyBuffer(&app.uniform_buffers[i], vk);
+    }
+
+    for (usize i = 0; i < window.frames.length; i++) {
+        gfx::DestroyGPUSemaphore(vk.device, app.render_done_semaphores[i]);
+        gfx::DestroyGPUSemaphore(vk.device, app.copy_done_semaphores[i]);
     }
 
     gfx::DestroyBuffer(&vertex_buffer_gpu, vk);

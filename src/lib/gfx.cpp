@@ -166,6 +166,13 @@ CreateGPUSemaphore(VkDevice device, VkSemaphore* semaphore)
     return vkCreateSemaphore(device, &semaphore_info, 0, semaphore);
 }
 
+void
+DestroyGPUSemaphore(VkDevice device, VkSemaphore semaphore)
+{
+    vkDestroySemaphore(device, semaphore, 0);
+}
+
+
 Result
 CreateContext(Context* vk, const ContextDesc&& desc)
 {
@@ -296,44 +303,70 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     }
 
     VkPhysicalDevice physical_device = 0;
-    u32 queue_family_index = 0;
+
+    u32 picked_queue_family_index = 0;
+    u32 picked_copy_queue_family_index = 0;
+    bool picked_queue_family_found = false;
+    bool picked_copy_queue_family_found = false;
     for (u32 i = 0; i < physical_device_count; i++) {
+        u32 queue_family_index = 0;
+        u32 copy_queue_family_index = 0;
+        bool queue_family_found = false;
+        bool copy_queue_family_found = false;
+
+        // Check queues
+        u32 queue_family_property_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_property_count, 0);
+        Array<VkQueueFamilyProperties> queue_family_properties(queue_family_property_count);
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_property_count, queue_family_properties.data);
+        for (u32 j = 0; j < queue_family_property_count; j++) {
+            VkQueueFamilyProperties& prop = queue_family_properties[j];
+            if(prop.queueCount > 0) {
+                if(prop.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                    if(!queue_family_found) {
+                        queue_family_index = j;
+                        queue_family_found = true;
+                    }
+                } else if(prop.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+                    // TODO: async compute queue
+                } else if(prop.queueFlags & VK_QUEUE_TRANSFER_BIT) {
+                    if(!copy_queue_family_found) {
+                        copy_queue_family_index = j;
+                        copy_queue_family_found = true;
+                    }
+                }
+            }
+            //@Incomplete vkGetQueueFamilyProperties* versions, support more / vendor specific queue family information
+            //printf("Queue: %x - %d\n", prop.queueFlags, prop.queueCount);
+
+            // TODO: Check presentation support, this actually requires getting a surface, so we can't
+            // do this here. To support this we need to delay queue choice after creating a window.
+            // Order of dependencies is then: instance -> window -> physical device + queue family -> device -> everthing else
+
+            // VkBool32 presentationSupport = false;
+            // vkGetPhysicalDeviceSurfaceSupportKHR(physical_devices[i], j, surface, &presentationSupport);
+        }
+
+        // Check device properties
         VkPhysicalDeviceProperties p = {};
         vkGetPhysicalDeviceProperties(physical_devices[i], &p);
         //@Feature: vkGetPhysicalDeviceProperties2, support more / vendor specific device information
 
         bool picked = false;
-        if (!physical_device || p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+        if ((!physical_device || p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) && queue_family_found) {
             physical_device = physical_devices[i];
-            picked = true;
+
+            picked_queue_family_index = queue_family_index;
+            picked_copy_queue_family_index = copy_queue_family_index;
+            picked_queue_family_found = queue_family_found;
+            picked_copy_queue_family_found = copy_queue_family_found;
         }
 
-        logging::info("gfx/info", "Physical device %u:%s\n    Name: %s\n    Vulkan version: %u.%u.%u\n    Drivers version: %u\n    Vendor ID: %u\n    Device ID: %u\n    Device type: %s\n",
+        logging::info("gfx/info", "Physical device %u:%s\n    Name: %s\n    Vulkan version: %u.%u.%u\n    Drivers version: %u\n    Vendor ID: %u\n    Device ID: %u\n    Device type: %s\n    QueueFamily: %d (%s)\n    CopyQueueFamily: %d (%s)\n",
             i, picked ? " (PICKED)" : "", p.deviceName,
             VK_API_VERSION_MAJOR(p.apiVersion), VK_API_VERSION_MINOR(p.apiVersion), VK_API_VERSION_PATCH(p.apiVersion),
-            p.driverVersion, p.vendorID, p.deviceID,
-            string_VkPhysicalDeviceType(p.deviceType));
-            // PhysicalDeviceTypeToString(p.deviceType));
-
-#if 0
-        // @Incomplete queue and device group information can be used to choose the appropriate device to use
-        u32 queue_family_property_count;
-        vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_property_count, 0);
-        VkQueueFamilyProperties* queue_family_properties = (VkQueueFamilyProperties*)ZeroAlloc(sizeof(VkQueueFamilyProperties) * queue_family_property_count);
-        vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_property_count, queue_family_properties);
-        // @Hack assert that there is at least a queue and that it has all the bits we are interested in
-        // VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT
-        assert(queue_family_property_count > 0 && queue_family_property_count & 0x7);
-
-
-
-        for (u32 j = 0; j < queue_family_property_count; j++) {
-            VkQueueFamilyProperties& prop = queue_family_properties[j];
-            //@Incomplete vkGetQueueFamilyProperties* versions, support more / vendor specific queue family information
-            //printf("Queue: %x - %d\n", prop.queueFlags, prop.queueCount);
-
-        }
-
+            p.driverVersion, p.vendorID, p.deviceID, string_VkPhysicalDeviceType(p.deviceType),
+            queue_family_index, queue_family_found ? "yes" : "no", copy_queue_family_index, copy_queue_family_found ? "yes" : "no");
 
         /*
         //@Incomplete group of physical devices with same extensions, see 5.2 of the spec
@@ -341,7 +374,6 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         VkPhysicalDeviceGroupProperties group_properties[1];
         vkEnumeratePhysicalDeviceGroups(instance, &count, group_properties);
         */
-#endif
     }
 
     // Check that a valid device is found.
@@ -353,16 +385,22 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     // Create a physical device.
     VkDevice device = 0;
 
-    // @TODO: Queue family index should have been choosen before when picking the device.
     float queue_priorities[] = { 1.0f };
-    VkDeviceQueueCreateInfo queue_create_info = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
-    queue_create_info.queueFamilyIndex = 0;
-    queue_create_info.queueCount = 1;
-    queue_create_info.pQueuePriorities = queue_priorities;
+    float copy_queue_priorities[] = { 1.0f };
+    VkDeviceQueueCreateInfo queue_create_info[2] = {};
+    queue_create_info[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queue_create_info[0].queueFamilyIndex = picked_queue_family_index;
+    queue_create_info[0].queueCount = 1;
+    queue_create_info[0].pQueuePriorities = queue_priorities;
+
+    queue_create_info[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queue_create_info[1].queueFamilyIndex = picked_copy_queue_family_index;
+    queue_create_info[1].queueCount = 1;
+    queue_create_info[1].pQueuePriorities = copy_queue_priorities;
 
     VkDeviceCreateInfo device_create_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-    device_create_info.queueCreateInfoCount = 1;
-    device_create_info.pQueueCreateInfos = &queue_create_info;
+    device_create_info.queueCreateInfoCount = picked_copy_queue_family_found ? 2 : 1;
+    device_create_info.pQueueCreateInfos = queue_create_info;
     device_create_info.enabledExtensionCount = (u32)desc.device_extensions.length;
     device_create_info.ppEnabledExtensionNames = desc.device_extensions.data;
     device_create_info.pEnabledFeatures = NULL;
@@ -428,13 +466,18 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         return Result::VMA_CREATION_FAILED;
     }
 
-    VkQueue queue;
-    vkGetDeviceQueue(device, queue_family_index, 0, &queue);
+    VkQueue queue = VK_NULL_HANDLE;
+    vkGetDeviceQueue(device, picked_queue_family_index, 0, &queue);
+
+    VkQueue copy_queue = VK_NULL_HANDLE;
+    if(picked_copy_queue_family_found) {
+        vkGetDeviceQueue(device, picked_copy_queue_family_index, 0, &copy_queue);
+    }
 
     // Create sync command
     VkCommandPoolCreateInfo sync_pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     sync_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;// | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    sync_pool_info.queueFamilyIndex = queue_family_index;
+    sync_pool_info.queueFamilyIndex = picked_queue_family_index;
 
     VkCommandPool sync_pool = {};
     result = vkCreateCommandPool(device, &sync_pool_info, 0, &sync_pool);
@@ -465,7 +508,10 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     vk->physical_device = physical_device;
     vk->device = device;
     vk->queue = queue;
-    vk->queue_family_index = queue_family_index;
+    vk->queue_family_index = picked_queue_family_index;
+    vk->copy_queue = copy_queue;
+    vk->copy_queue_family_index = picked_copy_queue_family_index;
+    vk->preferred_frames_in_flight = desc.preferred_frames_in_flight;
     vk->debug_callback = debug_callback;
     vk->vma = vma;
     vk->sync_command_pool = sync_pool;
@@ -525,10 +571,10 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     // See:
     // - Raph levien blog: https://raphlinus.github.io/rust/gui/2019/06/21/smooth-resize-test.html
     // - Winit discussion: https://github.com/rust-windowing/winit/issues/786
-    swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    // swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     // swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
     // swapchain_info.presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
-    // swapchain_info.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+    swapchain_info.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
     swapchain_info.oldSwapchain = old_swapchain;
 
     VkSwapchainKHR swapchain;
@@ -691,13 +737,18 @@ EndCommands(VkCommandBuffer buffer) {
     return vkEndCommandBuffer(buffer);
 }
 
-VkResult Submit(const Frame& frame, const Context& vk, VkSubmitFlags submit_stage_mask) {
+VkResult SubmitQueue(const Context& vk, VkSubmitFlags submit_stage_mask) {
+    // TODO: advanced queue submission here
+    return VK_SUCCESS;
+}
+
+VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags stage_mask) {
     VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &frame.command_buffer;
     submit_info.waitSemaphoreCount = 1;
     submit_info.pWaitSemaphores = &frame.acquire_semaphore;
-    submit_info.pWaitDstStageMask = &submit_stage_mask;
+    submit_info.pWaitDstStageMask = &stage_mask;
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = &frame.release_semaphore;
 
@@ -770,7 +821,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     }
 
     // Compute number of frames in flight.
-    u32 num_frames = Max<u32>(2, surface_capabilities.minImageCount);
+    u32 num_frames = Max<u32>(vk.preferred_frames_in_flight, surface_capabilities.minImageCount);
     if (surface_capabilities.maxImageCount > 0) {
         num_frames = Min<u32>(num_frames, surface_capabilities.maxImageCount);
     }
@@ -817,23 +868,48 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     for (u32 i = 0; i < num_frames; i++) {
         gfx::Frame& frame = frames[i];
 
-        VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-        pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;// | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        pool_info.queueFamilyIndex = vk.queue_family_index;
+        // Graphics commands
+        {
+            VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+            pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;// | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+            pool_info.queueFamilyIndex = vk.queue_family_index;
 
-        result = vkCreateCommandPool(vk.device, &pool_info, 0, &frame.command_pool);
-        if (result != VK_SUCCESS) {
-            return Result::API_OUT_OF_MEMORY;
+            result = vkCreateCommandPool(vk.device, &pool_info, 0, &frame.command_pool);
+            if (result != VK_SUCCESS) {
+                return Result::API_OUT_OF_MEMORY;
+            }
+
+            VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+            allocate_info.commandPool = frame.command_pool;
+            allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocate_info.commandBufferCount = 1;
+
+            result = vkAllocateCommandBuffers(vk.device, &allocate_info, &frame.command_buffer);
+            if (result != VK_SUCCESS) {
+                return Result::API_OUT_OF_MEMORY;
+            }
         }
 
-        VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-        allocate_info.commandPool = frame.command_pool;
-        allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocate_info.commandBufferCount = 1;
+        // Copy commands, if queue is available
+        if (vk.copy_queue != VK_NULL_HANDLE) {
+            VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+            pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+            pool_info.queueFamilyIndex = vk.copy_queue_family_index;
 
-        result = vkAllocateCommandBuffers(vk.device, &allocate_info, &frame.command_buffer);
-        if (result != VK_SUCCESS) {
-            return Result::API_OUT_OF_MEMORY;
+            result = vkCreateCommandPool(vk.device, &pool_info, 0, &frame.copy_command_pool);
+            if (result != VK_SUCCESS) {
+                return Result::API_OUT_OF_MEMORY;
+            }
+
+            VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+            allocate_info.commandPool = frame.copy_command_pool;
+            allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocate_info.commandBufferCount = 1;
+
+            result = vkAllocateCommandBuffers(vk.device, &allocate_info, &frame.copy_command_buffer);
+            if (result != VK_SUCCESS) {
+                return Result::API_OUT_OF_MEMORY;
+            }
         }
 
         VkFenceCreateInfo fence_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
@@ -872,6 +948,11 @@ DestroyWindowWithSwapchain(Window* w, const Context& vk)
 
         vkFreeCommandBuffers(vk.device, frame.command_pool, 1, &frame.command_buffer);
         vkDestroyCommandPool(vk.device, frame.command_pool, 0);
+
+        if(vk.copy_queue) {
+            vkFreeCommandBuffers(vk.device, frame.copy_command_pool, 1, &frame.copy_command_buffer);
+            vkDestroyCommandPool(vk.device, frame.copy_command_pool, 0);
+        }
     }
 
 }
@@ -887,6 +968,26 @@ void CmdMemoryBarrier(VkCommandBuffer cmd, const MemoryBarrierDesc &&desc)
     VkDependencyInfo info = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
     info.memoryBarrierCount= 1;
     info.pMemoryBarriers = &barrier;
+
+    vkCmdPipelineBarrier2(cmd, &info);
+}
+
+void CmdBufferBarrier(VkCommandBuffer cmd, const BufferBarrierDesc&& desc)
+{
+    VkBufferMemoryBarrier2 barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
+    barrier.srcAccessMask = desc.src_access;
+    barrier.dstAccessMask = desc.dst_access;
+    barrier.srcStageMask = desc.src_stage;
+    barrier.dstStageMask = desc.dst_stage;
+    barrier.srcQueueFamilyIndex = desc.src_queue;
+    barrier.dstQueueFamilyIndex = desc.dst_queue;
+    barrier.buffer = desc.buffer;
+    barrier.offset = desc.offset;
+    barrier.size = desc.size;
+
+    VkDependencyInfo info = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+    info.bufferMemoryBarrierCount= 1;
+    info.pBufferMemoryBarriers = &barrier;
 
     vkCmdPipelineBarrier2(cmd, &info);
 }
