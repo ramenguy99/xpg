@@ -3,6 +3,8 @@
 
 #include <xpg/gfx.h>
 
+#define COPY_QUEUE_INDEX 2
+
 namespace gfx {
 
 static VkBool32 VKAPI_CALL
@@ -358,6 +360,10 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
             picked_queue_family_index = queue_family_index;
             picked_copy_queue_family_index = copy_queue_family_index;
+        #ifdef COPY_QUEUE_INDEX
+            picked_copy_queue_family_index = COPY_QUEUE_INDEX;
+        #endif
+
             picked_queue_family_found = queue_family_found;
             picked_copy_queue_family_found = copy_queue_family_found;
         }

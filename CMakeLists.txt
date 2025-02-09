@@ -114,7 +114,7 @@ target_include_directories(xpg PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(xpg PUBLIC volk_headers glfw glm VulkanMemoryAllocator slang)
+target_link_libraries(xpg PUBLIC volk_headers glfw glm VulkanMemoryAllocator)
 
 if (MSVC OR CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
     target_compile_definitions(xpg PUBLIC _CRT_SECURE_NO_WARNINGS)

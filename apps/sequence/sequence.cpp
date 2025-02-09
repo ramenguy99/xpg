@@ -1,3 +1,7 @@
+#define DIRECT_UPLOAD 0
+#define DEVICE_LOCAL_VERTICES 1
+#define SYNC_QUEUE 0
+
 #include <xpg/gui.h>
 #include <xpg/buffered_stream.h>
 
@@ -10,8 +14,6 @@ using glm::vec4;
 using glm::mat4;
 
 #include "types.h"
-
-#define DIRECT_UPLOAD 0
 
 int main(int argc, char** argv) {
     platform::File file = {};
@@ -89,7 +91,9 @@ int main(int argc, char** argv) {
         .enable_gpu_based_validation = false,
         .preferred_frames_in_flight = 2,
     });
-    // vk.copy_queue = VK_NULL_HANDLE;
+#if SYNC_QUEUE
+    vk.copy_queue = VK_NULL_HANDLE;
+#endif
 
     if (result != gfx::Result::SUCCESS) {
         logging::error("sequence", "Failed to initialize vulkan\n");
@@ -168,12 +172,21 @@ int main(int argc, char** argv) {
     #else
             .alloc_flags = VMA_DEDICATED_ALLOCATION,
     #endif
-            .alloc_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+            .alloc_required_flags = 0
+    #if DEVICE_LOCAL_VERTICES
+            | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    #else
+            | VK_MEMORY_PROPERTY_HOST_CACHED_BIT
+    #endif
     #if DIRECT_UPLOAD
             | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
     #endif
             ,
+    #if DEVICE_LOCAL_VERTICES
             .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+    #else
+            .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+    #endif
         });
         assert(vkr == VK_SUCCESS);
         VkMemoryPropertyFlags gpu_properties = {};
@@ -397,7 +410,7 @@ int main(int argc, char** argv) {
                 }
             };
             //ImGui::PlotLines("", app.frame_times.data, (int)app.frame_times.length, 0, 0, 0.0f, .0f, ImVec2(100, 30));
-            ImGui::PlotLines("", Getter::fn, &app, (int)app.frame_times.length, 0, 0, 0.0f, 200.0f, ImVec2(100, 30));
+            ImGui::PlotLines("", Getter::fn, &app, (int)app.frame_times.length, 0, 0, 0.0f, 400.0f, ImVec2(100, 30));
             ImGui::SameLine();
             ImGui::Text("FPS: %.2f (%.2fms) [%.2f (%.2fms)]", 1.0f / dt, dt * 1.0e3f, 1.0 / avg_frame_time, avg_frame_time * 1.0e3f);
 
