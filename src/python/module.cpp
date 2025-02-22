@@ -8,8 +8,10 @@
 #include <nanobind/intrusive/ref.h>
 #include <nanobind/intrusive/counter.inl>
 
+#if 0
 #include <slang.h>
 #include <slang-com-ptr.h>
+#endif
 
 #include <xpg/gfx.h>
 #include <xpg/gui.h>
@@ -76,7 +78,7 @@ struct Window: public nb::intrusive_base {
     void set_callbacks(std::function<void()> draw)
     {
         gfx::SetWindowCallbacks(&window, {
-            .draw = std::move(draw),
+            .draw = [draw = move(draw)]() { draw(); },
         });
     }
 
@@ -333,6 +335,7 @@ bool test2(std::function<bool()> callable) {
     return callable();
 }
 
+#if 0
 struct SlangType {
     slang::TypeReflection::Kind kind;
 
@@ -389,6 +392,7 @@ struct Program {
 
     // Entry point
 };
+#endif
 
 NB_MODULE(pyxpg, m) {
     nb::intrusive_init(

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "defines.h"
-#include <utility>
 #include <string.h>
+#include <initializer_list>
 
 #ifndef BOUNDS_CHECKING_ENABLED
 #define BOUNDS_CHECKING_ENABLED 1
@@ -148,6 +148,8 @@ struct ObjArray {
     ObjArray& operator=(const ObjArray& other) = delete;
 
     ObjArray& operator=(ObjArray&& other) {
+        AlignedFree(this->data);
+
         this->data = other.data;
         this->length = other.length;
         this->capacity = other.capacity;
@@ -158,7 +160,7 @@ struct ObjArray {
     }
 
     ObjArray(ObjArray&& other) {
-        *this = std::move(other);
+        *this = move(other);
     }
 
     void add(const T& value) {
@@ -176,7 +178,7 @@ struct ObjArray {
 			grow_unchecked(new_capacity);
 		}
 
-        new(data + length++) T(std::move(value));
+        new(data + length++) T(move(value));
 	}
 
 
@@ -188,7 +190,7 @@ struct ObjArray {
 
         // SUPPORT_NON_POD
         for (usize i = 0; i < arr.length; i++) {
-            new(data + length++) T(std::move(arr.data[i]));
+            new(data + length++) T(move(arr.data[i]));
         }
         //
 
@@ -221,7 +223,7 @@ struct ObjArray {
 
         // SUPPORT NON POD
         for (usize i = 0; i < length; i++) {
-            new(new_data + i) T(std::move(data[i]));
+            new(new_data + i) T(move(data[i]));
 
             // Destroy old element (even if we moved out we should still destroy the old object)
             data[i].~T();
@@ -281,10 +283,8 @@ struct ObjArray {
 
 template<typename T, usize ALIGN>
 struct Array {
-    static_assert(std::is_trivially_destructible<T>());
-    static_assert(std::is_trivially_copyable<T>());
-    static_assert(std::is_move_assignable<T>());
-    static_assert(std::is_move_constructible<T>());
+    static_assert(__is_trivially_destructible(T));
+    static_assert(__is_trivially_copyable(T));
 
     T* data = 0;
     usize length = 0;
@@ -311,7 +311,7 @@ struct Array {
     }
 
     Array(Array&& other) {
-        *this = std::move(other);
+        *this = move(other);
     }
 
     void add(const T& value) {
@@ -329,7 +329,7 @@ struct Array {
 			grow_unchecked(new_capacity);
 		}
 
-		data[length++] = std::move(value);
+		data[length++] = move(value);
 	}
 
 

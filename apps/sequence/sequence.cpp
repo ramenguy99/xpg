@@ -1,4 +1,4 @@
-#define DIRECT_UPLOAD 0
+#define DIRECT_UPLOAD 1
 #define DEVICE_LOCAL_VERTICES 1
 #define SYNC_QUEUE 0
 
@@ -31,43 +31,6 @@ int main(int argc, char** argv) {
     Array<u32> indices(I);
     ReadAtOffset(file, indices.as_bytes(), N * V * sizeof(vec3) + header.length);
 
-    u64 size = V * sizeof(vec3);
-
-    u32 WORKERS = 4;
-    u32 BUFFER_SIZE = (u32)16;
-
-    Array<u8, 4096> loaded_data(AlignUp(size, 4096) * BUFFER_SIZE);
-    ArrayView<u8> loaded_data_view = loaded_data;
-
-    WorkerPool pool;
-    pool.init(WORKERS);
-
-    using platform::FileReadWork;
-    BufferedStream<FileReadWork> mesh_stream(N, BUFFER_SIZE, &pool,
-        // Init
-        [=](u64 index, u64 buffer_index, bool high_priority) mutable {
-            FileReadWork w = {};
-
-            w.file = file;
-            w.offset = 12 + size * index;
-            w.buffer = loaded_data_view.slice(buffer_index * AlignUp(size, 4096), size);
-            w.do_chunks = true;
-
-            return w;
-    },
-        // Fill
-        [=](FileReadWork* w) {
-            u64 bytes_left = w->buffer.length - w->bytes_read;
-
-            u64 chunk_size = w->do_chunks ? Min((u64)128 * 1024, bytes_left) : bytes_left;
-            ReadAtOffset(w->file, w->buffer.slice(w->bytes_read, chunk_size), w->offset + w->bytes_read);
-            w->bytes_read += chunk_size;
-
-            //printf("Read data: %llu  %llu\n", w->buffer.length, w->offset);
-            return w->bytes_read == w->buffer.length;
-        }
-    );
-
     gfx::Result result;
     result = gfx::Init();
     if (result != gfx::Result::SUCCESS) {
@@ -87,10 +50,11 @@ int main(int argc, char** argv) {
         .instance_extensions = instance_extensions,
         .device_extensions = device_extensions,
         .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
-        .enable_validation_layer = true,
-        .enable_gpu_based_validation = false,
+        // .enable_validation_layer = true,
+        // .enable_gpu_based_validation = false,
         .preferred_frames_in_flight = 2,
     });
+
 #if SYNC_QUEUE
     vk.copy_queue = VK_NULL_HANDLE;
 #endif
@@ -146,21 +110,30 @@ int main(int argc, char** argv) {
     VkResult vkr;
 
 
-    Array<gfx::Buffer> vertex_buffers_upload(window.frames.length);
-    Array<gfx::Buffer> vertex_buffers_gpu(window.frames.length);
-    for(usize i = 0; i < window.frames.length; i++) {
+    u64 size = V * sizeof(vec3);
+
+    logging::info("sequence", "V %zu | I %zu | S %zu", V, I, size);
+
+    u32 WORKERS = 4;
+    u32 BUFFER_SIZE = (u32)8;
+
+    Array<gfx::Buffer> vertex_buffers_upload(BUFFER_SIZE);
 #if !DIRECT_UPLOAD
+    for(usize i = 0; i < BUFFER_SIZE; i++) {
         vkr = gfx::CreateBuffer(&vertex_buffers_upload[i], vk, sizeof(vec3) * V, {
             .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_DEDICATED_ALLOCATION,
+            .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_DEDICATED_ALLOCATION | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
             .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
         });
         assert(vkr == VK_SUCCESS);
         VkMemoryPropertyFlags upload_properties = {};
         vmaGetAllocationMemoryProperties(vk.vma, vertex_buffers_upload[i].allocation, &upload_properties);
+    }
 #endif
 
+    Array<gfx::Buffer> vertex_buffers_gpu(window.frames.length);
+    for(usize i = 0; i < window.frames.length; i++) {
         vkr = gfx::CreateBuffer(&vertex_buffers_gpu[i], vk, sizeof(vec3) * V, {
             .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
     #if !DIRECT_UPLOAD
@@ -168,7 +141,7 @@ int main(int argc, char** argv) {
     #endif
             ,
     #if DIRECT_UPLOAD
-            .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
+            .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
     #else
             .alloc_flags = VMA_DEDICATED_ALLOCATION,
     #endif
@@ -193,9 +166,51 @@ int main(int argc, char** argv) {
         vmaGetAllocationMemoryProperties(vk.vma, vertex_buffers_gpu[i].allocation, &gpu_properties);
     }
 
+#if DIRECT_UPLOAD
+    Array<u8, 4096> loaded_data(AlignUp(size, 4096) * BUFFER_SIZE);
+    ArrayView<u8> loaded_data_view = loaded_data;
+#else
+    ArrayView<gfx::Buffer> vertex_buffers_upload_view = vertex_buffers_upload;
+#endif
+
+    WorkerPool pool;
+    pool.init(WORKERS);
+
+    using platform::FileReadWork;
+    BufferedStream<FileReadWork> mesh_stream(N, BUFFER_SIZE, &pool,
+        // Init
+        [=](u64 index, u64 buffer_index, bool high_priority) mutable {
+            FileReadWork w = {};
+
+            w.file = file;
+            w.offset = 12 + size * index;
+#if DIRECT_UPLOAD
+            w.buffer = loaded_data_view.slice(buffer_index * AlignUp(size, 4096), size);
+#else
+            w.buffer = vertex_buffers_upload_view[buffer_index].map;
+#endif
+            w.do_chunks = true;
+
+            return w;
+    },
+        // Fill
+        [](FileReadWork* w) {
+            u64 bytes_left = w->buffer.length - w->bytes_read;
+
+            u64 chunk_size = w->do_chunks ? Min((u64)128 * 1024, bytes_left) : bytes_left;
+            ReadAtOffset(w->file, w->buffer.slice(w->bytes_read, chunk_size), w->offset + w->bytes_read);
+            w->bytes_read += chunk_size;
+
+            //printf("Read data: %llu  %llu\n", w->buffer.length, w->offset);
+            return w->bytes_read == w->buffer.length;
+        }
+    );
+
+
     gfx::Buffer index_buffer = {};
     vkr = gfx::CreateBufferFromData(&index_buffer, vk, indices.as_bytes(), {
         .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        .alloc_flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
         .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
@@ -292,7 +307,7 @@ int main(int argc, char** argv) {
     for (usize i = 0; i < uniform_buffers.length; i++) {
         vkr = gfx::CreateBuffer(&uniform_buffers[i], vk, sizeof(Constants), {
             .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
+            .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
             .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         });
@@ -321,12 +336,12 @@ int main(int argc, char** argv) {
     app.wait_for_events = true;
     app.frame_times.resize(ArrayCount(app.frame_times.data));
     app.last_frame_timestamp = platform::GetTimestamp();
-    app.vertex_buffers_upload = std::move(vertex_buffers_upload);
-    app.vertex_buffers_gpu = std::move(vertex_buffers_gpu);
+    app.vertex_buffers_upload = move(vertex_buffers_upload);
+    app.vertex_buffers_gpu = move(vertex_buffers_gpu);
     app.index_buffer = index_buffer;
     app.pipeline = pipeline.pipeline;
-    app.descriptor_sets = std::move(descriptor_sets);
-    app.uniform_buffers = std::move(uniform_buffers);
+    app.descriptor_sets = move(descriptor_sets);
+    app.uniform_buffers = move(uniform_buffers);
     app.layout = pipeline.layout;
     app.depth_buffer = depth_buffer;
 
@@ -334,10 +349,10 @@ int main(int argc, char** argv) {
     app.num_vertices = (u32)V;
     app.num_indices = (u32)I;
     app.mesh_file = file;
-    app.mesh_stream = std::move(mesh_stream);
+    app.mesh_stream = move(mesh_stream);
 
-    app.copy_done_semaphores = std::move(copy_done_semaphores);
-    app.render_done_semaphores = std::move(render_done_semaphores);
+    app.copy_done_semaphores = move(copy_done_semaphores);
+    app.render_done_semaphores = move(render_done_semaphores);
 
     auto Draw = [&app, &vk, &window] () {
         if (app.closed) return;
@@ -410,7 +425,7 @@ int main(int argc, char** argv) {
                 }
             };
             //ImGui::PlotLines("", app.frame_times.data, (int)app.frame_times.length, 0, 0, 0.0f, .0f, ImVec2(100, 30));
-            ImGui::PlotLines("", Getter::fn, &app, (int)app.frame_times.length, 0, 0, 0.0f, 400.0f, ImVec2(100, 30));
+            ImGui::PlotLines("", Getter::fn, &app, (int)app.frame_times.length, 0, 0, 0.0f, 600.0f, ImVec2(100, 30));
             ImGui::SameLine();
             ImGui::Text("FPS: %.2f (%.2fms) [%.2f (%.2fms)]", 1.0f / dt, dt * 1.0e3f, 1.0 / avg_frame_time, avg_frame_time * 1.0e3f);
 
@@ -485,10 +500,9 @@ int main(int argc, char** argv) {
         // logging::info("sequence", "memcpy to device: %6.3fms (%6.3fGB/s) (%6.3f MB)", elapsed * 1000, (double)size / elapsed / (1024 * 1024 * 1024), (double)size / (1024 * 1024));
     #else
         platform::FileReadWork w = app.mesh_stream.get_frame(app.playback_frame);
-
-        platform::Timestamp begin = platform::GetTimestamp();
-        memcpy(app.vertex_buffers_upload[app.frame_index].map.data, w.buffer.data, size);
-        double elapsed = platform::GetElapsed(begin, platform::GetTimestamp());
+        // platform::Timestamp begin = platform::GetTimestamp();
+        // memcpy(app.vertex_buffers_upload[app.frame_index].map.data, w.buffer.data, size);
+        // double elapsed = platform::GetElapsed(begin, platform::GetTimestamp());
         // logging::info("sequence", "memcpy to host: %6.3fms (%6.3fGB/s) (%6.3f MB)", elapsed * 1000, (double)size / elapsed / (1024 * 1024 * 1024), (double)size / (1024 * 1024));
     #endif
     #endif
@@ -779,10 +793,12 @@ int main(int argc, char** argv) {
         gfx::DestroyGPUSemaphore(vk.device, app.render_done_semaphores[i]);
         gfx::DestroyGPUSemaphore(vk.device, app.copy_done_semaphores[i]);
         gfx::DestroyBuffer(&app.vertex_buffers_gpu[i], vk);
-    #if !DIRECT_UPLOAD
-        gfx::DestroyBuffer(&app.vertex_buffers_upload[i], vk);
-    #endif
     }
+    #if !DIRECT_UPLOAD
+    for (usize i = 0; i < BUFFER_SIZE; i++) {
+        gfx::DestroyBuffer(&app.vertex_buffers_upload[i], vk);
+    }
+    #endif
 
     gfx::DestroyBuffer(&index_buffer, vk);
 

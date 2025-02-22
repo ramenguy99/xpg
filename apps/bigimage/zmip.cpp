@@ -11,9 +11,9 @@ ChunkLoadContext AllocChunkLoadContext(const ZMipFile& zmip) {
 
     ChunkLoadContext result = {
         .zmip = &zmip,
-        .compressed_data = std::move(compressed_data),
-        .interleaved = std::move(interleaved),
-        .deinterleaved = std::move(deinterleaved),
+        .compressed_data = move(compressed_data),
+        .interleaved = move(interleaved),
+        .deinterleaved = move(deinterleaved),
     };
     return result;
 }
@@ -132,8 +132,8 @@ ZMipFile LoadZmipFile(const char* path)
     ZMipFile zmip = {
         .file = file,
         .header = header,
-        .chunks = std::move(chunks),
-        .levels = std::move(levels),
+        .chunks = move(chunks),
+        .levels = move(levels),
         .largest_compressed_chunk_size = largest_compressed_chunk_size,
     };
 

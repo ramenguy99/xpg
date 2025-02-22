@@ -41,27 +41,27 @@
 //     Result& operator=(Result&& other) {
 //         this->is_error = other.is_error;
 //         if (is_error) {
-//             this->value = std::move(other.value);
+//             this->value = move(other.value);
 //         }
 //         else {
-//             this->error = std::move(other.error);
+//             this->error = move(other.error);
 //         }
 //         return *this;
 //     }
 //
 //     Result(Result&& other) {
-//         *this = std::move(other);
+//         *this = move(other);
 //     }
 // };
 //
 // template<typename T, typename E>
 // static Result<T, E> Ok(T&& value) {
-//     return Result<T, E>(std::move(value), Result<T, E>::OkMarker());
+//     return Result<T, E>(move(value), Result<T, E>::OkMarker());
 // }
 //
 // template<typename T, typename E>
 // static Result<T, E> Err(E&& error) {
-//     return Result<T, E>(std::move(error), Result<T, E>::ErrMarker());
+//     return Result<T, E>(move(error), Result<T, E>::ErrMarker());
 // }
 //
 // struct Empty {
@@ -70,7 +70,7 @@
 // Result<int, Empty> example_a() {
 //     int value = 42;
 //
-//     auto ok =  Ok<int, Empty>(std::move(value));
+//     auto ok =  Ok<int, Empty>(move(value));
 //     auto err = Err<int, Empty>(Empty());
 //
 //     auto hard = Err<int, int>(5);

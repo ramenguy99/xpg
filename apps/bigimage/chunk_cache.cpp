@@ -66,7 +66,7 @@ void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx:
                 .chunk_index = INVALID_CHUNK,
                 .image_index = (u32)i,
             };
-            PoolQueue<Entry>::Entry* lru_entry = lru.alloc(std::move(e));
+            PoolQueue<Entry>::Entry* lru_entry = lru.alloc(move(e));
             lru.push(lru_entry);
         }
         if(images.length > 0) {
@@ -238,7 +238,7 @@ void ChunkCache::request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32
 
         // Transition image to transfer dest layout
         gfx::CmdImageBarrier(cmd, {
-            .image = image.image, 
+            .image = image.image,
             .src_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
             .dst_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
             .src_access = VK_ACCESS_2_SHADER_READ_BIT,
@@ -264,7 +264,7 @@ void ChunkCache::request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32
 
         // Transition images to shader read layout
         gfx::CmdImageBarrier(cmd, {
-            .image = image.image, 
+            .image = image.image,
             .src_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
             .dst_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
             .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,

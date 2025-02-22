@@ -2,20 +2,20 @@
 
 #include <defines.h>
 
-inline u64 Hash(u64 x) 
+inline u64 Hash(u64 x)
 {
     x *= 0xff51afd7ed558ccd;
     x ^= x >> 32;
     return x;
 }
 
-inline u64 Hash(u8  x) { return Hash((u64)x); }; 
-inline u64 Hash(u16 x) { return Hash((u64)x); };  
-inline u64 Hash(u32 x) { return Hash((u64)x); };  
-inline u64 Hash(s8  x) { return Hash((u64)x); };  
-inline u64 Hash(s16 x) { return Hash((u64)x); };  
-inline u64 Hash(s32 x) { return Hash((u64)x); };  
-inline u64 Hash(s64 x) { return Hash((u64)x); };  
+inline u64 Hash(u8  x) { return Hash((u64)x); };
+inline u64 Hash(u16 x) { return Hash((u64)x); };
+inline u64 Hash(u32 x) { return Hash((u64)x); };
+inline u64 Hash(s8  x) { return Hash((u64)x); };
+inline u64 Hash(s16 x) { return Hash((u64)x); };
+inline u64 Hash(s32 x) { return Hash((u64)x); };
+inline u64 Hash(s64 x) { return Hash((u64)x); };
 
 template<typename T>
 u64 Hash(T* p)
@@ -83,8 +83,8 @@ struct HashMap {
 
             usize index = h & mask;
             new_hashes[index] = h;
-            new_keys[index] = std::move(keys[i]);
-            new_values[index] = std::move(values[i]);
+            new_keys[index] = move(keys[i]);
+            new_values[index] = move(values[i]);
         }
 
         hashes = new_hashes;
@@ -107,13 +107,13 @@ struct HashMap {
                 // Fill empty slot
                 hashes[index] = h;
                 keys[index] = k;
-                values[index] = std::move(v);
+                values[index] = move(v);
                 count += 1;
             } else {
                 // Check if same key
                 if (prev_hash == h && keys[index] == k) {
                     // Replace existing slot
-                    values[index] = std::move(v);
+                    values[index] = move(v);
                 }
                 else {
                     // Continue search

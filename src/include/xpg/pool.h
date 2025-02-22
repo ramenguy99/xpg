@@ -3,22 +3,22 @@
 #include "array.h"
 
 // A grow-only pool allocator.
-// 
+//
 // This allocator provides two main features:
 // 1. Allocations are batched into blocks of configurable size.
 // 2. Allocations are guaranteed to be stable, e.g. pointers that are returned will always be valid as long as the allocator lives.
-// 
+//
 // This is a useful building blocks for creating more
 // useful freelist-like allocators.
 template<typename T>
 struct PoolAllocator {
     ObjArray<Array<T>> blocks;
     usize block_size;
-    
+
     PoolAllocator(usize initial_count, usize block_size = 1024): block_size(block_size) {
         Array<T> a;
         a.grow(Max(initial_count, block_size));
-        blocks.add(std::move(a));
+        blocks.add(move(a));
     }
 
     T* alloc() {
@@ -27,7 +27,7 @@ struct PoolAllocator {
             if (last.length < last.capacity) {
                 Array<T> a;
                 a.grow(block_size);
-                blocks.add(std::move(a));
+                blocks.add(move(a));
             }
         }
 
@@ -71,7 +71,7 @@ struct PoolQueue {
         next_free = next_free->next;
 
         // Insert new element at the head
-        e->value = std::move(value);
+        e->value = move(value);
         e->next = 0;
         e->prev = 0;
 
@@ -119,7 +119,7 @@ struct PoolQueue {
             if(head) {
                 head->next = 0;
             }
-            
+
             // Reset links, node is now outside of list.
             e->prev = 0;
 

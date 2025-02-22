@@ -16,6 +16,9 @@ Python:
     -> also interesting if we want to have a full python framegraph or if we can somehow leverage python callables
        + some python bindings to reuse at least the synchronization / traversal logic implemented in C++
 
+Run python examples:
+cmd /C "set PYTHONPATH=install\python && python python\example.py"
+
 Descriptors:
 - To run a pipeline need to bind the related descriptor sets
 - Those can be known statically or learned through reflections

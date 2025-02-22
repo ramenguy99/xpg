@@ -1604,12 +1604,12 @@ int main(int argc, char** argv) {
     }
 
     App app = {};
-    app.framebuffers = std::move(framebuffers);
+    app.framebuffers = move(framebuffers);
     app.window = &window;
     app.vk = &vk;
     app.wait_for_events = true;
-    app.data = std::move(data);
-    app.plots = std::move(plots);
+    app.data = move(data);
+    app.plots = move(plots);
     app.gui = &imgui_impl;
 
     glfwSetWindowUserPointer(window.window, &app);

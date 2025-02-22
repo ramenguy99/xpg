@@ -3,7 +3,7 @@
 
 #include <xpg/gfx.h>
 
-#define COPY_QUEUE_INDEX 2
+// #define COPY_QUEUE_INDEX 2
 
 namespace gfx {
 
@@ -81,6 +81,10 @@ void Callback_WindowRefresh(GLFWwindow* window) {
     if (w && w->callbacks.draw) {
         w->callbacks.draw();
     }
+
+    if(w && w->callbacks.prev_callback_window_refresh) {
+        w->callbacks.prev_callback_window_refresh(window);
+    }
 }
 
 void Callback_MouseButton(GLFWwindow* window, int button, int action, int mods) {
@@ -89,6 +93,10 @@ void Callback_MouseButton(GLFWwindow* window, int button, int action, int mods) 
         glm::dvec2 pos = {};
         glfwGetCursorPos(window, &pos.x, &pos.y);
         w->callbacks.mouse_button_event((glm::ivec2)pos, (MouseButton)button, (Action)action, (Modifiers)mods);
+    }
+
+    if(w && w->callbacks.prev_callback_mouse_button) {
+        w->callbacks.prev_callback_mouse_button(window, button, action, mods);
     }
 }
 
@@ -99,6 +107,10 @@ void Callback_Scroll(GLFWwindow* window, double x, double y) {
         glfwGetCursorPos(window, &pos.x, &pos.y);
         w->callbacks.mouse_scroll_event((glm::ivec2)pos, glm::ivec2((s32)x, (s32)y));
     }
+
+    if(w && w->callbacks.prev_callback_scroll) {
+        w->callbacks.prev_callback_scroll(window, x, y);
+    }
 }
 
 void Callback_CursorPos(GLFWwindow* window, double x, double y) {
@@ -106,12 +118,20 @@ void Callback_CursorPos(GLFWwindow* window, double x, double y) {
     if (w && w->callbacks.mouse_move_event) {
         w->callbacks.mouse_move_event(glm::ivec2((s32)x, (s32)y));
     }
+
+    if(w && w->callbacks.prev_callback_cursor_pos) {
+        w->callbacks.prev_callback_cursor_pos(window, x, y);
+    }
 }
 
 void Callback_Key(GLFWwindow* window, int key, int scancode, int action, int mods) {
     Window* w = (Window*)glfwGetWindowUserPointer(window);
     if (w && w->callbacks.key_event) {
         w->callbacks.key_event((Key)key, (Action)action, (Modifiers)mods);
+    }
+
+    if(w && w->callbacks.prev_callback_key) {
+        w->callbacks.prev_callback_key(window, key, scancode, action, mods);
     }
 }
 
@@ -135,13 +155,14 @@ void SetWindowCallbacks(Window* window, WindowCallbacks&& callbacks) {
 //     }
 // #endif
 
-    window->callbacks = std::move(callbacks);
+    window->callbacks = move(callbacks);
     glfwSetWindowUserPointer(window->window, window);
-    glfwSetWindowRefreshCallback(window->window, Callback_WindowRefresh);
-    glfwSetMouseButtonCallback(window->window, Callback_MouseButton);
-    glfwSetScrollCallback(window->window, Callback_Scroll);
-    glfwSetCursorPosCallback(window->window, Callback_CursorPos);
-    glfwSetKeyCallback(window->window, Callback_Key);
+
+    window->callbacks.prev_callback_window_refresh = glfwSetWindowRefreshCallback(window->window, Callback_WindowRefresh);
+    window->callbacks.prev_callback_mouse_button = glfwSetMouseButtonCallback(window->window, Callback_MouseButton);
+    window->callbacks.prev_callback_scroll = glfwSetScrollCallback(window->window, Callback_Scroll);
+    window->callbacks.prev_callback_cursor_pos = glfwSetCursorPosCallback(window->window, Callback_CursorPos);
+    window->callbacks.prev_callback_key = glfwSetKeyCallback(window->window, Callback_Key);
 }
 
 void ProcessEvents(bool block) {
@@ -363,9 +384,10 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         #ifdef COPY_QUEUE_INDEX
             picked_copy_queue_family_index = COPY_QUEUE_INDEX;
         #endif
-
             picked_queue_family_found = queue_family_found;
             picked_copy_queue_family_found = copy_queue_family_found;
+
+            picked = true;
         }
 
         logging::info("gfx/info", "Physical device %u:%s\n    Name: %s\n    Vulkan version: %u.%u.%u\n    Drivers version: %u\n    Vendor ID: %u\n    Device ID: %u\n    Device type: %s\n    QueueFamily: %d (%s)\n    CopyQueueFamily: %d (%s)\n",
@@ -577,10 +599,10 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     // See:
     // - Raph levien blog: https://raphlinus.github.io/rust/gui/2019/06/21/smooth-resize-test.html
     // - Winit discussion: https://github.com/rust-windowing/winit/issues/786
-    // swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     // swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
     // swapchain_info.presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
-    swapchain_info.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+    // swapchain_info.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
     swapchain_info.oldSwapchain = old_swapchain;
 
     VkSwapchainKHR swapchain;
@@ -625,8 +647,8 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     }
 
     w->swapchain = swapchain;
-    w->images = std::move(images);
-    w->image_views = std::move(image_views);
+    w->images = move(images);
+    w->image_views = move(image_views);
     w->fb_width = fb_width;
     w->fb_height = fb_height;
 
@@ -929,7 +951,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     w->window = window;
     w->surface = surface;
     w->swapchain_format = format;
-    w->frames = std::move(frames);
+    w->frames = move(frames);
 
     return Result::SUCCESS;
 }
@@ -1142,7 +1164,7 @@ VkResult
 CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, const BufferDesc&& desc) {
     assert(desc.alloc_required_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
-    VkResult vkr = CreateBuffer(buffer, vk, data.length, std::move(desc));
+    VkResult vkr = CreateBuffer(buffer, vk, data.length, move(desc));
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -1500,7 +1522,7 @@ CreateAndUploadImage(Image* image, const Context& vk, ArrayView<u8> data, VkImag
     assert(desc.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
     VkResult vkr;
-    vkr = CreateImage(image, vk, std::move(desc));
+    vkr = CreateImage(image, vk, move(desc));
     if (vkr != VK_SUCCESS) {
         return vkr;
     }

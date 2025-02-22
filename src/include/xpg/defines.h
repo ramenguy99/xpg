@@ -62,3 +62,24 @@ inline usize AlignUp(usize v, usize a) {
     assert(IsPow2NonZero(a));
     return (v + (a - 1)) & ~(a - 1);
 }
+
+
+template <class T> struct RemoveReference        { using type = T; };
+template <class T> struct RemoveReference<T&>    { using type = T; };
+template <class T> struct RemoveReference<T&&>   { using type = T; };
+template <class T> struct AddPointer             { using type = typename RemoveReference<T>::type*; };
+template <class T> struct IsLValueReference     { static constexpr bool value = false; };
+template <class T> struct IsLValueReference<T&> { static constexpr bool value = true; };
+
+template <typename T> constexpr T&& move(T& value) { return static_cast<T&&>(value); }
+template <bool B, class T = void> struct EnableIf {};
+template <class T> struct EnableIf<true, T> { using type = T; };
+template <typename T, typename U>   struct IsSame       { static constexpr bool value = false; };
+template <typename T>               struct IsSame<T, T> { static constexpr bool value = true;  };
+
+template <typename T> constexpr T&& forward(typename RemoveReference<T>::type& value) { return static_cast<T&&>(value); }
+template <typename T> constexpr T&& forward(typename RemoveReference<T>::type&& value)
+{
+    static_assert(!IsLValueReference<T>::value, "Forward an rvalue as an lvalue is not allowed");
+    return static_cast<T&&>(value);
+}

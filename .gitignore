@@ -17,3 +17,4 @@ CMakeSettings.json
 /build-release
 /build-debug
 /ext/slang
+/install

@@ -1,8 +1,5 @@
 #pragma once
 
-// std
-#include <functional>                       // std::function
-
 // External
 #include <volk.h>                           // Vulkan
 #include <vulkan/vk_enum_string_helper.h>   // Vulkan helper strings for printing
@@ -23,6 +20,7 @@
 #include <glm/gtc/matrix_transform.hpp>     // GLM matrix ops
 
 // Internal
+#include <xpg/function.h>
 #include <xpg/log.h>
 #include <xpg/platform.h>
 #include <xpg/array.h>
@@ -32,7 +30,10 @@
 namespace gfx {
 
 // Missing helpers:
-// [ ] commands (e.g. dynamic rendering, passes, dispatches, copies)
+// [ ] commands
+//      [x] Dynamic rendering
+//      [ ] Dispatches
+//      [ ] Copies
 // [ ] command buffer / pools creation (duplicate for sync and per frame)
 // [ ] descriptors:
 //     [ ] normal set creation
@@ -124,7 +125,7 @@ struct ContextDesc {
     ArrayView<const char *> instance_extensions;
     ArrayView<const char *> device_extensions;
     DeviceFeatures device_features;
-    bool enable_validation_layer;
+    bool enable_validation_layer = false;
     bool enable_gpu_based_validation = false;
     uint32_t preferred_frames_in_flight = 2;
 };
@@ -203,11 +204,34 @@ enum class Key: u32 {
 };
 
 struct WindowCallbacks {
-    std::function<void(glm::ivec2)> mouse_move_event;
-    std::function<void(glm::ivec2, MouseButton, Action, Modifiers)> mouse_button_event;
-    std::function<void(glm::ivec2, glm::ivec2)> mouse_scroll_event;
-    std::function<void(Key, Action, Modifiers)> key_event;
-    std::function<void()> draw;
+    Function<void(glm::ivec2)> mouse_move_event;
+    Function<void(glm::ivec2, MouseButton, Action, Modifiers)> mouse_button_event;
+    Function<void(glm::ivec2, glm::ivec2)> mouse_scroll_event;
+    Function<void(Key, Action, Modifiers)> key_event;
+    Function<void()> draw;
+
+    // Mimic imgui chain callback mechanism, this way either we chain ImGui
+    // if installed later, or ImGui chains us if installed before.
+    //
+    // ImGui always calls us before processing, to make the mechanism symmetric
+    // regardless of installation order, we instead call imgui after processing.
+    //
+    // The functions commented out are callbacks that we currently do not install
+    // but ImGui does. They must also be chained if we implement them.
+
+    // Currently implemented by imgui:
+    //
+    // GLFWwindowfocusfun      prev_callback_window_focus;
+    GLFWcursorposfun        prev_callback_cursor_pos;
+    // GLFWcursorenterfun      prev_callback_cursor_enter;
+    GLFWmousebuttonfun      prev_callback_mouse_button;
+    GLFWscrollfun           prev_callback_scroll;
+    GLFWkeyfun              prev_callback_key;
+    // GLFWcharfun             prev_callback_char;
+    // GLFWmonitorfun          prev_callback_monitor;
+
+    // Not yet implemented by imgui, but by us:
+    GLFWwindowrefreshfun    prev_callback_window_refresh;
 };
 
 struct Window

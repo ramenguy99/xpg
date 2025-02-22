@@ -72,40 +72,41 @@ add_library(xpg STATIC
     src/lib/gui.cpp
 )
 
+
 # Download SLANG prebuilt binaries
-if (XPG_SLANG_PREBUILT_BINARIES)
-    include(FetchContent)
-    FetchContent_Declare(
-       slang-prebuilt-windows
-       URL      https://github.com/ramenguy99/build-slang/releases/download/v2025.2.2/slang-x64-windows-v2025.2.2.zip
-    )
-    FetchContent_Declare(
-       slang-prebuilt-linux
-       URL      https://github.com/ramenguy99/build-slang/releases/download/v2025.2.2/slang-x64-linux-v2025.2.2.zip
-    )
+# if (XPG_SLANG_PREBUILT_BINARIES)
+#     include(FetchContent)
+#     FetchContent_Declare(
+#        slang-prebuilt-windows
+#        URL      https://github.com/ramenguy99/build-slang/releases/download/v2025.2.2/slang-x64-windows-v2025.2.2.zip
+#     )
+#     FetchContent_Declare(
+#        slang-prebuilt-linux
+#        URL      https://github.com/ramenguy99/build-slang/releases/download/v2025.2.2/slang-x64-linux-v2025.2.2.zip
+#     )
 
-    if(MSVC)
-        message("Downloading SLANG prebuilt binaries for windows")
-        FetchContent_MakeAvailable(slang-prebuilt-windows)
-        set(SLANG_PREBUILT_ROOT ${slang-prebuilt-windows_SOURCE_DIR} )
-    elseif(APPLE)
-        message(FATAL_ERROR "SLANG prebuilt binaries not available for APPLE")
-    elseif(UNIX)
-        message("Downloading SLANG prebuilt binaries for linux")
-        FetchContent_MakeAvailable(slang-prebuilt-linux)
-        set(SLANG_PREBUILT_ROOT ${slang-prebuilt-linux_SOURCE_DIR} )
-    else()
-        message(FATAL_ERROR "SLANG prebuilt binaries not available for unknown platform")
-    endif()
+#     if(MSVC)
+#         message("Downloading SLANG prebuilt binaries for windows")
+#         FetchContent_MakeAvailable(slang-prebuilt-windows)
+#         set(SLANG_PREBUILT_ROOT ${slang-prebuilt-windows_SOURCE_DIR} )
+#     elseif(APPLE)
+#         message(FATAL_ERROR "SLANG prebuilt binaries not available for APPLE")
+#     elseif(UNIX)
+#         message("Downloading SLANG prebuilt binaries for linux")
+#         FetchContent_MakeAvailable(slang-prebuilt-linux)
+#         set(SLANG_PREBUILT_ROOT ${slang-prebuilt-linux_SOURCE_DIR} )
+#     else()
+#         message(FATAL_ERROR "SLANG prebuilt binaries not available for unknown platform")
+#     endif()
 
-    set(debug_configs "Debug")
-    set(release_configs "RelWithDebInfo,Release")
+#     set(debug_configs "Debug")
+#     set(release_configs "RelWithDebInfo,Release")
 
-    add_library(slang INTERFACE)
-    target_link_directories(slang INTERFACE ${SLANG_PREBUILT_ROOT}/$<$<CONFIG:${debug_configs}>:Debug>""$<$<CONFIG:${release_configs}>:Release>/lib)
-    target_include_directories(slang INTERFACE ${SLANG_PREBUILT_ROOT}/$<$<CONFIG:${debug_configs}>:Debug>$<$<CONFIG:${release_configs}>:Release>/include)
-    target_link_libraries(slang INTERFACE slang core compiler-core lz4 miniz slang-cpp-parser slang-rt)
-endif()
+#     add_library(slang INTERFACE)
+#     target_link_directories(slang INTERFACE ${SLANG_PREBUILT_ROOT}/$<$<CONFIG:${debug_configs}>:Debug>""$<$<CONFIG:${release_configs}>:Release>/lib)
+#     target_include_directories(slang INTERFACE ${SLANG_PREBUILT_ROOT}/$<$<CONFIG:${debug_configs}>:Debug>$<$<CONFIG:${release_configs}>:Release>/include)
+#     target_link_libraries(slang INTERFACE slang core compiler-core lz4 miniz slang-cpp-parser slang-rt)
+# endif()
 
 target_include_directories(xpg PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>/src/include
@@ -115,6 +116,8 @@ target_include_directories(xpg PUBLIC
 )
 
 target_link_libraries(xpg PUBLIC volk_headers glfw glm VulkanMemoryAllocator)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/src/include/xpg DESTINATION "include" FILES_MATCHING PATTERN "*.h")
+install(TARGETS xpg LIBRARY DESTINATION "lib")
 
 if (MSVC OR CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
     target_compile_definitions(xpg PUBLIC _CRT_SECURE_NO_WARNINGS)
@@ -147,9 +150,12 @@ target_link_libraries(pyxpg PRIVATE xpg)
 # set_target_properties(pyxpg PROPERTIES OUTPUT_NAME "xpg")
 nanobind_add_stub(pyxpg_stub
   MODULE pyxpg
-  OUTPUT pyxpg.pyi
+  OUTPUT __init__.pyi
   PYTHON_PATH $<TARGET_FILE_DIR:pyxpg>
   DEPENDS pyxpg
 )
+
+install(TARGETS pyxpg DESTINATION "python")
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/__init__.pyi DESTINATION "python")
 
 endif()

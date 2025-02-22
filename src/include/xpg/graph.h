@@ -542,13 +542,13 @@ namespace framegraph
                 }
 
                 ops[i] = {
-                    .barriers = std::move(barriers),
-                    .task = std::move(task.task),
+                    .barriers = move(barriers),
+                    .task = move(task.task),
                 };
             }
 
             return {
-                .ops = std::move(ops),
+                .ops = move(ops),
             };
         }
 

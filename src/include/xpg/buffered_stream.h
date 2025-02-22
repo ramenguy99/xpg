@@ -1,11 +1,12 @@
 #pragma once
 
 #include <xpg/threading.h>
+#include <xpg/function.h>
 
 template<typename T>
 struct BufferedStream {
-    typedef std::function<T(u64, u64, bool)> InitProc;
-    typedef std::function<bool(T*)> FillProc;
+    typedef Function<T(u64, u64, bool)> InitProc;
+    typedef Function<bool(T*)> FillProc;
 
     enum class EntryState: u32 {
         Empty,
@@ -23,13 +24,13 @@ struct BufferedStream {
 
         // Obj array requires a move assignment operator, but atomic does not have one.
         Entry(Entry&& other) {
-            *this = std::move(other);
+            *this = move(other);
         }
 
         Entry& operator=(Entry&& other) {
             this->state.store(state.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            this->value = std::move(value);
-            this->fill_proc = std::move(fill_proc);
+            this->value = move(value);
+            this->fill_proc = move(fill_proc);
             return *this;
         }
     };
@@ -41,8 +42,8 @@ struct BufferedStream {
 
     WorkerPool* pool = nullptr;
 
-    InitProc init_proc = nullptr;
-    FillProc fill_proc = nullptr;
+    InitProc init_proc;
+    FillProc fill_proc;
 
     static void work_callback(WorkerPool::WorkerInfo* worker_info, void* data) {
         Entry* entry = (Entry*)data;
