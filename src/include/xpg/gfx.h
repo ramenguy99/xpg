@@ -394,8 +394,8 @@ struct VertexAttributeDesc {
 };
 
 struct InputAssemblyDesc {
-    bool primitive_restart_enable = false;
     VkPrimitiveTopology primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    bool primitive_restart_enable = false;
 };
 
 struct RasterizationDesc {
@@ -432,7 +432,7 @@ struct AttachmentDesc {
 
 // NOTE: struct layout of this must exactly match vulkan struct
 struct PushConstantRangeDesc {
-    VkShaderStageFlagBits flags = VK_SHADER_STAGE_ALL;
+    VkShaderStageFlags flags = VK_SHADER_STAGE_ALL;
     u32 offset;
     u32 size;
 };

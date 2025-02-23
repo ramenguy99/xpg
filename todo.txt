@@ -15,6 +15,10 @@ Python:
     -> interesting here would be how much perf we can have when sharing data through arrays, e.g. textures, buffers, uniforms
     -> also interesting if we want to have a full python framegraph or if we can somehow leverage python callables
        + some python bindings to reuse at least the synchronization / traversal logic implemented in C++
+[ ] Bindings:
+    [ ] Do i need duplicate enums?
+[ ] App ideas:
+    [ ] Try to redo sequence, can i read directly to bufs without gil?
 
 Run python examples:
 cmd /C "set PYTHONPATH=install\python && python python\example.py"
