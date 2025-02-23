@@ -50,7 +50,7 @@ void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx:
                 .height = zmip.header.chunk_height,
                 .format = VK_FORMAT_R8G8B8A8_UNORM,
                 .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                .memory_required_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                .alloc = gfx::AllocPresets::Device,
             });
 
             // Write descriptor
@@ -89,8 +89,7 @@ void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx:
             for (usize i = old_length; i < upload_buffers[frame_index].length; i++) {
                 CreateBuffer(&upload_buffers[frame_index][i], vk, zmip.header.chunk_width * zmip.header.chunk_height * 4, {
                     .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                    .alloc_flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-                    .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+                    .alloc = gfx::AllocPresets::HostWriteCombining,
                 });
             }
         }

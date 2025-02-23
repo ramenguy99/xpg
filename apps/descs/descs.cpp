@@ -350,8 +350,7 @@ int main(int argc, char** argv) {
     gfx::Buffer vertex_buffer = {};
     vkr = gfx::CreateBufferFromData(&vertex_buffer, vk, vertices.as_bytes(), {
             .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-            .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            .alloc = gfx::AllocPresets::DeviceMapped,
         });
     assert(vkr == VK_SUCCESS);
 
@@ -368,8 +367,7 @@ int main(int argc, char** argv) {
     for (size_t i = 0; i < colors.length; i++) {
         vkr = gfx::CreateBufferFromData(&color_buffers[i], vk, BytesOf(&colors[i]), {
                 .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-                .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                .alloc = gfx::AllocPresets::DeviceMapped,
             });
         assert(vkr == VK_SUCCESS);
 

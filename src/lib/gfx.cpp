@@ -1140,10 +1140,10 @@ CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& 
     buffer_info.usage = desc.usage;
 
     VmaAllocationCreateInfo alloc_create_info = {};
-    alloc_create_info.requiredFlags = desc.alloc_required_flags;
-    alloc_create_info.preferredFlags = desc.alloc_required_flags;
-    alloc_create_info.flags = desc.alloc_flags;
-    alloc_create_info.usage = desc.alloc_usage;
+    alloc_create_info.requiredFlags = desc.alloc.memory_properties_required;
+    alloc_create_info.preferredFlags = desc.alloc.memory_properties_preferred;
+    alloc_create_info.flags = desc.alloc.vma_flags;
+    alloc_create_info.usage = desc.alloc.vma_usage;
 
     VkBuffer buf = 0;
     VmaAllocation allocation = {};
@@ -1162,8 +1162,6 @@ CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& 
 
 VkResult
 CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, const BufferDesc&& desc) {
-    assert(desc.alloc_required_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-
     VkResult vkr = CreateBuffer(buffer, vk, data.length, move(desc));
     if (vkr != VK_SUCCESS) {
         return vkr;
@@ -1414,10 +1412,10 @@ CreateImage(Image* image, const Context& vk, const ImageDesc&& desc) {
     image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
 
     VmaAllocationCreateInfo alloc_create_info = {};
-    alloc_create_info.usage = VMA_MEMORY_USAGE_AUTO;
-    alloc_create_info.flags = desc.alloc_flags;
-    alloc_create_info.requiredFlags = desc.memory_required_flags;
-    alloc_create_info.preferredFlags = desc.memory_preferred_flags;
+    alloc_create_info.usage = desc.alloc.vma_usage;
+    alloc_create_info.flags = desc.alloc.vma_flags;
+    alloc_create_info.requiredFlags = desc.alloc.memory_properties_required;
+    alloc_create_info.preferredFlags = desc.alloc.memory_properties_preferred;
     alloc_create_info.priority = 1.0f;
 
     VkImage img;
@@ -1460,7 +1458,7 @@ UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const Ima
     Buffer staging_buffer = {};
     vkr = CreateBufferFromData(&staging_buffer, vk, data, {
         .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+        .alloc = AllocPresets::HostWriteCombining,
     });
     if (vkr != VK_SUCCESS) {
         return vkr;

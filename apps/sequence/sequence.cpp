@@ -1,4 +1,4 @@
-#define DIRECT_UPLOAD 1
+#define DIRECT_UPLOAD 0
 #define DEVICE_LOCAL_VERTICES 1
 #define SYNC_QUEUE 0
 
@@ -122,9 +122,7 @@ int main(int argc, char** argv) {
     for(usize i = 0; i < BUFFER_SIZE; i++) {
         vkr = gfx::CreateBuffer(&vertex_buffers_upload[i], vk, sizeof(vec3) * V, {
             .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_DEDICATED_ALLOCATION | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
-            .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-            .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+            .alloc = gfx::AllocPresets::Host,
         });
         assert(vkr == VK_SUCCESS);
         VkMemoryPropertyFlags upload_properties = {};
@@ -140,25 +138,15 @@ int main(int argc, char** argv) {
                 | VK_BUFFER_USAGE_TRANSFER_DST_BIT
     #endif
             ,
+
     #if DIRECT_UPLOAD
-            .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .alloc = gfx::AllocPresets::DeviceMapped,
     #else
-            .alloc_flags = VMA_DEDICATED_ALLOCATION,
-    #endif
-            .alloc_required_flags = 0
     #if DEVICE_LOCAL_VERTICES
-            | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+            .alloc = gfx::AllocPresets::Device,
     #else
-            | VK_MEMORY_PROPERTY_HOST_CACHED_BIT
+            .alloc = gfx::AllocPresets::Host,
     #endif
-    #if DIRECT_UPLOAD
-            | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-    #endif
-            ,
-    #if DEVICE_LOCAL_VERTICES
-            .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
-    #else
-            .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
     #endif
         });
         assert(vkr == VK_SUCCESS);
@@ -210,10 +198,7 @@ int main(int argc, char** argv) {
     gfx::Buffer index_buffer = {};
     vkr = gfx::CreateBufferFromData(&index_buffer, vk, indices.as_bytes(), {
         .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        .alloc_flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
-        .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-        .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        .alloc_usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+        .alloc = gfx::AllocPresets::DeviceMapped,
     });
     assert(vkr == VK_SUCCESS);
 
@@ -307,9 +292,7 @@ int main(int argc, char** argv) {
     for (usize i = 0; i < uniform_buffers.length; i++) {
         vkr = gfx::CreateBuffer(&uniform_buffers[i], vk, sizeof(Constants), {
             .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            .alloc_flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-            .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            .alloc = gfx::AllocPresets::DeviceMapped,
         });
         assert(vkr == VK_SUCCESS);
 

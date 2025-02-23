@@ -202,8 +202,7 @@ int main(int argc, char** argv) {
     gfx::Buffer vertex_buffer = {};
     vkr = gfx::CreateBufferFromData(&vertex_buffer, vk, vertices.as_bytes(), {
             .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-            .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            .alloc = gfx::AllocPresets::DeviceMapped,
         });
     assert(vkr == VK_SUCCESS);
 
@@ -324,8 +323,7 @@ int main(int argc, char** argv) {
                     gfx::DestroyBuffer(&app.chunks_buffers[i], vk);
                     gfx::CreateBuffer(&app.chunks_buffers[i], vk, app.total_max_chunks * sizeof(GpuChunk), {
                         .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                        .alloc_required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-                        .alloc_preferred_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                        .alloc = gfx::AllocPresets::DeviceMapped,
                     });
                     gfx::WriteBufferDescriptor(descriptor_set.set, vk, {
                         .buffer = app.chunks_buffers[i].buffer,
@@ -525,7 +523,7 @@ int main(int argc, char** argv) {
 
             // USER: draw commands
             gfx::CmdImageBarrier(frame.command_buffer, {
-                .image = frame.current_image, 
+                .image = frame.current_image,
                 .src_stage = VK_PIPELINE_STAGE_2_NONE,
                 .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                 .src_access = 0,
@@ -598,7 +596,7 @@ int main(int argc, char** argv) {
             vkCmdEndRenderingKHR(frame.command_buffer);
 
             gfx::CmdImageBarrier(frame.command_buffer, {
-                .image = frame.current_image, 
+                .image = frame.current_image,
                 .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                 .dst_stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
                 .src_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,

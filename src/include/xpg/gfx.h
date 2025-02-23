@@ -468,6 +468,50 @@ struct ComputePipelineDesc {
 VkResult CreateComputePipeline(ComputePipeline* compute_pipeline, const Context& vk, const ComputePipelineDesc&& desc);
 void DestroyComputePipeline(ComputePipeline* pipeline, const Context& vk);
 
+//- Allocation info
+struct AllocDesc {
+    VmaMemoryUsage vma_usage = VMA_MEMORY_USAGE_AUTO;
+    VmaAllocationCreateFlags vma_flags = 0;
+
+    // Necessary when using VMA_MEMORY_USAGE_UNKNOWN, otherwise optional
+    VkMemoryPropertyFlags memory_properties_required = 0;
+    VkMemoryPropertyFlags memory_properties_preferred = 0;
+};
+
+namespace AllocPresets {
+    constexpr AllocDesc Host = {
+        .vma_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+        .vma_flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+    };
+
+    constexpr AllocDesc HostWriteCombining = {
+        .vma_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+        .vma_flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+    };
+
+    // Must manually check if the allocation is visible and potentially allocate a staging buffer if it did not
+    // go to BAR visible memory.
+    constexpr AllocDesc DeviceMappedWithFallback = {
+        .vma_usage = VMA_MEMORY_USAGE_AUTO,
+        .vma_flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT |  VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT,
+    };
+
+    // Falls back to host if device bar not available
+    constexpr AllocDesc DeviceMapped = {
+        .vma_usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+        .vma_flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+    };
+
+    constexpr AllocDesc Device = {
+        .vma_usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+    };
+
+    constexpr AllocDesc DeviceDedicated = {
+        .vma_usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+        .vma_flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
+    };
+}
+
 //- Buffers
 struct Buffer
 {
@@ -480,11 +524,8 @@ struct BufferDesc {
     // Vulkan flags
     VkBufferUsageFlags usage;
 
-    // VMA flags
-    VmaAllocationCreateFlags alloc_flags = 0;
-    VkMemoryPropertyFlags alloc_required_flags = 0;
-    VkMemoryPropertyFlags alloc_preferred_flags = 0;
-    VmaMemoryUsage alloc_usage = VMA_MEMORY_USAGE_AUTO;
+    // Allocation info
+    AllocDesc alloc;
 };
 
 VkResult CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& desc);
@@ -508,9 +549,7 @@ struct ImageDesc {
     VkImageUsageFlags usage;
 
     // VMA flags
-    VmaAllocationCreateFlags alloc_flags = 0;
-    VkMemoryPropertyFlags memory_required_flags = 0;
-    VkMemoryPropertyFlags memory_preferred_flags = 0;
+    AllocDesc alloc;
 };
 
 VkResult CreateImage(Image* image, const Context& vk, const ImageDesc&& desc);
