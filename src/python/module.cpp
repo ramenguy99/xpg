@@ -447,15 +447,10 @@ struct InputAssembly: gfx::InputAssemblyDesc{
 };
 static_assert(sizeof(InputAssembly) == sizeof(gfx::InputAssemblyDesc));
 
-
-enum class BlendFactor {
-
-};
-
 struct Attachment: gfx::AttachmentDesc {
     Attachment(
         VkFormat format,
-        VkBool32 blend_enable = false,
+        bool blend_enable = false,
         VkBlendFactor src_color_blend_factor = VK_BLEND_FACTOR_ZERO,
         VkBlendFactor dst_color_blend_factor = VK_BLEND_FACTOR_ZERO,
         VkBlendOp color_blend_op = VK_BLEND_OP_ADD,
@@ -465,10 +460,20 @@ struct Attachment: gfx::AttachmentDesc {
         VkColorComponentFlags color_write_mask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
     )
         : gfx::AttachmentDesc {
-          }
+            format = format,
+            blend_enable = blend_enable,
+            src_color_blend_factor = src_color_blend_factor,
+            dst_color_blend_factor = dst_color_blend_factor,
+            color_blend_op = color_blend_op,
+            src_alpha_blend_factor = src_alpha_blend_factor,
+            dst_alpha_blend_factor = dst_alpha_blend_factor,
+            alpha_blend_op = alpha_blend_op,
+            color_write_mask = color_write_mask,
+        }
     {
     }
 };
+static_assert(sizeof(Attachment) == sizeof(gfx::AttachmentDesc));
 
 struct GraphicsPipeline: nb::intrusive_base {
     GraphicsPipeline(nb::ref<Context> ctx,
@@ -476,7 +481,8 @@ struct GraphicsPipeline: nb::intrusive_base {
         const std::vector<VertexBinding>& vertex_bindings,
         const std::vector<VertexAttribute>& vertex_attributes,
         InputAssembly input_assembly,
-        const std::vector<nb::ref<DescriptorSet>>& descriptor_sets
+        const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+        const std::vector<Attachment>& attachments
         )
         : ctx(ctx)
     {
@@ -498,6 +504,7 @@ struct GraphicsPipeline: nb::intrusive_base {
             .vertex_attributes = ArrayView((gfx::VertexAttributeDesc*)vertex_attributes.data(), vertex_attributes.size()),
             .input_assembly = input_assembly,
             .descriptor_sets = ArrayView(d),
+            .attachments = ArrayView((gfx::AttachmentDesc*)attachments.data(), attachments.size()),
         });
 
         if (vkr != VK_SUCCESS) {
@@ -643,6 +650,7 @@ NB_MODULE(pyxpg, m) {
         .def("update_swapchain", &Window::update_swapchain)
         .def("begin_frame", &Window::begin_frame)
         .def("end_frame", &Window::end_frame, nb::arg("frame"))
+        .def_prop_ro("swapchain_format", [](Window& w) -> VkFormat { return w.window.swapchain_format; });
     ;
 
     nb::class_<Gui>(m, "Gui",
@@ -1083,6 +1091,113 @@ NB_MODULE(pyxpg, m) {
         .def(nb::init<nb::ref<Context>, const std::vector<DescriptorSetEntry>&, VkDescriptorBindingFlagBits>(), nb::arg("ctx"), nb::arg("entries"), nb::arg("flags") = VkDescriptorBindingFlagBits())
     ;
 
+    nb::enum_<VkBlendFactor>(m, "BlendFactor")
+        .value("VK_BLEND_FACTOR_ZERO",                     VK_BLEND_FACTOR_ZERO)
+        .value("VK_BLEND_FACTOR_ONE",                      VK_BLEND_FACTOR_ONE)
+        .value("VK_BLEND_FACTOR_SRC_COLOR",                VK_BLEND_FACTOR_SRC_COLOR)
+        .value("VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR",      VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR)
+        .value("VK_BLEND_FACTOR_DST_COLOR",                VK_BLEND_FACTOR_DST_COLOR)
+        .value("VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR",      VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR)
+        .value("VK_BLEND_FACTOR_SRC_ALPHA",                VK_BLEND_FACTOR_SRC_ALPHA)
+        .value("VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA",      VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA)
+        .value("VK_BLEND_FACTOR_DST_ALPHA",                VK_BLEND_FACTOR_DST_ALPHA)
+        .value("VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA",      VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA)
+        .value("VK_BLEND_FACTOR_CONSTANT_COLOR",           VK_BLEND_FACTOR_CONSTANT_COLOR)
+        .value("VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR", VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR)
+        .value("VK_BLEND_FACTOR_CONSTANT_ALPHA",           VK_BLEND_FACTOR_CONSTANT_ALPHA)
+        .value("VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA", VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA)
+        .value("VK_BLEND_FACTOR_SRC_ALPHA_SATURATE",       VK_BLEND_FACTOR_SRC_ALPHA_SATURATE)
+        .value("VK_BLEND_FACTOR_SRC1_COLOR",               VK_BLEND_FACTOR_SRC1_COLOR)
+        .value("VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR",     VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR)
+        .value("VK_BLEND_FACTOR_SRC1_ALPHA",               VK_BLEND_FACTOR_SRC1_ALPHA)
+        .value("VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA",     VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA)
+    ;
+
+    nb::enum_<VkBlendOp>(m, "BlendOp")
+        .value("OP_ADD",                VK_BLEND_OP_ADD)
+        .value("OP_SUBTRACT",           VK_BLEND_OP_SUBTRACT)
+        .value("OP_REVERSE_SUBTRACT",   VK_BLEND_OP_REVERSE_SUBTRACT)
+        .value("OP_MIN",                VK_BLEND_OP_MIN)
+        .value("OP_MAX",                VK_BLEND_OP_MAX)
+        .value("OP_ZERO",               VK_BLEND_OP_ZERO_EXT)
+        .value("OP_SRC",                VK_BLEND_OP_SRC_EXT)
+        .value("OP_DST",                VK_BLEND_OP_DST_EXT)
+        .value("OP_SRC_OVER",           VK_BLEND_OP_SRC_OVER_EXT)
+        .value("OP_DST_OVER",           VK_BLEND_OP_DST_OVER_EXT)
+        .value("OP_SRC_IN",             VK_BLEND_OP_SRC_IN_EXT)
+        .value("OP_DST_IN",             VK_BLEND_OP_DST_IN_EXT)
+        .value("OP_SRC_OUT",            VK_BLEND_OP_SRC_OUT_EXT)
+        .value("OP_DST_OUT",            VK_BLEND_OP_DST_OUT_EXT)
+        .value("OP_SRC_ATOP",           VK_BLEND_OP_SRC_ATOP_EXT)
+        .value("OP_DST_ATOP",           VK_BLEND_OP_DST_ATOP_EXT)
+        .value("OP_XOR",                VK_BLEND_OP_XOR_EXT)
+        .value("OP_MULTIPLY",           VK_BLEND_OP_MULTIPLY_EXT)
+        .value("OP_SCREEN",             VK_BLEND_OP_SCREEN_EXT)
+        .value("OP_OVERLAY",            VK_BLEND_OP_OVERLAY_EXT)
+        .value("OP_DARKEN",             VK_BLEND_OP_DARKEN_EXT)
+        .value("OP_LIGHTEN",            VK_BLEND_OP_LIGHTEN_EXT)
+        .value("OP_COLORDODGE",         VK_BLEND_OP_COLORDODGE_EXT)
+        .value("OP_COLORBURN",          VK_BLEND_OP_COLORBURN_EXT)
+        .value("OP_HARDLIGHT",          VK_BLEND_OP_HARDLIGHT_EXT)
+        .value("OP_SOFTLIGHT",          VK_BLEND_OP_SOFTLIGHT_EXT)
+        .value("OP_DIFFERENCE",         VK_BLEND_OP_DIFFERENCE_EXT)
+        .value("OP_EXCLUSION",          VK_BLEND_OP_EXCLUSION_EXT)
+        .value("OP_INVERT",             VK_BLEND_OP_INVERT_EXT)
+        .value("OP_INVERT_RGB",         VK_BLEND_OP_INVERT_RGB_EXT)
+        .value("OP_LINEARDODGE",        VK_BLEND_OP_LINEARDODGE_EXT)
+        .value("OP_LINEARBURN",         VK_BLEND_OP_LINEARBURN_EXT)
+        .value("OP_VIVIDLIGHT",         VK_BLEND_OP_VIVIDLIGHT_EXT)
+        .value("OP_LINEARLIGHT",        VK_BLEND_OP_LINEARLIGHT_EXT)
+        .value("OP_PINLIGHT",           VK_BLEND_OP_PINLIGHT_EXT)
+        .value("OP_HARDMIX",            VK_BLEND_OP_HARDMIX_EXT)
+        .value("OP_HSL_HUE",            VK_BLEND_OP_HSL_HUE_EXT)
+        .value("OP_HSL_SATURATION",     VK_BLEND_OP_HSL_SATURATION_EXT)
+        .value("OP_HSL_COLOR",          VK_BLEND_OP_HSL_COLOR_EXT)
+        .value("OP_HSL_LUMINOSITY",     VK_BLEND_OP_HSL_LUMINOSITY_EXT)
+        .value("OP_PLUS",               VK_BLEND_OP_PLUS_EXT)
+        .value("OP_PLUS_CLAMPED",       VK_BLEND_OP_PLUS_CLAMPED_EXT)
+        .value("OP_PLUS_CLAMPED_ALPHA", VK_BLEND_OP_PLUS_CLAMPED_ALPHA_EXT)
+        .value("OP_PLUS_DARKER",        VK_BLEND_OP_PLUS_DARKER_EXT)
+        .value("OP_MINUS",              VK_BLEND_OP_MINUS_EXT)
+        .value("OP_MINUS_CLAMPED",      VK_BLEND_OP_MINUS_CLAMPED_EXT)
+        .value("OP_CONTRAST",           VK_BLEND_OP_CONTRAST_EXT)
+        .value("OP_INVERT_OVG",         VK_BLEND_OP_INVERT_OVG_EXT)
+        .value("OP_RED",                VK_BLEND_OP_RED_EXT)
+        .value("OP_GREEN",              VK_BLEND_OP_GREEN_EXT)
+        .value("OP_BLUE",               VK_BLEND_OP_BLUE_EXT)
+    ;
+
+    nb::enum_<VkColorComponentFlagBits>(m, "ColorComponentFlags", nb::is_arithmetic() , nb::is_flag())
+        .value("R", VK_COLOR_COMPONENT_R_BIT)
+        .value("G", VK_COLOR_COMPONENT_G_BIT)
+        .value("B", VK_COLOR_COMPONENT_B_BIT)
+        .value("A", VK_COLOR_COMPONENT_A_BIT)
+    ;
+
+    nb::class_<Attachment>(m, "Attachment")
+        .def(nb::init<
+                VkFormat,
+                bool,
+                VkBlendFactor,
+                VkBlendFactor,
+                VkBlendOp,
+                VkBlendFactor,
+                VkBlendFactor,
+                VkBlendOp,
+                VkColorComponentFlags>(),
+
+                nb::arg("format"),
+                nb::arg("blend_enable")           = false,
+                nb::arg("src_color_blend_factor") = VK_BLEND_FACTOR_ZERO,
+                nb::arg("dst_color_blend_factor") = VK_BLEND_FACTOR_ZERO,
+                nb::arg("color_blend_op")         = VK_BLEND_OP_ADD,
+                nb::arg("src_alpha_blend_factor") = VK_BLEND_FACTOR_ZERO,
+                nb::arg("dst_alpha_blend_factor") = VK_BLEND_FACTOR_ZERO,
+                nb::arg("alpha_blend_op")         = VK_BLEND_OP_ADD,
+                nb::arg("color_write_mask")       = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
+            );
+    ;
+
     nb::class_<GraphicsPipeline>(m, "GraphicsPipeline",
         nb::intrusive_ptr<GraphicsPipeline>([](GraphicsPipeline *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Context>,
@@ -1090,14 +1205,16 @@ NB_MODULE(pyxpg, m) {
                 const std::vector<VertexBinding>&,
                 const std::vector<VertexAttribute>&,
                 InputAssembly,
-                const std::vector<nb::ref<DescriptorSet>>&
+                const std::vector<nb::ref<DescriptorSet>>&,
+                const std::vector<Attachment>&
             >(),
             nb::arg("ctx"),
             nb::arg("stages") = std::vector<nb::ref<PipelineStage>>(),
             nb::arg("vertex_bindings") = std::vector<VertexBinding>(),
             nb::arg("vertex_attributes") = std::vector<VertexAttribute>(),
             nb::arg("input_assembly") = InputAssembly(),
-            nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>()
+            nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("attachments") = std::vector<Attachment>()
         )
         .def("destroy", &GraphicsPipeline::destroy)
     ;

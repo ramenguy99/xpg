@@ -33,6 +33,9 @@ pipeline = GraphicsPipeline(
     ],
     input_assembly = InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
     descriptor_sets = [ set ],
+    attachments = [
+        Attachment(format=window.swapchain_format)
+    ]
 )
 
 def draw():
