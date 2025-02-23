@@ -510,6 +510,22 @@ namespace AllocPresets {
         .vma_usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
         .vma_flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
     };
+
+    enum class Type {
+        Host,
+        HostWriteCombining,
+        DeviceMappedWithFallback,
+        Device,
+        DeviceDedicated,
+    };
+
+    constexpr AllocDesc Types[] = {
+        Host,
+        HostWriteCombining,
+        DeviceMappedWithFallback,
+        Device,
+        DeviceDedicated,
+    };
 }
 
 //- Buffers

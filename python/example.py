@@ -1,9 +1,12 @@
-from pyxpg import Context, Window, Gui, process_events, SwapchainStatus, begin_commands, end_commands
+from pyxpg import Context, Window, Gui, process_events, \
+    SwapchainStatus, begin_commands, end_commands, Buffer, BufferUsageFlags, AllocType
 from pyxpg import imgui
 
 ctx = Context()
 window = Window(ctx, "Hello", 1280, 720)
 gui = Gui(window)
+
+buf = Buffer(ctx, 1024, BufferUsageFlags.VERTEX, AllocType.HOST)
 
 def draw():
     # swapchain update

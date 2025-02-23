@@ -158,11 +158,18 @@ void SetWindowCallbacks(Window* window, WindowCallbacks&& callbacks) {
     window->callbacks = move(callbacks);
     glfwSetWindowUserPointer(window->window, window);
 
-    window->callbacks.prev_callback_window_refresh = glfwSetWindowRefreshCallback(window->window, Callback_WindowRefresh);
-    window->callbacks.prev_callback_mouse_button = glfwSetMouseButtonCallback(window->window, Callback_MouseButton);
-    window->callbacks.prev_callback_scroll = glfwSetScrollCallback(window->window, Callback_Scroll);
-    window->callbacks.prev_callback_cursor_pos = glfwSetCursorPosCallback(window->window, Callback_CursorPos);
-    window->callbacks.prev_callback_key = glfwSetKeyCallback(window->window, Callback_Key);
+    // If installing multiple times, do not install recursively
+#define SAVE_CALLBACK_WITHOUT_RECURSION(type, name, glfw_name, callback) \
+    type name = glfw_name(window->window, callback); \
+    if (name != callback) { \
+        window->callbacks.name = name; \
+    }
+
+    SAVE_CALLBACK_WITHOUT_RECURSION(GLFWwindowrefreshfun, prev_callback_window_refresh, glfwSetWindowRefreshCallback, Callback_WindowRefresh);
+    SAVE_CALLBACK_WITHOUT_RECURSION(GLFWmousebuttonfun, prev_callback_mouse_button, glfwSetMouseButtonCallback, Callback_MouseButton);
+    SAVE_CALLBACK_WITHOUT_RECURSION(GLFWscrollfun, prev_callback_scroll, glfwSetScrollCallback, Callback_Scroll);
+    SAVE_CALLBACK_WITHOUT_RECURSION(GLFWcursorposfun, prev_callback_cursor_pos, glfwSetCursorPosCallback, Callback_CursorPos);
+    SAVE_CALLBACK_WITHOUT_RECURSION(GLFWkeyfun, prev_callback_key, glfwSetKeyCallback, Callback_Key);
 }
 
 void ProcessEvents(bool block) {

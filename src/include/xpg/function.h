@@ -60,9 +60,7 @@ struct Function<R(Args...)>
         OperationFunction operation;
     };
 
-    // 64 bytes is enough to store an std::function, which is convenient to
-    // convert one into the other by moving the std function inside the capture.
-    static const size_t LAMBDA_PTR_COUNT = 8;
+    static const size_t LAMBDA_PTR_COUNT = 7;
     static const size_t LAMBDA_SIZE = sizeof(void*) * LAMBDA_PTR_COUNT;
     static const size_t FUNCTION_SIZE = sizeof(void*) * (LAMBDA_PTR_COUNT + 1);
     const VTable* vtable;
@@ -103,7 +101,7 @@ struct Function<R(Args...)>
     Function(Lambda&& lambda)
     {
         vtable = nullptr;
-        bind(forward<typename RemoveReference<Lambda>::type>(lambda));
+        bind(::forward<typename RemoveReference<Lambda>::type>(lambda));
     }
 
     /// @brief Destroys the function wrapper
@@ -170,7 +168,7 @@ struct Function<R(Args...)>
     {
         checkedOperation(Operation::Destruct, nullptr);
         vtable = nullptr;
-        new (&classInstance, PlacementNew()) Lambda(forward<Lambda>(lambda));
+        new (&classInstance, PlacementNew()) Lambda(::forward<Lambda>(lambda));
         vtable = getVTableForLambda<Lambda>();
     }
 
@@ -277,7 +275,7 @@ struct Function<R(Args...)>
     /// @param args Arguments to be passed to the wrapped function
     [[nodiscard]] R operator()(Args... args) const { return vtable->execute(&classInstance, &args...); }
 
-    operator bool() {
+    operator bool() const {
         return vtable != nullptr;
     }
 };

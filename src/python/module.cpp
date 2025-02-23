@@ -1,9 +1,10 @@
 #include <nanobind/nanobind.h>
+
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/array.h>
-#include <nanobind/stl/function.h>
+#include <nanobind/stl/vector.h>
 #include <nanobind/intrusive/counter.h>
 #include <nanobind/intrusive/ref.h>
 #include <nanobind/intrusive/counter.inl>
@@ -16,6 +17,7 @@
 #include <xpg/gfx.h>
 #include <xpg/gui.h>
 
+#include "function.h"
 
 namespace nb = nanobind;
 
@@ -50,6 +52,7 @@ struct Context: public nb::intrusive_base {
     ~Context() {
         gfx::WaitIdle(vk);
         gfx::DestroyContext(&vk);
+        logging::info("gfx", "done");
     }
 
     gfx::Context vk;
@@ -75,11 +78,16 @@ struct Window: public nb::intrusive_base {
         }
     }
 
-    void set_callbacks(std::function<void()> draw)
+    void set_callbacks(Function<void()> draw)
     {
         gfx::SetWindowCallbacks(&window, {
-            .draw = [draw = move(draw)]() { draw(); },
+                .draw = std::move(draw)
         });
+    }
+
+    void reset_callbacks()
+    {
+        gfx::SetWindowCallbacks(&window, {});
     }
 
     gfx::SwapchainStatus update_swapchain()
@@ -288,10 +296,53 @@ struct Gui: public nb::intrusive_base {
 
     // Slot data structure referencing the above two functions
     static constexpr PyType_Slot tp_slots[] = {
-        { Py_tp_traverse, (void *) Window::tp_traverse },
-        { Py_tp_clear, (void *) Window::tp_clear },
+        { Py_tp_traverse, (void *) Gui::tp_traverse },
+        { Py_tp_clear, (void *) Gui::tp_clear },
         { 0, nullptr }
     };
+};
+
+struct Buffer: public nb::intrusive_base {
+    enum class UsageFlags {
+        TransferSrc = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        TransferDst = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        Uniform = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        Storage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        Index =  VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        Vertex = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        Indirect = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        AccelerationStructureInput = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+        AccelerationStructureStorage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR,
+    };
+
+    Buffer(nb::ref<Context> ctx, usize size, UsageFlags usage_flags, gfx::AllocPresets::Type alloc_type)
+        : ctx(ctx)
+    {
+        VkResult vkr = gfx::CreateBuffer(&buffer, ctx->vk, size, {
+            .usage = (VkBufferUsageFlags)usage_flags,
+            .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
+        });
+    }
+
+    Buffer(nb::ref<Context> ctx, nb::bytes data, UsageFlags usage_flags, gfx::AllocPresets::Type alloc_type)
+        : ctx(ctx)
+    {
+        VkResult vkr = gfx::CreateBufferFromData(&buffer, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), {
+            .usage = (VkBufferUsageFlags)usage_flags,
+            .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
+        });
+    }
+
+    ~Buffer() {
+        destroy();
+    }
+
+    void destroy() {
+        gfx::DestroyBuffer(&buffer, ctx->vk);
+    }
+
+    gfx::Buffer buffer;
+    nb::ref<Context> ctx;
 };
 
 struct CommandPool {
@@ -416,6 +467,7 @@ NB_MODULE(pyxpg, m) {
         .def(nb::init<nb::ref<Context>, const::std::string&, u32, u32>(), nb::arg("ctx"), nb::arg("title"), nb::arg("width"), nb::arg("height"))
         .def("should_close", &Window::should_close)
         .def("set_callbacks", &Window::set_callbacks, nb::arg("draw"))
+        .def("reset_callbacks", &Window::reset_callbacks)
         .def("update_swapchain", &Window::update_swapchain)
         .def("begin_frame", &Window::begin_frame)
         .def("end_frame", &Window::end_frame, nb::arg("frame"))
@@ -429,6 +481,33 @@ NB_MODULE(pyxpg, m) {
         .def("end_frame", &Gui::end_frame)
         .def("render", &Gui::render, nb::arg("frame"))
     ;
+
+    nb::enum_<gfx::AllocPresets::Type>(m, "AllocType")
+        .value("HOST", gfx::AllocPresets::Type::Host)
+        .value("HOST_WRITE_COMBINING", gfx::AllocPresets::Type::HostWriteCombining)
+        .value("DEVICE_MAPPED_WITH_FALLBACK", gfx::AllocPresets::Type::DeviceMappedWithFallback)
+        .value("DEVICE", gfx::AllocPresets::Type::Device)
+        .value("DEVICE_DEDICATED", gfx::AllocPresets::Type::DeviceDedicated)
+    ;
+
+    nb::enum_<Buffer::UsageFlags>(m, "BufferUsageFlags", nb::is_arithmetic() , nb::is_flag())
+        .value("TRANSFER_SRC", Buffer::UsageFlags::TransferSrc)
+        .value("TRANSFER_DST", Buffer::UsageFlags::TransferDst)
+        .value("UNIFORM", Buffer::UsageFlags::Uniform)
+        .value("STORAGE", Buffer::UsageFlags::Storage)
+        .value("INDEX", Buffer::UsageFlags::Index)
+        .value("VERTEX", Buffer::UsageFlags::Vertex)
+        .value("INDIRECT", Buffer::UsageFlags::Indirect)
+        .value("ACCELERATION_STRUCTURE_INPUT", Buffer::UsageFlags::AccelerationStructureInput)
+        .value("ACCELERATION_STRUCTURE_STORAGE", Buffer::UsageFlags::AccelerationStructureStorage)
+    ;
+
+    nb::class_<Buffer>(m, "Buffer")
+        .def(nb::init<nb::ref<Context>, size_t, Buffer::UsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def(nb::init<nb::ref<Context>, nb::bytes, Buffer::UsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def("destroy", &Buffer::destroy)
+    ;
+
 
     nb::class_<Frame>(m, "Frame")
         .def_prop_ro("command_pool", [](Frame& f) -> CommandPool {
