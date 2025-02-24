@@ -515,6 +515,7 @@ namespace AllocPresets {
         Host,
         HostWriteCombining,
         DeviceMappedWithFallback,
+        DeviceMapped,
         Device,
         DeviceDedicated,
     };
@@ -523,6 +524,7 @@ namespace AllocPresets {
         Host,
         HostWriteCombining,
         DeviceMappedWithFallback,
+        DeviceMapped,
         Device,
         DeviceDedicated,
     };

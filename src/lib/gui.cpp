@@ -191,7 +191,9 @@ void BeginFrame() {
 void Render(VkCommandBuffer cmd)
 {
     ImDrawData* draw_data = ImGui::GetDrawData();
-    ImGui_ImplVulkan_RenderDrawData(draw_data, cmd);
+    if(draw_data) {
+        ImGui_ImplVulkan_RenderDrawData(draw_data, cmd);
+    }
 }
 
 void EndFrame() {

@@ -58,18 +58,80 @@ struct Context: public nb::intrusive_base {
     gfx::Context vk;
 };
 
+struct CommandPool {
+    CommandPool(VkCommandPool obj): obj(obj) {}
+
+    VkCommandPool obj;
+};
+
+struct CommandBuffer {
+    CommandBuffer(VkCommandBuffer obj): obj(obj) {}
+
+    VkCommandBuffer obj;
+};
+
+void BeginCommands(const CommandPool& command_pool, const CommandBuffer& command_buffer, const Context& ctx) {
+    VkResult vkr = gfx::BeginCommands(command_pool.obj, command_buffer.obj, ctx.vk);
+    if(vkr != VK_SUCCESS) {
+        throw std::runtime_error("Failed to begin commands");
+    }
+}
+
+void EndCommands(const CommandBuffer& command_buffer) {
+    VkResult vkr = gfx::EndCommands(command_buffer.obj);
+    if(vkr != VK_SUCCESS) {
+        throw std::runtime_error("Failed to end commands");
+    }
+}
+
 struct Window;
 
-struct Frame {
-    Frame(gfx::Frame& frame)
-        : frame(frame)
-    {
+struct Frame: public nb::intrusive_base {
+    struct FrameCommands {
+        FrameCommands(nb::ref<Frame> frame): frame(frame) { }
+
+        void enter();
+        void exit(nb::object, nb::object, nb::object);
+
+        nb::ref<Frame> frame;
+    };
+
+    Frame(nb::ref<Window> window, gfx::Frame& frame)
+        : window(window)
+        , frame(frame)
+    {}
+    FrameCommands commands() {
+        return FrameCommands(this);
     }
 
     gfx::Frame& frame;
+    nb::ref<Window> window;
 };
 
 struct Window: public nb::intrusive_base {
+    struct FrameManager {
+        FrameManager(nb::ref<Window> window)
+            : window(window)
+        {
+        }
+
+        nb::ref<Frame> enter() {
+            frame = window->begin_frame();
+            return frame;
+        }
+
+        void exit(nb::object, nb::object, nb::object) {
+            window->end_frame(*frame);
+        }
+
+        nb::ref<Frame> frame;
+        nb::ref<Window> window;
+    };
+
+    FrameManager frame() {
+        return FrameManager(this);
+    }
+
     Window(nb::ref<Context> ctx, const std::string& name, u32 width, u32 height)
         : ctx(ctx)
     {
@@ -80,8 +142,17 @@ struct Window: public nb::intrusive_base {
 
     void set_callbacks(Function<void()> draw)
     {
+        this->draw = std::move(draw);
+
         gfx::SetWindowCallbacks(&window, {
-                .draw = std::move(draw)
+                .draw = [this] {
+                    try {
+                        if(this->draw)
+                            this->draw();
+                    } catch (nb::python_error &e) {
+                        e.restore();
+                    }
+                }
         });
     }
 
@@ -99,7 +170,7 @@ struct Window: public nb::intrusive_base {
         return status;
     }
 
-    Frame begin_frame()
+    nb::ref<Frame> begin_frame()
     {
         // TODO: make this throw if called multiple times in a row befor end
         gfx::Frame& frame = gfx::WaitForFrame(&window, ctx->vk);
@@ -107,7 +178,7 @@ struct Window: public nb::intrusive_base {
         if (ok != gfx::Result::SUCCESS) {
             throw std::runtime_error("Failed to acquire next image");
         }
-        return Frame(frame);
+        return new Frame(this, frame);
     }
 
     void end_frame(Frame& frame)
@@ -138,6 +209,7 @@ struct Window: public nb::intrusive_base {
 
     nb::ref<Context> ctx;
     gfx::Window window;
+    Function<void()> draw;
 
     // Garbage collection:
 
@@ -148,7 +220,7 @@ struct Window: public nb::intrusive_base {
         // If w->value has an associated CPython object, return it.
         // If not, value.ptr() will equal NULL, which is also fine.
         nb::handle ctx                = nb::find(w->ctx.get());
-        nb::handle draw               = nb::find(w->window.callbacks.draw);
+        nb::handle draw               = nb::find(w->draw);
         // nb::handle mouse_move_event   = nb::find(w->window.callbacks.mouse_move_event);
         // nb::handle mouse_button_event = nb::find(w->window.callbacks.mouse_button_event);
         // nb::handle mouse_scroll_event = nb::find(w->window.callbacks.mouse_scroll_event);
@@ -169,7 +241,7 @@ struct Window: public nb::intrusive_base {
 
         // Clear the cycle!
         w->ctx.reset();
-        w->window.callbacks.draw = nullptr;
+        w->draw = nullptr;
         // w->window.callbacks.mouse_move_event = nullptr;
         // w->window.callbacks.mouse_button_event = nullptr;
         // w->window.callbacks.mouse_scroll_event = nullptr;
@@ -185,6 +257,15 @@ struct Window: public nb::intrusive_base {
     };
 };
 
+void Frame::FrameCommands::enter() {
+    gfx::Frame& f = frame->frame;
+    BeginCommands(f.command_pool, f.command_buffer, *frame->window->ctx);
+}
+
+void Frame::FrameCommands::exit(nb::object, nb::object, nb::object) {
+    gfx::Frame& f = frame->frame;
+    EndCommands(f.command_buffer);
+}
 
 struct Gui: public nb::intrusive_base {
     Gui(nb::ref<Window> window)
@@ -192,6 +273,22 @@ struct Gui: public nb::intrusive_base {
         , ctx(window->ctx)
     {
         gui::CreateImGuiImpl(&imgui_impl, window->window, ctx->vk, {});
+    }
+
+    struct GuiFrame {
+        void enter()
+        {
+            gui::BeginFrame();
+        }
+
+        void exit(nb::object, nb::object, nb::object)
+        {
+            gui::EndFrame();
+        }
+    };
+
+    GuiFrame frame() {
+        return GuiFrame();
     }
 
     void begin_frame()
@@ -315,17 +412,11 @@ struct Buffer: public nb::intrusive_base {
         }
     }
 
-    Buffer(nb::ref<Context> ctx, nb::bytes data, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type)
+    Buffer() {}
+
+    Buffer(nb::ref<Context> ctx)
         : ctx(ctx)
-    {
-        VkResult vkr = gfx::CreateBufferFromData(&buffer, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), {
-            .usage = (VkBufferUsageFlags)usage_flags,
-            .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
-        });
-        if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create buffer");
-        }
-    }
+    { }
 
     ~Buffer() {
         destroy();
@@ -335,7 +426,21 @@ struct Buffer: public nb::intrusive_base {
         gfx::DestroyBuffer(&buffer, ctx->vk);
     }
 
-    gfx::Buffer buffer;
+    static nb::ref<Buffer> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type) {
+        std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx);
+
+        VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), {
+            .usage = (VkBufferUsageFlags)usage_flags,
+            .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
+        });
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create buffer");
+        }
+
+        return self.release();
+    }
+
+    gfx::Buffer buffer = {};
     nb::ref<Context> ctx;
 };
 
@@ -375,7 +480,7 @@ struct DescriptorSet: public nb::intrusive_base {
 };
 
 struct Shader: public nb::intrusive_base {
-    Shader(nb::ref<Context> ctx, nb::bytes code)
+    Shader(nb::ref<Context> ctx, const nb::bytes& code)
         : ctx(ctx)
     {
         VkResult vkr = gfx::CreateShader(&shader, ctx->vk, ArrayView<u8>((u8*)code.data(), code.size()));
@@ -524,32 +629,6 @@ struct GraphicsPipeline: nb::intrusive_base {
     nb::ref<Context> ctx;
 };
 
-struct CommandPool {
-    CommandPool(VkCommandPool obj): obj(obj) {}
-
-    VkCommandPool obj;
-};
-
-struct CommandBuffer {
-    CommandBuffer(VkCommandBuffer obj): obj(obj) {}
-
-    VkCommandBuffer obj;
-};
-
-void BeginCommands(const CommandPool& command_pool, const CommandBuffer& command_buffer, const Context& ctx) {
-    VkResult vkr = gfx::BeginCommands(command_pool.obj, command_buffer.obj, ctx.vk);
-    if(vkr != VK_SUCCESS) {
-        throw std::runtime_error("Failed to begin commands");
-    }
-}
-
-void EndCommands(const CommandBuffer& command_buffer) {
-    VkResult vkr = gfx::EndCommands(command_buffer.obj);
-    if(vkr != VK_SUCCESS) {
-        throw std::runtime_error("Failed to end commands");
-    }
-}
-
 typedef ImU32 Color;
 
 ImGuiStyle& ImGui_get_style() {
@@ -640,6 +719,22 @@ NB_MODULE(pyxpg, m) {
         .def(nb::init<>())
     ;
 
+    nb::class_<Frame::FrameCommands>(m, "FrameCommands")
+        .def("__enter__", &Frame::FrameCommands::enter)
+        .def("__exit__", &Frame::FrameCommands::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
+    ;
+
+    nb::class_<Frame>(m, "Frame",
+        nb::intrusive_ptr<Frame>([](Frame *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def("commands", &Frame::commands)
+        .def_prop_ro("command_pool", [](Frame& f) -> CommandPool {
+            return CommandPool(f.frame.command_pool);
+        })
+        .def_prop_ro("command_buffer", [](Frame& f) -> CommandBuffer {
+            return CommandBuffer(f.frame.command_buffer);
+        })
+    ;
+
     nb::class_<Window>(m, "Window",
         nb::type_slots(Window::tp_slots),
         nb::intrusive_ptr<Window>([](Window *o, PyObject *po) noexcept { o->set_self_py(po); }))
@@ -650,7 +745,18 @@ NB_MODULE(pyxpg, m) {
         .def("update_swapchain", &Window::update_swapchain)
         .def("begin_frame", &Window::begin_frame)
         .def("end_frame", &Window::end_frame, nb::arg("frame"))
+        .def("frame", &Window::frame)
         .def_prop_ro("swapchain_format", [](Window& w) -> VkFormat { return w.window.swapchain_format; });
+    ;
+
+    nb::class_<Window::FrameManager>(m, "WindowFrame")
+        .def("__enter__", &Window::FrameManager::enter)
+        .def("__exit__", &Window::FrameManager::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
+    ;
+
+    nb::class_<Gui::GuiFrame>(m, "GuiFrame")
+        .def("__enter__", &Gui::GuiFrame::enter)
+        .def("__exit__", &Gui::GuiFrame::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
     ;
 
     nb::class_<Gui>(m, "Gui",
@@ -660,12 +766,14 @@ NB_MODULE(pyxpg, m) {
         .def("begin_frame", &Gui::begin_frame)
         .def("end_frame", &Gui::end_frame)
         .def("render", &Gui::render, nb::arg("frame"))
+        .def("frame", &Gui::frame)
     ;
 
     nb::enum_<gfx::AllocPresets::Type>(m, "AllocType")
         .value("HOST", gfx::AllocPresets::Type::Host)
         .value("HOST_WRITE_COMBINING", gfx::AllocPresets::Type::HostWriteCombining)
         .value("DEVICE_MAPPED_WITH_FALLBACK", gfx::AllocPresets::Type::DeviceMappedWithFallback)
+        .value("DEVICE_MAPPED", gfx::AllocPresets::Type::DeviceMapped)
         .value("DEVICE", gfx::AllocPresets::Type::Device)
         .value("DEVICE_DEDICATED", gfx::AllocPresets::Type::DeviceDedicated)
     ;
@@ -685,13 +793,14 @@ NB_MODULE(pyxpg, m) {
     nb::class_<Buffer>(m, "Buffer",
         nb::intrusive_ptr<Buffer>([](Buffer *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"))
-        .def(nb::init<nb::ref<Context>, nb::bytes, VkBufferUsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        // .def(nb::init<nb::ref<Context>, const nb::bytes&, VkBufferUsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
         .def("destroy", &Buffer::destroy)
+        .def("from_data", &Buffer::from_data)
     ;
 
     nb::class_<Shader>(m, "Shader",
         nb::intrusive_ptr<Shader>([](Shader *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<nb::ref<Context>, nb::bytes>(), nb::arg("ctx"), nb::arg("code"))
+        .def(nb::init<nb::ref<Context>, const nb::bytes&>(), nb::arg("ctx"), nb::arg("code"))
         .def("destroy", &Shader::destroy)
     ;
 
@@ -1217,15 +1326,6 @@ NB_MODULE(pyxpg, m) {
             nb::arg("attachments") = std::vector<Attachment>()
         )
         .def("destroy", &GraphicsPipeline::destroy)
-    ;
-
-    nb::class_<Frame>(m, "Frame")
-        .def_prop_ro("command_pool", [](Frame& f) -> CommandPool {
-            return CommandPool(f.frame.command_pool);
-        })
-        .def_prop_ro("command_buffer", [](Frame& f) -> CommandBuffer {
-            return CommandBuffer(f.frame.command_buffer);
-        })
     ;
 
     nb::class_<CommandPool>(m, "CommandPool");

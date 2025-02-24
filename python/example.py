@@ -1,12 +1,17 @@
 from pyxpg import *
 from pyxpg import imgui
 from pathlib import Path
+import numpy as np
 
 ctx = Context()
 window = Window(ctx, "Hello", 1280, 720)
 gui = Gui(window)
 
+rot = np.eye(4, dtype=np.float32)
+
 buf = Buffer(ctx, 1024, BufferUsageFlags.VERTEX, AllocType.HOST)
+ubuf = Buffer.from_data(ctx, rot.tobytes(), BufferUsageFlags.VERTEX, AllocType.HOST)
+
 vert = Shader(ctx, Path("res/basic.vert.spirv").read_bytes())
 frag = Shader(ctx, Path("res/basic.frag.spirv").read_bytes())
 
@@ -38,7 +43,10 @@ pipeline = GraphicsPipeline(
     ]
 )
 
+v = 0
+
 def draw():
+    global v
     # swapchain update
     swapchain_status = window.update_swapchain()
 
@@ -48,19 +56,15 @@ def draw():
     if swapchain_status == SwapchainStatus.RESIZED:
         pass
 
-    frame = window.begin_frame()
-
-    gui.begin_frame()
-    if imgui.begin("wow"):
-        imgui.text("Hello")
+    with gui.frame():
+        if imgui.begin("wow"):
+            imgui.text("Hello")
+            _, v = imgui.drag_float("Value", v)
         imgui.end()
-    gui.end_frame()
 
-    begin_commands(frame.command_pool, frame.command_buffer, ctx)
-    gui.render(frame)
-    end_commands(frame.command_buffer)
-
-    window.end_frame(frame)
+    with window.frame() as frame:
+        with frame.commands():
+            gui.render(frame)
 
 window.set_callbacks(draw)
 
