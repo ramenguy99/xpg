@@ -15,6 +15,8 @@ ubuf = Buffer.from_data(ctx, rot.tobytes(), BufferUsageFlags.VERTEX, AllocType.H
 vert = Shader(ctx, Path("res/basic.vert.spirv").read_bytes())
 frag = Shader(ctx, Path("res/basic.frag.spirv").read_bytes())
 
+push_constants = np.array([ 0.5, 0.0, 0.0, 1.0], np.float32)
+
 stage = PipelineStage(vert, Stage.VERTEX)
 
 set = DescriptorSet(
@@ -38,6 +40,9 @@ pipeline = GraphicsPipeline(
     ],
     input_assembly = InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
     descriptor_sets = [ set ],
+    push_constants_ranges = [
+        PushConstantsRange(4),
+    ],
     attachments = [
         Attachment(format=window.swapchain_format)
     ]
@@ -56,6 +61,8 @@ def draw():
     if swapchain_status == SwapchainStatus.RESIZED:
         pass
 
+    buf.destroy()
+
     with gui.frame():
         if imgui.begin("wow"):
             imgui.text("Hello")
@@ -63,8 +70,24 @@ def draw():
         imgui.end()
 
     with window.frame() as frame:
-        with frame.commands():
-            gui.render(frame)
+        with frame.command_buffer as cmd:
+            img = frame.image
+            cmd.use_image(img, ImageUsage.COLOR_ATTACHMENT)
+            viewport = [0, 0, window.fb_width, window.fb_height]
+
+            with cmd.rendering(viewport,
+                color_attachments=[
+                    RenderingAttachment(
+                        frame.image,
+                        load_op=LoadOp.CLEAR,
+                        store_op=StoreOp.STORE,
+                        clear=[0.1, 0.2, 0.4, 1],
+                    )
+                ]
+            ):
+                gui.render(cmd)
+
+            cmd.use_image(frame.image, ImageUsage.PRESENT)
 
 window.set_callbacks(draw)
 

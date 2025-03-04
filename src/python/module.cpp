@@ -58,54 +58,370 @@ struct Context: public nb::intrusive_base {
     gfx::Context vk;
 };
 
-struct CommandPool {
-    CommandPool(VkCommandPool obj): obj(obj) {}
+struct GfxObject: public nb::intrusive_base {
+    GfxObject() {}
+    GfxObject(nb::ref<Context> ctx, bool owned)
+        : ctx(ctx)
+        , owned(owned)
+    {}
 
-    VkCommandPool obj;
+    // Reference to main context
+    nb::ref<Context> ctx;
+
+    // If set the underlying object should be freed on destruction.
+    // User created objects normally have this set to true,
+    // context/swapchain owned objects have this set to false.
+    bool owned = true;
 };
 
-struct CommandBuffer {
-    CommandBuffer(VkCommandBuffer obj): obj(obj) {}
+struct Buffer: public GfxObject {
+    Buffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type)
+        : GfxObject(ctx, true)
+    {
+        VkResult vkr = gfx::CreateBuffer(&buffer, ctx->vk, size, {
+            .usage = (VkBufferUsageFlags)usage_flags,
+            .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
+        });
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create buffer");
+        }
+    }
 
-    VkCommandBuffer obj;
+    Buffer(nb::ref<Context> ctx)
+        : GfxObject(ctx, true)
+    { }
+
+    ~Buffer() {
+        if(owned) {
+            destroy();
+        }
+    }
+
+    void destroy() {
+        gfx::DestroyBuffer(&buffer, ctx->vk);
+    }
+
+    static nb::ref<Buffer> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type) {
+        std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx);
+
+        VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), {
+            .usage = (VkBufferUsageFlags)usage_flags,
+            .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
+        });
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create buffer");
+        }
+
+        return self.release();
+    }
+
+    gfx::Buffer buffer = {};
 };
 
-void BeginCommands(const CommandPool& command_pool, const CommandBuffer& command_buffer, const Context& ctx) {
-    VkResult vkr = gfx::BeginCommands(command_pool.obj, command_buffer.obj, ctx.vk);
-    if(vkr != VK_SUCCESS) {
-        throw std::runtime_error("Failed to begin commands");
-    }
+
+bool has_any_write_access(VkAccessFlags2 flags) {
+    return (flags & (VK_ACCESS_2_SHADER_WRITE_BIT
+        | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+        | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+        | VK_ACCESS_2_TRANSFER_WRITE_BIT
+        | VK_ACCESS_2_HOST_WRITE_BIT
+        | VK_ACCESS_2_MEMORY_WRITE_BIT
+        | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+        | VK_ACCESS_2_VIDEO_DECODE_WRITE_BIT_KHR
+        | VK_ACCESS_2_TRANSFORM_FEEDBACK_WRITE_BIT_EXT
+        | VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT
+        | VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_NV
+        | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR
+        | VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT
+        | VK_ACCESS_2_OPTICAL_FLOW_WRITE_BIT_NV)) != 0;
 }
 
-void EndCommands(const CommandBuffer& command_buffer) {
-    VkResult vkr = gfx::EndCommands(command_buffer.obj);
-    if(vkr != VK_SUCCESS) {
-        throw std::runtime_error("Failed to end commands");
-    }
+enum class ImageUsage {
+    None,
+    Image,
+    ImageReadOnly,
+    ImageWriteOnly,
+    ColorAttachment,
+    ColorAttachmentWriteOnly,
+    DepthStencilAttachment,
+    DepthStencilAttachmentReadOnly,
+    DepthStencilAttachmentWriteOnly,
+    Present,
+};
+
+struct ImageUsageState {
+    VkPipelineStageFlags2 first_stage;  // For execution barriers, first stage that r/w to this resource
+    VkPipelineStageFlags2 last_stage;   // For execution barriers, last stage that r/w to this resource
+    VkAccessFlags2 access;              // For memory bariers, all accesses to this resource
+    VkImageLayout layout;               // Only used if underlying resource is an image
+};
+
+namespace ImageUsagePresets {
+    constexpr ImageUsageState None {
+        .first_stage = VK_PIPELINE_STAGE_2_NONE,
+        .last_stage = VK_PIPELINE_STAGE_2_NONE,
+        .access = 0,
+        .layout = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    constexpr ImageUsageState Image {
+        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+        .layout = VK_IMAGE_LAYOUT_GENERAL,
+    };
+    constexpr ImageUsageState ImageReadOnly {
+        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
+        .layout = VK_IMAGE_LAYOUT_GENERAL, // This can potentially be READ_ONLY or even SHADER_READ_ONLY?
+    };
+    constexpr ImageUsageState ImageWriteOnly {
+        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+        .layout = VK_IMAGE_LAYOUT_GENERAL, // This can potentially be READ_ONLY or even SHADER_READ_ONLY?
+    };
+    constexpr ImageUsageState ColorAttachment = {
+        .first_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    };
+    constexpr ImageUsageState ColorAttachmentWriteOnly = {
+        .first_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    };
+    constexpr ImageUsageState DepthStencilAttachment = {
+        .first_stage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        .access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
+    constexpr ImageUsageState DepthStencilAttachmentReadOnly = {
+        .first_stage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        .access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
+    constexpr ImageUsageState DepthStencilAttachmentWriteOnly = {
+        .first_stage = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        .access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
+    constexpr ImageUsageState Present = {
+        .first_stage = VK_PIPELINE_STAGE_2_NONE,
+        .last_stage = VK_PIPELINE_STAGE_2_NONE,
+        .access = 0,
+        .layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+    };
+
+    ImageUsageState Types[] = {
+        None,
+        Image,
+        ImageReadOnly,
+        ImageWriteOnly,
+        ColorAttachment,
+        ColorAttachmentWriteOnly,
+        DepthStencilAttachment,
+        DepthStencilAttachmentReadOnly,
+        DepthStencilAttachmentWriteOnly,
+        Present,
+    };
 }
+
+struct Image: public GfxObject {
+    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type)
+        : GfxObject(ctx, true)
+    {
+        VkResult vkr = gfx::CreateImage(&image, ctx->vk, {
+            .width = width,
+            .height = height,
+            .format = format,
+            .usage = (VkBufferUsageFlags)usage_flags,
+            .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
+        });
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create image");
+        }
+    }
+
+    Image(nb::ref<Context> ctx, VkImage image, VkImageView view)
+        : GfxObject(ctx, false) {
+        this->image.image = image;
+        this->image.view = view;
+        this->image.allocation = 0;
+    }
+
+    Image(nb::ref<Context> ctx)
+        : GfxObject(ctx, true)
+    { }
+
+    ~Image() {
+        if(owned) {
+            destroy();
+        }
+    }
+
+    void destroy() {
+        gfx::DestroyImage(&image, ctx->vk);
+    }
+
+    // static nb::ref<Image> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type) {
+    //     std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx);
+
+    //     VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), {
+    //         .usage = (VkBufferUsageFlags)usage_flags,
+    //         .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
+    //     });
+    //     if (vkr != VK_SUCCESS) {
+    //         throw std::runtime_error("Failed to create buffer");
+    //     }
+
+    //     return self.release();
+    // }
+
+    gfx::Image image = {};
+    ImageUsageState current_state = ImageUsagePresets::Types[(usize)ImageUsage::None];
+};
 
 struct Window;
 
-struct Frame: public nb::intrusive_base {
-    struct FrameCommands {
-        FrameCommands(nb::ref<Frame> frame): frame(frame) { }
+struct RenderingAttachment {
+    nb::ref<Image> image;
+    VkAttachmentLoadOp load_op;
+    VkAttachmentStoreOp store_op;
+    std::array<float, 4> clear;
 
-        void enter();
-        void exit(nb::object, nb::object, nb::object);
-
-        nb::ref<Frame> frame;
-    };
-
-    Frame(nb::ref<Window> window, gfx::Frame& frame)
-        : window(window)
-        , frame(frame)
+    RenderingAttachment(nb::ref<Image> image, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, std::array<float, 4> clear)
+        : image(image)
+        , load_op(load_op)
+        , store_op(store_op)
+        , clear(clear)
     {}
-    FrameCommands commands() {
-        return FrameCommands(this);
+};
+
+struct CommandBuffer: GfxObject {
+    CommandBuffer(nb::ref<Context> ctx, VkCommandPool pool, VkCommandBuffer buffer, bool owned)
+        : GfxObject(ctx, owned)
+        , pool(pool)
+        , buffer(buffer)
+    {}
+
+    void use_image(Image& image, ImageUsage usage) {
+        assert((usize)usage < ArrayCount(ImageUsagePresets::Types));
+        ImageUsageState new_state = ImageUsagePresets::Types[(usize)usage];
+
+        // Rules:
+        // - If layout transition: always need barrier
+        // - If one of the uses is a write: memory barrier needed
+
+        bool layout_transition = image.current_state.layout != new_state.layout;
+        bool memory_barrier = has_any_write_access(image.current_state.access | new_state.access);
+        if (layout_transition || memory_barrier) {
+            // TODO: use a memory barrier if no layout transition?
+            gfx::CmdImageBarrier(buffer, {
+                .image = image.image.image,
+                .src_stage = image.current_state.last_stage,
+                .dst_stage = new_state.first_stage,
+                .src_access = image.current_state.access,
+                .dst_access = new_state.access,
+                .new_layout = new_state.layout,
+                // TODO: aspect mask based on usage?
+            });
+        }
+
+        image.current_state = new_state;
     }
 
+    void begin() {
+        VkResult vkr = gfx::BeginCommands(pool, buffer, ctx->vk);
+        if(vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to begin commands");
+        }
+    }
+
+    void end() {
+        VkResult vkr = gfx::EndCommands(buffer);
+        if(vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to end commands");
+        }
+    }
+
+    nb::ref<CommandBuffer> enter() {
+        begin();
+        return this;
+    }
+
+    void exit(nb::object, nb::object, nb::object) {
+        end();
+    }
+
+    struct RenderingManager {
+        RenderingManager(nb::ref<CommandBuffer> cmd, std::array<u32, 4> viewport, std::vector<RenderingAttachment> color)
+            : cmd(cmd)
+            , viewport(viewport)
+            , color(std::move(color))
+        {}
+
+        void enter() {
+            cmd->begin_rendering(viewport, color);
+        }
+
+        void exit(nb::object, nb::object, nb::object) {
+            cmd->end_rendering();
+        }
+
+        nb::ref<CommandBuffer> cmd;
+        std::array<u32, 4> viewport;
+        std::vector<RenderingAttachment> color;
+    };
+
+    RenderingManager rendering(std::array<u32, 4> viewport, const std::vector<RenderingAttachment>& color) {
+        return RenderingManager(this, viewport, std::move(color));
+    }
+
+    void begin_rendering(std::array<u32, 4> viewport, const std::vector<RenderingAttachment>& color) {
+        Array<gfx::RenderingAttachmentDesc> color_descs(color.size());
+        for(usize i = 0; i < color_descs.length; i++) {
+            VkClearColorValue clear;
+            clear.float32[0] = color[i].clear[0];
+            clear.float32[1] = color[i].clear[1];
+            clear.float32[2] = color[i].clear[2];
+            clear.float32[3] = color[i].clear[3];
+
+            color_descs[i].view = color[i].image->image.view;
+            color_descs[i].store_op = color[i].store_op;
+            color_descs[i].load_op = color[i].load_op;
+            color_descs[i].clear = clear;
+        }
+
+        gfx::CmdBeginRendering(buffer, {
+            .color = Span(color_descs),
+            .offset_x = viewport[0],
+            .offset_y = viewport[1],
+            .width = viewport[2],
+            .height = viewport[3],
+        });
+    }
+
+    void end_rendering() {
+        gfx::CmdEndRendering(buffer);
+    }
+
+    VkCommandPool pool;
+    VkCommandBuffer buffer;
+};
+
+struct Frame: public nb::intrusive_base {
+    Frame(nb::ref<Window> window, gfx::Frame& frame);
+
     gfx::Frame& frame;
+    nb::ref<CommandBuffer> command_buffer;
     nb::ref<Window> window;
+    nb::ref<Image> image;
 };
 
 struct Window: public nb::intrusive_base {
@@ -210,6 +526,7 @@ struct Window: public nb::intrusive_base {
     nb::ref<Context> ctx;
     gfx::Window window;
     Function<void()> draw;
+    std::vector<Frame> frames;
 
     // Garbage collection:
 
@@ -257,22 +574,19 @@ struct Window: public nb::intrusive_base {
     };
 };
 
-void Frame::FrameCommands::enter() {
-    gfx::Frame& f = frame->frame;
-    BeginCommands(f.command_pool, f.command_buffer, *frame->window->ctx);
-}
 
-void Frame::FrameCommands::exit(nb::object, nb::object, nb::object) {
-    gfx::Frame& f = frame->frame;
-    EndCommands(f.command_buffer);
+Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
+    : window(window)
+    , frame(frame)
+{
+    image = new Image(window->ctx, frame.current_image, frame.current_image_view);
+    command_buffer = new CommandBuffer(window->ctx, frame.command_pool, frame.command_buffer, false);
 }
 
 struct Gui: public nb::intrusive_base {
     Gui(nb::ref<Window> window)
-        : window(window)
-        , ctx(window->ctx)
     {
-        gui::CreateImGuiImpl(&imgui_impl, window->window, ctx->vk, {});
+        gui::CreateImGuiImpl(&imgui_impl, window->window, window->ctx->vk, {});
     }
 
     struct GuiFrame {
@@ -301,65 +615,64 @@ struct Gui: public nb::intrusive_base {
         gui::EndFrame();
     }
 
-    void render(Frame& frame_obj) //TODO: Ideally this would be just a command buffer, but need to decide how to expose lower level gfx
+    void render(CommandBuffer& command_buffer)
     {
-        gfx::Context& vk = ctx->vk;
-        gfx::Frame& frame = frame_obj.frame;
-        gfx::Window& window = this->window->window;
+        // gfx::Context& vk = ctx->vk;
+        // gfx::Frame& frame = frame_obj.frame;
+        // gfx::Window& window = this->window->window;
 
-        gfx::CmdImageBarrier(frame.command_buffer, {
-            .image = frame.current_image,
-            .src_stage = VK_PIPELINE_STAGE_2_NONE,
-            .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .src_access = 0,
-            .dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            });
+        // gfx::CmdImageBarrier(command_buffer, {
+        //     .image = frame.current_image,
+        //     .src_stage = VK_PIPELINE_STAGE_2_NONE,
+        //     .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        //     .src_access = 0,
+        //     .dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        //     .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+        //     .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        //     });
 
-        VkClearColorValue color = { 0.1f, 0.1f, 0.1f, 1.0f };
-        VkRenderingAttachmentInfo attachment_info = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-        attachment_info.imageView = frame.current_image_view;
-        attachment_info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        attachment_info.resolveMode = VK_RESOLVE_MODE_NONE;
-        attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        attachment_info.clearValue.color = color;
+        // VkClearColorValue color = { 0.1f, 0.1f, 0.1f, 1.0f };
+        // VkRenderingAttachmentInfo attachment_info = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+        // attachment_info.imageView = frame.current_image_view;
+        // attachment_info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        // attachment_info.resolveMode = VK_RESOLVE_MODE_NONE;
+        // attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        // attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        // attachment_info.clearValue.color = color;
 
-        VkRenderingInfo rendering_info = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-        rendering_info.renderArea.extent.width = window.fb_width;
-        rendering_info.renderArea.extent.height = window.fb_height;
-        rendering_info.layerCount = 1;
-        rendering_info.viewMask = 0;
-        rendering_info.colorAttachmentCount = 1;
-        rendering_info.pColorAttachments = &attachment_info;
-        rendering_info.pDepthAttachment = 0;
-        vkCmdBeginRenderingKHR(frame.command_buffer, &rendering_info);
+        // VkRenderingInfo rendering_info = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+        // rendering_info.renderArea.extent.width = window.fb_width;
+        // rendering_info.renderArea.extent.height = window.fb_height;
+        // rendering_info.layerCount = 1;
+        // rendering_info.viewMask = 0;
+        // rendering_info.colorAttachmentCount = 1;
+        // rendering_info.pColorAttachments = &attachment_info;
+        // rendering_info.pDepthAttachment = 0;
+        // vkCmdBeginRenderingKHR(frame.command_buffer, &rendering_info);
 
         // Draw GUI
-        gui::Render(frame.command_buffer);
+        gui::Render(command_buffer.buffer);
 
-        vkCmdEndRenderingKHR(frame.command_buffer);
+        // vkCmdEndRenderingKHR(frame.command_buffer);
 
-        gfx::CmdImageBarrier(frame.command_buffer, {
-            .image = frame.current_image,
-            .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dst_stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
-            .src_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            .dst_access = 0,
-            .old_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            .new_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-            });
+        // gfx::CmdImageBarrier(frame.command_buffer, {
+        //     .image = frame.current_image,
+        //     .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        //     .dst_stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+        //     .src_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        //     .dst_access = 0,
+        //     .old_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        //     .new_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        //     });
     }
 
     ~Gui()
     {
-        gfx::WaitIdle(ctx->vk);
-        gui::DestroyImGuiImpl(&imgui_impl, ctx->vk);
+        gfx::WaitIdle(window->ctx->vk);
+        gui::DestroyImGuiImpl(&imgui_impl, window->ctx->vk);
     }
 
     nb::ref<Window> window;
-    nb::ref<Context> ctx;
     gui::ImGuiImpl imgui_impl;
 
     // Garbage collection:
@@ -371,11 +684,9 @@ struct Gui: public nb::intrusive_base {
         // If w->value has an associated CPython object, return it.
         // If not, value.ptr() will equal NULL, which is also fine.
         nb::handle window = nb::find(g->window.get());
-        nb::handle ctx = nb::find(g->ctx.get());
 
         // Inform the Python GC about the instance (if non-NULL)
         Py_VISIT(window.ptr());
-        Py_VISIT(ctx.ptr());
 
         return 0;
     }
@@ -386,7 +697,6 @@ struct Gui: public nb::intrusive_base {
 
         // Clear the cycle!
         g->window.reset();
-        g->ctx.reset();
 
         return 0;
     }
@@ -397,51 +707,6 @@ struct Gui: public nb::intrusive_base {
         { Py_tp_clear, (void *) Gui::tp_clear },
         { 0, nullptr }
     };
-};
-
-struct Buffer: public nb::intrusive_base {
-    Buffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type)
-        : ctx(ctx)
-    {
-        VkResult vkr = gfx::CreateBuffer(&buffer, ctx->vk, size, {
-            .usage = (VkBufferUsageFlags)usage_flags,
-            .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
-        });
-        if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create buffer");
-        }
-    }
-
-    Buffer() {}
-
-    Buffer(nb::ref<Context> ctx)
-        : ctx(ctx)
-    { }
-
-    ~Buffer() {
-        destroy();
-    }
-
-    void destroy() {
-        gfx::DestroyBuffer(&buffer, ctx->vk);
-    }
-
-    static nb::ref<Buffer> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type) {
-        std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx);
-
-        VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), {
-            .usage = (VkBufferUsageFlags)usage_flags,
-            .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
-        });
-        if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create buffer");
-        }
-
-        return self.release();
-    }
-
-    gfx::Buffer buffer = {};
-    nb::ref<Context> ctx;
 };
 
 struct DescriptorSetEntry: gfx::DescriptorSetEntryDesc {
@@ -580,12 +845,26 @@ struct Attachment: gfx::AttachmentDesc {
 };
 static_assert(sizeof(Attachment) == sizeof(gfx::AttachmentDesc));
 
+struct PushConstantsRange: gfx::PushConstantsRangeDesc {
+    PushConstantsRange(u32 size, u32 offset, VkShaderStageFlagBits flags)
+        : gfx::PushConstantsRangeDesc {
+            .flags = (VkShaderStageFlags)flags,
+            .offset = offset,
+            .size = size,
+        }
+    {
+    }
+};
+
+static_assert(sizeof(PushConstantsRange) == sizeof(gfx::PushConstantsRangeDesc));
+
 struct GraphicsPipeline: nb::intrusive_base {
     GraphicsPipeline(nb::ref<Context> ctx,
         const std::vector<nb::ref<PipelineStage>>& stages,
         const std::vector<VertexBinding>& vertex_bindings,
         const std::vector<VertexAttribute>& vertex_attributes,
         InputAssembly input_assembly,
+        const std::vector<PushConstantsRange>& push_constant_ranges,
         const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
         const std::vector<Attachment>& attachments
         )
@@ -608,6 +887,7 @@ struct GraphicsPipeline: nb::intrusive_base {
             .vertex_bindings = ArrayView((gfx::VertexBindingDesc*)vertex_bindings.data(), vertex_bindings.size()),
             .vertex_attributes = ArrayView((gfx::VertexAttributeDesc*)vertex_attributes.data(), vertex_attributes.size()),
             .input_assembly = input_assembly,
+            .push_constants = ArrayView((gfx::PushConstantsRangeDesc*)push_constant_ranges.data(), push_constant_ranges.size()),
             .descriptor_sets = ArrayView(d),
             .attachments = ArrayView((gfx::AttachmentDesc*)attachments.data(), attachments.size()),
         });
@@ -719,20 +999,10 @@ NB_MODULE(pyxpg, m) {
         .def(nb::init<>())
     ;
 
-    nb::class_<Frame::FrameCommands>(m, "FrameCommands")
-        .def("__enter__", &Frame::FrameCommands::enter)
-        .def("__exit__", &Frame::FrameCommands::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
-    ;
-
     nb::class_<Frame>(m, "Frame",
         nb::intrusive_ptr<Frame>([](Frame *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def("commands", &Frame::commands)
-        .def_prop_ro("command_pool", [](Frame& f) -> CommandPool {
-            return CommandPool(f.frame.command_pool);
-        })
-        .def_prop_ro("command_buffer", [](Frame& f) -> CommandBuffer {
-            return CommandBuffer(f.frame.command_buffer);
-        })
+        .def_ro("command_buffer", &Frame::command_buffer)
+        .def_ro("image", &Frame::image)
     ;
 
     nb::class_<Window>(m, "Window",
@@ -746,7 +1016,9 @@ NB_MODULE(pyxpg, m) {
         .def("begin_frame", &Window::begin_frame)
         .def("end_frame", &Window::end_frame, nb::arg("frame"))
         .def("frame", &Window::frame)
-        .def_prop_ro("swapchain_format", [](Window& w) -> VkFormat { return w.window.swapchain_format; });
+        .def_prop_ro("swapchain_format", [](Window& w) -> VkFormat { return w.window.swapchain_format; })
+        .def_prop_ro("fb_width", [](Window& w) -> u32 { return w.window.fb_width; })
+        .def_prop_ro("fb_height", [](Window& w) -> u32 { return w.window.fb_height; })
     ;
 
     nb::class_<Window::FrameManager>(m, "WindowFrame")
@@ -790,12 +1062,92 @@ NB_MODULE(pyxpg, m) {
         .value("ACCELERATION_STRUCTURE_STORAGE", VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR)
     ;
 
-    nb::class_<Buffer>(m, "Buffer",
-        nb::intrusive_ptr<Buffer>([](Buffer *o, PyObject *po) noexcept { o->set_self_py(po); }))
+    nb::enum_<VkImageUsageFlagBits>(m, "ImageUsageFlags", nb::is_arithmetic() , nb::is_flag())
+        .value("TRANSFER_SRC_BIT",                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+        .value("TRANSFER_DST_BIT",                         VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+        .value("SAMPLED_BIT",                              VK_IMAGE_USAGE_SAMPLED_BIT)
+        .value("STORAGE_BIT",                              VK_IMAGE_USAGE_STORAGE_BIT)
+        .value("COLOR_ATTACHMENT_BIT",                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        .value("DEPTH_STENCIL_ATTACHMENT_BIT",             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        .value("TRANSIENT_ATTACHMENT_BIT",                 VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
+        .value("INPUT_ATTACHMENT_BIT",                     VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
+        .value("VIDEO_DECODE_DST_BIT_KHR",                 VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR)
+        .value("VIDEO_DECODE_SRC_BIT_KHR",                 VK_IMAGE_USAGE_VIDEO_DECODE_SRC_BIT_KHR)
+        .value("VIDEO_DECODE_DPB_BIT_KHR",                 VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)
+        .value("FRAGMENT_DENSITY_MAP_BIT_EXT",             VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
+        .value("FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR", VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
+        .value("HOST_TRANSFER_BIT_EXT",                    VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT)
+        .value("VIDEO_ENCODE_DST_BIT_KHR",                 VK_IMAGE_USAGE_VIDEO_ENCODE_DST_BIT_KHR)
+        .value("VIDEO_ENCODE_SRC_BIT_KHR",                 VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR)
+        .value("VIDEO_ENCODE_DPB_BIT_KHR",                 VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR)
+        .value("ATTACHMENT_FEEDBACK_LOOP_BIT_EXT",         VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
+        .value("INVOCATION_MASK_BIT_HUAWEI",               VK_IMAGE_USAGE_INVOCATION_MASK_BIT_HUAWEI)
+        .value("SAMPLE_WEIGHT_BIT_QCOM",                   VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM)
+        .value("SAMPLE_BLOCK_MATCH_BIT_QCOM",              VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM)
+        .value("SHADING_RATE_IMAGE_BIT_NV",                VK_IMAGE_USAGE_SHADING_RATE_IMAGE_BIT_NV)
+        .value("FLAG_BITS_MAX_ENUM",                       VK_IMAGE_USAGE_FLAG_BITS_MAX_ENUM)
+    ;
+
+    nb::class_<GfxObject>(m, "GfxObject",
+        nb::intrusive_ptr<GfxObject>([](GfxObject *o, PyObject *po) noexcept { o->set_self_py(po); }))
+    ;
+
+    nb::class_<Buffer, GfxObject>(m, "Buffer")
         .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"))
-        // .def(nb::init<nb::ref<Context>, const nb::bytes&, VkBufferUsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
         .def("destroy", &Buffer::destroy)
-        .def("from_data", &Buffer::from_data)
+        .def_static("from_data", &Buffer::from_data)
+    ;
+
+    nb::class_<Image, GfxObject>(m, "Image")
+        .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def("destroy", &Image::destroy)
+        // .def_static("from_data", &Image::from_data)
+    ;
+
+    nb::enum_<ImageUsage>(m, "ImageUsage")
+        .value("NONE", ImageUsage::None)
+        .value("IMAGE", ImageUsage::Image)
+        .value("IMAGE_READ_ONLY", ImageUsage::ImageReadOnly)
+        .value("IMAGE_WRITE_ONLY", ImageUsage::ImageWriteOnly)
+        .value("COLOR_ATTACHMENT", ImageUsage::ColorAttachment)
+        .value("COLOR_ATTACHMENT_WRITE_ONLY", ImageUsage::ColorAttachmentWriteOnly)
+        .value("DEPTH_STENCIL_ATTACHMENT", ImageUsage::DepthStencilAttachment)
+        .value("DEPTH_STENCIL_ATTACHMENT_READ_ONLY", ImageUsage::DepthStencilAttachmentReadOnly)
+        .value("DEPTH_STENCIL_ATTACHMENT_WRITE_ONLY", ImageUsage::DepthStencilAttachmentWriteOnly)
+        .value("PRESENT", ImageUsage::Present)
+    ;
+
+    nb::class_<RenderingAttachment>(m, "RenderingAttachment")
+        .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, std::array<float, 4>>(),
+            nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear"))
+    ;
+
+    nb::enum_<VkAttachmentLoadOp>(m, "LoadOp")
+        .value("LOAD"     , VK_ATTACHMENT_LOAD_OP_LOAD)
+        .value("CLEAR"    , VK_ATTACHMENT_LOAD_OP_CLEAR)
+        .value("DONT_CARE", VK_ATTACHMENT_LOAD_OP_DONT_CARE)
+    ;
+
+    nb::enum_<VkAttachmentStoreOp>(m, "StoreOp")
+        .value("STORE"    , VK_ATTACHMENT_STORE_OP_STORE)
+        .value("DONT_CARE", VK_ATTACHMENT_STORE_OP_DONT_CARE)
+        .value("NONE"     , VK_ATTACHMENT_STORE_OP_NONE)
+    ;
+
+    nb::class_<CommandBuffer::RenderingManager>(m, "RenderingManager")
+        .def("__enter__", &CommandBuffer::RenderingManager::enter)
+        .def("__exit__", &CommandBuffer::RenderingManager::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
+    ;
+
+    nb::class_<CommandBuffer, GfxObject>(m, "CommandBuffer")
+        .def("__enter__", &CommandBuffer::enter)
+        .def("__exit__", &CommandBuffer::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
+        .def("begin", &CommandBuffer::begin)
+        .def("end", &CommandBuffer::end)
+        .def("use_image", &CommandBuffer::use_image, nb::arg("image"), nb::arg("usage"))
+        .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("viewport"), nb::arg("color_attachments"))
+        .def("end_rendering", &CommandBuffer::end_rendering)
+        .def("rendering", &CommandBuffer::rendering, nb::arg("viewport"), nb::arg("color_attachments"))
     ;
 
     nb::class_<Shader>(m, "Shader",
@@ -804,7 +1156,7 @@ NB_MODULE(pyxpg, m) {
         .def("destroy", &Shader::destroy)
     ;
 
-    nb::enum_<VkShaderStageFlagBits>(m, "Stage")
+    nb::enum_<VkShaderStageFlagBits>(m, "Stage", nb::is_flag(), nb::is_arithmetic())
         .value("VERTEX",                  VK_SHADER_STAGE_VERTEX_BIT)
         .value("TESSELLATION_CONTROL",    VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT)
         .value("TESSELLATION_EVALUATION", VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
@@ -1307,6 +1659,10 @@ NB_MODULE(pyxpg, m) {
             );
     ;
 
+    nb::class_<PushConstantsRange>(m, "PushConstantsRange")
+        .def(nb::init<u32, u32, VkShaderStageFlagBits>(), nb::arg("size"), nb::arg("offset") = 0, nb::arg("stages") = VK_SHADER_STAGE_ALL)
+    ;
+
     nb::class_<GraphicsPipeline>(m, "GraphicsPipeline",
         nb::intrusive_ptr<GraphicsPipeline>([](GraphicsPipeline *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Context>,
@@ -1314,6 +1670,7 @@ NB_MODULE(pyxpg, m) {
                 const std::vector<VertexBinding>&,
                 const std::vector<VertexAttribute>&,
                 InputAssembly,
+                const std::vector<PushConstantsRange>&,
                 const std::vector<nb::ref<DescriptorSet>>&,
                 const std::vector<Attachment>&
             >(),
@@ -1322,14 +1679,12 @@ NB_MODULE(pyxpg, m) {
             nb::arg("vertex_bindings") = std::vector<VertexBinding>(),
             nb::arg("vertex_attributes") = std::vector<VertexAttribute>(),
             nb::arg("input_assembly") = InputAssembly(),
+            nb::arg("push_constants_ranges") = std::vector<PushConstantsRange>(),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
             nb::arg("attachments") = std::vector<Attachment>()
         )
         .def("destroy", &GraphicsPipeline::destroy)
     ;
-
-    nb::class_<CommandPool>(m, "CommandPool");
-    nb::class_<CommandBuffer>(m, "CommandBuffer");
 
     nb::enum_<gfx::SwapchainStatus>(m, "SwapchainStatus")
         .value("READY", gfx::SwapchainStatus::READY)
@@ -1338,8 +1693,6 @@ NB_MODULE(pyxpg, m) {
     ;
 
     m.def("process_events", &gfx::ProcessEvents, nb::arg("wait"));
-    m.def("begin_commands", &BeginCommands, nb::arg("command_pool"), nb::arg("command_buffer"), nb::arg("ctx"));
-    m.def("end_commands", &EndCommands, nb::arg("command_buffer"));
 
     // m.def("test", &test, nb::arg("callback"));
     // m.def("test2", &test2, nb::arg("callback"));

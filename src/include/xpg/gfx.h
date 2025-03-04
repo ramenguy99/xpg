@@ -234,6 +234,19 @@ struct WindowCallbacks {
     GLFWwindowrefreshfun    prev_callback_window_refresh;
 };
 
+struct StaleSwapchain
+{
+    // Number of frames still using this swapchain, when this number reaches 0
+    // the swapchain can be safely destroyed.
+    usize frames_in_flight = 0;
+
+    // Handle to the swapchain.
+    VkSwapchainKHR swapchain;
+
+    // Image views
+    Array<VkImageView> image_views;
+};
+
 struct Window
 {
     GLFWwindow* window;
@@ -246,6 +259,10 @@ struct Window
     u32 fb_height;
     VkSwapchainKHR swapchain;
 
+    // Per frame swapchain data
+    Array<VkImage> images;
+    Array<VkImageView> image_views;
+
     // Index in swapchain frames, wraps around at the number of frames in flight.
     // This is always sequential, it should be used to index into 'frames' but not
     // into images and image_views. For that one should use the index returned
@@ -256,12 +273,14 @@ struct Window
     // Should be set after a vkQueuePresentKHR returns VK_ERROR_OUT_OF_DATE_KHR or VK_SUBOPTIMAL_KHR.
     bool force_swapchain_recreate;
 
-    // Per frame swapchain data
-    Array<VkImage> images;
-    Array<VkImageView> image_views;
-
     // Per frame persistent data
     Array<Frame> frames;
+
+    // List of existing swapchains, during normal operation only a single
+    // swapchain exists, but when a swapchain is recreated (e.g. during
+    // resizing) the previous swapchain is kept alive until all frames used
+    // from it have been released.
+    ObjArray<StaleSwapchain> stale_swapchains;
 };
 
 Result CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 width, u32 height);
@@ -350,6 +369,8 @@ struct BeginRenderingDesc {
     Span<RenderingAttachmentDesc> color;
     DepthAttachmentDesc depth;
     // RenderingAttachmentDesc stencil;
+    u32 offset_x = 0;
+    u32 offset_y = 0;
     u32 width;
     u32 height;
 };
@@ -431,7 +452,7 @@ struct AttachmentDesc {
 };
 
 // NOTE: struct layout of this must exactly match vulkan struct
-struct PushConstantRangeDesc {
+struct PushConstantsRangeDesc {
     VkShaderStageFlags flags = VK_SHADER_STAGE_ALL;
     u32 offset;
     u32 size;
@@ -445,7 +466,7 @@ struct GraphicsPipelineDesc {
     RasterizationDesc rasterization;
     DepthDesc depth;
     StencilDesc stencil;
-    Span<PushConstantRangeDesc> push_constants;
+    Span<PushConstantsRangeDesc> push_constants;
     Span<VkDescriptorSetLayout> descriptor_sets;
     Span<AttachmentDesc> attachments;
 };
@@ -461,7 +482,7 @@ struct ComputePipeline {
 struct ComputePipelineDesc {
     Shader shader;
     const char* entry = "main";
-    Span<PushConstantRangeDesc> push_constants;
+    Span<PushConstantsRangeDesc> push_constants;
     Span<VkDescriptorSetLayout> descriptor_sets;
 };
 

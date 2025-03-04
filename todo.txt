@@ -21,6 +21,12 @@ Python:
 Run python examples:
 cmd /C "set PYTHONPATH=install\python && python python\example.py"
 
+Swapchain:
+[ ] Try resize without waitidle, just recreate swapchain, start using new swapchain, delete old when no more frame is using it.
+    -> not entirely clear what happens when you have 3 frames in flight, can you potentially have 3 swapchains alive
+       at the same time? Or do you end up calling wait idle at that point?
+    See: https://www.youtube.com/watch?v=mvkHYAu7i6c
+
 Descriptors:
 - To run a pipeline need to bind the related descriptor sets
 - Those can be known statically or learned through reflections

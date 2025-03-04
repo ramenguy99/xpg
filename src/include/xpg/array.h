@@ -496,7 +496,7 @@ struct Span {
         length = view.length;
     }
 
-    Span(Array<T> a) {
+    Span(const Array<T>& a) {
         data = a.data;
         length = a.length;
     }

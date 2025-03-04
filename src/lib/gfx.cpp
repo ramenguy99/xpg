@@ -5,6 +5,26 @@
 
 // #define COPY_QUEUE_INDEX 2
 
+// TODO: this technically works, but applications need to be aware of this.
+// When using this, application resize logic is much more complicated, as it needs
+// to delay freeing objects in use. This appears to also fix flickering / artifacts
+// on image resize.
+//
+// Apps also need to worry about recreation of new objects with the new resolution.
+// There are two cases here:
+// - single buffered objects (e.g. color and depth attachments)
+//      -> can recreate immediately but need to enqueue old for freeing
+// - per frame buffered objects (e.g. upload buffers, swapchain framebuffers when using render passes) that depend on swapchain resolution
+//      -> can either recreate all at once and treat as above, or one per frame to limit peak memory usage
+//
+// App needs to know the index of the dead frames after resizing, and potentially helpers for making both cases
+// easy to handle. Helpers could potentially be callback based? Probably control flow is easier if wait returns some
+// info that can be used to free this stuff.
+//
+// In theory we could have this be a creation parameter and have apps make the choice (maybe even at runtime), but it could be hard to
+// support both recreation logics in app, can maybe make this not that bad if helpers are good.
+#define SYNC_SWAPCHAIN_DESTRUCTION 1
+
 namespace gfx {
 
 static VkBool32 VKAPI_CALL
@@ -679,14 +699,23 @@ SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
         return SwapchainStatus::READY;
     }
 
+    VkSwapchainKHR old_swapchain = w->swapchain;
+#if SYNC_SWAPCHAIN_DESTRUCTION
     vkDeviceWaitIdle(vk.device);
 
     for (size_t i = 0; i < w->image_views.length; i++) {
         vkDestroyImageView(vk.device, w->image_views[i], nullptr);
         w->image_views[i] = VK_NULL_HANDLE;
     }
+#else
+    w->stale_swapchains.add(StaleSwapchain {
+        .frames_in_flight = w->frames.length,
+        .swapchain = old_swapchain,
+        .image_views = std::move(w->image_views),
+    });
+    logging::trace("gfx/swapchain", "Added stale swapchain. Total: %llu", w->stale_swapchains.length);
+#endif
 
-    VkSwapchainKHR old_swapchain = w->swapchain;
     Result result = CreateSwapchain(w, vk, w->surface, w->swapchain_format, new_width, new_height, w->images.length, old_swapchain);
     if (result != Result::SUCCESS) {
         return SwapchainStatus::FAILED;
@@ -694,7 +723,9 @@ SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
 
     w->force_swapchain_recreate = false;
 
+#if SYNC_SWAPCHAIN_DESTRUCTION
     vkDestroySwapchainKHR(vk.device, old_swapchain, nullptr);
+#endif
 
     return SwapchainStatus::RESIZED;
 }
@@ -703,6 +734,30 @@ Frame& WaitForFrame(Window* w, const Context& vk) {
     Frame& frame = w->frames[w->swapchain_frame_index];
     vkWaitForFences(vk.device, 1, &frame.fence, VK_TRUE, ~0);
     vkResetFences(vk.device, 1, &frame.fence);
+
+#if !SYNC_SWAPCHAIN_DESTRUCTION
+    // Decrement frame in flight count on , if any.
+    for (usize i = 0; i < w->stale_swapchains.length;) {
+        if(--w->stale_swapchains[i].frames_in_flight == 0) {
+            StaleSwapchain& stale = w->stale_swapchains[i];
+            vkDestroySwapchainKHR(vk.device, stale.swapchain, nullptr);
+            for (size_t i = 0; i < stale.image_views.length; i++) {
+                vkDestroyImageView(vk.device, stale.image_views[i], nullptr);
+            }
+
+            // Replace with last element from array, if any
+            if(i < w->stale_swapchains.length - 1) {
+                w->stale_swapchains[i] = move(w->stale_swapchains[w->stale_swapchains.length - 1]);
+            }
+
+            // Pop last element
+            w->stale_swapchains.length -= 1;
+        } else {
+            i += 1;
+        }
+    }
+#endif
+
     return frame;
 }
 
@@ -1118,6 +1173,8 @@ void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc)
     depth.clearValue.depthStencil.depth = desc.depth.clear;
 
     VkRenderingInfo rendering_info = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+    rendering_info.renderArea.offset.x = desc.offset_x;
+    rendering_info.renderArea.offset.y = desc.offset_y;
     rendering_info.renderArea.extent.width = desc.width;
     rendering_info.renderArea.extent.height = desc.height;
     rendering_info.layerCount = 1;
