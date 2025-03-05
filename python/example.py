@@ -85,6 +85,15 @@ def draw():
                     )
                 ]
             ):
+                cmd.bind_pipeline_state(
+                    pipeline=pipeline,
+                    descriptor_sets=[set],
+                    push_constants=push_constants.tobytes(),
+                    vertex_buffers=[buf],
+                    viewport=viewport,
+                    scissors=viewport,
+                )
+
                 gui.render(cmd)
 
             cmd.use_image(frame.image, ImageUsage.PRESENT)

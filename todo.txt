@@ -9,8 +9,10 @@ Python:
         -> we probably want to autogen implementation of the nanobind bindings on the C++ side
         -> we probably want a set of manually generated pythonic helpers for commonly used stuff
     [ ] Implement IM_ASSERT to throw exception? or maybe even just std::abort / std::assert, probably easier
+        [ ] Avoid asserts based on missing begin / end pairs, either with context manager or with some other
+            workaround to avoid them
 [x] gfx and gui bindings for window / vulkan / gui
-[-] Slang bindings for compiling and for reflection -> waiting on cross platform static builds
+[ ] Slang bindings for compiling and for reflection
 [ ] Framegraph implementation on top of reflection for easy prototyping of pipelines/shaders
     -> interesting here would be how much perf we can have when sharing data through arrays, e.g. textures, buffers, uniforms
     -> also interesting if we want to have a full python framegraph or if we can somehow leverage python callables

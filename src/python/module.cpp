@@ -43,6 +43,7 @@ struct Context: public nb::intrusive_base {
             .device_extensions = device_extensions,
             .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
             .enable_validation_layer = true,
+            // .enable_gpu_based_validation = true,
         });
         if (result != gfx::Result::SUCCESS) {
             throw std::runtime_error("Failed to initialize vulkan");
@@ -288,6 +289,9 @@ struct Image: public GfxObject {
 };
 
 struct Window;
+struct GraphicsPipeline;
+struct DescriptorSet;
+struct Buffer;
 
 struct RenderingAttachment {
     nb::ref<Image> image;
@@ -409,6 +413,26 @@ struct CommandBuffer: GfxObject {
 
     void end_rendering() {
         gfx::CmdEndRendering(buffer);
+    }
+
+    void bind_pipeline_state(
+        const GraphicsPipeline& pipeline,
+        const std::vector<nb::ref<DescriptorSet>> descriptor_sets,
+        std::optional<nb::bytes> push_constants,
+        const std::vector<nb::ref<Buffer>> vertex_buffers,
+        std::optional<nb::ref<Buffer>> index_buffer,
+        std::array<u32, 4> viewport,
+        std::array<u32, 4> scissors
+    );
+
+    void draw_indexed(
+        u32 num_indices,
+        u32 num_instances,
+        u32 first_index,
+        s32 vertex_offset,
+        u32 first_instance
+    ) {
+        vkCmdDrawIndexed(buffer, num_indices, num_instances, first_index, vertex_offset, first_instance);
     }
 
     VkCommandPool pool;
@@ -585,6 +609,7 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
 
 struct Gui: public nb::intrusive_base {
     Gui(nb::ref<Window> window)
+        : window(window)
     {
         gui::CreateImGuiImpl(&imgui_impl, window->window, window->ctx->vk, {});
     }
@@ -724,11 +749,23 @@ struct DescriptorSet: public nb::intrusive_base {
     DescriptorSet(nb::ref<Context> ctx, const std::vector<DescriptorSetEntry>& entries, VkDescriptorBindingFlagBits flags)
         : ctx(ctx)
     {
-        gfx::CreateDescriptorSet(&set, ctx->vk, {
+        VkResult vkr = gfx::CreateDescriptorSet(&set, ctx->vk, {
             .entries = ArrayView((gfx::DescriptorSetEntryDesc*)entries.data(), entries.size()),
             .flags = (VkDescriptorBindingFlags)flags,
         });
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create descriptor set");
+        }
     }
+
+    void write_buffer(const Buffer& buffer, VkDescriptorType type, u32 binding, u32 element) {
+        gfx::WriteBufferDescriptor(set.set, ctx->vk, {
+            .buffer = buffer.buffer.buffer,
+            .type = type,
+            .binding = binding,
+            .element = element,
+        });
+    };
 
     ~DescriptorSet()
     {
@@ -908,6 +945,69 @@ struct GraphicsPipeline: nb::intrusive_base {
     gfx::GraphicsPipeline pipeline;
     nb::ref<Context> ctx;
 };
+
+void CommandBuffer::bind_pipeline_state(
+    const GraphicsPipeline& pipeline,
+    const std::vector<nb::ref<DescriptorSet>> descriptor_sets,
+    std::optional<nb::bytes> push_constants,
+    const std::vector<nb::ref<Buffer>> vertex_buffers,
+    std::optional<nb::ref<Buffer>> index_buffer,
+    std::array<u32, 4> viewport,
+    std::array<u32, 4> scissors
+)
+{
+    // Pipeline
+    vkCmdBindPipeline(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.pipeline);
+
+    // Descriptor sets
+    if(descriptor_sets.size() > 0) {
+        Array<VkDescriptorSet> sets(descriptor_sets.size());
+        for(usize i = 0; i < sets.length; i++) {
+            sets[i] = descriptor_sets[i]->set.set;
+        }
+        vkCmdBindDescriptorSets(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.layout, 0, sets.length, sets.data, 0, 0);
+    }
+
+    // Push constants
+    if(push_constants.has_value()) {
+        vkCmdPushConstants(buffer, pipeline.pipeline.layout, VK_SHADER_STAGE_ALL, 0, push_constants->size(), push_constants->data());
+    }
+
+    // Vertex buffers
+    if(vertex_buffers.size() > 0) {
+        Array<VkDeviceSize> offsets(vertex_buffers.size());
+        Array<VkBuffer> buffers(vertex_buffers.size());
+        for(usize i = 0; i < vertex_buffers.size(); i++) {
+            offsets[i] = 0;
+            buffers[i] = vertex_buffers[i]->buffer.buffer;
+        }
+        vkCmdBindVertexBuffers(buffer, 0, buffers.length, buffers.data, offsets.data);
+    }
+
+
+    // Index buffers
+    if(index_buffer.has_value()) {
+        vkCmdBindIndexBuffer(buffer, index_buffer.value()->buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+    }
+
+    // Viewport
+    VkViewport vp = {};
+    vp.x = (float)viewport[0];
+    vp.y = (float)viewport[1];
+    vp.width = (float)viewport[2];
+    vp.height = (float)viewport[3];
+    vp.minDepth = 0.0f;
+    vp.maxDepth = 1.0f;
+    vkCmdSetViewport(buffer, 0, 1, &vp);
+
+    // Scissors
+    VkRect2D scissor = {};
+    scissor.offset.x = scissors[0];
+    scissor.offset.y = scissors[1];
+    scissor.extent.width = scissors[2];
+    scissor.extent.height = scissors[3];
+    vkCmdSetScissor(buffer, 0, 1, &scissor);
+}
 
 typedef ImU32 Color;
 
@@ -1148,6 +1248,22 @@ NB_MODULE(pyxpg, m) {
         .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("viewport"), nb::arg("color_attachments"))
         .def("end_rendering", &CommandBuffer::end_rendering)
         .def("rendering", &CommandBuffer::rendering, nb::arg("viewport"), nb::arg("color_attachments"))
+        .def("bind_pipeline_state", &CommandBuffer::bind_pipeline_state,
+            nb::arg("pipeline"),
+            nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("push_constants") = std::optional<nb::bytes>(),
+            nb::arg("vertex_buffers") = std::vector<nb::ref<Buffer>>(),
+            nb::arg("index_buffer") = std::optional<nb::ref<Buffer>>(),
+            nb::arg("viewport") = std::array<float, 4>(),
+            nb::arg("scissors") = std::array<float, 4>()
+        )
+        .def("draw_indexed", &CommandBuffer::draw_indexed,
+            nb::arg("num_indices"),
+            nb::arg("num_instances") = 1,
+            nb::arg("first_index") = 0,
+            nb::arg("vertex_offset") = 0,
+            nb::arg("first_instanc") = 0
+        )
     ;
 
     nb::class_<Shader>(m, "Shader",
@@ -1550,6 +1666,7 @@ NB_MODULE(pyxpg, m) {
     nb::class_<DescriptorSet>(m, "DescriptorSet",
         nb::intrusive_ptr<DescriptorSet>([](DescriptorSet *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Context>, const std::vector<DescriptorSetEntry>&, VkDescriptorBindingFlagBits>(), nb::arg("ctx"), nb::arg("entries"), nb::arg("flags") = VkDescriptorBindingFlagBits())
+        .def("write_buffer", &DescriptorSet::write_buffer, nb::arg("buffer"), nb::arg("type"), nb::arg("binding"), nb::arg("element"))
     ;
 
     nb::enum_<VkBlendFactor>(m, "BlendFactor")
