@@ -588,14 +588,14 @@ struct Window: public nb::intrusive_base {
         return 0;
     }
 
-    // Slot data structure referencing the above two functions
-    static constexpr PyType_Slot tp_slots[] = {
-        { Py_tp_traverse, (void *) Window::tp_traverse },
-        { Py_tp_clear, (void *) Window::tp_clear },
-        { 0, nullptr }
-    };
 };
 
+// Slot data structure referencing the above two functions
+static PyType_Slot window_tp_slots[] = {
+    { Py_tp_traverse, (void*)Window::tp_traverse },
+    { Py_tp_clear, (void*)Window::tp_clear },
+    { 0, nullptr }
+};
 
 Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
     : window(window)
@@ -724,12 +724,13 @@ struct Gui: public nb::intrusive_base {
         return 0;
     }
 
-    // Slot data structure referencing the above two functions
-    static constexpr PyType_Slot tp_slots[] = {
-        { Py_tp_traverse, (void *) Gui::tp_traverse },
-        { Py_tp_clear, (void *) Gui::tp_clear },
-        { 0, nullptr }
-    };
+};
+
+// Slot data structure referencing the above two functions
+static PyType_Slot gui_tp_slots[] = {
+    { Py_tp_traverse, (void *) Gui::tp_traverse },
+    { Py_tp_clear, (void *) Gui::tp_clear },
+    { 0, nullptr }
 };
 
 struct DescriptorSetEntry: gfx::DescriptorSetEntryDesc {
@@ -928,7 +929,7 @@ struct GraphicsPipeline: nb::intrusive_base {
         });
 
         if (vkr != VK_SUCCESS) {
-            throw std::exception("Failed to create graphics pipeline");
+            throw std::runtime_error("Failed to create graphics pipeline");
         }
     }
 
@@ -1081,6 +1082,74 @@ struct Program {
 };
 #endif
 
+Slang::ComPtr<slang::IGlobalSession> g_slang_global_session;
+
+struct SlangShader: public nb::intrusive_base {
+    SlangShader(nb::bytes c): code(std::move(c)) {}
+    nb::bytes code;
+};
+
+nb::ref<SlangShader> slang_compile(const nb::str& file, const::nb::str& entry) {
+    if(!g_slang_global_session) {
+        SlangGlobalSessionDesc desc = {
+            .enableGLSL = true,
+        };
+        slang::createGlobalSession(&desc, g_slang_global_session.writeRef());
+    }
+
+    slang::TargetDesc targets[] = {
+        slang::TargetDesc {
+            .format = SLANG_SPIRV,
+        },
+    };
+
+    slang::SessionDesc session_desc = {
+        .targets = targets,
+        .targetCount = ArrayCount(targets),
+    };
+
+    Slang::ComPtr<slang::ISession> session;
+    g_slang_global_session->createSession(session_desc, session.writeRef());
+
+    Slang::ComPtr<slang::IBlob> diagnostics;
+    Slang::ComPtr<slang::IModule> mod = Slang::ComPtr<slang::IModule>(session->loadModule(file.c_str(), diagnostics.writeRef()));
+
+    if(!mod) {
+        throw std::runtime_error((char *)diagnostics->getBufferPointer());
+    }
+
+    Slang::ComPtr<slang::IEntryPoint> entry_point;
+    mod->findEntryPointByName(entry.c_str(), entry_point.writeRef());
+    if(!entry_point) {
+        throw std::runtime_error("Entry point not found");
+    }
+
+    // IComponentType* components[] = { module, entryPoint };
+    slang::IComponentType* components[] = { entry_point };
+    Slang::ComPtr<slang::IComponentType> program;
+    SlangResult result = session->createCompositeComponentType(components, ArrayCount(components), program.writeRef());
+    if(SLANG_FAILED(result)) {
+        throw std::runtime_error("Composite component creation failed");
+    }
+
+    Slang::ComPtr<slang::IComponentType> linked_program;
+    result = program->link(linked_program.writeRef(), diagnostics.writeRef());
+    if(SLANG_FAILED(result)) {
+        throw std::runtime_error((char*)diagnostics->getBufferPointer());
+    }
+    
+    Slang::ComPtr<slang::IBlob> kernel;
+    result = linked_program->getEntryPointCode(0, // entryPointIndex
+                                               0, // targetIndex
+                                               kernel.writeRef(), diagnostics.writeRef());
+    if(SLANG_FAILED(result)) {
+        throw std::runtime_error((char*)diagnostics->getBufferPointer());
+    }
+    
+    
+    return nb::ref<SlangShader>(new SlangShader(nb::bytes(kernel->getBufferPointer(), kernel->getBufferSize())));
+}
+
 NB_MODULE(pyxpg, m) {
     nb::intrusive_init(
         [](PyObject *o) noexcept {
@@ -1104,7 +1173,7 @@ NB_MODULE(pyxpg, m) {
     ;
 
     nb::class_<Window>(m, "Window",
-        nb::type_slots(Window::tp_slots),
+        nb::type_slots(window_tp_slots),
         nb::intrusive_ptr<Window>([](Window *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Context>, const::std::string&, u32, u32>(), nb::arg("ctx"), nb::arg("title"), nb::arg("width"), nb::arg("height"))
         .def("should_close", &Window::should_close)
@@ -1130,7 +1199,7 @@ NB_MODULE(pyxpg, m) {
     ;
 
     nb::class_<Gui>(m, "Gui",
-        nb::type_slots(Gui::tp_slots),
+        nb::type_slots(gui_tp_slots),
         nb::intrusive_ptr<Gui>([](Gui *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Window>>(), nb::arg("window"))
         .def("begin_frame", &Gui::begin_frame)
@@ -1808,21 +1877,22 @@ NB_MODULE(pyxpg, m) {
     ;
 
     m.def("process_events", &gfx::ProcessEvents, nb::arg("wait"));
+    m.def("wait_idle", [](Context& ctx) { gfx::WaitIdle(ctx.vk); });
 
     // m.def("test", &test, nb::arg("callback"));
     // m.def("test2", &test2, nb::arg("callback"));
 
     nb::module_ mod_imgui = m.def_submodule("imgui", "ImGui bindings for XPG");
-    nb::module_ mod_slang = m.def_submodule("slang", "Slang bindings for XPG");
 
     #include "generated_imgui.inc"
 
-    // TODO: missing likely more
-    // nb::class_<ImVec2>(mod_imgui, "IVec2")
-    //     .def(nb::init<>())
-    //     .def(nb::init<int32_t, int32_t>())
-    //     .def_rw("x", &glm::ivec2::x)
-    //     .def_rw("y", &glm::ivec2::y);
+    nb::module_ mod_slang = m.def_submodule("slang", "Slang bindings for XPG");
+    mod_slang.def("compile", slang_compile);
+
+    nb::class_<SlangShader>(mod_slang, "Shader",
+        nb::intrusive_ptr<SlangShader>([](SlangShader *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_prop_ro("code", [](SlangShader& s) { return s.code; });
+    ;
 
     nb::class_<ImVec2>(mod_imgui, "Vec2")
         .def(nb::init<>())

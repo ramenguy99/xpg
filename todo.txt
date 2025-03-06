@@ -13,12 +13,16 @@ Python:
             workaround to avoid them
 [x] gfx and gui bindings for window / vulkan / gui
 [ ] Slang bindings for compiling and for reflection
+    - Slang takes around 200ms to initialize in release and (2.5s in debug)...
 [ ] Framegraph implementation on top of reflection for easy prototyping of pipelines/shaders
     -> interesting here would be how much perf we can have when sharing data through arrays, e.g. textures, buffers, uniforms
     -> also interesting if we want to have a full python framegraph or if we can somehow leverage python callables
        + some python bindings to reuse at least the synchronization / traversal logic implemented in C++
 [ ] App ideas:
     [ ] Try to redo sequence, can i read directly to bufs without gil?
+[x] Use within conda:
+        conda install conda-forge::vulkan-tools
+
 
 Run python examples:
 cmd /C "set PYTHONPATH=install\python && python python\example.py"

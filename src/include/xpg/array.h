@@ -3,6 +3,7 @@
 #include "defines.h"
 #include <string.h>
 #include <initializer_list>
+#include <type_traits>
 
 #ifndef BOUNDS_CHECKING_ENABLED
 #define BOUNDS_CHECKING_ENABLED 1
@@ -283,8 +284,8 @@ struct ObjArray {
 
 template<typename T, usize ALIGN>
 struct Array {
-    static_assert(__is_trivially_destructible(T));
-    static_assert(__is_trivially_copyable(T));
+    static_assert(std::is_trivially_destructible<T>());
+    static_assert(std::is_trivially_copyable<T>());
 
     T* data = 0;
     usize length = 0;
