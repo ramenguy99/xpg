@@ -9,10 +9,8 @@
 #include <nanobind/intrusive/ref.h>
 #include <nanobind/intrusive/counter.inl>
 
-#if 0
 #include <slang.h>
 #include <slang-com-ptr.h>
-#endif
 
 #include <xpg/gfx.h>
 #include <xpg/gui.h>
@@ -1815,6 +1813,8 @@ NB_MODULE(pyxpg, m) {
     // m.def("test2", &test2, nb::arg("callback"));
 
     nb::module_ mod_imgui = m.def_submodule("imgui", "ImGui bindings for XPG");
+    nb::module_ mod_slang = m.def_submodule("slang", "Slang bindings for XPG");
+
     #include "generated_imgui.inc"
 
     // TODO: missing likely more

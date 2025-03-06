@@ -4,8 +4,6 @@ project(XGP VERSION 1.0 LANGUAGES CXX)
 
 set (CMAKE_CXX_STANDARD 20)
 
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
-
 # XPG options
 set(XPG_BUILD_APPS ON CACHE BOOL "Build XPG applications")
 set(XPG_PYTHON ON CACHE BOOL "Build XPG python module")
@@ -24,19 +22,20 @@ set(ZSTD_MULTITHREAD_SUPPORT OFF)
 set(ZSTD_LEGACY_SUPPORT OFF)
 
 # # Configure slang
-# set(SLANG_ENABLE_CUDA OFF)
-# set(SLANG_ENABLE_OPTIX OFF)
-# set(SLANG_ENABLE_NVAPI OFF)
-# set(SLANG_ENABLE_XLIB OFF)
-# set(SLANG_ENABLE_SLANG_RHI OFF)
-# # set(SLANG_ENABLE_TESTS OFF) broken?
-# set(SLANG_ENABLE_EXAMPLES OFF)
-# set(SLANG_ENABLE_REPLAYER OFF)
-# set(SLANG_EMBED_STDLIB_SOURCE OFF)
-# set(SLANG_EMBED_STDLIB ON)
-# set(SLANG_LIB_TYPE STATIC)
-# set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
-# add_subdirectory(ext/slang)
+set(SLANG_ENABLE_CUDA OFF)
+set(SLANG_ENABLE_OPTIX OFF)
+set(SLANG_ENABLE_NVAPI OFF)
+set(SLANG_ENABLE_XLIB OFF)
+set(SLANG_ENABLE_SLANG_RHI OFF)
+set(SLANG_ENABLE_GFX OFF)
+set(SLANG_ENABLE_TESTS OFF)
+set(SLANG_ENABLE_EXAMPLES OFF)
+set(SLANG_ENABLE_REPLAYER OFF)
+set(SLANG_EMBED_STDLIB_SOURCE OFF)
+set(SLANG_EMBED_STDLIB ON)
+set(SLANG_LIB_TYPE STATIC)
+set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
+add_subdirectory(ext/slang)
 
 # Add external dependencies
 add_subdirectory(ext/glfw)
@@ -72,41 +71,6 @@ add_library(xpg STATIC
     src/lib/gui.cpp
 )
 
-
-# Download SLANG prebuilt binaries
-# if (XPG_SLANG_PREBUILT_BINARIES)
-#     include(FetchContent)
-#     FetchContent_Declare(
-#        slang-prebuilt-windows
-#        URL      https://github.com/ramenguy99/build-slang/releases/download/v2025.2.2/slang-x64-windows-v2025.2.2.zip
-#     )
-#     FetchContent_Declare(
-#        slang-prebuilt-linux
-#        URL      https://github.com/ramenguy99/build-slang/releases/download/v2025.2.2/slang-x64-linux-v2025.2.2.zip
-#     )
-
-#     if(MSVC)
-#         message("Downloading SLANG prebuilt binaries for windows")
-#         FetchContent_MakeAvailable(slang-prebuilt-windows)
-#         set(SLANG_PREBUILT_ROOT ${slang-prebuilt-windows_SOURCE_DIR} )
-#     elseif(APPLE)
-#         message(FATAL_ERROR "SLANG prebuilt binaries not available for APPLE")
-#     elseif(UNIX)
-#         message("Downloading SLANG prebuilt binaries for linux")
-#         FetchContent_MakeAvailable(slang-prebuilt-linux)
-#         set(SLANG_PREBUILT_ROOT ${slang-prebuilt-linux_SOURCE_DIR} )
-#     else()
-#         message(FATAL_ERROR "SLANG prebuilt binaries not available for unknown platform")
-#     endif()
-
-#     set(debug_configs "Debug")
-#     set(release_configs "RelWithDebInfo,Release")
-
-#     add_library(slang INTERFACE)
-#     target_link_directories(slang INTERFACE ${SLANG_PREBUILT_ROOT}/$<$<CONFIG:${debug_configs}>:Debug>""$<$<CONFIG:${release_configs}>:Release>/lib)
-#     target_include_directories(slang INTERFACE ${SLANG_PREBUILT_ROOT}/$<$<CONFIG:${debug_configs}>:Debug>$<$<CONFIG:${release_configs}>:Release>/include)
-#     target_link_libraries(slang INTERFACE slang core compiler-core lz4 miniz slang-cpp-parser slang-rt)
-# endif()
 
 target_include_directories(xpg PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>/src/include
@@ -146,7 +110,7 @@ add_subdirectory(ext/nanobind)
 
 # Create python module
 nanobind_add_module(pyxpg src/python/module.cpp)
-target_link_libraries(pyxpg PRIVATE xpg)
+target_link_libraries(pyxpg PRIVATE xpg slang)
 # set_target_properties(pyxpg PROPERTIES OUTPUT_NAME "xpg")
 nanobind_add_stub(pyxpg_stub
   MODULE pyxpg

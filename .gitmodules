@@ -28,3 +28,6 @@
 [submodule "ext/dear_bindings"]
 	path = ext/dear_bindings
 	url = git@github.com:ramenguy99/dear_bindings.git
+[submodule "ext/slang"]
+	path = ext/slang
+	url = https://github.com/shader-slang/slang.git
