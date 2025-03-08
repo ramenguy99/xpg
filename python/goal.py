@@ -72,6 +72,9 @@ set0.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 pipeline: Pipeline = None
 
 def compile(file: Path, entry: str):
+    # TODO: 
+    # [ ] This cache does not currently consider imported files / modules / slang target, compiler version, compilation defines / params (if any)
+    # [ ] No obvious way to clear the cache, maybe should be have some LRU with max size? e.g. touch files when using them
     name = f"{hashlib.sha256(file.read_bytes()).digest().hex()}_{entry}.bin"
     cache_dir = user_cache_path("pyxpg")
     path = Path(cache_dir, name)
