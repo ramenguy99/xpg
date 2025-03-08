@@ -5,8 +5,14 @@ struct PushConstants {
 [[vk::push_constant]]
 PushConstants ps;
 
-[shader("pixel")]
-float4 main() : SV_Target0
+struct VSOutput
 {
-    return float4(1, 0, 0, 1);
+    float4 position: SV_Position;
+    float3 color: COLOR;
+};
+
+[shader("pixel")]
+float4 main(VSOutput in) : SV_Target0
+{
+    return float4(in.color, 1.0);
 }

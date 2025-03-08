@@ -1,5 +1,6 @@
 from pyxpg import *
 from pyxpg import imgui
+from pyxpg import slang
 from pathlib import Path
 import numpy as np
 from time import perf_counter
@@ -7,8 +8,26 @@ from pipelines import PipelineCache, Pipeline
 import hashlib
 from platformdirs import user_cache_path
 
-# frag_prog = slang.compile("shaders/color.frag.slang", "main")
-# exit(1)
+scalar_to_np = {
+    slang.ScalarKind.Float32: np.float32,
+} 
+
+def to_dtype(typ: slang.Type) -> np.dtype:
+    if   isinstance(typ, slang.Scalar):
+        return scalar_to_np[typ.base]
+    elif isinstance(typ, slang.Vector):
+        return np.dtype((scalar_to_np[typ.base], (typ.count,)))
+    elif isinstance(typ, slang.Matrix):
+        return np.dtype((scalar_to_np[typ.base], (typ.rows, typ.columns)))
+    elif isinstance(typ, slang.Array):
+        return np.dtype((to_dtype(typ.type), (typ.count,)))
+    elif isinstance(typ, slang.Struct):
+        d = {}
+        for f in typ.fields:
+            d[f.name] = (to_dtype(f.type), f.offset)
+        return np.dtype(d)
+    else:
+        raise TypeError("Unkown type")
 
 ctx = Context()
 window = Window(ctx, "Hello", 1280, 720)
@@ -39,7 +58,6 @@ push_constants = np.array([ 1.0, 0.0, 0.0], np.float32)
 
 v_buf = Buffer.from_data(ctx, V.tobytes(), BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED)
 i_buf = Buffer.from_data(ctx, I.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
-u_buf = Buffer.from_data(ctx, rot.tobytes(), BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
 
 
 set0 = DescriptorSet(
@@ -56,7 +74,6 @@ set0 = DescriptorSet(
 #     ],
 # )
 
-set0.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 # set0.write_buffer(u_bu3, DescriptorType.UNIFORM_BUFFER, 1, 0)
 # set0.write_buffer(u_bu3, DescriptorType.UNIFORM_BUFFER, 1, 1)
 
@@ -65,6 +82,7 @@ set0.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 pipeline: Pipeline = None
 
 def compile(file: Path, entry: str):
+    return slang.compile(str(file), entry)
     # TODO: 
     # [ ] This cache does not currently consider imported files / modules and slang target, compiler version, compilation defines / params (if any)
     # [ ] No obvious way to clear the cache, maybe should be have some LRU with max size? e.g. touch files when using them
@@ -84,10 +102,11 @@ def compile(file: Path, entry: str):
     cache_dir.mkdir(parents=True, exist_ok=True)
     path.write_bytes(prog.code)
 
-    return prog.code
+    return prog
 
 def create_pipeline():
     global pipeline
+    global buf
 
     wait_idle(ctx)
 
@@ -95,10 +114,18 @@ def create_pipeline():
     vert_prog = compile(Path("shaders/color.vert.slang"), "main")
     frag_prog = compile(Path("shaders/color.frag.slang"), "main")
 
-    # frag_refl = frag_prog.reflection()
+    refl = vert_prog.reflection
+    dt = to_dtype(refl.resources[0].type)
 
-    vert = Shader(ctx, vert_prog)
-    frag = Shader(ctx, frag_prog)
+    u_buf = Buffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
+    set0.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
+
+    buf = u_buf.view.view(dt)
+    buf["transform"] = rot
+    buf["nest1"]["val2"] = push_constants
+
+    vert = Shader(ctx, vert_prog.code)
+    frag = Shader(ctx, frag_prog.code)
 
     pipeline = GraphicsPipeline(
         ctx,
@@ -147,7 +174,10 @@ def draw():
         if imgui.begin("wow"):
             imgui.text("Hello")
             try:
-                push_constants = np.array(imgui.color_edit3("Value", tuple(push_constants))[1], np.float32)
+                updated, v = imgui.color_edit3("Value", tuple(push_constants))
+                if updated:
+                    push_constants = np.array(v, np.float32)
+                    buf["nest1"]["val2"] = v
             except Exception as e:
                 print(e)
         imgui.end()

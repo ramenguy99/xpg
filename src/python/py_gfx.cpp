@@ -8,6 +8,7 @@
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/array.h>
 #include <nanobind/stl/vector.h>
+#include <nanobind/ndarray.h>
 
 #include <nanobind/intrusive/counter.h>
 #include <nanobind/intrusive/ref.h>
@@ -1065,6 +1066,9 @@ void gfx_create_bindings(nb::module_& m)
         .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"))
         .def("destroy", &Buffer::destroy)
         .def_static("from_data", &Buffer::from_data)
+        .def_prop_ro("view", [] (Buffer& buffer) {
+            return nb::ndarray<u8, nb::numpy, nb::shape<-1>>(buffer.buffer.map.data, {buffer.buffer.map.length}, buffer.self_py());
+        }, nb::rv_policy::reference_internal)
     ;
 
     nb::class_<Image, GfxObject>(m, "Image")
