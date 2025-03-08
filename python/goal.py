@@ -40,14 +40,7 @@ push_constants = np.array([ 1.0, 0.0, 0.0], np.float32)
 v_buf = Buffer.from_data(ctx, V.tobytes(), BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED)
 i_buf = Buffer.from_data(ctx, I.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
 u_buf = Buffer.from_data(ctx, rot.tobytes(), BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
-# u_bu2 = Buffer.from_data(ctx, rot2.tobytes(), BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
-# u_bu3 = Buffer.from_data(ctx, rot3.tobytes(), BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
 
-# vert_refl = vert_prog.reflection()
-# frag_refl = frag_prog.reflection()
-
-# vert = Shader(ctx, Path("res/color.vert.spirv").read_bytes())
-# frag = Shader(ctx, Path("res/color.frag.spirv").read_bytes())
 
 set0 = DescriptorSet(
     ctx,
@@ -73,17 +66,25 @@ pipeline: Pipeline = None
 
 def compile(file: Path, entry: str):
     # TODO: 
-    # [ ] This cache does not currently consider imported files / modules / slang target, compiler version, compilation defines / params (if any)
+    # [ ] This cache does not currently consider imported files / modules and slang target, compiler version, compilation defines / params (if any)
     # [ ] No obvious way to clear the cache, maybe should be have some LRU with max size? e.g. touch files when using them
-    name = f"{hashlib.sha256(file.read_bytes()).digest().hex()}_{entry}.bin"
+    name = f"{hashlib.sha256(file.read_bytes()).digest().hex()}_{entry}.spirv"
+
+    # Check cache
     cache_dir = user_cache_path("pyxpg")
     path = Path(cache_dir, name)
     if path.exists():
         return path.read_bytes()
-    bytes = slang.compile(str(file), entry).code
+    
+    # Create prog
+    prog = slang.compile(str(file), entry)
+    # refl = prog.reflection()
+
+    # Populate to cache
     cache_dir.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(bytes)
-    return bytes
+    path.write_bytes(prog.code)
+
+    return prog.code
 
 def create_pipeline():
     global pipeline
@@ -93,6 +94,8 @@ def create_pipeline():
     print("Rebuilding pipeline...", end="", flush=True)
     vert_prog = compile(Path("shaders/color.vert.slang"), "main")
     frag_prog = compile(Path("shaders/color.frag.slang"), "main")
+
+    # frag_refl = frag_prog.reflection()
 
     vert = Shader(ctx, vert_prog)
     frag = Shader(ctx, frag_prog)

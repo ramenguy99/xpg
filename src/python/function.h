@@ -1,4 +1,5 @@
 #include <nanobind/stl/function.h>
+#include <xpg/function.h>
 
 NAMESPACE_BEGIN(NB_NAMESPACE)
 NAMESPACE_BEGIN(detail)

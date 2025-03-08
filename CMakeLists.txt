@@ -109,7 +109,12 @@ find_package(Python 3.8 COMPONENTS Interpreter ${DEV_MODULE} REQUIRED)
 add_subdirectory(ext/nanobind)
 
 # Create python module
-nanobind_add_module(pyxpg src/python/module.cpp)
+nanobind_add_module(pyxpg 
+  src/python/module.cpp
+  src/python/py_gfx.cpp
+  src/python/py_imgui.cpp
+  src/python/py_slang.cpp
+)
 target_link_libraries(pyxpg PRIVATE xpg slang)
 # set_target_properties(pyxpg PROPERTIES OUTPUT_NAME "xpg")
 nanobind_add_stub(pyxpg_stub
