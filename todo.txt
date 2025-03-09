@@ -13,6 +13,15 @@ Python:
             workaround to avoid them
 [x] gfx and gui bindings for window / vulkan / gui
 [ ] Slang bindings for compiling and for reflection
+    [x] Compilation
+    [ ] Shader cache
+        [x] Basic
+        [ ] Handle all cache inputs
+    [ ] Reflection
+        - XPG provides only bindings, usage of reflection up to app
+        - See at least 2 potential use cases from python:   
+            - Auto resolve -> use names in python, descriptor set creation and set/binding/offset computation is automatic
+            - Python bindings gen -> offline step builds shaders and creates python bindings to call stuff
     - Slang takes around 200ms to initialize in release and (2.5s in debug)...
 [ ] Framegraph implementation on top of reflection for easy prototyping of pipelines/shaders
     -> interesting here would be how much perf we can have when sharing data through arrays, e.g. textures, buffers, uniforms
@@ -20,6 +29,12 @@ Python:
        + some python bindings to reuse at least the synchronization / traversal logic implemented in C++
 [ ] App ideas:
     [ ] Try to redo sequence, can i read directly to bufs without gil?
+    [ ] Huge voxel engine
+        -> brickmap
+        -> packed coords in storage buffers
+        -> auto cube trick
+        -> gpu frustum culling
+        -> SVO traversal?
 [x] Use within conda:
         conda install conda-forge::vulkan-tools
 

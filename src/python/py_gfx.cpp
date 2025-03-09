@@ -305,6 +305,20 @@ struct RenderingAttachment {
     {}
 };
 
+struct DepthAttachment {
+    nb::ref<Image> image;
+    VkAttachmentLoadOp load_op;
+    VkAttachmentStoreOp store_op;
+    float clear;
+
+    DepthAttachment(nb::ref<Image> image, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, float clear)
+        : image(image)
+        , load_op(load_op)
+        , store_op(store_op)
+        , clear(clear)
+    {}
+};
+
 struct CommandBuffer: GfxObject {
     CommandBuffer(nb::ref<Context> ctx, VkCommandPool pool, VkCommandBuffer buffer, bool owned)
         : GfxObject(ctx, owned)
@@ -331,6 +345,12 @@ struct CommandBuffer: GfxObject {
                 .src_access = image.current_state.access,
                 .dst_access = new_state.access,
                 .new_layout = new_state.layout,
+                .aspect_mask = 
+                    (
+                        usage == ImageUsage::DepthStencilAttachment ||
+                        usage == ImageUsage::DepthStencilAttachmentReadOnly ||
+                        usage == ImageUsage::DepthStencilAttachmentWriteOnly
+                    )? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
                 // TODO: aspect mask based on usage?
             });
         }
@@ -362,14 +382,15 @@ struct CommandBuffer: GfxObject {
     }
 
     struct RenderingManager {
-        RenderingManager(nb::ref<CommandBuffer> cmd, std::array<u32, 4> viewport, std::vector<RenderingAttachment> color)
+        RenderingManager(nb::ref<CommandBuffer> cmd, std::array<u32, 4> viewport, std::vector<RenderingAttachment> color, std::optional<DepthAttachment> depth)
             : cmd(cmd)
             , viewport(viewport)
             , color(std::move(color))
+            , depth(depth)
         {}
 
         void enter() {
-            cmd->begin_rendering(viewport, color);
+            cmd->begin_rendering(viewport, color, depth);
         }
 
         void exit(nb::object, nb::object, nb::object) {
@@ -379,13 +400,14 @@ struct CommandBuffer: GfxObject {
         nb::ref<CommandBuffer> cmd;
         std::array<u32, 4> viewport;
         std::vector<RenderingAttachment> color;
+        std::optional<DepthAttachment> depth;
     };
 
-    RenderingManager rendering(std::array<u32, 4> viewport, const std::vector<RenderingAttachment>& color) {
-        return RenderingManager(this, viewport, std::move(color));
+    RenderingManager rendering(std::array<u32, 4> viewport, const std::vector<RenderingAttachment>& color, std::optional<DepthAttachment> depth) {
+        return RenderingManager(this, viewport, std::move(color), depth);
     }
 
-    void begin_rendering(std::array<u32, 4> viewport, const std::vector<RenderingAttachment>& color) {
+    void begin_rendering(std::array<u32, 4> viewport, const std::vector<RenderingAttachment>& color, std::optional<DepthAttachment> depth) {
         Array<gfx::RenderingAttachmentDesc> color_descs(color.size());
         for(usize i = 0; i < color_descs.length; i++) {
             VkClearColorValue clear;
@@ -400,8 +422,17 @@ struct CommandBuffer: GfxObject {
             color_descs[i].clear = clear;
         }
 
+        gfx::DepthAttachmentDesc depth_desc = {};
+        if(depth.has_value()) {
+            depth_desc.view = depth->image->image.view;
+            depth_desc.load_op = depth->load_op;
+            depth_desc.store_op= depth->store_op;
+            depth_desc.clear = depth->clear;
+        }
+
         gfx::CmdBeginRendering(buffer, {
             .color = Span(color_descs),
+            .depth = depth_desc,
             .offset_x = viewport[0],
             .offset_y = viewport[1],
             .width = viewport[2],
@@ -807,6 +838,19 @@ struct InputAssembly: gfx::InputAssemblyDesc{
 };
 static_assert(sizeof(InputAssembly) == sizeof(gfx::InputAssemblyDesc));
 
+struct Depth: gfx::DepthDesc{
+    Depth(VkFormat format, bool test = false, bool write = false, VkCompareOp op = VK_COMPARE_OP_LESS)
+        : gfx::DepthDesc {
+            .test = test,
+            .write = write,
+            .op = op,
+            .format = format,
+        }
+    {
+    }
+};
+static_assert(sizeof(Depth) == sizeof(gfx::DepthDesc));
+
 struct Attachment: gfx::AttachmentDesc {
     Attachment(
         VkFormat format,
@@ -856,7 +900,8 @@ struct GraphicsPipeline: nb::intrusive_base {
         InputAssembly input_assembly,
         const std::vector<PushConstantsRange>& push_constant_ranges,
         const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
-        const std::vector<Attachment>& attachments
+        const std::vector<Attachment>& attachments,
+        Depth depth
         )
         : ctx(ctx)
     {
@@ -871,12 +916,15 @@ struct GraphicsPipeline: nb::intrusive_base {
         for(usize i = 0; i < d.length; i++) {
             d[i] = descriptor_sets[i]->set.layout;
         }
+        
+        logging::error("pygfx/pipeline", "Format: %d", depth.format);
 
         VkResult vkr = gfx::CreateGraphicsPipeline(&pipeline, ctx->vk, {
             .stages = ArrayView(s),
             .vertex_bindings = ArrayView((gfx::VertexBindingDesc*)vertex_bindings.data(), vertex_bindings.size()),
             .vertex_attributes = ArrayView((gfx::VertexAttributeDesc*)vertex_attributes.data(), vertex_attributes.size()),
             .input_assembly = input_assembly,
+            .depth = depth,
             .push_constants = ArrayView((gfx::PushConstantsRangeDesc*)push_constant_ranges.data(), push_constant_ranges.size()),
             .descriptor_sets = ArrayView(d),
             .attachments = ArrayView((gfx::AttachmentDesc*)attachments.data(), attachments.size()),
@@ -1033,29 +1081,28 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::enum_<VkImageUsageFlagBits>(m, "ImageUsageFlags", nb::is_arithmetic() , nb::is_flag())
-        .value("TRANSFER_SRC_BIT",                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
-        .value("TRANSFER_DST_BIT",                         VK_IMAGE_USAGE_TRANSFER_DST_BIT)
-        .value("SAMPLED_BIT",                              VK_IMAGE_USAGE_SAMPLED_BIT)
-        .value("STORAGE_BIT",                              VK_IMAGE_USAGE_STORAGE_BIT)
-        .value("COLOR_ATTACHMENT_BIT",                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-        .value("DEPTH_STENCIL_ATTACHMENT_BIT",             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-        .value("TRANSIENT_ATTACHMENT_BIT",                 VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
-        .value("INPUT_ATTACHMENT_BIT",                     VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
-        .value("VIDEO_DECODE_DST_BIT_KHR",                 VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR)
-        .value("VIDEO_DECODE_SRC_BIT_KHR",                 VK_IMAGE_USAGE_VIDEO_DECODE_SRC_BIT_KHR)
-        .value("VIDEO_DECODE_DPB_BIT_KHR",                 VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)
-        .value("FRAGMENT_DENSITY_MAP_BIT_EXT",             VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
-        .value("FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR", VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
-        .value("HOST_TRANSFER_BIT_EXT",                    VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT)
-        .value("VIDEO_ENCODE_DST_BIT_KHR",                 VK_IMAGE_USAGE_VIDEO_ENCODE_DST_BIT_KHR)
-        .value("VIDEO_ENCODE_SRC_BIT_KHR",                 VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR)
-        .value("VIDEO_ENCODE_DPB_BIT_KHR",                 VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR)
-        .value("ATTACHMENT_FEEDBACK_LOOP_BIT_EXT",         VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
-        .value("INVOCATION_MASK_BIT_HUAWEI",               VK_IMAGE_USAGE_INVOCATION_MASK_BIT_HUAWEI)
-        .value("SAMPLE_WEIGHT_BIT_QCOM",                   VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM)
-        .value("SAMPLE_BLOCK_MATCH_BIT_QCOM",              VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM)
-        .value("SHADING_RATE_IMAGE_BIT_NV",                VK_IMAGE_USAGE_SHADING_RATE_IMAGE_BIT_NV)
-        .value("FLAG_BITS_MAX_ENUM",                       VK_IMAGE_USAGE_FLAG_BITS_MAX_ENUM)
+        .value("TRANSFER_SRC",                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+        .value("TRANSFER_DST",                         VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+        .value("SAMPLED",                              VK_IMAGE_USAGE_SAMPLED_BIT)
+        .value("STORAGE",                              VK_IMAGE_USAGE_STORAGE_BIT)
+        .value("COLOR_ATTACHMENT",                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        .value("DEPTH_STENCIL_ATTACHMENT",             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        // .value("TRANSIENT_ATTACHMENT",                 VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
+        // .value("INPUT_ATTACHMENT",                     VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
+        // .value("VIDEO_DECODE_DST_KHR",                 VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR)
+        // .value("VIDEO_DECODE_SRC_KHR",                 VK_IMAGE_USAGE_VIDEO_DECODE_SRC_BIT_KHR)
+        // .value("VIDEO_DECODE_DPB_KHR",                 VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)
+        // .value("FRAGMENT_DENSITY_MAP_EXT",             VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
+        // .value("FRAGMENT_SHADING_RATE_ATTACHMENT_KHR", VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
+        // .value("HOST_TRANSFER_EXT",                    VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT)
+        // .value("VIDEO_ENCODE_DST_KHR",                 VK_IMAGE_USAGE_VIDEO_ENCODE_DST_BIT_KHR)
+        // .value("VIDEO_ENCODE_SRC_KHR",                 VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR)
+        // .value("VIDEO_ENCODE_DPB_KHR",                 VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR)
+        // .value("ATTACHMENT_FEEDBACK_LOOP_EXT",         VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
+        // .value("INVOCATION_MASK_HUAWEI",               VK_IMAGE_USAGE_INVOCATION_MASK_BIT_HUAWEI)
+        // .value("SAMPLE_WEIGHT_QCOM",                   VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM)
+        // .value("SAMPLE_BLOCK_MATCH_QCOM",              VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM)
+        // .value("SHADING_RATE_IMAGE_NV",                VK_IMAGE_USAGE_SHADING_RATE_IMAGE_BIT_NV)
     ;
 
     nb::class_<GfxObject>(m, "GfxObject",
@@ -1095,6 +1142,11 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear"))
     ;
 
+    nb::class_<DepthAttachment>(m, "DepthAttachment")
+        .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, float>(),
+            nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear"))
+    ;
+
     nb::enum_<VkAttachmentLoadOp>(m, "LoadOp")
         .value("LOAD"     , VK_ATTACHMENT_LOAD_OP_LOAD)
         .value("CLEAR"    , VK_ATTACHMENT_LOAD_OP_CLEAR)
@@ -1118,9 +1170,9 @@ void gfx_create_bindings(nb::module_& m)
         .def("begin", &CommandBuffer::begin)
         .def("end", &CommandBuffer::end)
         .def("use_image", &CommandBuffer::use_image, nb::arg("image"), nb::arg("usage"))
-        .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("viewport"), nb::arg("color_attachments"))
+        .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth").none() = nb::none())
         .def("end_rendering", &CommandBuffer::end_rendering)
-        .def("rendering", &CommandBuffer::rendering, nb::arg("viewport"), nb::arg("color_attachments"))
+        .def("rendering", &CommandBuffer::rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth").none() = nb::none())
         .def("bind_pipeline_state", &CommandBuffer::bind_pipeline_state,
             nb::arg("pipeline"),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
@@ -1646,11 +1698,31 @@ void gfx_create_bindings(nb::module_& m)
                 nb::arg("dst_alpha_blend_factor") = VK_BLEND_FACTOR_ZERO,
                 nb::arg("alpha_blend_op")         = VK_BLEND_OP_ADD,
                 nb::arg("color_write_mask")       = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
-            );
+            )
     ;
 
     nb::class_<PushConstantsRange>(m, "PushConstantsRange")
         .def(nb::init<u32, u32, VkShaderStageFlagBits>(), nb::arg("size"), nb::arg("offset") = 0, nb::arg("stages") = VK_SHADER_STAGE_ALL)
+    ;
+
+    nb::enum_<VkCompareOp>(m, "CompareOp")
+        .value("NEVER",            VK_COMPARE_OP_NEVER)
+        .value("LESS",             VK_COMPARE_OP_LESS)
+        .value("EQUAL",            VK_COMPARE_OP_EQUAL)
+        .value("LESS_OR_EQUAL",    VK_COMPARE_OP_LESS_OR_EQUAL)
+        .value("GREATER",          VK_COMPARE_OP_GREATER)
+        .value("NOT_EQUAL",        VK_COMPARE_OP_NOT_EQUAL)
+        .value("GREATER_OR_EQUAL", VK_COMPARE_OP_GREATER_OR_EQUAL)
+        .value("ALWAYS",           VK_COMPARE_OP_ALWAYS)
+    ;
+
+    nb::class_<Depth>(m, "Depth")
+        .def(nb::init<VkFormat, bool, bool, VkCompareOp>(),
+            nb::arg("format") = VK_FORMAT_UNDEFINED,
+            nb::arg("test") = false,
+            nb::arg("write") = false,
+            nb::arg("op") = VK_COMPARE_OP_LESS
+        )
     ;
 
     nb::class_<GraphicsPipeline>(m, "GraphicsPipeline",
@@ -1662,7 +1734,8 @@ void gfx_create_bindings(nb::module_& m)
                 InputAssembly,
                 const std::vector<PushConstantsRange>&,
                 const std::vector<nb::ref<DescriptorSet>>&,
-                const std::vector<Attachment>&
+                const std::vector<Attachment>&,
+                Depth
             >(),
             nb::arg("ctx"),
             nb::arg("stages") = std::vector<nb::ref<PipelineStage>>(),
@@ -1671,7 +1744,8 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("input_assembly") = InputAssembly(),
             nb::arg("push_constants_ranges") = std::vector<PushConstantsRange>(),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
-            nb::arg("attachments") = std::vector<Attachment>()
+            nb::arg("attachments") = std::vector<Attachment>(),
+            nb::arg("depth") = Depth(VK_FORMAT_UNDEFINED)
         )
         .def("destroy", &GraphicsPipeline::destroy)
     ;
