@@ -345,12 +345,12 @@ struct CommandBuffer: GfxObject {
                 .src_access = image.current_state.access,
                 .dst_access = new_state.access,
                 .new_layout = new_state.layout,
-                .aspect_mask = 
-                    (
+                .aspect_mask =
+                    (VkImageAspectFlags)((
                         usage == ImageUsage::DepthStencilAttachment ||
                         usage == ImageUsage::DepthStencilAttachmentReadOnly ||
                         usage == ImageUsage::DepthStencilAttachmentWriteOnly
-                    )? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+                    )? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT),
                 // TODO: aspect mask based on usage?
             });
         }
@@ -916,7 +916,7 @@ struct GraphicsPipeline: nb::intrusive_base {
         for(usize i = 0; i < d.length; i++) {
             d[i] = descriptor_sets[i]->set.layout;
         }
-        
+
         logging::error("pygfx/pipeline", "Format: %d", depth.format);
 
         VkResult vkr = gfx::CreateGraphicsPipeline(&pipeline, ctx->vk, {

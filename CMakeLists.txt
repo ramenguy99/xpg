@@ -103,13 +103,14 @@ if (CMAKE_VERSION VERSION_LESS 3.18)
 else()
   set(DEV_MODULE Development.Module)
 endif()
-find_package(Python 3.8 COMPONENTS Interpreter ${DEV_MODULE} REQUIRED)
+# TODO: make choice configurable, using exact if asked to (e.g. for CI builds)
+find_package(Python 3.10 EXACT COMPONENTS Interpreter ${DEV_MODULE} REQUIRED)
 
 # Add nanobind
 add_subdirectory(ext/nanobind)
 
 # Create python module
-nanobind_add_module(pyxpg 
+nanobind_add_module(pyxpg
   src/python/module.cpp
   src/python/py_gfx.cpp
   src/python/py_imgui.cpp
