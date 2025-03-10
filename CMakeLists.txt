@@ -104,7 +104,7 @@ else()
   set(DEV_MODULE Development.Module)
 endif()
 # TODO: make choice configurable, using exact if asked to (e.g. for CI builds)
-find_package(Python 3.10 EXACT COMPONENTS Interpreter ${DEV_MODULE} REQUIRED)
+find_package(Python 3.10 COMPONENTS Interpreter ${DEV_MODULE} REQUIRED)
 
 # Add nanobind
 add_subdirectory(ext/nanobind)

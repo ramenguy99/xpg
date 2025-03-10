@@ -69,6 +69,7 @@ struct DeviceFeatures {
         DESCRIPTOR_INDEXING = 1,
         DYNAMIC_RENDERING = 2,
         SYNCHRONIZATION_2 = 4,
+        SCALAR_BLOCK_LAYOUT = 8,
     };
 
     DeviceFeatures(DeviceFeaturesFlags flags): flags(flags) {}

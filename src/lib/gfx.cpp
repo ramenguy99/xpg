@@ -476,6 +476,14 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         device_create_info.pNext = &synchronization_2_features;
     }
 
+    // Enable scalar block layout if enabled
+    VkPhysicalDeviceScalarBlockLayoutFeatures scalar_block_layout_featues = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES };
+    scalar_block_layout_featues.scalarBlockLayout = true;
+    if (desc.device_features & DeviceFeatures::SCALAR_BLOCK_LAYOUT) {
+        scalar_block_layout_featues.pNext = (void*)device_create_info.pNext;
+        device_create_info.pNext = &scalar_block_layout_featues;
+    }
+
     VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
     // descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing = VK_TRUE;
     // descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing = VK_TRUE;

@@ -18,11 +18,10 @@ ConstantBuffer<Constants> u;
 struct Voxel
 {
     float3 position;
-    float yo;
 };
 
 [[vk::binding(1, 0)]]
-StructuredBuffer<Voxel> voxels;
+StructuredBuffer<Voxel, ScalarDataLayout> voxels;
 
 [shader("vertex")]
 VSOutput main(uint vertex_index: SV_VertexID)

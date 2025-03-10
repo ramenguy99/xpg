@@ -39,7 +39,7 @@ struct Context: public nb::intrusive_base {
             .minimum_api_version = (u32)VK_API_VERSION_1_3,
             .instance_extensions = instance_extensions,
             .device_extensions = device_extensions,
-            .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
+            .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2 | gfx::DeviceFeatures::SCALAR_BLOCK_LAYOUT,
             .enable_validation_layer = true,
             // .enable_gpu_based_validation = true,
         });
@@ -346,12 +346,11 @@ struct CommandBuffer: GfxObject {
                 .dst_access = new_state.access,
                 .new_layout = new_state.layout,
                 .aspect_mask =
-                    (VkImageAspectFlags)((
+                    (VkImageAspectFlagBits)((
                         usage == ImageUsage::DepthStencilAttachment ||
                         usage == ImageUsage::DepthStencilAttachmentReadOnly ||
                         usage == ImageUsage::DepthStencilAttachmentWriteOnly
                     )? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT),
-                // TODO: aspect mask based on usage?
             });
         }
 
