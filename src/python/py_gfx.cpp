@@ -17,6 +17,70 @@
 
 #include "function.h"
 
+NAMESPACE_BEGIN(NB_NAMESPACE)
+NAMESPACE_BEGIN(detail)
+
+// TODO: likely can easily generalize to any N, T pairs, probably needs nested
+// template, look at stl/array for reference.
+template<>
+struct type_caster<glm::ivec2> {
+    NB_TYPE_CASTER(glm::ivec2, const_name(NB_TYPING_TUPLE "[int, int]"))
+
+    using Caster = make_caster<int>;
+
+    bool from_python(handle src, uint8_t flags, cleanup_list *cleanup) noexcept {
+        PyObject *temp;
+
+        /* Will initialize 'temp' (NULL in the case of a failure.) */
+        PyObject **o = seq_get_with_size(src.ptr(), 2, &temp);
+
+        bool success = o != nullptr;
+
+        Caster caster;
+        flags = flags_for_local_caster<int>(flags);
+
+        if (success) {
+            for (size_t i = 0; i < 2; ++i) {
+                if (!caster.from_python(o[i], flags, cleanup) ||
+                    !caster.template can_cast<int>()) {
+                    success = false;
+                    break;
+                }
+
+                value[i] = caster.operator cast_t<int>();
+            }
+
+            Py_XDECREF(temp);
+        }
+
+        return success;
+    }
+
+    static handle from_cpp(glm::ivec2 &&src, rv_policy policy, cleanup_list *cleanup) {
+        object ret = steal(PyTuple_New(2));
+
+        if (ret.is_valid()) {
+            Py_ssize_t index = 0;
+
+            for (size_t i = 0; i < 2; ++i) {
+                handle h = Caster::from_cpp(src[i], policy, cleanup);
+
+                if (!h.is_valid()) {
+                    ret.reset();
+                    break;
+                }
+
+                NB_TUPLE_SET_ITEM(ret.ptr(), index++, h.ptr());
+            }
+        }
+
+        return ret.release();
+    }
+};
+
+NAMESPACE_END(detail)
+NAMESPACE_END(NB_NAMESPACE)
+
 namespace nb = nanobind;
 
 struct Context: public nb::intrusive_base {
@@ -508,12 +572,55 @@ struct Window: public nb::intrusive_base {
         }
     }
 
-    void set_callbacks(Function<void()> draw)
+    void set_callbacks(
+        Function<void()> draw,
+        Function<void(glm::ivec2)> mouse_move_event,
+        Function<void(glm::ivec2, gfx::MouseButton, gfx::Action, gfx::Modifiers)> mouse_button_event,
+        Function<void(glm::ivec2, glm::ivec2)> mouse_scroll_event,
+        Function<void(gfx::Key, gfx::Action, gfx::Modifiers)> key_event
+    )
     {
-        this->draw = std::move(draw);
+        this->draw               = std::move(draw);
+        this->mouse_move_event   = mouse_move_event;
+        this->mouse_button_event = mouse_button_event;
+        this->mouse_scroll_event = mouse_scroll_event;
+        this->key_event          = key_event;
+        this->draw               = draw;
 
         gfx::SetWindowCallbacks(&window, {
-                .draw = [this] {
+                .mouse_move_event = [this](glm::ivec2 p) {
+                    try {
+                        if(this->mouse_move_event)
+                            this->mouse_move_event(p);
+                    } catch (nb::python_error &e) {
+                        e.restore();
+                    }
+                },
+                .mouse_button_event = [this] (glm::ivec2 p, gfx::MouseButton b, gfx::Action a, gfx::Modifiers m) {
+                    try {
+                        if(this->mouse_button_event)
+                            this->mouse_button_event(p, b, a, m);
+                    } catch (nb::python_error &e) {
+                        e.restore();
+                    }
+                },
+                .mouse_scroll_event = [this] (glm::ivec2 p, glm::ivec2 s) {
+                    try {
+                        if(this->mouse_scroll_event)
+                            this->mouse_scroll_event(p, s);
+                    } catch (nb::python_error &e) {
+                        e.restore();
+                    }
+                },
+                .key_event = [this] (gfx::Key k, gfx::Action a, gfx::Modifiers m) {
+                    try {
+                        if(this->key_event)
+                            this->key_event(k, a, m);
+                    } catch (nb::python_error &e) {
+                        e.restore();
+                    }
+                },
+                .draw = [this] () {
                     try {
                         if(this->draw)
                             this->draw();
@@ -577,8 +684,13 @@ struct Window: public nb::intrusive_base {
 
     nb::ref<Context> ctx;
     gfx::Window window;
-    Function<void()> draw;
     std::vector<Frame> frames;
+
+    Function<void()> draw;
+    Function<void(glm::ivec2)> mouse_move_event;
+    Function<void(glm::ivec2, gfx::MouseButton, gfx::Action, gfx::Modifiers)> mouse_button_event;
+    Function<void(glm::ivec2, glm::ivec2)> mouse_scroll_event;
+    Function<void(gfx::Key, gfx::Action, gfx::Modifiers)> key_event;
 
     // Garbage collection:
 
@@ -590,16 +702,18 @@ struct Window: public nb::intrusive_base {
         // If not, value.ptr() will equal NULL, which is also fine.
         nb::handle ctx                = nb::find(w->ctx.get());
         nb::handle draw               = nb::find(w->draw);
-        // nb::handle mouse_move_event   = nb::find(w->window.callbacks.mouse_move_event);
-        // nb::handle mouse_button_event = nb::find(w->window.callbacks.mouse_button_event);
-        // nb::handle mouse_scroll_event = nb::find(w->window.callbacks.mouse_scroll_event);
+        nb::handle mouse_move_event   = nb::find(w->mouse_move_event);
+        nb::handle mouse_button_event = nb::find(w->mouse_button_event);
+        nb::handle mouse_scroll_event = nb::find(w->mouse_scroll_event);
+        nb::handle key_event          = nb::find(w->mouse_scroll_event);
 
         // Inform the Python GC about the instance (if non-NULL)
         Py_VISIT(ctx.ptr());
         Py_VISIT(draw.ptr());
-        // Py_VISIT(mouse_move_event.ptr());
-        // Py_VISIT(mouse_button_event.ptr());
-        // Py_VISIT(mouse_scroll_event.ptr());
+        Py_VISIT(mouse_move_event.ptr());
+        Py_VISIT(mouse_button_event.ptr());
+        Py_VISIT(mouse_scroll_event.ptr());
+        Py_VISIT(key_event.ptr());
 
         return 0;
     }
@@ -610,10 +724,11 @@ struct Window: public nb::intrusive_base {
 
         // Clear the cycle!
         w->ctx.reset();
-        w->draw = nullptr;
-        // w->window.callbacks.mouse_move_event = nullptr;
-        // w->window.callbacks.mouse_button_event = nullptr;
-        // w->window.callbacks.mouse_scroll_event = nullptr;
+        w->draw                = nullptr;
+        w->mouse_move_event   = nullptr;
+        w->mouse_button_event = nullptr;
+        w->mouse_scroll_event = nullptr;
+        w->key_event          = nullptr;
 
         return 0;
     }
@@ -1027,7 +1142,12 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<Window>([](Window *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Context>, const::std::string&, u32, u32>(), nb::arg("ctx"), nb::arg("title"), nb::arg("width"), nb::arg("height"))
         .def("should_close", &Window::should_close)
-        .def("set_callbacks", &Window::set_callbacks, nb::arg("draw"))
+        .def("set_callbacks", &Window::set_callbacks,
+            nb::arg("draw"),
+            nb::arg("mouse_move_event").none() = nb::none(),
+            nb::arg("mouse_button_event").none() = nb::none(),
+            nb::arg("mouse_scroll_event").none() = nb::none(),
+            nb::arg("key_event").none() = nb::none())
         .def("reset_callbacks", &Window::reset_callbacks)
         .def("update_swapchain", &Window::update_swapchain)
         .def("begin_frame", &Window::begin_frame)
@@ -1058,6 +1178,34 @@ void gfx_create_bindings(nb::module_& m)
         .def("frame", &Gui::frame)
     ;
 
+    nb::enum_<gfx::Action>(m, "Action")
+        .value("NONE", gfx::Action::None)
+        .value("RELEASE", gfx::Action::Release)
+        .value("PRESS", gfx::Action::Press)
+        .value("REPEAT", gfx::Action::Repeat)
+    ;
+
+    nb::enum_<gfx::Key>(m, "Key")
+        .value("ESCAPE", gfx::Key::Escape)
+        .value("SPACE", gfx::Key::Space)
+        .value("PERIOD", gfx::Key::Period)
+        .value("COMMA", gfx::Key::Comma)
+    ;
+
+    nb::enum_<gfx::MouseButton>(m, "MouseButton")
+        .value("NONE",   gfx::MouseButton::None)
+        .value("LEFT",   gfx::MouseButton::Left)
+        .value("RIGHT",  gfx::MouseButton::Right)
+        .value("MIDDLE", gfx::MouseButton::Middle)
+    ;
+
+    nb::enum_<gfx::Modifiers>(m, "Modifiers", nb::is_flag(), nb::is_arithmetic())
+        .value("SHIFT", gfx::Modifiers::Shift)
+        .value("CTRL", gfx::Modifiers::Ctrl)
+        .value("ALT", gfx::Modifiers::Alt)
+        .value("SUPER", gfx::Modifiers::Super)
+    ;
+    
     nb::enum_<gfx::AllocPresets::Type>(m, "AllocType")
         .value("HOST", gfx::AllocPresets::Type::Host)
         .value("HOST_WRITE_COMBINING", gfx::AllocPresets::Type::HostWriteCombining)
