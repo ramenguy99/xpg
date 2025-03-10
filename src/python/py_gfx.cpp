@@ -1139,12 +1139,12 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<RenderingAttachment>(m, "RenderingAttachment")
         .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, std::array<float, 4>>(),
-            nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear"))
+            nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear") = std::array<float,4>({0.0f, 0.0f, 0.0f, 0.0f}))
     ;
 
     nb::class_<DepthAttachment>(m, "DepthAttachment")
         .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, float>(),
-            nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear"))
+            nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear") = 0.0f)
     ;
 
     nb::enum_<VkAttachmentLoadOp>(m, "LoadOp")

@@ -10,7 +10,7 @@ from platformdirs import user_cache_path
 
 # TODO:
 # [x] Fix indices (make small diagram)
-# [x] Fix lighting 
+# [x] Fix lighting
 # [ ] Depth buffer
 # [ ] Per voxel color
 # [ ] Pack voxel data
@@ -18,7 +18,7 @@ from platformdirs import user_cache_path
 
 scalar_to_np = {
     slang.ScalarKind.Float32: np.float32,
-} 
+}
 
 def to_dtype(typ: slang.Type) -> np.dtype:
     if   isinstance(typ, slang.Scalar):
@@ -47,8 +47,8 @@ voxels = np.vstack((x.flatten(), y.flatten(), np.zeros_like(y.flatten()), np.one
 print(voxels)
 
 I = np.tile(np.array([
-    [0, 1, 3], 
-    [3, 0, 2],  
+    [0, 1, 3],
+    [3, 0, 2],
     [0, 4, 5],
     [1, 0, 5],
     [0, 2, 4],
@@ -178,13 +178,8 @@ def draw():
             cmd.use_image(depth, ImageUsage.DEPTH_STENCIL_ATTACHMENT)
 
             viewport = [0, 0, window.fb_width, window.fb_height]
-            cmd.bind_pipeline_state(
-                pipeline=pipeline,
-                descriptor_sets=[ set ],
-                index_buffer=index_buf,
-                viewport=viewport,
-                scissors=viewport,
-            )
+
+            # Render voxels
             with cmd.rendering(viewport,
                 color_attachments=[
                     RenderingAttachment(
@@ -200,7 +195,25 @@ def draw():
                     store_op=StoreOp.STORE,
                     clear=1.0,
                 )):
+                cmd.bind_pipeline_state(
+                    pipeline=pipeline,
+                    descriptor_sets=[ set ],
+                    index_buffer=index_buf,
+                    viewport=viewport,
+                    scissors=viewport,
+                )
+
                 cmd.draw_indexed(I.size)
+
+            # Render gui
+            with cmd.rendering(viewport,
+                color_attachments=[
+                    RenderingAttachment(
+                        frame.image,
+                        load_op=LoadOp.LOAD,
+                        store_op=StoreOp.STORE,
+                    ),
+                ]):
                 gui.render(cmd)
 
             cmd.use_image(frame.image, ImageUsage.PRESENT)
@@ -212,7 +225,7 @@ while True:
 
     if window.should_close():
         break
-    
+
     draw()
 
 cache.stop()
