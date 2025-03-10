@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
         .instance_extensions = instance_extensions,
         .device_extensions = device_extensions,
         .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
-        // .enable_validation_layer = true,
+        .enable_validation_layer = true,
         // .enable_gpu_based_validation = false,
         .preferred_frames_in_flight = 2,
     });
@@ -641,20 +641,6 @@ int main(int argc, char** argv) {
 
         vkCmdDrawIndexed(frame.command_buffer, app.num_indices, 1, 0, 0, 0);
 
-        gfx::CmdEndRendering(frame.command_buffer);
-
-        gfx::CmdBeginRendering(frame.command_buffer, {
-            .color = {
-                {
-                    .view = frame.current_image_view,
-                    .load_op = VK_ATTACHMENT_LOAD_OP_LOAD,
-                    .store_op = VK_ATTACHMENT_STORE_OP_STORE,
-                    .clear = color,
-                },
-            },
-            .width = window.fb_width,
-            .height = window.fb_height,
-        });
         gui::Render(frame.command_buffer);
         gfx::CmdEndRendering(frame.command_buffer);
 

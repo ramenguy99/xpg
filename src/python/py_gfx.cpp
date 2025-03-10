@@ -838,7 +838,7 @@ struct InputAssembly: gfx::InputAssemblyDesc{
 };
 static_assert(sizeof(InputAssembly) == sizeof(gfx::InputAssemblyDesc));
 
-struct Depth: gfx::DepthDesc{
+struct Depth: gfx::DepthDesc {
     Depth(VkFormat format, bool test = false, bool write = false, VkCompareOp op = VK_COMPARE_OP_LESS)
         : gfx::DepthDesc {
             .test = test,
