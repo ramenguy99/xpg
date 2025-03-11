@@ -1,7 +1,7 @@
 struct VSOutput
 {
     float4 position: SV_Position;
-    float3 view_position: POSITION;
+    float3 view_position : POSITION;
 };
 
 struct Constants
@@ -31,9 +31,9 @@ VSOutput main(uint vertex_index: SV_VertexID)
     float3 center = voxels[voxel].position;
     float3 dir = u.camera_pos - center;
     uint3 xyz = uint3((vertex_index & 0x4) >> 2, (vertex_index & 0x2) >> 1, (vertex_index & 0x1) >> 0);
-    if (dir.x < 0) xyz.x = 1 - xyz.x;
-    if (dir.y < 0) xyz.y = 1 - xyz.y;
-    if (dir.z < 0) xyz.z = 1 - xyz.z;
+    if (dir.x > 0) xyz.x = 1 - xyz.x;
+    if (dir.y > 0) xyz.y = 1 - xyz.y;
+    if (dir.z > 0) xyz.z = 1 - xyz.z;
 
     float3 uvw = float3(xyz);
     float3 world_position = center + (uvw * 2.0 - 1.0) * u.size;

@@ -15,7 +15,7 @@
 #endif
 #undef APIENTRY
 
-#define GLM_DEPTH_ZERO_TO_ONE
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>                      // GLM math
 #include <glm/gtc/matrix_transform.hpp>     // GLM matrix ops
 

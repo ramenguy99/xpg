@@ -23,10 +23,10 @@ import reflection
 # [ ] Pack voxel data
 # [ ] MSAA
 
-S = 1
-N = 10
-R = 15
-voxels = gfxmath.grid3d(np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32), np.ones(N, dtype=np.float32))
+S = 0.5
+N = 15
+R = 10
+voxels = gfxmath.grid3d(np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32))
 
 I = np.tile(np.array([
     [0, 1, 3],
@@ -38,8 +38,7 @@ I = np.tile(np.array([
 ], np.uint32), (voxels.shape[0], 1))
 I = (I.reshape((voxels.shape[0], -1)) + np.arange(voxels.shape[0]).reshape(voxels.shape[0], 1) * 8).astype(np.uint32)
 
-# camera_pos = np.array([20, 20, 40], np.float32)
-camera_pos = np.array([00, 20, 40], np.float32)
+camera_pos = np.array([40, 40, 40], np.float32)
 camera_target = np.array([0, 0, 0], np.float32)
 world_up = np.array([0, 0, 1], np.float32)
 view = gfxmath.lookat(camera_pos, camera_target, world_up)
@@ -121,7 +120,6 @@ def draw():
 
         # Refresh proj
         proj = gfxmath.perspective(45, window.fb_width / window.fb_height, 0.1, 100)
-
         buf = u_buf.view.view(dt)
         buf["projection"] = proj
         buf["view"] = view
@@ -179,7 +177,7 @@ def mouse_move_event(p: Tuple[int, int]):
     if drag_start:
         delta = np.array((p[0] - drag_start[0], p[1] - drag_start[1]), dtype=np.float32)
 
-        if False:
+        if True:
             t = delta[0] * 1e-3
             s = np.sin(t)
             c = np.cos(t)
