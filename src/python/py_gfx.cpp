@@ -296,13 +296,14 @@ namespace ImageUsagePresets {
 }
 
 struct Image: public GfxObject {
-    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type)
+    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type, int samples = 1)
         : GfxObject(ctx, true)
     {
         VkResult vkr = gfx::CreateImage(&image, ctx->vk, {
             .width = width,
             .height = height,
             .format = format,
+            .samples = (VkSampleCountFlagBits)samples,
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
         });
@@ -360,12 +361,16 @@ struct RenderingAttachment {
     VkAttachmentLoadOp load_op;
     VkAttachmentStoreOp store_op;
     std::array<float, 4> clear;
+    std::optional<nb::ref<Image>> resolve_image;
+    VkResolveModeFlagBits resolve_mode;
 
-    RenderingAttachment(nb::ref<Image> image, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, std::array<float, 4> clear)
+    RenderingAttachment(nb::ref<Image> image, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, std::array<float, 4> clear, std::optional<nb::ref<Image>> resolve_image, VkResolveModeFlagBits resolve_mode)
         : image(image)
         , load_op(load_op)
         , store_op(store_op)
         , clear(clear)
+        , resolve_image(resolve_image)
+        , resolve_mode(resolve_mode)
     {}
 };
 
@@ -483,6 +488,9 @@ struct CommandBuffer: GfxObject {
             color_descs[i].store_op = color[i].store_op;
             color_descs[i].load_op = color[i].load_op;
             color_descs[i].clear = clear;
+            color_descs[i].resolve_mode = color[i].resolve_mode;
+            color_descs[i].resolve_image_layout = color[i].resolve_image.has_value() ? color[i].resolve_image.value()->current_state.layout : VK_IMAGE_LAYOUT_UNDEFINED;
+            color_descs[i].resolve_image_view = color[i].resolve_image.has_value() ? color[i].resolve_image.value()->image.view : VK_NULL_HANDLE;
         }
 
         gfx::DepthAttachmentDesc depth_desc = {};
@@ -1014,6 +1022,7 @@ struct GraphicsPipeline: nb::intrusive_base {
         InputAssembly input_assembly,
         const std::vector<PushConstantsRange>& push_constant_ranges,
         const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+        u32 samples,
         const std::vector<Attachment>& attachments,
         Depth depth
         )
@@ -1038,6 +1047,7 @@ struct GraphicsPipeline: nb::intrusive_base {
             .vertex_bindings = ArrayView((gfx::VertexBindingDesc*)vertex_bindings.data(), vertex_bindings.size()),
             .vertex_attributes = ArrayView((gfx::VertexAttributeDesc*)vertex_attributes.data(), vertex_attributes.size()),
             .input_assembly = input_assembly,
+            .samples = (VkSampleCountFlagBits)samples,
             .depth = depth,
             .push_constants = ArrayView((gfx::PushConstantsRangeDesc*)push_constant_ranges.data(), push_constant_ranges.size()),
             .descriptor_sets = ArrayView(d),
@@ -1266,7 +1276,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Image, GfxObject>(m, "Image")
-        .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlags, gfx::AllocPresets::Type, int>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("samples") = 1)
         .def("destroy", &Image::destroy)
         // .def_static("from_data", &Image::from_data)
     ;
@@ -1284,9 +1294,17 @@ void gfx_create_bindings(nb::module_& m)
         .value("PRESENT", ImageUsage::Present)
     ;
 
+    nb::enum_<VkResolveModeFlagBits>(m, "ResolveMode")
+        .value("NONE",        VK_RESOLVE_MODE_NONE)
+        .value("SAMPLE_ZERO", VK_RESOLVE_MODE_SAMPLE_ZERO_BIT)
+        .value("AVERAGE",     VK_RESOLVE_MODE_AVERAGE_BIT)
+        .value("MIN",         VK_RESOLVE_MODE_MIN_BIT)
+        .value("MAX",         VK_RESOLVE_MODE_MAX_BIT)
+    ;
+
     nb::class_<RenderingAttachment>(m, "RenderingAttachment")
-        .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, std::array<float, 4>>(),
-            nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear") = std::array<float,4>({0.0f, 0.0f, 0.0f, 0.0f}))
+        .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, std::array<float, 4>, std::optional<nb::ref<Image>>, VkResolveModeFlagBits>(),
+            nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear") = std::array<float,4>({0.0f, 0.0f, 0.0f, 0.0f}), nb::arg("resolve_image").none() = nb::none(), nb::arg("resolve_mode") = VK_RESOLVE_MODE_NONE)
     ;
 
     nb::class_<DepthAttachment>(m, "DepthAttachment")
@@ -1881,6 +1899,7 @@ void gfx_create_bindings(nb::module_& m)
                 InputAssembly,
                 const std::vector<PushConstantsRange>&,
                 const std::vector<nb::ref<DescriptorSet>>&,
+                u32,
                 const std::vector<Attachment>&,
                 Depth
             >(),
@@ -1891,6 +1910,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("input_assembly") = InputAssembly(),
             nb::arg("push_constants_ranges") = std::vector<PushConstantsRange>(),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("samples") = 1,
             nb::arg("attachments") = std::vector<Attachment>(),
             nb::arg("depth") = Depth(VK_FORMAT_UNDEFINED)
         )

@@ -17,14 +17,20 @@ import reflection
 # [x] Fix lighting
 # [x] Depth buffer
 # [ ] Better camera utils
-#     [ ] Debug perspective / lookat
+#     [x] Debug perspective / lookat
 # [ ] Triple buffering
 # [ ] Per voxel color
 # [ ] Pack voxel data
 # [ ] MSAA
 
-S = 0.5
-N = 15
+# S = 0.5
+# N = 15
+# R = 10
+
+SAMPLES = 4
+
+S = 2
+N = 5
 R = 10
 voxels = gfxmath.grid3d(np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32))
 
@@ -88,6 +94,7 @@ def create_pipeline():
         ],
         input_assembly = InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
         descriptor_sets = [ set ],
+        samples=SAMPLES,
         attachments = [
             Attachment(format=window.swapchain_format)
         ],
@@ -102,8 +109,10 @@ cache = PipelineCache([
 
 first_frame: bool = True
 depth: Image = None
+msaa_target: Image = None
 
 def draw():
+    global msaa_target
     global depth
     global first_frame
 
@@ -115,6 +124,7 @@ def draw():
     if swapchain_status == SwapchainStatus.MINIMIZED:
         return
 
+    images_just_created = False
     if first_frame or swapchain_status == SwapchainStatus.RESIZED:
         first_frame = False
 
@@ -129,7 +139,10 @@ def draw():
         # Resize depth
         if depth:
             depth.destroy()
-        depth = Image(ctx, window.fb_width, window.fb_height, Format.D32_SFLOAT, ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT, AllocType.DEVICE_DEDICATED)
+        depth = Image(ctx, window.fb_width, window.fb_height, Format.D32_SFLOAT, ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT, AllocType.DEVICE_DEDICATED, samples=SAMPLES)
+        if SAMPLES > 1:
+            msaa_target = Image(ctx, window.fb_width, window.fb_height, window.swapchain_format, ImageUsageFlags.COLOR_ATTACHMENT, AllocType.DEVICE_DEDICATED, samples=SAMPLES)
+        images_just_created = True
 
     with gui.frame():
         if imgui.begin("wow"):
@@ -139,14 +152,20 @@ def draw():
     with window.frame() as frame:
         with frame.command_buffer as cmd:
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
-            cmd.use_image(depth, ImageUsage.DEPTH_STENCIL_ATTACHMENT)
+
+            if images_just_created:
+                cmd.use_image(depth, ImageUsage.DEPTH_STENCIL_ATTACHMENT)
+                if SAMPLES > 1:
+                    cmd.use_image(msaa_target, ImageUsage.COLOR_ATTACHMENT)
 
             viewport = [0, 0, window.fb_width, window.fb_height]
 
             # Render voxels
             with cmd.rendering(viewport,
                 color_attachments=[
-                    RenderingAttachment(frame.image, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=[0.9, 0.9, 0.9, 1]),
+                    (RenderingAttachment(msaa_target, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=[0.9, 0.9, 0.9, 1], resolve_mode=ResolveMode.AVERAGE, resolve_image=frame.image)
+                     if SAMPLES > 1 else
+                     RenderingAttachment(frame.image, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=[0.9, 0.9, 0.9, 1])),
                 ],
                 depth = DepthAttachment(depth, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=1.0)
             ):
@@ -164,7 +183,8 @@ def draw():
             with cmd.rendering(viewport,
                 color_attachments=[
                     RenderingAttachment(frame.image, load_op=LoadOp.LOAD, store_op=StoreOp.STORE),
-            ]):
+                ],
+            ):
                 gui.render(cmd)
 
             cmd.use_image(frame.image, ImageUsage.PRESENT)
@@ -190,9 +210,6 @@ def mouse_move_event(p: Tuple[int, int]):
             camera_pos = camera_target + v
         else:
             camera_pos[:2] += delta * 0.1
-            print(delta)
-            print(camera_pos)
-            print("========")
             camera_target[:2] += delta * 0.1
         view = gfxmath.lookat(camera_pos, camera_target, world_up)
 
@@ -218,7 +235,7 @@ window.set_callbacks(
 )
 
 while True:
-    process_events(False)
+    process_events(True)
 
     if window.should_close():
         break

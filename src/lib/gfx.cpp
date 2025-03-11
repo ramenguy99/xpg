@@ -1166,10 +1166,12 @@ void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc)
         attachment_info[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
         attachment_info[i].imageView = desc.color[i].view;
         attachment_info[i].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        attachment_info[i].resolveMode = VK_RESOLVE_MODE_NONE;
         attachment_info[i].loadOp = desc.color[i].load_op;
         attachment_info[i].storeOp = desc.color[i].store_op;
         attachment_info[i].clearValue.color = desc.color[i].clear;
+        attachment_info[i].resolveMode = desc.color[i].resolve_mode;
+        attachment_info[i].resolveImageView = desc.color[i].resolve_image_view;
+        attachment_info[i].resolveImageLayout = desc.color[i].resolve_image_layout;
     }
 
     VkRenderingAttachmentInfo depth { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
@@ -1320,7 +1322,7 @@ CreateGraphicsPipeline(GraphicsPipeline* graphics_pipeline, const Context& vk, c
     rasterization_state.lineWidth = desc.rasterization.line_width;
 
     VkPipelineMultisampleStateCreateInfo multisample_state = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
-    multisample_state.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisample_state.rasterizationSamples = desc.samples;
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
     depth_stencil_state.depthTestEnable = desc.depth.test;
@@ -1491,7 +1493,7 @@ CreateImage(Image* image, const Context& vk, const ImageDesc&& desc) {
     image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_create_info.usage = desc.usage;
-    image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_create_info.samples = desc.samples;
 
     VmaAllocationCreateInfo alloc_create_info = {};
     alloc_create_info.usage = desc.alloc.vma_usage;

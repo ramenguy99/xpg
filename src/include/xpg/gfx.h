@@ -357,6 +357,9 @@ struct RenderingAttachmentDesc {
     VkAttachmentLoadOp load_op;
     VkAttachmentStoreOp store_op;
     VkClearColorValue clear;
+    VkResolveModeFlagBits resolve_mode = VK_RESOLVE_MODE_NONE;
+    VkImageView resolve_image_view = VK_NULL_HANDLE;
+    VkImageLayout resolve_image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
 struct DepthAttachmentDesc {
@@ -465,6 +468,7 @@ struct GraphicsPipelineDesc {
     Span<VertexAttributeDesc> vertex_attributes;
     InputAssemblyDesc input_assembly;
     RasterizationDesc rasterization;
+    VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
     DepthDesc depth;
     StencilDesc stencil;
     Span<PushConstantsRangeDesc> push_constants;
@@ -584,6 +588,7 @@ struct ImageDesc {
     u32 width;
     u32 height;
     VkFormat format;
+    VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
 
     // Vulkan flags
     VkImageUsageFlags usage;
