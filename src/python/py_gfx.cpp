@@ -1040,8 +1040,6 @@ struct GraphicsPipeline: nb::intrusive_base {
             d[i] = descriptor_sets[i]->set.layout;
         }
 
-        logging::error("pygfx/pipeline", "Format: %d", depth.format);
-
         VkResult vkr = gfx::CreateGraphicsPipeline(&pipeline, ctx->vk, {
             .stages = ArrayView(s),
             .vertex_bindings = ArrayView((gfx::VertexBindingDesc*)vertex_bindings.data(), vertex_bindings.size()),
@@ -1166,6 +1164,7 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("swapchain_format", [](Window& w) -> VkFormat { return w.window.swapchain_format; })
         .def_prop_ro("fb_width", [](Window& w) -> u32 { return w.window.fb_width; })
         .def_prop_ro("fb_height", [](Window& w) -> u32 { return w.window.fb_height; })
+        .def_prop_ro("num_frames", [](Window& w) -> usize { return w.window.frames.length; })
     ;
 
     nb::class_<Window::FrameManager>(m, "WindowFrame")

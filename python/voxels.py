@@ -10,23 +10,27 @@ from platformdirs import user_cache_path
 from typing import Tuple
 
 import gfxmath
+from gfxmath import Vec3
 import reflection
+import renderutils
+from camera import Camera
 
 # TODO:
 # [x] Fix indices (make small diagram)
 # [x] Fix lighting
 # [x] Depth buffer
-# [ ] Better camera utils
+# [x] MSAA
+# [x] Triple buffering
+# [x] Better camera utils
 #     [x] Debug perspective / lookat
-# [ ] Triple buffering
 # [ ] Per voxel color
 # [ ] Pack voxel data
-# [ ] MSAA
+
+# Scene
 
 # S = 0.5
 # N = 15
 # R = 10
-
 SAMPLES = 4
 
 S = 2
@@ -44,10 +48,10 @@ I = np.tile(np.array([
 ], np.uint32), (voxels.shape[0], 1))
 I = (I.reshape((voxels.shape[0], -1)) + np.arange(voxels.shape[0]).reshape(voxels.shape[0], 1) * 8).astype(np.uint32)
 
-camera_pos = np.array([40, 40, 40], np.float32)
-camera_target = np.array([0, 0, 0], np.float32)
-world_up = np.array([0, 0, 1], np.float32)
-view = gfxmath.lookat(camera_pos, camera_target, world_up)
+
+camera = Camera(Vec3(40, 40, 40), Vec3(0, 0, 0), Vec3(0, 0, 1), 45, 1, 0.1, 100.0)
+
+# Init
 
 ctx = Context()
 window = Window(ctx, "Voxels", 1280, 720)
@@ -55,21 +59,26 @@ gui = Gui(window)
 
 index_buf = Buffer.from_data(ctx, I.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
 voxels_buf = Buffer.from_data(ctx, voxels.tobytes(), BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
-set = DescriptorSet(
+
+descriptor_sets = renderutils.PerFrameResource(DescriptorSet, window.num_frames,
     ctx,
     [
         DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
         DescriptorSetEntry(1, DescriptorType.STORAGE_BUFFER),
     ],
 )
-set.write_buffer(voxels_buf, DescriptorType.STORAGE_BUFFER, 1, 0)
+
+for set in descriptor_sets.resources:
+    set: DescriptorSet
+    set.write_buffer(voxels_buf, DescriptorType.STORAGE_BUFFER, 1, 0)
 
 
+# Pipeline
 pipeline: Pipeline = None
 def create_pipeline():
     global pipeline
-    global u_buf
     global dt
+    global u_bufs
 
     wait_idle(ctx)
 
@@ -80,9 +89,7 @@ def create_pipeline():
     refl = vert_prog.reflection
     dt = reflection.to_dtype(refl.resources[0].type)
 
-    u_buf = Buffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
-    set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
-
+    u_bufs = renderutils.PerFrameResource(Buffer, window.num_frames, ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
     vert = Shader(ctx, vert_prog.code)
     frag = Shader(ctx, frag_prog.code)
 
@@ -111,10 +118,12 @@ first_frame: bool = True
 depth: Image = None
 msaa_target: Image = None
 
+# Draw
 def draw():
     global msaa_target
     global depth
     global first_frame
+    global proj
 
     cache.refresh()
 
@@ -129,12 +138,7 @@ def draw():
         first_frame = False
 
         # Refresh proj
-        proj = gfxmath.perspective(45, window.fb_width / window.fb_height, 0.1, 100)
-        buf = u_buf.view.view(dt)
-        buf["projection"] = proj
-        buf["view"] = view
-        buf["camera_pos"] = camera_pos
-        buf["size"] = S
+        camera.ar = window.fb_width / window.fb_height
 
         # Resize depth
         if depth:
@@ -144,12 +148,26 @@ def draw():
             msaa_target = Image(ctx, window.fb_width, window.fb_height, window.swapchain_format, ImageUsageFlags.COLOR_ATTACHMENT, AllocType.DEVICE_DEDICATED, samples=SAMPLES)
         images_just_created = True
 
+    # GUI
     with gui.frame():
         if imgui.begin("wow"):
             imgui.text("Hello")
         imgui.end()
 
+    # Render
     with window.frame() as frame:
+        # Per frame uploads
+        u_buf: Buffer = u_bufs.get_current_and_advance()
+        u_buf_view = u_buf.view.view(dt)
+        u_buf_view["projection"] = camera.projection()
+        u_buf_view["view"] = camera.view()
+        u_buf_view["camera_pos"] = camera.position
+        u_buf_view["size"] = S
+
+        set: DescriptorSet = descriptor_sets.get_current_and_advance()
+        set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
+
+        # Commands
         with frame.command_buffer as cmd:
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
 
@@ -193,30 +211,20 @@ def draw():
 drag_start = None
 
 def mouse_move_event(p: Tuple[int, int]):
-    global drag_start, camera_pos, camera_target, world_up, view
+    global drag_start, camera
     if drag_start:
         delta = np.array((p[0] - drag_start[0], p[1] - drag_start[1]), dtype=np.float32)
 
-        if True:
-            t = delta[0] * 1e-3
-            s = np.sin(t)
-            c = np.cos(t)
+        t = delta[0] * 1e-3
+        s = np.sin(t)
+        c = np.cos(t)
 
-            v = np.array([
-                [c, -s, 0],
-                [s,  c, 0],
-                [0,  0, 1]
-            ], np.float32) @ (camera_pos - camera_target)
-            camera_pos = camera_target + v
-        else:
-            camera_pos[:2] += delta * 0.1
-            camera_target[:2] += delta * 0.1
-        view = gfxmath.lookat(camera_pos, camera_target, world_up)
-
-        # TODO: triplebuf
-        buf = u_buf.view.view(dt)
-        buf["view"] = view
-        buf["camera_pos"] = camera_pos
+        v = np.array([
+            [c, -s, 0],
+            [s,  c, 0],
+            [0,  0, 1]
+        ], np.float32) @ (np.array(camera.position) - camera.target)
+        camera.position = camera.target + v
 
         drag_start = p
 
