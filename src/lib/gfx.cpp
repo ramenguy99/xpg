@@ -526,17 +526,23 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
     ray_tracing_pipeline_features.rayTracingPipeline = VK_TRUE;
 
-    if (desc.device_features & DeviceFeatures::RAYTRACING) {
+    // Common to all raytracing
+    if (desc.device_features & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_PIPELINE)) {
         buffer_device_address_features.pNext = const_cast<void*>(device_create_info.pNext);
         device_create_info.pNext = &buffer_device_address_features;
 
         acceleration_structure_features.pNext = const_cast<void*>(device_create_info.pNext);
         device_create_info.pNext = &acceleration_structure_features;
+    }
 
+    // Ray query only
+    if (desc.device_features & DeviceFeatures::RAY_QUERY) {
         ray_query_features.pNext = const_cast<void*>(device_create_info.pNext);
         device_create_info.pNext = &ray_query_features;
+    }
 
-        // TODO: Seems to be needed even if only using ray query, maybe a slang issue?
+    // Raytracing pipeline only
+    if (desc.device_features & DeviceFeatures::RAY_PIPELINE) {
         ray_tracing_pipeline_features.pNext = const_cast<void*>(device_create_info.pNext);
         device_create_info.pNext = &ray_tracing_pipeline_features;
     }
@@ -548,7 +554,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
 
     VmaAllocatorCreateInfo vma_info = {};
-    vma_info.flags = desc.device_features & DeviceFeatures::RAYTRACING ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT : 0; // Optionally set here that we externally synchronize.
+    vma_info.flags = desc.device_features & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_PIPELINE) ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT : 0; // Optionally set here that we externally synchronize.
     vma_info.instance = instance;
     vma_info.physicalDevice = physical_device;
     vma_info.device = device;
@@ -1934,7 +1940,6 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 	const usize DEFAULT_SCRATCH_SIZE = 32 * 1024 * 1024;
 
 	usize total_as_size = 0;
-	usize total_primitive_count = 0;
 	usize max_scratch_size = 0;
 
 	Array<usize> acceleration_offsets(num_meshes);
@@ -1964,7 +1969,6 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
         blas_build_infos[i].pGeometries = &geometries[i];
 
         VkAccelerationStructureBuildSizesInfoKHR as_build_sizes = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
-        u32 max_counts = desc.meshes[i].primitive_count;
         vkGetAccelerationStructureBuildSizesKHR(vk.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &blas_build_infos[i], &desc.meshes[i].primitive_count, &as_build_sizes);
 
         acceleration_offsets[i] = total_as_size;
@@ -2026,6 +2030,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
         while(i < num_meshes && scratch_offset + scratch_sizes[i] <= scratch_buffer_size) {
             blas_build_infos[i].scratchData.deviceAddress = scratch_address + scratch_offset;
             blas_build_infos[i].dstAccelerationStructure = blas[i];
+			blas_build_ranges[i].primitiveCount = desc.meshes[i].primitive_count;
             blas_build_range_pointers[i] = &blas_build_ranges[i];
             
             scratch_offset += scratch_sizes[i];

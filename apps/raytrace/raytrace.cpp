@@ -23,14 +23,14 @@ int main(int argc, char** argv) {
     device_extensions.add("VK_KHR_deferred_host_operations");
     device_extensions.add("VK_KHR_acceleration_structure");
     device_extensions.add("VK_KHR_ray_query");
-    device_extensions.add("VK_KHR_ray_tracing_pipeline");
+    // device_extensions.add("VK_KHR_ray_tracing_pipeline");
 
     gfx::Context vk = {};
     result = gfx::CreateContext(&vk, {
         .minimum_api_version = (u32)VK_API_VERSION_1_3,
         .instance_extensions = instance_extensions,
         .device_extensions = device_extensions,
-        .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2 | gfx::DeviceFeatures::RAYTRACING,
+        .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2 | gfx::DeviceFeatures::RAY_QUERY,
         .enable_validation_layer = true,
         //        .enable_gpu_based_validation = true,
     });
@@ -311,7 +311,7 @@ int main(int argc, char** argv) {
 
             vkCmdBindPipeline(frame.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, app.compute_pipeline.pipeline);
             vkCmdBindDescriptorSets(frame.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, app.compute_pipeline.layout, 0, 1, &app.descriptor_sets[app.frame_index].set, 0, 0);
-            vkCmdDispatch(frame.command_buffer, DivCeil(window.fb_width, 32), DivCeil(window.fb_height, 32), 1);
+            vkCmdDispatch(frame.command_buffer, DivCeil(window.fb_width, 8), DivCeil(window.fb_height, 8), 1);
 
             gfx::CmdBarriers(frame.command_buffer, {
                 .image = {

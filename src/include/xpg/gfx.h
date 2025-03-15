@@ -70,7 +70,8 @@ struct DeviceFeatures {
         DYNAMIC_RENDERING     = 1 << 1,
         SYNCHRONIZATION_2     = 1 << 2,
         SCALAR_BLOCK_LAYOUT   = 1 << 3,
-        RAYTRACING            = 1 << 4,
+        RAY_QUERY             = 1 << 4,
+        RAY_PIPELINE          = 1 << 5,
     };
 
     DeviceFeatures(DeviceFeaturesFlags flags): flags(flags) {}

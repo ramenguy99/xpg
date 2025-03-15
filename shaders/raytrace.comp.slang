@@ -23,7 +23,7 @@ bool traceRayNearestHit(
     if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
     {
         t = q.CommittedRayT();
-        primitiveIndex = q.CommittedPrimitiveIndex();
+        primitiveIndex = q.CommittedRayPrimitiveIndex();
         return true;
     }
     t = 0;
@@ -46,7 +46,7 @@ struct Constants {
 ConstantBuffer<Constants> constants;
 
 [shader("compute")]
-[numthreads(32,32,1)]
+[numthreads(8, 8,1)]
 void computeMain(uint3 thread_idx : SV_DispatchThreadID)
 {
     if (thread_idx.x >= (int)constants.width) return;
