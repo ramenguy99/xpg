@@ -733,7 +733,7 @@ struct AccelerationStructureMeshDesc {
     VkIndexType indices_type;
     u32 primitive_count;
 
-    glm::mat3x4 transform;
+    glm::mat4x3 transform;
 };
 
 struct AccelerationStructureDesc {

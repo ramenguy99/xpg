@@ -2026,7 +2026,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
     for(usize start = 0; start < num_meshes;) {
         usize scratch_offset = 0;
 
-        usize i = 0;
+        usize i = start;
         while(i < num_meshes && scratch_offset + scratch_sizes[i] <= scratch_buffer_size) {
             blas_build_infos[i].scratchData.deviceAddress = scratch_address + scratch_offset;
             blas_build_infos[i].dstAccelerationStructure = blas[i];
@@ -2036,6 +2036,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
             scratch_offset += scratch_sizes[i];
             i += 1;
         }
+        assert(i > start);
 
         vkCmdBuildAccelerationStructuresKHR(vk.sync_command_buffer, (u32)(i - start), &blas_build_infos[start], &blas_build_range_pointers[start]);
         start = i;
@@ -2127,9 +2128,10 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
         VkDeviceAddress address = vkGetAccelerationStructureDeviceAddressKHR(vk.device, &info);
 
         VkAccelerationStructureInstanceKHR instance = {};
-        memcpy(instance.transform.matrix[0], &desc.meshes[i].transform[0], sizeof(float) * 4);
-        memcpy(instance.transform.matrix[1], &desc.meshes[i].transform[1], sizeof(float) * 4);
-        memcpy(instance.transform.matrix[2], &desc.meshes[i].transform[2], sizeof(float) * 4);
+        glm::mat3x4 transform = transpose(desc.meshes[i].transform);
+        memcpy(instance.transform.matrix[0], &transform[0][0], sizeof(float) * 4);
+        memcpy(instance.transform.matrix[1], &transform[1][0], sizeof(float) * 4);
+        memcpy(instance.transform.matrix[2], &transform[2][0], sizeof(float) * 4);
         instance.instanceCustomIndex = i;
         instance.mask = 0xFF;
         instance.flags = VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;

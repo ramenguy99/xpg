@@ -19,7 +19,8 @@ pushd build-debug
 make -j 16 raytrace
 popd
 
-slangc ./shaders/raytrace.comp.slang -o res/raytrace.comp.spirv -target spirv
+# slangc ./shaders/raytrace.comp.slang -o res/raytrace.comp.spirv -target spirv
+../slang/build-debug/Debug/bin/slangc ./shaders/raytrace.comp.slang -o res/raytrace.comp.spirv -target spirv
 
 # gdb --args ./build-debug/apps/raytrace/raytrace
 ./build-debug/apps/raytrace/raytrace

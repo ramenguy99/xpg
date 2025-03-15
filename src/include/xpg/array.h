@@ -124,6 +124,15 @@ struct ArrayView {
         return (Type*)data;
     }
 
+	template<typename Type>
+	ArrayView<Type> as_view()
+	{
+        if (length % sizeof(Type) != 0) {
+            OutOfSpace();
+        }
+		return ArrayView<Type>((Type*)data, length / sizeof(Type));
+	}
+
 
     bool is_empty() {
         return length == 0;

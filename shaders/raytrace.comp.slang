@@ -1,78 +1,135 @@
-bool traceRayNearestHit(
-    RaytracingAccelerationStructure sceneBVH,
-    float3 rayOrigin,
-    float3 rayDir,
-    out float t,
-    out int primitiveIndex)
-{
-    RayDesc ray;
-    ray.Origin = rayOrigin;
-    ray.TMin = 0.01f;
-    ray.Direction = rayDir;
-    ray.TMax = 1e4f;
-    RayQuery<RAY_FLAG_NONE> q;
-    let rayFlags = RAY_FLAG_NONE;
-
-    q.TraceRayInline(
-        sceneBVH,
-        rayFlags,
-        0xff,
-        ray);
-
-    q.Proceed();
-    if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
-    {
-        t = q.CommittedRayT();
-        primitiveIndex = q.CommittedRayPrimitiveIndex();
-        return true;
-    }
-    t = 0;
-    primitiveIndex = 0;
-    return false;
-}
-
-[vk::binding(0, 0)]
-RaytracingAccelerationStructure acceleration_structure;
-
-[vk::binding(1, 0)]
-RWTexture2D<float3> resultTexture;
+struct MeshInstance {
+    uint vertex_offset;
+    uint index_offset;
+};
 
 struct Constants {
     uint width;
     uint height;
+    uint _padding0;
+    uint _padding1;
+
+    float3 camera_position;
+    uint _padding2;
+
+    float3 camera_direction;
+    float film_dist;
 };
 
+[vk::binding(0, 0)]
+StructuredBuffer<float3, ScalarDataLayout> normals_buffer;
+
+[vk::binding(1, 0)]
+StructuredBuffer<float2> uvs_buffer;
+
 [vk::binding(2, 0)]
+StructuredBuffer<uint> indices_buffer;
+
+[vk::binding(3, 0)]
+StructuredBuffer<MeshInstance> instances_buffer;
+
+[vk::binding(4, 0)]
+RaytracingAccelerationStructure acceleration_structure;
+
+[vk::image_format("rgba32f")]
+[vk::binding(5, 0)]
+RWTexture2D<float3> output;
+
+[vk::binding(0, 1)]
 ConstantBuffer<Constants> constants;
 
-[shader("compute")]
-[numthreads(8, 8,1)]
-void computeMain(uint3 thread_idx : SV_DispatchThreadID)
+inline void GenerateCameraRay(uint2 p, out float3 origin, out float3 direction)
 {
-    if (thread_idx.x >= (int)constants.width) return;
-    if (thread_idx.y >= (int)constants.height) return;
+    uint2 size = uint2(constants.width, constants.height);
 
-    // float frameWidth = uniforms.screenWidth / uniforms.screenHeight * uniforms.frameHeight;
-    // float imageY = (threadIdx.y / uniforms.screenHeight - 0.5f) * uniforms.frameHeight;
-    // float imageX = (threadIdx.x / uniforms.screenWidth - 0.5f) * frameWidth;
-    // float imageZ = uniforms.focalLength;
-    // float3 rayDir = normalize(uniforms.cameraDir.xyz*imageZ - uniforms.cameraUp.xyz * imageY + uniforms.cameraRight.xyz * imageX);
-    // float4 resultColor = 0;
+    float2 xy = p;
+    float2 offset = xy / size.xy * 2.0 - 1.0;
 
-    // int primitiveIndex;
-    // float intersectionT;
-    // if (traceRayNearestHit(sceneBVH, uniforms.cameraPosition.xyz, rayDir, intersectionT, primitiveIndex))
-    // {
-    // }
-    float2 uv = ((thread_idx.xy + 0.5) / float2(constants.width, constants.height)) * 2.0 - 1.0;
+    float3 camera_forward = constants.camera_direction;
+    float3 world_up = float3(0, 0, 1);
+    float3 camera_right = normalize(cross(camera_forward, world_up));
+    float3 camera_up = cross(camera_right, camera_forward);
+    float3 camera_p = constants.camera_position;
 
-    float t = 0;
-    uint index = 0;
-    if (traceRayNearestHit(acceleration_structure, float3(uv, -1.0), float3(0, 0, 1), t, index)) {
-        resultTexture[thread_idx.xy] = float3(1, 0, 0);
+    float film_dist = constants.film_dist;
+    float2 film_size = float2(1.0, 1.0);
+    film_size.y = (float)size.y / (float)size.x;
+    float2 half_film = film_size * 0.5f;
+    float3 film_center = camera_p - film_dist * camera_forward;
+
+    origin = film_center + offset.x * half_film.x * camera_right
+                         + offset.y * half_film.y * camera_up;
+
+    direction = normalize(camera_p - origin);
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void main(uint3 thread_idx : SV_DispatchThreadID)
+{
+    uint2 p = thread_idx.xy;
+    if(any(p >= uint2(constants.width, constants.height))) {
+        return;
+    }
+
+    float3 dir;
+    float3 origin;
+    GenerateCameraRay(p, origin, dir);
+
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.Direction = dir;
+    ray.TMin = 0.001;
+    ray.TMax = 100000.0;
+
+    RayQuery<RAY_FLAG_NONE> q;
+    let rayFlags = RAY_FLAG_NONE;
+    q.TraceRayInline(acceleration_structure, rayFlags, 0xff, ray);
+
+    q.Proceed();
+    if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
+        float t = q.CommittedRayT();
+
+        // Hit position
+        float3 position = origin + t * dir;
+
+        // Mesh info
+        uint mesh_index = q.CommittedRayInstanceId();
+        MeshInstance instance = instances_buffer[mesh_index];
+
+        // Primitive info
+        uint triangle_index = q.CommittedRayPrimitiveIndex();
+        uint index_offset = instance.index_offset;
+        uint vertex_offset = instance.vertex_offset;
+
+        uint3 indices;
+        indices.x = indices_buffer[triangle_index * 3 + 0 + index_offset];
+        indices.y = indices_buffer[triangle_index * 3 + 1 + index_offset];
+        indices.z = indices_buffer[triangle_index * 3 + 2 + index_offset];
+
+        float2 barycentrics = q.CommittedRayBarycentrics();
+
+        float3 normal =
+            normals_buffer[indices.x + vertex_offset] * (1 - barycentrics.x - barycentrics.y) +
+            normals_buffer[indices.y + vertex_offset] * barycentrics.x +
+            normals_buffer[indices.z + vertex_offset] * barycentrics.y;
+        float3 N = normalize(mul((float3x3)q.CandidateObjectToWorld3x4(), normal));
+
+        float2 uv =
+            uvs_buffer[indices.x + vertex_offset] * (1 - barycentrics.x - barycentrics.y) +
+            uvs_buffer[indices.y + vertex_offset] * barycentrics.x +
+            uvs_buffer[indices.z + vertex_offset] * barycentrics.y;
+
+        // output[thread_idx.xy] = (float)index_offset / 8487678;
+        // output[thread_idx.xy] = (float)vertex_offset / 2937174;
+        // output[thread_idx.xy] = (float)mesh_index / 1520;
+        // output[thread_idx.xy] = float3(uv * 0.5 + 0.5, 0.0f);
+        output[thread_idx.xy] = N * 0.5 + 0.5;
     } else {
         if (bool(((thread_idx.x ^ thread_idx.y) >> 4) & 1)) {
-            resultTexture[thread_idx.xy] = float3(0.1, 0.1, 0.1);
+            output[thread_idx.xy] = float3(0.1, 0.1, 0.1);
+        } else {
+            output[thread_idx.xy] = float3(0.0, 0.0, 0.0);
         }
     }
 }
