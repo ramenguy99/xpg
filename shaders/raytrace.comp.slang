@@ -1,6 +1,19 @@
 struct MeshInstance {
+    float4x4 transform;
+
     uint vertex_offset;
     uint index_offset;
+    uint _padding0;
+    uint _padding1;
+
+    uint albedo_index;
+    uint normal_index;
+    uint specular_index;
+    uint emissive_index;
+
+    float4 albedo_value;
+    float4 specular_value;
+    float4 emissive_value;
 };
 
 struct Constants {
@@ -31,9 +44,15 @@ StructuredBuffer<MeshInstance> instances_buffer;
 [vk::binding(4, 0)]
 RaytracingAccelerationStructure acceleration_structure;
 
-[vk::image_format("rgba32f")]
 [vk::binding(5, 0)]
+SamplerState sampler;
+
+[vk::image_format("rgba32f")]
+[vk::binding(6, 0)]
 RWTexture2D<float3> output;
+
+[vk::binding(7, 0)]
+Texture2D<float4> textures[];
 
 [vk::binding(0, 1)]
 ConstantBuffer<Constants> constants;
@@ -120,11 +139,19 @@ void main(uint3 thread_idx : SV_DispatchThreadID)
             uvs_buffer[indices.y + vertex_offset] * barycentrics.x +
             uvs_buffer[indices.z + vertex_offset] * barycentrics.y;
 
+        float3 color;
+        if (instance.albedo_index != ~0) {
+            color = textures[NonUniformResourceIndex(instance.albedo_index)].SampleLevel(sampler, uv, 0).rgb;
+        } else {
+            color = instance.albedo_value.rgb;
+        }
         // output[thread_idx.xy] = (float)index_offset / 8487678;
         // output[thread_idx.xy] = (float)vertex_offset / 2937174;
         // output[thread_idx.xy] = (float)mesh_index / 1520;
         // output[thread_idx.xy] = float3(uv * 0.5 + 0.5, 0.0f);
-        output[thread_idx.xy] = N * 0.5 + 0.5;
+        // output[thread_idx.xy] = N * 0.5 + 0.5;
+        // output[thread_idx.xy] = (float)instance.albedo_index / 200;
+        output[thread_idx.xy] = color;
     } else {
         if (bool(((thread_idx.x ^ thread_idx.y) >> 4) & 1)) {
             output[thread_idx.xy] = float3(0.1, 0.1, 0.1);

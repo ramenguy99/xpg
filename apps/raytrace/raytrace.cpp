@@ -103,15 +103,29 @@ Scene parse(ArrayView<u8> buf) {
         s.meshes.add(m);
     }
 
+    usize total_uncompressed = 0;
+    usize total_bc7 = 0;
+
     u64 num_images = buf.consume<u64>();
     for(usize i = 0; i < num_images; i++) {
         Image img = {};
         img.width = buf.consume<u32>();
-        img.width = buf.consume<u32>();
+        img.height = buf.consume<u32>();
         img.format = buf.consume<Format>();
         img.data = consume_vec<u8>(buf);
         s.images.add(img);
+
+        switch(img.format) {
+            case Format::RGBA8:
+            case Format::SRGBA8:
+                total_uncompressed += 1; break;
+            case Format::RGBA8_BC7:
+            case Format::SRGBA8_BC7:
+                total_bc7 += 1; break;
+        }
     }
+    logging::info("raytrace", "Images uncompressed: %zu", total_uncompressed);
+    logging::info("raytrace", "Images bc7: %zu", total_bc7);
 
     assert(buf.length == 0);
     return s;
@@ -226,8 +240,21 @@ int main(int argc, char** argv) {
     }
 
     struct MeshInstance {
+        mat4 transform;
+
         u32 vertex_offset;
         u32 index_offset;
+        u32 _padding0;
+        u32 _padding1;
+
+        u32 albedo_index;
+        u32 normal_index;
+        u32 specular_index;
+        u32 emissive_index;
+
+        vec4 albedo_value;
+        vec4 specular_value;
+        vec4 emissive_value;
     };
 
     gfx::Buffer instances_buffer = {};
@@ -281,8 +308,17 @@ int main(int argc, char** argv) {
             .transform = rotate * to_z_up * scene.meshes[i].transform,
         };
 
+        Material& mat = scene.meshes[i].material;
         instances[i].vertex_offset = vertex_offset;
         instances[i].index_offset = index_offset;
+        instances[i].albedo_index   = mat.base_color.kind == MaterialParameter::Kind::Texture ? mat.base_color.texture   : ~0;
+        instances[i].normal_index   = mat.normal.kind     == MaterialParameter::Kind::Texture ? mat.normal.texture       : ~0;
+        instances[i].specular_index = mat.specular.kind   == MaterialParameter::Kind::Texture ? mat.specular.texture     : ~0;
+        instances[i].emissive_index = mat.emissive.kind   == MaterialParameter::Kind::Texture ? mat.emissive.texture     : ~0;
+
+        instances[i].albedo_value   = mat.base_color.kind != MaterialParameter::Kind::Texture ? mat.base_color.v4   : vec4(0);
+        instances[i].specular_value = mat.specular.kind   != MaterialParameter::Kind::Texture ? mat.specular.v4     : vec4(0);
+        instances[i].emissive_value = mat.emissive.kind   != MaterialParameter::Kind::Texture ? mat.emissive.v4     : vec4(0);
 
         vertex_offset += V;
         index_offset += I;
@@ -298,18 +334,38 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    struct Constants {
-        uint width;
-        uint height;
-        uint _padding0;
-        uint _padding1;
+    Array<gfx::Image> images(scene.images.length);
+    for(usize i = 0; i < scene.images.length; i++) {
+        VkFormat format = VK_FORMAT_UNDEFINED;
+        switch(scene.images[i].format) {
+            case Format::RGBA8:      format = VK_FORMAT_R8G8B8A8_UNORM;  break;
+            case Format::SRGBA8:     format = VK_FORMAT_R8G8B8A8_SRGB;   break;
+            case Format::RGBA8_BC7:  format = VK_FORMAT_BC7_UNORM_BLOCK; break;
+            case Format::SRGBA8_BC7: format = VK_FORMAT_BC7_SRGB_BLOCK;  break;
+            default: assert(false);
+        }
 
-        vec3 camera_position;
-        uint _padding2;
-
-        vec3 camera_direction;
-        float film_dist;
-    };
+        vkr = gfx::CreateAndUploadImage(&images[i], vk, scene.images[i].data, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, {
+            .width = scene.images[i].width,
+            .height = scene.images[i].height,
+            .format = format,
+            .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+            .alloc = gfx::AllocPresets::Device,
+        });
+        if (vkr != VK_SUCCESS) {
+            logging::error("raytrace", "Failed to create image %zu: %d", i, vkr);
+            exit(100);
+        }
+    }
+    gfx::Sampler sampler = {};
+    vkr = gfx::CreateSampler(&sampler, vk, {
+        .min_filter = VK_FILTER_LINEAR,
+        .mag_filter = VK_FILTER_LINEAR,
+    });
+    if (vkr != VK_SUCCESS) {
+        logging::error("raytrace", "Failed to create sampler");
+        exit(100);
+    }
 
     gfx::DescriptorSet scene_descriptor_set;
     vkr = gfx::CreateDescriptorSet(&scene_descriptor_set, vk, {
@@ -336,10 +392,14 @@ int main(int argc, char** argv) {
             },
             {
                 .count = 1,
+                .type = VK_DESCRIPTOR_TYPE_SAMPLER,
+            },
+            {
+                .count = 1,
                 .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
             },
             {
-                .count = (u32)scene.images.length,
+                .count = (u32)images.length,
                 .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             },
         }
@@ -373,6 +433,33 @@ int main(int argc, char** argv) {
         .acceleration_structure = as.tlas,
         .binding = 4,
     });
+    gfx::WriteSamplerDescriptor(scene_descriptor_set.set, vk, {
+        .sampler = sampler.sampler,
+        .binding = 5,
+    });
+
+    for(usize i = 0; i < images.length; i++) {
+        gfx::WriteImageDescriptor(scene_descriptor_set.set, vk, {
+            .view = images[i].view,
+            .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            .binding = 7,
+            .element = (u32)i,
+        });
+    }
+
+    struct Constants {
+        uint width;
+        uint height;
+        uint _padding0;
+        uint _padding1;
+
+        vec3 camera_position;
+        uint _padding2;
+
+        vec3 camera_direction;
+        float film_dist;
+    };
 
     Array<gfx::Buffer> constant_buffers(window.frames.length);
     Array<gfx::DescriptorSet> descriptor_sets(window.frames.length);
@@ -427,7 +514,7 @@ int main(int argc, char** argv) {
 
     struct App {
         // - Window
-        bool wait_for_events = true;
+        bool wait_for_events = false;
         bool closed = false;
         bool first_frame_done = false;
 
@@ -442,6 +529,7 @@ int main(int argc, char** argv) {
 
         // - Rendering
         gfx::AccelerationStructure as;
+        Array<gfx::Image> images;
         gfx::Image output_image;
         Array<gfx::Buffer> constant_buffers;
         Array<gfx::DescriptorSet> descriptor_sets;
@@ -458,6 +546,7 @@ int main(int argc, char** argv) {
     app.descriptor_sets = std::move(descriptor_sets);
     app.as = std::move(as);
     app.constant_buffers = std::move(constant_buffers);
+    app.images = std::move(images);
 
     auto MouseMoveEvent = [&app](ivec2 pos) {
     };
@@ -521,7 +610,7 @@ int main(int argc, char** argv) {
                 .view = app.output_image.view,
                 .layout = VK_IMAGE_LAYOUT_GENERAL,
                 .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                .binding = 5,
+                .binding = 6,
             });
 
         }
@@ -693,7 +782,7 @@ int main(int argc, char** argv) {
         gfx::ProcessEvents(app.wait_for_events);
 
         if (gfx::ShouldClose(window)) {
-            logging::info("bigimage", "Window closed");
+            logging::info("raytrace", "Window closed");
             app.closed = true;
             break;
         }
@@ -712,6 +801,10 @@ int main(int argc, char** argv) {
     gfx::DestroyBuffer(&uvs_buffer, vk);
     gfx::DestroyBuffer(&index_buffer, vk);
     gfx::DestroyBuffer(&instances_buffer, vk);
+    gfx::DestroySampler(&sampler, vk);
+    for(usize i = 0; i < app.images.length; i++) {
+        gfx::DestroyImage(&app.images[i], vk);
+    }
 
     gfx::DestroyShader(&shader, vk);
     gfx::DestroyComputePipeline(&app.compute_pipeline, vk);

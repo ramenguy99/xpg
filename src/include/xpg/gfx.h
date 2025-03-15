@@ -751,6 +751,8 @@ void DestroyAccelerationStructure(AccelerationStructure* as, const Context& vk);
 struct FormatInfo {
     u32 size;
     u32 channels;
+    u32 size_of_block_in_bytes;
+    u32 block_side_in_pixels;
 };
 FormatInfo GetFormatInfo(VkFormat format);
 
