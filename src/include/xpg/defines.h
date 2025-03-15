@@ -63,6 +63,11 @@ inline usize AlignUp(usize v, usize a) {
     return (v + (a - 1)) & ~(a - 1);
 }
 
+inline usize DivCeil(usize v, usize a) {
+    assert(IsPow2NonZero(a));
+    return (v + a - 1) / a;
+}
+
 
 template <class T> struct RemoveReference        { using type = T; };
 template <class T> struct RemoveReference<T&>    { using type = T; };

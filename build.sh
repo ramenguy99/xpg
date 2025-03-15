@@ -1,15 +1,25 @@
 #!/bin/bash -xe
 
+
+# pushd build-debug
+# make -j 16 pyxpg
+# popd
+
+# # Move python 
+# cp build-debug/pyxpg*.so python/
+
+# # Generate stubs
+# pushd python
+# python -m nanobind.stubgen -m pyxpg -r
+# popd
+
+# python python/voxels.py
+
 pushd build-debug
-make -j 16 pyxpg
+make -j 16 raytrace
 popd
 
-# Move python 
-cp build-debug/pyxpg*.so python/
+slangc ./shaders/raytrace.comp.slang -o res/raytrace.comp.spirv -target spirv
 
-# Generate stubs
-pushd python
-python -m nanobind.stubgen -m pyxpg -r
-popd
-
-python python/voxels.py
+# gdb --args ./build-debug/apps/raytrace/raytrace
+./build-debug/apps/raytrace/raytrace

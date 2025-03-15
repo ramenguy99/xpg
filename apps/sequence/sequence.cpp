@@ -205,26 +205,26 @@ int main(int argc, char** argv) {
     // Create graphics pipeline.
     Array<u8> vertex_code;
     if (platform::ReadEntireFile("res/basic.vert.spirv", &vertex_code) != platform::Result::Success) {
-        logging::error("sequence", "Failed to read vertex shader\n");
+        logging::error("sequence", "Failed to read vertex shader");
         exit(100);
     }
     Array<u8> fragment_code;
     if (platform::ReadEntireFile("res/basic.frag.spirv", &fragment_code) != platform::Result::Success) {
-        logging::error("sequence", "Failed to read fragment shader\n");
+        logging::error("sequence", "Failed to read fragment shader");
         exit(100);
     }
 
     gfx::Shader vertex_shader = {};
     vkr = gfx::CreateShader(&vertex_shader, vk, vertex_code);
     if (result != gfx::Result::SUCCESS) {
-        logging::error("sequence", "Failed to create vertex shader\n");
+        logging::error("sequence", "Failed to create vertex shader");
         exit(100);
     }
 
     gfx::Shader fragment_shader = {};
     vkr = gfx::CreateShader(&fragment_shader, vk, fragment_code);
     if (result != gfx::Result::SUCCESS) {
-        logging::error("sequence", "Failed to create fragment shader\n");
+        logging::error("sequence", "Failed to create fragment shader");
         exit(100);
     }
 
@@ -640,7 +640,20 @@ int main(int argc, char** argv) {
         vkCmdBindDescriptorSets(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app.layout, 0, 1, &app.descriptor_sets[app.frame_index].set, 0, 0);
 
         vkCmdDrawIndexed(frame.command_buffer, app.num_indices, 1, 0, 0, 0);
+        gfx::CmdEndRendering(frame.command_buffer);
 
+        gfx::CmdBeginRendering(frame.command_buffer, {
+            .color = {
+                {
+                    .view = frame.current_image_view,
+                    .load_op = VK_ATTACHMENT_LOAD_OP_LOAD,
+                    .store_op = VK_ATTACHMENT_STORE_OP_STORE,
+                    .clear = color,
+                },
+            },
+            .width = window.fb_width,
+            .height = window.fb_height,
+        });
         gui::Render(frame.command_buffer);
         gfx::CmdEndRendering(frame.command_buffer);
 

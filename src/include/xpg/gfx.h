@@ -65,11 +65,12 @@ enum class Result
 // we rework device picking logic.
 struct DeviceFeatures {
     enum DeviceFeaturesFlags {
-        NONE = 0,
-        DESCRIPTOR_INDEXING = 1,
-        DYNAMIC_RENDERING = 2,
-        SYNCHRONIZATION_2 = 4,
-        SCALAR_BLOCK_LAYOUT = 8,
+        NONE                  = 0,
+        DESCRIPTOR_INDEXING   = 1 << 0,
+        DYNAMIC_RENDERING     = 1 << 1,
+        SYNCHRONIZATION_2     = 1 << 2,
+        SCALAR_BLOCK_LAYOUT   = 1 << 3,
+        RAYTRACING            = 1 << 4,
     };
 
     DeviceFeatures(DeviceFeaturesFlags flags): flags(flags) {}
@@ -504,6 +505,8 @@ struct AllocDesc {
     VkMemoryPropertyFlags memory_properties_preferred = 0;
 };
 
+// TODO: need to add host coherent required flag to most of these, otherwise need to optionally
+// extra flushes that we are generally skipping.
 namespace AllocPresets {
     constexpr AllocDesc Host = {
         .vma_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
@@ -679,7 +682,7 @@ struct BufferDescriptorWriteDesc {
     VkBuffer buffer;
     VkDescriptorType type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     u32 binding;
-    u32 element;
+    u32 element = 0;
 };
 
 struct ImageDescriptorWriteDesc {
@@ -688,19 +691,58 @@ struct ImageDescriptorWriteDesc {
 
     VkDescriptorType type;
     u32 binding;
-    u32 element;
+    u32 element = 0;
 };
 
 struct SamplerDescriptorWriteDesc {
     VkSampler sampler;
     u32 binding;
-    u32 element;
+    u32 element = 0;
+};
+
+struct AccelerationStructureDescriptorWriteDesc {
+    VkAccelerationStructureKHR acceleration_structure;
+    u32 binding;
+    u32 element = 0;
 };
 
 void WriteBufferDescriptor(VkDescriptorSet set, const Context& vk, const BufferDescriptorWriteDesc&& write);
 void WriteImageDescriptor(VkDescriptorSet set, const Context& vk, const ImageDescriptorWriteDesc&& write);
 void WriteSamplerDescriptor(VkDescriptorSet set, const Context& vk, const SamplerDescriptorWriteDesc&& write);
+void WriteAccelerationStructureDescriptor(VkDescriptorSet set, const Context& vk, const AccelerationStructureDescriptorWriteDesc&& write);
 
+// Acceleration structures
+
+
+struct AccelerationStructure {
+    Array<VkAccelerationStructureKHR> blas;
+    VkAccelerationStructureKHR tlas;
+    Buffer blas_buffer;
+    Buffer tlas_buffer;
+    Buffer instances_buffer;
+};
+
+struct AccelerationStructureMeshDesc {
+    VkDeviceAddress vertices_address;
+    u64 vertices_stride;
+    u32 vertices_count;
+    VkFormat vertices_format;
+
+    VkDeviceAddress indices_address;
+    VkIndexType indices_type;
+    u32 primitive_count;
+
+    glm::mat3x4 transform;
+};
+
+struct AccelerationStructureDesc {
+    Span<AccelerationStructureMeshDesc> meshes;
+    // TODO: fast build / compact flags
+};
+ 
+VkDeviceAddress GetBufferAddress(VkBuffer buffer, VkDevice device);
+VkResult CreateAccelerationStructure(AccelerationStructure* as, const Context& vk, const AccelerationStructureDesc&& desc);
+void DestroyAccelerationStructure(AccelerationStructure* as, const Context& vk);
 
 //- Formats
 

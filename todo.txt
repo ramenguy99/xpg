@@ -17,7 +17,7 @@ Python:
     [ ] Shader cache
         [x] Basic
         [ ] Handle all cache inputs
-    [ ] Reflection
+    [x] Reflection
         - XPG provides only bindings, usage of reflection up to app
         - See at least 2 potential use cases from python:   
             - Auto resolve -> use names in python, descriptor set creation and set/binding/offset computation is automatic
@@ -37,6 +37,21 @@ Python:
         -> SVO traversal?
 [x] Use within conda:
         conda install conda-forge::vulkan-tools
+[ ] Copy / upload / blit utils
+
+Fetaures:
+[ ] File formats
+[ ] Meshlet stuff:
+    [ ] Integrate meshoptimizer
+    [ ] Rasterize meshlets
+        [ ] Vertex shader
+        [ ] Mesh shaders
+    [ ] Raytrace CLAS
+    [ ] Python bindings
+
+Vulkan API:
+[ ] Object names / debug API (names should be optional on python side, otherwise annoying to specify them during prototyping)
+[ ] Add helpers for timestamp queries
 
 
 Run python examples:
@@ -47,6 +62,8 @@ Swapchain:
     -> not entirely clear what happens when you have 3 frames in flight, can you potentially have 3 swapchains alive
        at the same time? Or do you end up calling wait idle at that point?
     See: https://www.youtube.com/watch?v=mvkHYAu7i6c
+[ ] See todo in gfx.h, needs helper on application side, otherwise very complex to do right, should probably sacrifice
+    perf during resize (e.g. cap to 2 swapchains in flight) instead of having growing history.
 
 Descriptors:
 - To run a pipeline need to bind the related descriptor sets

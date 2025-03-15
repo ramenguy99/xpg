@@ -511,13 +511,44 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         device_create_info.pNext = &descriptor_indexing_features;
     }
 
+    VkPhysicalDeviceBufferDeviceAddressFeatures buffer_device_address_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES };
+    buffer_device_address_features.bufferDeviceAddress = VK_TRUE;
+
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+    acceleration_structure_features.accelerationStructure = VK_TRUE;
+    if (desc.device_features & DeviceFeatures::DESCRIPTOR_INDEXING) {
+        acceleration_structure_features.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
+    }
+
+    VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
+    ray_query_features.rayQuery = VK_TRUE;
+
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+    ray_tracing_pipeline_features.rayTracingPipeline = VK_TRUE;
+
+    if (desc.device_features & DeviceFeatures::RAYTRACING) {
+        buffer_device_address_features.pNext = const_cast<void*>(device_create_info.pNext);
+        device_create_info.pNext = &buffer_device_address_features;
+
+        acceleration_structure_features.pNext = const_cast<void*>(device_create_info.pNext);
+        device_create_info.pNext = &acceleration_structure_features;
+
+        ray_query_features.pNext = const_cast<void*>(device_create_info.pNext);
+        device_create_info.pNext = &ray_query_features;
+
+        // TODO: Seems to be needed even if only using ray query, maybe a slang issue?
+        ray_tracing_pipeline_features.pNext = const_cast<void*>(device_create_info.pNext);
+        device_create_info.pNext = &ray_tracing_pipeline_features;
+    }
+
     result = vkCreateDevice(physical_device, &device_create_info, 0, &device);
     if (result != VK_SUCCESS) {
         return Result::DEVICE_CREATION_FAILED;
     }
 
+
     VmaAllocatorCreateInfo vma_info = {};
-    vma_info.flags = 0; // Optionally set here that we externally synchronize.
+    vma_info.flags = desc.device_features & DeviceFeatures::RAYTRACING ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT : 0; // Optionally set here that we externally synchronize.
     vma_info.instance = instance;
     vma_info.physicalDevice = physical_device;
     vma_info.device = device;
@@ -630,6 +661,7 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     //   This likely entails calling into DirectComposition / DWM stuff.
     // - Maybe can also try in software to never queue more than one frame? Does not seem to make any difference
     // - Still need to check on linux
+    // - Also no sync resize could affect this, maybe easier to implement?
     //
     // See:
     // - Raph levien blog: https://raphlinus.github.io/rust/gui/2019/06/21/smooth-resize-test.html
@@ -1858,6 +1890,332 @@ WriteSamplerDescriptor(VkDescriptorSet set, const Context& vk, const SamplerDesc
 
     // Actually write the descriptor to the GPU visible heap
     vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
+}
+
+void
+WriteAccelerationStructureDescriptor(VkDescriptorSet set, const Context& vk, const AccelerationStructureDescriptorWriteDesc&& write)
+{
+    // Prepare descriptor and handle
+    VkWriteDescriptorSetAccelerationStructureKHR  write_as = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
+    write_as.accelerationStructureCount = 1;
+    write_as.pAccelerationStructures = &write.acceleration_structure;
+
+    VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    write_descriptor_set.pNext = &write_as;
+    write_descriptor_set.dstSet = set;
+    write_descriptor_set.dstArrayElement = write.element;
+    write_descriptor_set.descriptorCount = 1;
+    write_descriptor_set.dstBinding = write.binding;
+    write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+
+    // Actually write the descriptor to the GPU visible heap
+    vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
+}
+
+VkDeviceAddress GetBufferAddress(VkBuffer buffer, VkDevice device)
+{
+	VkBufferDeviceAddressInfo info = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+	info.buffer = buffer;
+
+	VkDeviceAddress address = vkGetBufferDeviceAddress(device, &info);
+	return address;
+}
+
+VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &vk, const AccelerationStructureDesc &&desc)
+{
+    VkResult vkr = VK_SUCCESS;
+
+    // Create blases
+    usize num_meshes = desc.meshes.length;
+	Array<VkAccelerationStructureGeometryKHR> geometries(num_meshes);
+	Array<VkAccelerationStructureBuildGeometryInfoKHR> blas_build_infos(num_meshes);
+
+	const usize ALIGNMENT = 256;
+	const usize DEFAULT_SCRATCH_SIZE = 32 * 1024 * 1024;
+
+	usize total_as_size = 0;
+	usize total_primitive_count = 0;
+	usize max_scratch_size = 0;
+
+	Array<usize> acceleration_offsets(num_meshes);
+	Array<usize> acceleration_sizes(num_meshes);
+	Array<usize> scratch_sizes(num_meshes);
+
+    for(usize i = 0; i < num_meshes; i++) {
+        // Skip empty meshes
+        if(desc.meshes[i].vertices_count == 0 || desc.meshes[i].primitive_count == 0) continue;
+
+        geometries[i] = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR }; 
+        geometries[i].geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR ;
+        geometries[i].flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+        geometries[i].geometry.triangles = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR};
+        geometries[i].geometry.triangles.vertexFormat = desc.meshes[i].vertices_format;
+        geometries[i].geometry.triangles.vertexData.deviceAddress = desc.meshes[i].vertices_address;
+        geometries[i].geometry.triangles.vertexStride = desc.meshes[i].vertices_stride;
+        geometries[i].geometry.triangles.maxVertex = desc.meshes[i].vertices_count - 1;
+        geometries[i].geometry.triangles.indexType = desc.meshes[i].indices_type;
+        geometries[i].geometry.triangles.indexData.deviceAddress = desc.meshes[i].indices_address;
+
+        blas_build_infos[i] = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
+        blas_build_infos[i].type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        blas_build_infos[i].flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
+        blas_build_infos[i].mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        blas_build_infos[i].geometryCount = 1;
+        blas_build_infos[i].pGeometries = &geometries[i];
+
+        VkAccelerationStructureBuildSizesInfoKHR as_build_sizes = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+        u32 max_counts = desc.meshes[i].primitive_count;
+        vkGetAccelerationStructureBuildSizesKHR(vk.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &blas_build_infos[i], &desc.meshes[i].primitive_count, &as_build_sizes);
+
+        acceleration_offsets[i] = total_as_size;
+        acceleration_sizes[i] = as_build_sizes.accelerationStructureSize;
+        scratch_sizes[i] = as_build_sizes.buildScratchSize;
+
+        total_as_size = AlignUp(total_as_size + as_build_sizes.accelerationStructureSize, ALIGNMENT);
+        max_scratch_size = Max(max_scratch_size, as_build_sizes.buildScratchSize);
+    }
+
+    gfx::Buffer blas_buffer = {};
+    vkr = gfx::CreateBuffer(&blas_buffer, vk, total_as_size, {
+        .usage =  VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        .alloc = AllocPresets::Device,
+    });
+    if(vkr != VK_SUCCESS) return vkr;
+
+    usize scratch_buffer_size = Max(DEFAULT_SCRATCH_SIZE, max_scratch_size);
+    gfx::Buffer blas_scratch = {};
+    vkr = gfx::CreateBuffer(&blas_scratch, vk, scratch_buffer_size, {
+        .usage =  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        .alloc = AllocPresets::Device,
+    });
+
+    VkDeviceAddress scratch_address = GetBufferAddress(blas_scratch.buffer, vk.device);
+
+    Array<VkAccelerationStructureKHR> blas(num_meshes);
+    Array<VkAccelerationStructureBuildRangeInfoKHR> blas_build_ranges(num_meshes);
+    Array<VkAccelerationStructureBuildRangeInfoKHR*> blas_build_range_pointers(num_meshes);
+
+    for(usize i = 0; i < num_meshes; i++) {
+		VkAccelerationStructureCreateInfoKHR acceleration_info = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
+		acceleration_info.buffer = blas_buffer.buffer;
+		acceleration_info.offset = acceleration_offsets[i];
+		acceleration_info.size = acceleration_sizes[i];
+		acceleration_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+
+		vkr = vkCreateAccelerationStructureKHR(vk.device, &acceleration_info, nullptr, &blas[i]);
+        if(vkr != VK_SUCCESS) return vkr;
+    }
+
+    // Build blases
+    VkQueryPoolCreateInfo query_create_info = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+	query_create_info.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR;
+	query_create_info.queryCount = num_meshes;
+
+	VkQueryPool query = 0;
+	vkr = vkCreateQueryPool(vk.device, &query_create_info, 0, &query);
+    if(vkr != VK_SUCCESS) return vkr;
+
+
+    vkr = gfx::BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
+    if(vkr != VK_SUCCESS) return vkr;
+
+    for(usize start = 0; start < num_meshes;) {
+        usize scratch_offset = 0;
+
+        usize i = 0;
+        while(i < num_meshes && scratch_offset + scratch_sizes[i] <= scratch_buffer_size) {
+            blas_build_infos[i].scratchData.deviceAddress = scratch_address + scratch_offset;
+            blas_build_infos[i].dstAccelerationStructure = blas[i];
+            blas_build_range_pointers[i] = &blas_build_ranges[i];
+            
+            scratch_offset += scratch_sizes[i];
+            i += 1;
+        }
+
+        vkCmdBuildAccelerationStructuresKHR(vk.sync_command_buffer, (u32)(i - start), &blas_build_infos[start], &blas_build_range_pointers[start]);
+        start = i;
+
+        gfx::CmdMemoryBarrier(vk.sync_command_buffer, {
+            .src_stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            .dst_stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            .src_access = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+            .dst_access = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        });
+    }
+
+    vkCmdResetQueryPool(vk.sync_command_buffer, query, 0, num_meshes);
+    vkCmdWriteAccelerationStructuresPropertiesKHR(vk.sync_command_buffer, blas.length, blas.data, VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR, query, 0);
+    vkr = gfx::EndCommands(vk.sync_command_buffer);
+    if(vkr != VK_SUCCESS) return vkr;
+
+    vkr = gfx::SubmitSync(vk);
+    if(vkr != VK_SUCCESS) return vkr;
+
+    Array<VkDeviceSize> compacted_sizes(num_meshes);
+    vkr = vkGetQueryPoolResults(vk.device, query,  0, blas.length, compacted_sizes.size_in_bytes(), compacted_sizes.data, sizeof(VkDeviceSize), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+    if(vkr != VK_SUCCESS) return vkr;
+
+    vkDestroyQueryPool(vk.device, query, 0);
+
+    gfx::DestroyBuffer(&blas_scratch, vk);
+
+    // Compact blases
+    Array<usize> compacted_offsets(num_meshes);
+    usize total_compacted_size = 0;
+    for(usize i = 0; i < num_meshes; i++) {
+        compacted_offsets[i] += total_compacted_size;
+        total_compacted_size = AlignUp(total_compacted_size + compacted_sizes[i], ALIGNMENT);
+    }
+
+    gfx::Buffer compacted_blas_buffer = {};
+    vkr = gfx::CreateBuffer(&compacted_blas_buffer, vk, total_compacted_size, {
+        .usage =  VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        .alloc = AllocPresets::Device,
+    });
+    if(vkr != VK_SUCCESS) return vkr;
+
+    Array<VkAccelerationStructureKHR> compacted_blas(num_meshes);
+    for(usize i = 0; i < num_meshes; i++) {
+		VkAccelerationStructureCreateInfoKHR acceleration_info = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
+		acceleration_info.buffer = compacted_blas_buffer.buffer;
+		acceleration_info.offset = compacted_offsets[i];
+		acceleration_info.size = compacted_sizes[i];
+		acceleration_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+		vkr = vkCreateAccelerationStructureKHR(vk.device, &acceleration_info, nullptr, &compacted_blas[i]);
+        if(vkr != VK_SUCCESS) return vkr;
+    }
+
+    vkr = gfx::BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
+    if(vkr != VK_SUCCESS) return vkr;
+
+    for(usize i = 0; i < num_meshes; i++) {
+		VkCopyAccelerationStructureInfoKHR copy_info = { VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_INFO_KHR };
+		copy_info.src = blas[i];
+		copy_info.dst = compacted_blas[i];
+		copy_info.mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_COMPACT_KHR;
+		vkCmdCopyAccelerationStructureKHR(vk.sync_command_buffer, &copy_info);
+    }
+
+    vkr = gfx::EndCommands(vk.sync_command_buffer);
+    if(vkr != VK_SUCCESS) return vkr;
+
+    vkr = gfx::SubmitSync(vk);
+    if(vkr != VK_SUCCESS) return vkr;
+
+    for(usize i = 0; i < num_meshes; i++) {
+        vkDestroyAccelerationStructureKHR(vk.device, blas[i], 0);
+    }
+    blas.clear();
+
+    gfx::DestroyBuffer(&blas_buffer, vk);
+
+    // Populate instances
+    gfx::Buffer instances_buffer;
+    gfx::CreateBuffer(&instances_buffer, vk, sizeof(VkAccelerationStructureInstanceKHR) * num_meshes, {
+        .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        .alloc = AllocPresets::DeviceMapped,
+    });
+
+    for(usize i = 0; i < num_meshes; i++) {
+        VkAccelerationStructureDeviceAddressInfoKHR info = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
+        info.accelerationStructure = compacted_blas[i];
+        VkDeviceAddress address = vkGetAccelerationStructureDeviceAddressKHR(vk.device, &info);
+
+        VkAccelerationStructureInstanceKHR instance = {};
+        memcpy(instance.transform.matrix[0], &desc.meshes[i].transform[0], sizeof(float) * 4);
+        memcpy(instance.transform.matrix[1], &desc.meshes[i].transform[1], sizeof(float) * 4);
+        memcpy(instance.transform.matrix[2], &desc.meshes[i].transform[2], sizeof(float) * 4);
+        instance.instanceCustomIndex = i;
+        instance.mask = 0xFF;
+        instance.flags = VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
+        instance.accelerationStructureReference = address;
+
+        memcpy(instances_buffer.map.data + i * sizeof(VkAccelerationStructureInstanceKHR), &instance, sizeof(VkAccelerationStructureInstanceKHR));
+    }
+
+    // Create tlas
+    VkAccelerationStructureGeometryKHR tlas_geometry = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
+	tlas_geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+	tlas_geometry.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+	tlas_geometry.geometry.instances.data.deviceAddress = GetBufferAddress(instances_buffer.buffer, vk.device);
+
+	VkAccelerationStructureBuildGeometryInfoKHR tlas_build_info = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
+	tlas_build_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+	tlas_build_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+	tlas_build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+	tlas_build_info.geometryCount = 1;
+	tlas_build_info.pGeometries = &tlas_geometry;
+
+	VkAccelerationStructureBuildSizesInfoKHR tlas_build_sizes = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+    u32 max_count = num_meshes;
+	vkGetAccelerationStructureBuildSizesKHR(vk.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &tlas_build_info, &max_count, &tlas_build_sizes);
+
+    gfx::Buffer tlas_buffer = {};
+	vkr = gfx::CreateBuffer(&tlas_buffer, vk, tlas_build_sizes.accelerationStructureSize, {
+        .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR,
+        .alloc = AllocPresets::Device,
+    });
+    if(vkr != VK_SUCCESS) return vkr;
+
+    gfx::Buffer tlas_scratch_buffer = {};
+	vkr = gfx::CreateBuffer(&tlas_scratch_buffer, vk, tlas_build_sizes.buildScratchSize, {
+        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        .alloc = AllocPresets::Device,
+    });
+    if(vkr != VK_SUCCESS) return vkr;
+
+	VkAccelerationStructureCreateInfoKHR tlas_info = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
+	tlas_info.buffer = tlas_buffer.buffer;
+	tlas_info.size = tlas_build_sizes.accelerationStructureSize;
+	tlas_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+
+	VkAccelerationStructureKHR tlas = VK_NULL_HANDLE;
+	vkr = vkCreateAccelerationStructureKHR(vk.device, &tlas_info, nullptr, &tlas);
+    if(vkr != VK_SUCCESS) return vkr;
+
+    // Build tlas
+	tlas_build_info.srcAccelerationStructure = tlas;
+	tlas_build_info.dstAccelerationStructure = tlas;
+	tlas_build_info.scratchData.deviceAddress = GetBufferAddress(tlas_scratch_buffer.buffer, vk.device);
+
+	VkAccelerationStructureBuildRangeInfoKHR build_range = {};
+	build_range.primitiveCount = num_meshes;
+
+	const VkAccelerationStructureBuildRangeInfoKHR* build_range_ptr = &build_range;
+
+    vkr = gfx::BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
+    if(vkr != VK_SUCCESS) return vkr;
+
+	vkCmdBuildAccelerationStructuresKHR(vk.sync_command_buffer, 1, &tlas_build_info, &build_range_ptr);
+
+    vkr = gfx::EndCommands(vk.sync_command_buffer);
+    if(vkr != VK_SUCCESS) return vkr;
+    vkr = gfx::SubmitSync(vk);
+    if(vkr != VK_SUCCESS) return vkr;
+
+    gfx::DestroyBuffer(&tlas_scratch_buffer, vk);
+
+    as->blas = std::move(compacted_blas);
+    as->blas_buffer = compacted_blas_buffer;
+    as->tlas = tlas;
+    as->tlas_buffer = tlas_buffer;
+    as->instances_buffer = instances_buffer;
+
+    return VK_SUCCESS;
+}
+
+void DestroyAccelerationStructure(AccelerationStructure* as, const Context& vk) {
+    vkDestroyAccelerationStructureKHR(vk.device, as->tlas, 0);
+    as->tlas = VK_NULL_HANDLE;
+
+    for(usize i = 0; i < as->blas.length; i++) {
+        vkDestroyAccelerationStructureKHR(vk.device, as->blas[i], 0);
+    }
+    as->blas.clear();
+
+    gfx::DestroyBuffer(&as->tlas_buffer, vk);
+    gfx::DestroyBuffer(&as->instances_buffer, vk);
+    gfx::DestroyBuffer(&as->blas_buffer, vk);
 }
 
 FormatInfo GetFormatInfo(VkFormat format)
