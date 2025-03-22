@@ -15,7 +15,7 @@ struct MaterialParameter {
         Vec3,
         Vec4,
     };
-    Kind kind; 
+    Kind kind;
     union {
         u32 texture;
         vec2 v2;
@@ -74,7 +74,7 @@ MaterialParameter consume_material_parameter(ArrayView<u8>& buf) {
     p.kind = buf.consume<MaterialParameter::Kind>();
     switch(p.kind) {
         case MaterialParameter::Kind::None:                                   ; break;
-        case MaterialParameter::Kind::Texture: p.texture = buf.consume<u32 >(); break;   
+        case MaterialParameter::Kind::Texture: p.texture = buf.consume<u32 >(); break;
         case MaterialParameter::Kind::Vec2:    p.v2      = buf.consume<vec2>(); break;
         case MaterialParameter::Kind::Vec3:    p.v3      = buf.consume<vec3>(); break;
         case MaterialParameter::Kind::Vec4:    p.v4      = buf.consume<vec4>(); break;
@@ -449,13 +449,13 @@ int main(int argc, char** argv) {
     }
 
     struct Constants {
-        uint width;
-        uint height;
-        uint _padding0;
-        uint _padding1;
+        u32 width;
+        u32 height;
+        u32 _padding0;
+        u32 _padding1;
 
         vec3 camera_position;
-        uint _padding2;
+        u32 _padding2;
 
         vec3 camera_direction;
         float film_dist;

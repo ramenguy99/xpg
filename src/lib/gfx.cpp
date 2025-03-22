@@ -1244,18 +1244,34 @@ void CmdEndRendering(VkCommandBuffer cmd)
     vkCmdEndRendering(cmd);
 }
 
+#ifdef _WIN32
+VkExternalSemaphoreHandleTypeFlagBits EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+VkExternalMemoryHandleTypeFlagBits EXTERNAL_MEMORY_HANDLE_TYPE_BIT = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+#else
+VkExternalSemaphoreHandleTypeFlagBits EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+VkExternalMemoryHandleTypeFlagBits EXTERNAL_MEMORY_HANDLE_TYPE_BIT = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT;
+#endif
+
 VkResult
 CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& desc) {
+    // Alloc buffer
+    VkExternalMemoryBufferCreateInfo external_memory_buffer_info = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO };
+    external_memory_buffer_info.handleTypes = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
+
     // Alloc buffer
     VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     buffer_info.size = size;
     buffer_info.usage = desc.usage;
+    if (desc.external) {
+        buffer_info.pNext = &external_memory_buffer_info;
+    }
 
     VmaAllocationCreateInfo alloc_create_info = {};
     alloc_create_info.requiredFlags = desc.alloc.memory_properties_required;
     alloc_create_info.preferredFlags = desc.alloc.memory_properties_preferred;
     alloc_create_info.flags = desc.alloc.vma_flags;
     alloc_create_info.usage = desc.alloc.vma_usage;
+    alloc_create_info.pool = desc.pool;
 
     VkBuffer buf = 0;
     VmaAllocation allocation = {};
@@ -1300,6 +1316,94 @@ DestroyBuffer(Buffer* buffer, const Context& vk)
         vmaDestroyBuffer(vk.vma, buffer->buffer, buffer->allocation);
     }
     *buffer = {};
+}
+
+VkResult CreatePoolForBuffer(VmaPool* pool, const Context& vk, const PoolBufferDesc&& desc) {
+    // Alloc buffer
+    VkExternalMemoryBufferCreateInfo external_memory_buffer_info = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO };
+    external_memory_buffer_info.handleTypes = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
+
+    VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    buffer_info.size = 0;
+    buffer_info.usage = desc.usage;
+    if (desc.external) {
+        buffer_info.pNext = &external_memory_buffer_info;
+    }
+
+    VmaAllocationCreateInfo alloc_create_info = {};
+    alloc_create_info.requiredFlags = desc.alloc.memory_properties_required;
+    alloc_create_info.preferredFlags = desc.alloc.memory_properties_preferred;
+    alloc_create_info.flags = desc.alloc.vma_flags;
+    alloc_create_info.usage = desc.alloc.vma_usage;
+
+
+    // Look for memory type for this allocation
+    u32 mem_type_index;
+    VkResult vkr = vmaFindMemoryTypeIndexForBufferInfo(vk.vma, &buffer_info, &alloc_create_info, &mem_type_index);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    // Create pool that can be exported
+    // TODO: on win32 the cuda samples also specifies a VkExportMemoryWin32HandleInfoKHR for read/write permission and security attributes, see if this still works without it
+
+    VmaPoolCreateInfo pool_info = {};
+    pool_info.memoryTypeIndex = mem_type_index;
+    if (desc.external) {
+        // TODO: don't leak this, the usage of this by vma is delayed, thus the pointer must live as long as the pool.
+        // Also need to be careful storing this in a struct because it would become self-referential, e.g. it will not
+        // be safely copiable anymore. I think an allocation here is fine.
+        VkExportMemoryAllocateInfoKHR* export_mem_alloc_info = new VkExportMemoryAllocateInfoKHR;
+        *export_mem_alloc_info = { VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR };
+        export_mem_alloc_info->handleTypes = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
+        pool_info.pMemoryAllocateNext = (void*)export_mem_alloc_info;
+    }
+
+    *pool = {};
+    return vmaCreatePool(vk.vma, &pool_info, pool);
+}
+
+#ifdef _WIN32
+typedef HANDLE ExternalHandle;
+#else
+typedef int ExternalHandle;
+#endif
+
+VkResult GetExternalHandleForBuffer(ExternalHandle* handle, const Context& vk, const Buffer& buffer) {
+    *handle = {};
+
+    VmaAllocationInfo alloc_info = {};
+    vmaGetAllocationInfo(vk.vma, buffer.allocation, &alloc_info);
+
+#ifdef _WIN32
+    VkMemoryGetWin32HandleInfoKHR memory_get_win32_handle_info = { VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR };
+    memory_get_win32_handle_info.memory = alloc_info.deviceMemory;
+    memory_get_win32_handle_info.handleType = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
+
+    return vkGetMemoryWin32HandleKHR(vk.device, &memory_get_win32_handle_info, handle);
+#else
+    VkMemoryGetFdInfoKHR vkMemoryGetFdInfoKHR = { VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR };
+    memory_get_win32_handle_info.memory = alloc_info.deviceMemory;
+    memory_get_win32_handle_info.handleType = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
+
+    return vkGetMemoryFdKHR(vk.device, &memory_get_win32_handle_info, handle);
+#endif
+}
+
+void CloseExternalHandle(ExternalHandle* handle) {
+#ifdef _WIN32
+    CloseHandle(*handle);
+    *handle = INVALID_HANDLE_VALUE;
+#else
+    close(*handle);
+    *handle = -1;
+#endif
+}
+
+void DestroyPool(VmaPool* pool, const Context& vk)
+{
+    vmaDestroyPool(vk.vma, *pool);
+    *pool = {};
 }
 
 VkResult
@@ -1957,7 +2061,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
         // Skip empty meshes
         if(desc.meshes[i].vertices_count == 0 || desc.meshes[i].primitive_count == 0) continue;
 
-        geometries[i] = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR }; 
+        geometries[i] = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
         geometries[i].geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR ;
         geometries[i].flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
         geometries[i].geometry.triangles = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR};
@@ -2039,7 +2143,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
             blas_build_infos[i].dstAccelerationStructure = blas[i];
 			blas_build_ranges[i].primitiveCount = desc.meshes[i].primitive_count;
             blas_build_range_pointers[i] = &blas_build_ranges[i];
-            
+
             scratch_offset += scratch_sizes[i];
             i += 1;
         }

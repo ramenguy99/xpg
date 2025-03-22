@@ -5,13 +5,24 @@ from dataclasses import dataclass
 class Vec2:
     x: float
     y: float
-    
+
     @classmethod
     def fromarray(cls, a: np.ndarray) -> 'Vec2':
         if a.shape != (2,):
             raise ValueError(f"Expected array with shape (2,) got {a.shape}")
         return cls(a[0], a[1])
-    
+
+    def __len__(self):
+        return 2
+
+    def __getitem__(self, key):
+        if key == 0:
+            return self.x
+        elif key == 1:
+            return self.y
+        else:
+            raise KeyError()
+
     def __array__(self, dtype=np.float32, copy=True):
         if not copy:
             raise ValueError()
@@ -23,12 +34,26 @@ class Vec3:
     x: float
     y: float
     z: float
-    
+
     @classmethod
     def fromarray(cls, a: np.ndarray) -> 'Vec3':
         if a.shape != (3,):
             raise ValueError(f"Expected array with shape (3,) got {a.shape}")
         return cls(a[0], a[1], a[2])
+
+    def __len__(self):
+        return 3
+
+    def __getitem__(self, key):
+        if key == 0:
+            return self.x
+        elif key == 1:
+            return self.y
+        elif key == 2:
+            return self.z
+        else:
+            raise KeyError()
+
 
     def __array__(self, dtype=np.float32, copy=True):
         if not copy:
@@ -42,12 +67,27 @@ class Vec4:
     y: float
     z: float
     w: float
-    
+
     @classmethod
     def fromarray(cls, a: np.ndarray) -> 'Vec4':
         if a.shape != (4,):
             raise ValueError(f"Expected array with shape (4,) got {a.shape}")
         return cls(a[0], a[1], a[2], a[3])
+
+    def __len__(self):
+        return 4
+
+    def __getitem__(self, key):
+        if key == 0:
+            return self.x
+        elif key == 1:
+            return self.y
+        elif key == 2:
+            return self.z
+        elif key == 3:
+            return self.w
+        else:
+            raise KeyError()
 
     def __array__(self, dtype=np.float32, copy=True):
         if not copy:
@@ -72,6 +112,21 @@ class Mat4:
             Vec4.fromarray(a[2]),
             Vec4.fromarray(a[3])
         )
+
+    def __len__(self):
+        return 16
+
+    def __getitem__(self, key):
+        if key[0] == 0:
+            return self.r0[key[1]]
+        elif key == 1:
+            return self.r1[key[1]]
+        elif key == 2:
+            return self.r2[key[1]]
+        elif key == 3:
+            return self.r3[key[1]]
+        else:
+            raise KeyError()
 
     def __array__(self, dtype=np.float32, copy=True):
         if not copy:

@@ -98,6 +98,11 @@ struct Context: public nb::intrusive_base {
         Array<const char*> device_extensions;
         device_extensions.add("VK_KHR_swapchain");
         device_extensions.add("VK_KHR_dynamic_rendering");
+#ifdef _WIN32
+        device_extensions.add("VK_KHR_external_memory_win32");
+#else
+        device_extensions.add("VK_KHR_external_memory_fd");
+#endif
 
         result = gfx::CreateContext(&vk, {
             .minimum_api_version = (u32)VK_API_VERSION_1_3,
@@ -179,6 +184,52 @@ struct Buffer: public GfxObject {
     }
 
     gfx::Buffer buffer = {};
+};
+
+struct ExternalBuffer: public Buffer {
+    ExternalBuffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type)
+        : Buffer(ctx)
+    {
+        VkResult vkr;
+        vkr = gfx::CreatePoolForBuffer(&pool, ctx->vk, {
+            .usage = (VkBufferUsageFlags)usage_flags,
+            .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
+            .external = true,
+        });
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create pool");
+        }
+
+        vkr = gfx::CreateBuffer(&buffer, ctx->vk, size, {
+            .usage = (VkBufferUsageFlags)usage_flags,
+            .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
+            .pool = pool,
+            .external = true,
+        });
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create buffer");
+        }
+
+        vkr = gfx::GetExternalHandleForBuffer(&handle, ctx->vk, buffer);
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to get external handle");
+        }
+    }
+
+    ~ExternalBuffer() {
+        if(owned) {
+            destroy();
+        }
+    }
+
+    void destroy() {
+        gfx::CloseExternalHandle(&handle);
+        Buffer::destroy();
+        gfx::DestroyPool(&pool, ctx->vk);
+    }
+
+    VmaPool pool;
+    gfx::ExternalHandle handle = {};
 };
 
 
@@ -415,7 +466,7 @@ struct CommandBuffer: GfxObject {
                 .dst_access = new_state.access,
                 .new_layout = new_state.layout,
                 .aspect_mask =
-                    (VkImageAspectFlagBits)((
+                    (VkImageAspectFlags)((
                         usage == ImageUsage::DepthStencilAttachment ||
                         usage == ImageUsage::DepthStencilAttachmentReadOnly ||
                         usage == ImageUsage::DepthStencilAttachmentWriteOnly
@@ -1214,7 +1265,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("ALT", gfx::Modifiers::Alt)
         .value("SUPER", gfx::Modifiers::Super)
     ;
-    
+
     nb::enum_<gfx::AllocPresets::Type>(m, "AllocType")
         .value("HOST", gfx::AllocPresets::Type::Host)
         .value("HOST_WRITE_COMBINING", gfx::AllocPresets::Type::HostWriteCombining)
@@ -1272,6 +1323,12 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("view", [] (Buffer& buffer) {
             return nb::ndarray<u8, nb::numpy, nb::shape<-1>>(buffer.buffer.map.data, {buffer.buffer.map.length}, buffer.self_py());
         }, nb::rv_policy::reference_internal)
+    ;
+
+    nb::class_<ExternalBuffer, Buffer>(m, "ExternalBuffer")
+        .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def("destroy", &ExternalBuffer::destroy)
+        .def_prop_ro("handle", [] (ExternalBuffer& buffer) { return (u64)buffer.handle; });
     ;
 
     nb::class_<Image, GfxObject>(m, "Image")

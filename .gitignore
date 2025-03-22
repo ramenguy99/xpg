@@ -17,3 +17,6 @@ CMakeSettings.json
 /build-release
 /build-debug
 /install
+
+/backup
+*.sln

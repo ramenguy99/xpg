@@ -1,9 +1,11 @@
 #pragma once
 
 // External
+#ifdef _WIN32
+#define VK_USE_PLATFORM_WIN32_KHR
+#endif
 #include <volk.h>                           // Vulkan
 #include <vulkan/vk_enum_string_helper.h>   // Vulkan helper strings for printing
-
 #define VMA_STATIC_VULKAN_FUNCTIONS 1
 #include <vk_mem_alloc.h>                   // Vulkan Memory Allocator
 
@@ -574,11 +576,38 @@ struct BufferDesc {
 
     // Allocation info
     AllocDesc alloc;
+
+    // Pool
+    VmaPool pool = VK_NULL_HANDLE;
+    bool external = false;
 };
 
 VkResult CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& desc);
 VkResult CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, const BufferDesc&& desc);
 void DestroyBuffer(Buffer* buffer, const Context& vk);
+
+struct PoolBufferDesc {
+    // Vulkan flags
+    VkBufferUsageFlags usage;
+
+    // Allocation info
+    AllocDesc alloc;
+
+    // Allow external usage
+    bool external = false;
+};
+
+VkResult CreatePoolForBuffer(VmaPool* pool, const Context& vk, const PoolBufferDesc&& desc);
+void DestroyPool(VmaPool* pool, const Context& vk);
+
+#ifdef _WIN32
+typedef HANDLE ExternalHandle;
+#else
+typedef int ExternalHandle;
+#endif
+
+VkResult GetExternalHandleForBuffer(ExternalHandle* handle, const Context& vk, const Buffer& buffer);
+void CloseExternalHandle(ExternalHandle* handle);
 
 // - Images
 struct Image
@@ -740,7 +769,7 @@ struct AccelerationStructureDesc {
     Span<AccelerationStructureMeshDesc> meshes;
     // TODO: fast build / compact flags
 };
- 
+
 VkDeviceAddress GetBufferAddress(VkBuffer buffer, VkDevice device);
 VkResult CreateAccelerationStructure(AccelerationStructure* as, const Context& vk, const AccelerationStructureDesc&& desc);
 void DestroyAccelerationStructure(AccelerationStructure* as, const Context& vk);
