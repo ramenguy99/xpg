@@ -8,6 +8,7 @@
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/array.h>
 #include <nanobind/stl/vector.h>
+#include <nanobind/stl/tuple.h>
 #include <nanobind/ndarray.h>
 
 #include <nanobind/intrusive/counter.h>
@@ -100,8 +101,10 @@ struct Context: public nb::intrusive_base {
         device_extensions.add("VK_KHR_dynamic_rendering");
 #ifdef _WIN32
         device_extensions.add("VK_KHR_external_memory_win32");
+        device_extensions.add("VK_KHR_external_semaphore_win32");
 #else
         device_extensions.add("VK_KHR_external_memory_fd");
+        device_extensions.add("VK_KHR_external_semaphore_fd");
 #endif
 
         result = gfx::CreateContext(&vk, {
@@ -160,13 +163,13 @@ struct Buffer: public GfxObject {
     { }
 
     ~Buffer() {
-        if(owned) {
-            destroy();
-        }
+        destroy();
     }
 
     void destroy() {
-        gfx::DestroyBuffer(&buffer, ctx->vk);
+        if(owned) {
+            gfx::DestroyBuffer(&buffer, ctx->vk);
+        }
     }
 
     static nb::ref<Buffer> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type) {
@@ -184,6 +187,52 @@ struct Buffer: public GfxObject {
     }
 
     gfx::Buffer buffer = {};
+};
+
+struct Semaphore: public GfxObject {
+    Semaphore(nb::ref<Context> ctx, bool external)
+        : GfxObject(ctx, true)
+    {
+        VkResult vkr = gfx::CreateGPUSemaphore(ctx->vk.device, &semaphore, external);
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create semaphore");
+        }
+    }
+    Semaphore(nb::ref<Context> ctx): Semaphore(ctx, false) { }
+
+    void destroy() {
+        if (owned) {
+            gfx::DestroyGPUSemaphore(ctx->vk.device, &semaphore);
+        }
+    }
+
+    ~Semaphore() {
+        destroy();
+    }
+
+    VkSemaphore semaphore;
+};
+
+struct ExternalSemaphore: public Semaphore {
+    ExternalSemaphore(nb::ref<Context> ctx): Semaphore(ctx, true) {
+        VkResult vkr = gfx::GetExternalHandleForSemaphore(&handle, ctx->vk, semaphore);
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to get handle for semaphore");
+        }
+    }
+
+    ~ExternalSemaphore() {
+        destroy();
+    }
+
+    void destroy() {
+        if (owned) {
+            gfx::CloseExternalHandle(&handle);
+            Semaphore::destroy();
+        }
+    }
+
+    gfx::ExternalHandle handle;
 };
 
 struct ExternalBuffer: public Buffer {
@@ -217,15 +266,15 @@ struct ExternalBuffer: public Buffer {
     }
 
     ~ExternalBuffer() {
-        if(owned) {
-            destroy();
-        }
+        destroy();
     }
 
     void destroy() {
-        gfx::CloseExternalHandle(&handle);
-        Buffer::destroy();
-        gfx::DestroyPool(&pool, ctx->vk);
+        if(owned) {
+            gfx::CloseExternalHandle(&handle);
+            Buffer::destroy();
+            gfx::DestroyPool(&pool, ctx->vk);
+        }
     }
 
     VmaPool pool;
@@ -375,13 +424,13 @@ struct Image: public GfxObject {
     { }
 
     ~Image() {
-        if(owned) {
-            destroy();
-        }
+        destroy();
     }
 
     void destroy() {
-        gfx::DestroyImage(&image, ctx->vk);
+        if(owned) {
+            gfx::DestroyImage(&image, ctx->vk);
+        }
     }
 
     // static nb::ref<Image> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type) {
@@ -601,8 +650,12 @@ struct Frame: public nb::intrusive_base {
 
 struct Window: public nb::intrusive_base {
     struct FrameManager {
-        FrameManager(nb::ref<Window> window)
+        FrameManager(nb::ref<Window> window,
+                     std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores,
+                     std::vector<nb::ref<Semaphore>> additional_signal_semaphores)
             : window(window)
+            , additional_wait_semaphores(std::move(additional_wait_semaphores))
+            , additional_signal_semaphores(std::move(additional_signal_semaphores))
         {
         }
 
@@ -612,15 +665,17 @@ struct Window: public nb::intrusive_base {
         }
 
         void exit(nb::object, nb::object, nb::object) {
-            window->end_frame(*frame);
+            window->end_frame(*frame, additional_wait_semaphores, additional_signal_semaphores);
         }
 
         nb::ref<Frame> frame;
         nb::ref<Window> window;
+        std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores;
+        std::vector<nb::ref<Semaphore>> additional_signal_semaphores;
     };
 
-    FrameManager frame() {
-        return FrameManager(this);
+    FrameManager frame(std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores, std::vector<nb::ref<Semaphore>> additional_signal_semaphores) {
+        return FrameManager(this, std::move(additional_wait_semaphores), std::move(additional_signal_semaphores));
     }
 
     Window(nb::ref<Context> ctx, const std::string& name, u32 width, u32 height)
@@ -715,12 +770,37 @@ struct Window: public nb::intrusive_base {
         return new Frame(this, frame);
     }
 
-    void end_frame(Frame& frame)
+    void end_frame(Frame& frame, const std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>>& additional_wait_semaphores, const std::vector<nb::ref<Semaphore>>& additional_signal_semaphores)
     {
-        // TODO: make this throw if not called after begin in the same frame
-
         VkResult vkr;
-        vkr = gfx::Submit(frame.frame, ctx->vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+        // TODO: make this throw if not called after begin in the same frame
+        if(additional_wait_semaphores.empty() && additional_signal_semaphores.empty()) {
+            vkr = gfx::Submit(frame.frame, ctx->vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        } else {
+            Array<VkSemaphore> wait_semaphores(additional_wait_semaphores.size() + 1);
+            Array<VkPipelineStageFlags> wait_stages(additional_wait_semaphores.size() + 1);
+            for(usize i = 0; i < additional_wait_semaphores.size(); i++) {
+                wait_semaphores[i] = std::get<0>(additional_wait_semaphores[i])->semaphore;
+                wait_stages[i] = std::get<1>(additional_wait_semaphores[i]);
+            }
+            wait_semaphores[additional_wait_semaphores.size()] = frame.frame.acquire_semaphore;
+            wait_stages[additional_wait_semaphores.size()] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+            Array<VkSemaphore> signal_semaphores(additional_wait_semaphores.size() + 1);
+            for(usize i = 0; i < additional_signal_semaphores.size(); i++) {
+                signal_semaphores[i] = additional_signal_semaphores[i]->semaphore;
+            }
+            signal_semaphores[additional_signal_semaphores.size()] = frame.frame.release_semaphore;
+
+            vkr = gfx::SubmitQueue(ctx->vk.queue, {
+                .cmd = { frame.frame.command_buffer },
+                .wait_semaphores = Span(wait_semaphores),
+                .wait_stages = Span(wait_stages),
+                .signal_semaphores = Span(signal_semaphores),
+                .fence = frame.frame.fence,
+            });
+        }
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to submit frame commands");
         }
@@ -1210,8 +1290,15 @@ void gfx_create_bindings(nb::module_& m)
         .def("reset_callbacks", &Window::reset_callbacks)
         .def("update_swapchain", &Window::update_swapchain)
         .def("begin_frame", &Window::begin_frame)
-        .def("end_frame", &Window::end_frame, nb::arg("frame"))
-        .def("frame", &Window::frame)
+        .def("end_frame", &Window::end_frame,
+            nb::arg("frame"),
+            nb::arg("additional_wait_semaphores") = nb::list(),
+            nb::arg("additional_signal_semaphores") = nb::list()
+        )
+        .def("frame", &Window::frame,
+            nb::arg("additional_wait_semaphores") = nb::list(),
+            nb::arg("additional_signal_semaphores") = nb::list()
+        )
         .def_prop_ro("swapchain_format", [](Window& w) -> VkFormat { return w.window.swapchain_format; })
         .def_prop_ro("fb_width", [](Window& w) -> u32 { return w.window.fb_width; })
         .def_prop_ro("fb_height", [](Window& w) -> u32 { return w.window.fb_height; })
@@ -1337,6 +1424,17 @@ void gfx_create_bindings(nb::module_& m)
         // .def_static("from_data", &Image::from_data)
     ;
 
+    nb::class_<Semaphore, GfxObject>(m, "Semaphore")
+        .def(nb::init<nb::ref<Context>>(), nb::arg("ctx"))
+        .def("destroy", &Semaphore::destroy)
+    ;
+
+    nb::class_<ExternalSemaphore, Semaphore>(m, "ExternalSemaphore")
+        .def(nb::init<nb::ref<Context>>(), nb::arg("ctx"))
+        .def("destroy", &ExternalSemaphore::destroy)
+        .def_prop_ro("handle", [] (ExternalSemaphore& semaphore) { return (u64)semaphore.handle; });
+    ;
+
     nb::enum_<ImageUsage>(m, "ImageUsage")
         .value("NONE", ImageUsage::None)
         .value("IMAGE", ImageUsage::Image)
@@ -1356,6 +1454,34 @@ void gfx_create_bindings(nb::module_& m)
         .value("AVERAGE",     VK_RESOLVE_MODE_AVERAGE_BIT)
         .value("MIN",         VK_RESOLVE_MODE_MIN_BIT)
         .value("MAX",         VK_RESOLVE_MODE_MAX_BIT)
+    ;
+
+    nb::enum_<VkPipelineStageFlagBits>(m, "PipelineStageFlags", nb::is_flag(), nb::is_arithmetic())
+        .value("TOP_OF_PIPE"                          , VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT)
+        .value("DRAW_INDIRECT"                        , VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT)
+        .value("VERTEX_INPUT"                         , VK_PIPELINE_STAGE_VERTEX_INPUT_BIT)
+        .value("VERTEX_SHADER"                        , VK_PIPELINE_STAGE_VERTEX_SHADER_BIT)
+        .value("TESSELLATION_CONTROL_SHADER"          , VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT)
+        .value("TESSELLATION_EVALUATION_SHADER"       , VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT)
+        .value("GEOMETRY_SHADER"                      , VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT)
+        .value("FRAGMENT_SHADER"                      , VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
+        .value("EARLY_FRAGMENT_TESTS"                 , VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT)
+        .value("LATE_FRAGMENT_TESTS"                  , VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT)
+        .value("COLOR_ATTACHMENT_OUTPUT"              , VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
+        .value("COMPUTE_SHADER"                       , VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+        .value("TRANSFER"                             , VK_PIPELINE_STAGE_TRANSFER_BIT)
+        .value("BOTTOM_OF_PIPE"                       , VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT)
+        .value("HOST"                                 , VK_PIPELINE_STAGE_HOST_BIT)
+        .value("ALL_GRAPHICS"                         , VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT)
+        .value("ALL_COMMANDS"                         , VK_PIPELINE_STAGE_ALL_COMMANDS_BIT)
+        .value("TRANSFORM_FEEDBACK"                   , VK_PIPELINE_STAGE_TRANSFORM_FEEDBACK_BIT_EXT)
+        .value("CONDITIONAL_RENDERING"                , VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT)
+        .value("ACCELERATION_STRUCTURE_BUILD"         , VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR)
+        .value("RAY_TRACING_SHADER"                   , VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR)
+        .value("FRAGMENT_DENSITY_PROCESS"             , VK_PIPELINE_STAGE_FRAGMENT_DENSITY_PROCESS_BIT_EXT)
+        .value("FRAGMENT_SHADING_RATE_ATTACHMENT"     , VK_PIPELINE_STAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
+        .value("TASK_SHADER"                          , VK_PIPELINE_STAGE_TASK_SHADER_BIT_EXT)
+        .value("MESH_SHADER"                          , VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT)
     ;
 
     nb::class_<RenderingAttachment>(m, "RenderingAttachment")

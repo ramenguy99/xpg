@@ -772,8 +772,8 @@ int main(int argc, char** argv) {
     }
 
     for (usize i = 0; i < window.frames.length; i++) {
-        gfx::DestroyGPUSemaphore(vk.device, app.render_done_semaphores[i]);
-        gfx::DestroyGPUSemaphore(vk.device, app.copy_done_semaphores[i]);
+        gfx::DestroyGPUSemaphore(vk.device, &app.render_done_semaphores[i]);
+        gfx::DestroyGPUSemaphore(vk.device, &app.copy_done_semaphores[i]);
         gfx::DestroyBuffer(&app.vertex_buffers_gpu[i], vk);
     }
     #if !DIRECT_UPLOAD

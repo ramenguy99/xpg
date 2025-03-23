@@ -140,8 +140,17 @@ Array<const char*> GetPresentationInstanceExtensions();
 Result CreateContext(Context* vk, const ContextDesc&& desc);
 void DestroyContext(Context* vk);
 void WaitIdle(Context& vk);
-VkResult CreateGPUSemaphore(VkDevice device, VkSemaphore* semaphore);
-void DestroyGPUSemaphore(VkDevice device, VkSemaphore semaphore);
+
+//- Semaphores
+#ifdef _WIN32
+typedef HANDLE ExternalHandle;
+#else
+typedef int ExternalHandle;
+#endif
+
+VkResult GetExternalHandleForSemaphore(ExternalHandle* handle, const Context& vk, VkSemaphore semaphore);
+VkResult CreateGPUSemaphore(VkDevice device, VkSemaphore* semaphore, bool external = false);
+void DestroyGPUSemaphore(VkDevice device, VkSemaphore* semaphore);
 
 //- Swapchain
 enum class SwapchainStatus
@@ -302,7 +311,16 @@ void ProcessEvents(bool block);
 bool ShouldClose(const Window& window);
 
 //- Queue
-VkResult Submit(const Frame& frame, const Context& vk, VkSubmitFlags submit_stage_mask);
+struct SubmitDesc {
+    Span<VkCommandBuffer> cmd;
+    Span<VkSemaphore> wait_semaphores;
+    Span<VkPipelineStageFlags> wait_stages;
+    Span<VkSemaphore> signal_semaphores;
+    VkFence fence;
+};
+
+VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc);
+VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags submit_stage_mask);
 VkResult SubmitSync(const Context& vk);
 VkResult PresentFrame(Window* w, Frame* frame, const Context& vk);
 
@@ -599,12 +617,6 @@ struct PoolBufferDesc {
 
 VkResult CreatePoolForBuffer(VmaPool* pool, const Context& vk, const PoolBufferDesc&& desc);
 void DestroyPool(VmaPool* pool, const Context& vk);
-
-#ifdef _WIN32
-typedef HANDLE ExternalHandle;
-#else
-typedef int ExternalHandle;
-#endif
 
 VkResult GetExternalHandleForBuffer(ExternalHandle* handle, const Context& vk, const Buffer& buffer);
 void CloseExternalHandle(ExternalHandle* handle);

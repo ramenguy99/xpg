@@ -209,20 +209,6 @@ void CloseWindow(const Window& window) {
     glfwSetWindowShouldClose(window.window, 1);
 }
 
-VkResult
-CreateGPUSemaphore(VkDevice device, VkSemaphore* semaphore)
-{
-    VkSemaphoreCreateInfo semaphore_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    return vkCreateSemaphore(device, &semaphore_info, 0, semaphore);
-}
-
-void
-DestroyGPUSemaphore(VkDevice device, VkSemaphore semaphore)
-{
-    vkDestroySemaphore(device, semaphore, 0);
-}
-
-
 Result
 CreateContext(Context* vk, const ContextDesc&& desc)
 {
@@ -873,32 +859,36 @@ EndCommands(VkCommandBuffer buffer) {
     return vkEndCommandBuffer(buffer);
 }
 
-VkResult SubmitQueue(const Context& vk, VkSubmitFlags submit_stage_mask) {
-    // TODO: advanced queue submission here
-    return VK_SUCCESS;
+VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc) {
+    assert(desc.wait_semaphores.length == desc.wait_stages.length);
+
+    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submit_info.commandBufferCount = (u32)desc.cmd.length;
+    submit_info.pCommandBuffers = desc.cmd.data;
+    submit_info.waitSemaphoreCount = (u32)desc.wait_semaphores.length;
+    submit_info.pWaitSemaphores = desc.wait_semaphores.data;
+    submit_info.pWaitDstStageMask = desc.wait_stages.data;
+    submit_info.signalSemaphoreCount = desc.signal_semaphores.length;
+    submit_info.pSignalSemaphores = desc.signal_semaphores.data;
+
+    return vkQueueSubmit(queue, 1, &submit_info, desc.fence);
 }
 
 VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags stage_mask) {
-    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &frame.command_buffer;
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &frame.acquire_semaphore;
-    submit_info.pWaitDstStageMask = &stage_mask;
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &frame.release_semaphore;
-
-    // @TODO: for multiwindow we either want to synchronize this or
-    // allocate a queue per window (that should be ok for a few windows)
-    return vkQueueSubmit(vk.queue, 1, &submit_info, frame.fence);
+    return SubmitQueue(vk.queue, {
+        .cmd = { frame.command_buffer },
+        .wait_semaphores = { frame.acquire_semaphore },
+        .wait_stages = { stage_mask },
+        .signal_semaphores = { frame.release_semaphore },
+        .fence = frame.fence,
+    });
 }
 
 VkResult SubmitSync(const Context& vk) {
-    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &vk.sync_command_buffer;
-
-    VkResult vkr = vkQueueSubmit(vk.queue, 1, &submit_info, vk.sync_fence);
+    VkResult vkr = SubmitQueue(vk.queue, {
+        .cmd = { vk.sync_command_buffer},
+        .fence = vk.sync_fence,
+    });
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -1253,6 +1243,45 @@ VkExternalMemoryHandleTypeFlagBits EXTERNAL_MEMORY_HANDLE_TYPE_BIT = VK_EXTERNAL
 #endif
 
 VkResult
+CreateGPUSemaphore(VkDevice device, VkSemaphore* semaphore, bool external)
+{
+    VkSemaphoreCreateInfo semaphore_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+
+    VkExportSemaphoreCreateInfo export_semaphore_info = { VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO };
+    export_semaphore_info.handleTypes = EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT;
+
+    if(external) {
+        semaphore_info.pNext = &export_semaphore_info;
+    }
+
+    return vkCreateSemaphore(device, &semaphore_info, 0, semaphore);
+}
+
+void
+DestroyGPUSemaphore(VkDevice device, VkSemaphore* semaphore)
+{
+    vkDestroySemaphore(device, *semaphore, 0);
+    *semaphore = VK_NULL_HANDLE;
+}
+
+
+VkResult GetExternalHandleForSemaphore(ExternalHandle* handle, const Context& vk, VkSemaphore semaphore) {
+#if _WIN32
+    VkSemaphoreGetWin32HandleInfoKHR semaphore_get_handle_info = { VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR };
+    semaphore_get_handle_info.semaphore = semaphore;
+    semaphore_get_handle_info.handleType = EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT;
+
+    return vkGetSemaphoreWin32HandleKHR(vk.device, &semaphore_get_handle_info, handle);
+#else
+    VkSemaphoreGetFdInfoKHR semaphore_get_handle_info = { VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR };
+    semaphore_get_handle_info.semaphore = semaphore;
+    semaphore_get_handle_info.handleType = EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT;
+
+    return vkGetSemaphoreFdKHR(vk.device, &semaphore_get_handle_info, handle);
+#endif
+}
+
+VkResult
 CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& desc) {
     // Alloc buffer
     VkExternalMemoryBufferCreateInfo external_memory_buffer_info = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO };
@@ -1353,8 +1382,8 @@ VkResult CreatePoolForBuffer(VmaPool* pool, const Context& vk, const PoolBufferD
         // TODO: don't leak this, the usage of this by vma is delayed, thus the pointer must live as long as the pool.
         // Also need to be careful storing this in a struct because it would become self-referential, e.g. it will not
         // be safely copiable anymore. I think an allocation here is fine.
-        VkExportMemoryAllocateInfoKHR* export_mem_alloc_info = new VkExportMemoryAllocateInfoKHR;
-        *export_mem_alloc_info = { VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR };
+        VkExportMemoryAllocateInfo* export_mem_alloc_info = new VkExportMemoryAllocateInfo;
+        *export_mem_alloc_info = { VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO };
         export_mem_alloc_info->handleTypes = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
         pool_info.pMemoryAllocateNext = (void*)export_mem_alloc_info;
     }
@@ -1370,8 +1399,6 @@ typedef int ExternalHandle;
 #endif
 
 VkResult GetExternalHandleForBuffer(ExternalHandle* handle, const Context& vk, const Buffer& buffer) {
-    *handle = {};
-
     VmaAllocationInfo alloc_info = {};
     vmaGetAllocationInfo(vk.vma, buffer.allocation, &alloc_info);
 
