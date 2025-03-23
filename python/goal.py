@@ -3,31 +3,8 @@ from pyxpg import imgui
 from pyxpg import slang
 from pathlib import Path
 import numpy as np
-from time import perf_counter
-from pipelines import PipelineCache, Pipeline
-import hashlib
-from platformdirs import user_cache_path
-
-scalar_to_np = {
-    slang.ScalarKind.Float32: np.float32,
-} 
-
-def to_dtype(typ: slang.Type) -> np.dtype:
-    if   isinstance(typ, slang.Scalar):
-        return scalar_to_np[typ.base]
-    elif isinstance(typ, slang.Vector):
-        return np.dtype((scalar_to_np[typ.base], (typ.count,)))
-    elif isinstance(typ, slang.Matrix):
-        return np.dtype((scalar_to_np[typ.base], (typ.rows, typ.columns)))
-    elif isinstance(typ, slang.Array):
-        return np.dtype((to_dtype(typ.type), (typ.count,)))
-    elif isinstance(typ, slang.Struct):
-        d = {}
-        for f in typ.fields:
-            d[f.name] = (to_dtype(f.type), f.offset)
-        return np.dtype(d)
-    else:
-        raise TypeError("Unkown type")
+from pipelines import PipelineCache, Pipeline, compile
+from reflection import to_dtype
 
 ctx = Context()
 window = Window(ctx, "Hello", 1280, 720)
@@ -80,29 +57,6 @@ set0 = DescriptorSet(
 # set1.write_buffer(u_bu2, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
 pipeline: Pipeline = None
-
-def compile(file: Path, entry: str):
-    return slang.compile(str(file), entry)
-    # TODO: 
-    # [ ] This cache does not currently consider imported files / modules and slang target, compiler version, compilation defines / params (if any)
-    # [ ] No obvious way to clear the cache, maybe should be have some LRU with max size? e.g. touch files when using them
-    name = f"{hashlib.sha256(file.read_bytes()).digest().hex()}_{entry}.spirv"
-
-    # Check cache
-    cache_dir = user_cache_path("pyxpg")
-    path = Path(cache_dir, name)
-    if path.exists():
-        return path.read_bytes()
-    
-    # Create prog
-    prog = slang.compile(str(file), entry)
-    # refl = prog.reflection()
-
-    # Populate to cache
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(prog.code)
-
-    return prog
 
 def create_pipeline():
     global pipeline
@@ -218,7 +172,7 @@ while True:
 
     if window.should_close():
         break
-    
+
     draw()
 
 cache.stop()

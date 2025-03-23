@@ -3,10 +3,7 @@ from pyxpg import imgui
 from pyxpg import slang
 from pathlib import Path
 import numpy as np
-from time import perf_counter
-from pipelines import PipelineCache, Pipeline
-import hashlib
-from platformdirs import user_cache_path
+from pipelines import PipelineCache, Pipeline, compile
 from typing import Tuple
 
 import gfxmath
@@ -83,8 +80,8 @@ def create_pipeline():
     wait_idle(ctx)
 
     print("Rebuilding pipeline...", end="", flush=True)
-    vert_prog = slang.compile("shaders/voxels.vert.slang", "main")
-    frag_prog = slang.compile("shaders/voxels.frag.slang", "main")
+    vert_prog = compile(Path("shaders/voxels.vert.slang"), "main")
+    frag_prog = compile(Path("shaders/voxels.frag.slang"), "main")
 
     refl = vert_prog.reflection
     dt = reflection.to_dtype(refl.resources[0].type)

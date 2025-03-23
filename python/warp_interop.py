@@ -3,38 +3,15 @@ from pyxpg import imgui
 from pyxpg import slang
 from pathlib import Path
 import numpy as np
-from pipelines import PipelineCache, Pipeline
+from pipelines import PipelineCache, Pipeline, compile
+from reflection import to_dtype
 from time import perf_counter
-from platformdirs import user_cache_path
-import hashlib
-import pickle
 
 import warp as wp
 
 wp.init()
 
 ctx = Context()
-
-scalar_to_np = {
-    slang.ScalarKind.Float32: np.float32,
-}
-
-def to_dtype(typ: slang.Type) -> np.dtype:
-    if   isinstance(typ, slang.Scalar):
-        return scalar_to_np[typ.base]
-    elif isinstance(typ, slang.Vector):
-        return np.dtype((scalar_to_np[typ.base], (typ.count,)))
-    elif isinstance(typ, slang.Matrix):
-        return np.dtype((scalar_to_np[typ.base], (typ.rows, typ.columns)))
-    elif isinstance(typ, slang.Array):
-        return np.dtype((to_dtype(typ.type), (typ.count,)))
-    elif isinstance(typ, slang.Struct):
-        d = {}
-        for f in typ.fields:
-            d[f.name] = (to_dtype(f.type), f.offset)
-        return np.dtype(d)
-    else:
-        raise TypeError("Unkown type")
 
 window = Window(ctx, "Hello", 1280, 720)
 gui = Gui(window)
@@ -78,30 +55,6 @@ pipeline: Pipeline = None
 # a = wp.empty(shape=4, dtype=wp.vec3, device="cuda")
 ext_buf = wp.ExternalMemoryBuffer(v_buf.handle, wp.ExternalMemoryBuffer.HANDLE_TYPE_OPAQUEWIN32, size)
 a = ext_buf.map(wp.vec3, shape=4)
-
-def compile(file: Path, entry: str):
-    # TODO:
-    # [ ] This cache does not currently consider imported files / modules and slang target, compiler version, compilation defines / params (if any)
-    # [ ] No obvious way to clear the cache, maybe should be have some LRU with max size? e.g. touch files when using them
-    name = f"{hashlib.sha256(file.read_bytes()).digest().hex()}_{entry}.shdr"
-
-    # Check cache
-    cache_dir = user_cache_path("pyxpg")
-    path = Path(cache_dir, name)
-    if path.exists():
-        try:
-            return pickle.load(open(path, "rb"))
-        except:
-            pass
-
-    # Create prog
-    prog = slang.compile(str(file), entry)
-
-    # Populate cache
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    pickle.dump(prog, open(path, "wb"))
-
-    return prog
 
 def create_pipeline():
     global pipeline
