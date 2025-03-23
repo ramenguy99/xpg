@@ -41,7 +41,7 @@ pipeline = GraphicsPipeline(
     input_assembly = InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
     descriptor_sets = [ set ],
     push_constants_ranges = [
-        PushConstantsRange(4),
+        PushConstantsRange(16),
     ],
     attachments = [
         Attachment(format=window.swapchain_format)
@@ -60,8 +60,6 @@ def draw():
 
     if swapchain_status == SwapchainStatus.RESIZED:
         pass
-
-    buf.destroy()
 
     with gui.frame():
         if imgui.begin("wow"):

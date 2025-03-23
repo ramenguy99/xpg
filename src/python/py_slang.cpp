@@ -5,6 +5,7 @@
 #include <nanobind/intrusive/ref.h>
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/vector.h>
+#include <nanobind/stl/tuple.h>
 
 #include <slang.h>
 #include <slang-com-ptr.h>
@@ -14,26 +15,76 @@
 namespace nb = nanobind;
 
 struct Reflection_Obj: nb::intrusive_base {
+    static nb::object __getstate__(const Reflection_Obj& obj) {
+        return nb::none();
+    }
+
+    static void __setstate__(Reflection_Obj& obj, nb::object) {
+        new (&obj) Reflection_Obj();
+    }
 };
 
 struct Reflection_Scalar: Reflection_Obj {
     slang::TypeReflection::ScalarType scalar;
+
+    static slang::TypeReflection::ScalarType __getstate__(const Reflection_Scalar& obj) {
+        return obj.scalar;
+    }
+
+    static void __setstate__(Reflection_Scalar& obj, slang::TypeReflection::ScalarType scalar) {
+        new (&obj) Reflection_Scalar();
+        obj.scalar = scalar;
+    }
 };
 
 struct Reflection_Array: Reflection_Obj {
     nb::ref<Reflection_Obj> type;
     usize count;
+
+    static std::tuple<nb::ref<Reflection_Obj>, usize> __getstate__(const Reflection_Array& obj ) {
+        return std::make_tuple(obj.type, obj.count);
+    }
+
+    static void __setstate__(Reflection_Array& obj, const std::tuple<nb::ref<Reflection_Obj>, usize> array) {
+        new (&obj) Reflection_Array();
+
+        obj.type = std::get<0>(array);
+        obj.count = std::get<1>(array);
+    }
 };
 
 struct Reflection_Vector: Reflection_Obj {
     slang::TypeReflection::ScalarType base;
     u32 count;
+
+    static std::tuple<slang::TypeReflection::ScalarType, u32> __getstate__(const Reflection_Vector& obj) {
+        return std::make_tuple(obj.base, obj.count);
+    }
+
+    static void __setstate__(Reflection_Vector& obj, const std::tuple<slang::TypeReflection::ScalarType, u32>& vector) {
+        new (&obj) Reflection_Vector();
+
+        obj.base = std::get<0>(vector);
+        obj.count = std::get<1>(vector);
+    }
 };
 
 struct Reflection_Matrix: Reflection_Obj {
     slang::TypeReflection::ScalarType base;
     u32 rows;
     u32 columns;
+
+    static std::tuple<slang::TypeReflection::ScalarType, u32, u32> __getstate__(const Reflection_Matrix& obj) {
+        return std::make_tuple(obj.base, obj.rows, obj.columns);
+    }
+
+    static void __setstate__(Reflection_Matrix& obj, const std::tuple<slang::TypeReflection::ScalarType, u32, u32>& matrix) {
+        new (&obj) Reflection_Matrix();
+
+        obj.base = std::get<0>(matrix);
+        obj.rows = std::get<1>(matrix);
+        obj.columns = std::get<2>(matrix);
+    }
 };
 
 struct Reflection_Field: Reflection_Obj {
@@ -41,10 +92,32 @@ struct Reflection_Field: Reflection_Obj {
     nb::ref<Reflection_Obj> type;
     u32 offset;
     // u32 size;
+
+    static std::tuple<nb::str, nb::ref<Reflection_Obj>, u32> __getstate__(const Reflection_Field& obj) {
+        return std::make_tuple(obj.name, obj.type, obj.offset);
+    }
+
+    static void __setstate__(Reflection_Field& obj, const std::tuple<nb::str, nb::ref<Reflection_Obj>, u32>& field) {
+        new (&obj) Reflection_Field();
+
+        obj.name = std::get<0>(field);
+        obj.type = std::get<1>(field);
+        obj.offset = std::get<2>(field);
+    }
 };
 
 struct Reflection_Struct: Reflection_Obj {
     std::vector<nb::ref<Reflection_Field>> fields;
+
+    static std::vector<nb::ref<Reflection_Field>> __getstate__(const Reflection_Struct& obj) {
+        return obj.fields;
+    }
+
+    static void __setstate__(Reflection_Struct& obj, const std::vector<nb::ref<Reflection_Field>>& fields) {
+        new (&obj) Reflection_Struct();
+
+        obj.fields = fields;
+    }
 };
 
 struct Reflection_Resource: nb::intrusive_base {
@@ -63,21 +136,60 @@ struct Reflection_Resource: nb::intrusive_base {
     u32 binding;
 
     nb::ref<Reflection_Obj> type;
+
+    static std::tuple<Kind, SlangResourceShape, SlangResourceAccess, nb::str, u32,u32, nb::ref<Reflection_Obj>>
+    __getstate__(const Reflection_Resource& obj) {
+        return std::make_tuple(obj.kind, obj.shape, obj.access, obj.name, obj.set, obj.binding, obj.type);
+    }
+
+    static void __setstate__(Reflection_Resource& obj, const std::tuple<Kind, SlangResourceShape, SlangResourceAccess, nb::str, u32,u32, nb::ref<Reflection_Obj>>& resource) {
+        new (&obj) Reflection_Resource();
+
+        obj.kind = std::get<0>(resource);
+        obj.shape = std::get<1>(resource);
+        obj.access = std::get<2>(resource);
+        obj.name = std::get<3>(resource);
+        obj.set = std::get<4>(resource);
+        obj.binding = std::get<5>(resource);
+        obj.type = std::get<6>(resource);
+    }
 };
 
 struct Reflection: nb::intrusive_base {
     std::vector<nb::ref<Reflection_Resource>> resources;
 
     // TODO: push constants
+
+    static std::vector<nb::ref<Reflection_Resource>> __getstate__(const Reflection& obj) {
+        return obj.resources;
+    }
+
+    static void __setstate__(Reflection& obj, const std::vector<nb::ref<Reflection_Resource>>& resources) {
+        new (&obj) Reflection();
+
+        obj.resources = resources;
+    }
 };
 
 Slang::ComPtr<slang::IGlobalSession> g_slang_global_session;
 
 struct SlangShader: public nb::intrusive_base {
+    SlangShader() {}
     SlangShader(nb::bytes c, nb::ref<Reflection> refl): code(std::move(c)), reflection(refl) {}
 
     nb::bytes code;
     nb::ref<Reflection> reflection;
+
+    static std::tuple<nb::bytes, nb::ref<Reflection>> __getstate__(const SlangShader& obj) {
+        return std::make_tuple(obj.code, obj.reflection);
+    }
+
+    static void __setstate__(SlangShader& obj, const std::tuple<nb::bytes, nb::ref<Reflection>>& shader) {
+        new (&obj) SlangShader();
+
+        obj.code = std::get<0>(shader);
+        obj.reflection = std::get<1>(shader);
+    }
 };
 
 nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
@@ -110,7 +222,7 @@ nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
             std::unique_ptr<Reflection_Struct> s = std::make_unique<Reflection_Struct>();
             for(usize i = 0; i < type->getFieldCount(); i++) {
                 slang::VariableLayoutReflection* field = type->getFieldByIndex(i);
-                
+
                 std::unique_ptr<Reflection_Field> f = std::make_unique<Reflection_Field>();
                 f->name = nb::str(field->getName());
                 f->type = parse_type(field->getTypeLayout());
@@ -244,7 +356,7 @@ nb::ref<SlangShader> slang_compile(const nb::str& file, const::nb::str& entry) {
             throw std::runtime_error("Unexpected type layout kind in shader reflection");
             break;
     }
-    
+
     Slang::ComPtr<slang::IBlob> kernel;
     result = linked_program->getEntryPointCode(0, // entryPointIndex
                                                0, // targetIndex
@@ -260,36 +372,50 @@ void slang_create_bindings(nb::module_& mod_slang)
 {
     nb::class_<Reflection_Obj>(mod_slang, "Type",
         nb::intrusive_ptr<Reflection_Obj>([](Reflection_Obj *o, PyObject *po) noexcept { o->set_self_py(po); }))
+       .def("__getstate__", Reflection_Obj::__getstate__)
+       .def("__setstate__", Reflection_Obj::__setstate__)
     ;
 
     nb::class_<Reflection_Scalar, Reflection_Obj>(mod_slang, "Scalar")
-       .def_ro("base", &Reflection_Scalar::scalar) 
+       .def_ro("base", &Reflection_Scalar::scalar)
+       .def("__getstate__", Reflection_Scalar::__getstate__)
+       .def("__setstate__", Reflection_Scalar::__setstate__)
     ;
 
     nb::class_<Reflection_Array, Reflection_Obj>(mod_slang, "Array")
-       .def_ro("type", &Reflection_Array::type) 
-       .def_ro("count", &Reflection_Array::count) 
+       .def_ro("type", &Reflection_Array::type)
+       .def_ro("count", &Reflection_Array::count)
+       .def("__getstate__", Reflection_Array::__getstate__)
+       .def("__setstate__", Reflection_Array::__setstate__)
     ;
 
     nb::class_<Reflection_Vector, Reflection_Obj>(mod_slang, "Vector")
-       .def_ro("base", &Reflection_Vector::base) 
-       .def_ro("count", &Reflection_Vector::count) 
+       .def_ro("base", &Reflection_Vector::base)
+       .def_ro("count", &Reflection_Vector::count)
+       .def("__getstate__", Reflection_Vector::__getstate__)
+       .def("__setstate__", Reflection_Vector::__setstate__)
     ;
 
     nb::class_<Reflection_Matrix, Reflection_Obj>(mod_slang, "Matrix")
-       .def_ro("base", &Reflection_Matrix::base) 
-       .def_ro("rows", &Reflection_Matrix::rows) 
-       .def_ro("columns", &Reflection_Matrix::columns) 
+       .def_ro("base", &Reflection_Matrix::base)
+       .def_ro("rows", &Reflection_Matrix::rows)
+       .def_ro("columns", &Reflection_Matrix::columns)
+       .def("__getstate__", Reflection_Matrix::__getstate__)
+       .def("__setstate__", Reflection_Matrix::__setstate__)
     ;
 
     nb::class_<Reflection_Field, Reflection_Obj>(mod_slang, "Field")
-       .def_ro("name", &Reflection_Field::name) 
-       .def_ro("type", &Reflection_Field::type) 
-       .def_ro("offset", &Reflection_Field::offset) 
+       .def_ro("name", &Reflection_Field::name)
+       .def_ro("type", &Reflection_Field::type)
+       .def_ro("offset", &Reflection_Field::offset)
+       .def("__getstate__", Reflection_Field::__getstate__)
+       .def("__setstate__", Reflection_Field::__setstate__)
     ;
 
     nb::class_<Reflection_Struct, Reflection_Obj>(mod_slang, "Struct")
-       .def_ro("fields", &Reflection_Struct::fields) 
+       .def_ro("fields", &Reflection_Struct::fields)
+       .def("__getstate__", Reflection_Struct::__getstate__)
+       .def("__setstate__", Reflection_Struct::__setstate__)
     ;
 
     nb::enum_<Reflection_Resource::Kind>(mod_slang, "ResourceKind")
@@ -331,17 +457,23 @@ void slang_create_bindings(nb::module_& mod_slang)
         .def_ro("set", &Reflection_Resource::set)
         .def_ro("binding", &Reflection_Resource::binding)
         .def_ro("type", &Reflection_Resource::type)
+        .def("__getstate__", Reflection_Resource::__getstate__)
+        .def("__setstate__", Reflection_Resource::__setstate__)
     ;
 
     nb::class_<Reflection>(mod_slang, "Reflection",
         nb::intrusive_ptr<Reflection>([](Reflection *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def_ro("resources", &Reflection::resources)
+        .def("__getstate__", Reflection::__getstate__)
+        .def("__setstate__", Reflection::__setstate__)
     ;
 
     nb::class_<SlangShader>(mod_slang, "Shader",
         nb::intrusive_ptr<SlangShader>([](SlangShader *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def_prop_ro("code", [](SlangShader& s) { return s.code; })
         .def_ro("reflection", &SlangShader::reflection)
+        .def("__getstate__", SlangShader::__getstate__)
+        .def("__setstate__", SlangShader::__setstate__)
     ;
 
     mod_slang.def("compile", slang_compile);

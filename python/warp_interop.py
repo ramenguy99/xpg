@@ -5,6 +5,9 @@ from pathlib import Path
 import numpy as np
 from pipelines import PipelineCache, Pipeline
 from time import perf_counter
+from platformdirs import user_cache_path
+import hashlib
+import pickle
 
 import warp as wp
 
@@ -77,7 +80,28 @@ ext_buf = wp.ExternalMemoryBuffer(v_buf.handle, wp.ExternalMemoryBuffer.HANDLE_T
 a = ext_buf.map(wp.vec3, shape=4)
 
 def compile(file: Path, entry: str):
-    return slang.compile(str(file), entry)
+    # TODO:
+    # [ ] This cache does not currently consider imported files / modules and slang target, compiler version, compilation defines / params (if any)
+    # [ ] No obvious way to clear the cache, maybe should be have some LRU with max size? e.g. touch files when using them
+    name = f"{hashlib.sha256(file.read_bytes()).digest().hex()}_{entry}.shdr"
+
+    # Check cache
+    cache_dir = user_cache_path("pyxpg")
+    path = Path(cache_dir, name)
+    if path.exists():
+        try:
+            return pickle.load(open(path, "rb"))
+        except:
+            pass
+
+    # Create prog
+    prog = slang.compile(str(file), entry)
+
+    # Populate cache
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    pickle.dump(prog, open(path, "wb"))
+
+    return prog
 
 def create_pipeline():
     global pipeline
@@ -158,7 +182,6 @@ def draw():
             dim=1,                # number of threads
             inputs=[a, t],        # parameters
             device="cuda")        # execution device
-    print(a)
 
     with gui.frame():
         if imgui.begin("wow"):

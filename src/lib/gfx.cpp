@@ -782,7 +782,7 @@ Frame& WaitForFrame(Window* w, const Context& vk) {
     vkResetFences(vk.device, 1, &frame.fence);
 
 #if !SYNC_SWAPCHAIN_DESTRUCTION
-    // Decrement frame in flight count on , if any.
+    // Decrement frame in flight count on stale swapchains, if any.
     for (usize i = 0; i < w->stale_swapchains.length;) {
         if(--w->stale_swapchains[i].frames_in_flight == 0) {
             StaleSwapchain& stale = w->stale_swapchains[i];
