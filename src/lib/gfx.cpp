@@ -1239,7 +1239,7 @@ VkExternalSemaphoreHandleTypeFlagBits EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT = VK_EX
 VkExternalMemoryHandleTypeFlagBits EXTERNAL_MEMORY_HANDLE_TYPE_BIT = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 #else
 VkExternalSemaphoreHandleTypeFlagBits EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
-VkExternalMemoryHandleTypeFlagBits EXTERNAL_MEMORY_HANDLE_TYPE_BIT = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT;
+VkExternalMemoryHandleTypeFlagBits EXTERNAL_MEMORY_HANDLE_TYPE_BIT = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
 #endif
 
 VkResult
@@ -1409,11 +1409,11 @@ VkResult GetExternalHandleForBuffer(ExternalHandle* handle, const Context& vk, c
 
     return vkGetMemoryWin32HandleKHR(vk.device, &memory_get_win32_handle_info, handle);
 #else
-    VkMemoryGetFdInfoKHR vkMemoryGetFdInfoKHR = { VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR };
-    memory_get_win32_handle_info.memory = alloc_info.deviceMemory;
-    memory_get_win32_handle_info.handleType = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
+    VkMemoryGetFdInfoKHR memory_get_fd_info = { VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR };
+    memory_get_fd_info.memory = alloc_info.deviceMemory;
+    memory_get_fd_info.handleType = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
 
-    return vkGetMemoryFdKHR(vk.device, &memory_get_win32_handle_info, handle);
+    return vkGetMemoryFdKHR(vk.device, &memory_get_fd_info, handle);
 #endif
 }
 

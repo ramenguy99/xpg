@@ -5,6 +5,7 @@ import numpy as np
 from pipelines import PipelineCache, Pipeline, compile
 from reflection import to_dtype
 from time import perf_counter
+import os
 
 import warp as wp
 
@@ -27,17 +28,25 @@ set = DescriptorSet(
     ],
 )
 
+
+if os.name == 'nt':
+    memory_handle_type = wp.ExternalMemoryBuffer.HANDLE_TYPE_OPAQUEWIN32 
+    semaphore_handle_type = wp.ExternalMemoryBuffer.HANDLE_TYPE_OPAQUEWIN32 
+else:
+    memory_handle_type = wp.ExternalMemoryBuffer.HANDLE_TYPE_OPAQUEFD
+    semaphore_handle_type = wp.ExternalMemoryBuffer.HANDLE_TYPE_OPAQUEFD
+
 # Warp
 wp.init()
 size = 4 * 3 * 4
 v_buf = ExternalBuffer(ctx, size, BufferUsageFlags.VERTEX, AllocType.DEVICE)
-ext_buf = wp.ExternalMemoryBuffer(v_buf.handle, wp.ExternalMemoryBuffer.HANDLE_TYPE_OPAQUEWIN32, size)
+ext_buf = wp.ExternalMemoryBuffer(v_buf.handle, memory_handle_type, size)
 a = ext_buf.map(wp.vec3, shape=4)
 
 cuda_done = ExternalSemaphore(ctx)
 vulkan_done = ExternalSemaphore(ctx)
-warp_cuda_done = wp.ExternalSemaphore(cuda_done.handle, wp.ExternalSemaphore.HANDLE_TYPE_OPAQUEWIN32)
-warp_vulkan_done = wp.ExternalSemaphore(vulkan_done.handle, wp.ExternalSemaphore.HANDLE_TYPE_OPAQUEWIN32)
+warp_cuda_done = wp.ExternalSemaphore(cuda_done.handle, semaphore_handle_type)
+warp_vulkan_done = wp.ExternalSemaphore(vulkan_done.handle, semaphore_handle_type)
 
 @wp.kernel
 def simple_kernel(a: wp.array(dtype=wp.vec3), t: wp.float32):

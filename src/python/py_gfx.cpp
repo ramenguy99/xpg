@@ -787,7 +787,7 @@ struct Window: public nb::intrusive_base {
             wait_semaphores[additional_wait_semaphores.size()] = frame.frame.acquire_semaphore;
             wait_stages[additional_wait_semaphores.size()] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-            Array<VkSemaphore> signal_semaphores(additional_wait_semaphores.size() + 1);
+            Array<VkSemaphore> signal_semaphores(additional_signal_semaphores.size() + 1);
             for(usize i = 0; i < additional_signal_semaphores.size(); i++) {
                 signal_semaphores[i] = additional_signal_semaphores[i]->semaphore;
             }
