@@ -175,20 +175,22 @@ Slang::ComPtr<slang::IGlobalSession> g_slang_global_session;
 
 struct SlangShader: public nb::intrusive_base {
     SlangShader() {}
-    SlangShader(nb::bytes c, nb::ref<Reflection> refl): code(std::move(c)), reflection(refl) {}
+    SlangShader(nb::bytes c, nb::ref<Reflection> refl, nb::list dependencies): code(std::move(c)), reflection(refl), dependencies(std::move(dependencies)) {}
 
     nb::bytes code;
     nb::ref<Reflection> reflection;
+    nb::list dependencies;
 
-    static std::tuple<nb::bytes, nb::ref<Reflection>> __getstate__(const SlangShader& obj) {
-        return std::make_tuple(obj.code, obj.reflection);
+    static std::tuple<nb::bytes, nb::ref<Reflection>, nb::list> __getstate__(const SlangShader& obj) {
+        return std::make_tuple(obj.code, obj.reflection, obj.dependencies);
     }
 
-    static void __setstate__(SlangShader& obj, const std::tuple<nb::bytes, nb::ref<Reflection>>& shader) {
+    static void __setstate__(SlangShader& obj, const std::tuple<nb::bytes, nb::ref<Reflection>, nb::list>& shader) {
         new (&obj) SlangShader();
 
         obj.code = std::get<0>(shader);
         obj.reflection = std::get<1>(shader);
+        obj.dependencies = std::get<2>(shader);
     }
 };
 
@@ -237,6 +239,11 @@ nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
     }
 }
 
+struct CompilationError: public std::runtime_error
+{
+    CompilationError(std::string error): std::runtime_error(error) {}
+};
+
 nb::ref<SlangShader> slang_compile(const nb::str& file, const::nb::str& entry) {
     if(!g_slang_global_session) {
         SlangGlobalSessionDesc desc = {
@@ -264,13 +271,18 @@ nb::ref<SlangShader> slang_compile(const nb::str& file, const::nb::str& entry) {
     Slang::ComPtr<slang::IModule> mod = Slang::ComPtr<slang::IModule>(session->loadModule(file.c_str(), diagnostics.writeRef()));
 
     if(!mod) {
-        throw std::runtime_error((char *)diagnostics->getBufferPointer());
+        throw CompilationError((char *)diagnostics->getBufferPointer());
     }
 
     Slang::ComPtr<slang::IEntryPoint> entry_point;
     mod->findEntryPointByName(entry.c_str(), entry_point.writeRef());
     if(!entry_point) {
-        throw std::runtime_error("Entry point not found");
+        throw CompilationError("Entry point not found");
+    }
+
+    nb::list dependencies;
+    for(usize i = 0; i < mod->getDependencyFileCount(); i++) {
+        dependencies.append(nb::str(mod->getDependencyFilePath(i)));
     }
 
     // slang::IComponentType* components[] = { mod };
@@ -285,7 +297,7 @@ nb::ref<SlangShader> slang_compile(const nb::str& file, const::nb::str& entry) {
     Slang::ComPtr<slang::IComponentType> linked_program;
     result = program->link(linked_program.writeRef(), diagnostics.writeRef());
     if(SLANG_FAILED(result)) {
-        throw std::runtime_error((char*)diagnostics->getBufferPointer());
+        throw CompilationError((char*)diagnostics->getBufferPointer());
     }
 
     nb::ref<Reflection> reflection = new Reflection();
@@ -362,14 +374,16 @@ nb::ref<SlangShader> slang_compile(const nb::str& file, const::nb::str& entry) {
                                                0, // targetIndex
                                                kernel.writeRef(), diagnostics.writeRef());
     if(SLANG_FAILED(result)) {
-        throw std::runtime_error((char*)diagnostics->getBufferPointer());
+        throw CompilationError((char*)diagnostics->getBufferPointer());
     }
 
-    return nb::ref<SlangShader>(new SlangShader(nb::bytes(kernel->getBufferPointer(), kernel->getBufferSize()), reflection));
+    return nb::ref<SlangShader>(new SlangShader(nb::bytes(kernel->getBufferPointer(), kernel->getBufferSize()), reflection, std::move(dependencies)));
 }
 
 void slang_create_bindings(nb::module_& mod_slang)
 {
+    nb::exception<CompilationError>(mod_slang, "CompilationError");
+
     nb::class_<Reflection_Obj>(mod_slang, "Type",
         nb::intrusive_ptr<Reflection_Obj>([](Reflection_Obj *o, PyObject *po) noexcept { o->set_self_py(po); }))
        .def("__getstate__", Reflection_Obj::__getstate__)
@@ -470,8 +484,9 @@ void slang_create_bindings(nb::module_& mod_slang)
 
     nb::class_<SlangShader>(mod_slang, "Shader",
         nb::intrusive_ptr<SlangShader>([](SlangShader *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def_prop_ro("code", [](SlangShader& s) { return s.code; })
+        .def_ro("code", &SlangShader::code)
         .def_ro("reflection", &SlangShader::reflection)
+        .def_ro("dependencies", &SlangShader::dependencies)
         .def("__getstate__", SlangShader::__getstate__)
         .def("__setstate__", SlangShader::__setstate__)
     ;

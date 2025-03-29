@@ -35,6 +35,9 @@ VulkanDebugReportCallback(VkDebugReportFlagsEXT flags,
 {
     // This silences warnings like "For optimal performance image layout should be VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL instead of GENERAL."
     // We'll assume other performance warnings are also not useful.
+    // 
+    // TODO: make this configurable, we might want to enable it at some point
+    // 
     // if (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
     //     return VK_FALSE;
 
@@ -378,6 +381,13 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             // TODO: Check presentation support, this actually requires getting a surface, so we can't
             // do this here. To support this we need to delay queue choice after creating a window.
             // Order of dependencies is then: instance -> window -> physical device + queue family -> device -> everthing else
+            // There is actually a platform specific version of this that does not require a window:
+            //     vkGetPhysicalDeviceWin32PresentationSupportKHR
+            // This is conveniently wrapped for us by:
+            //     glfwGetPhysicalDevicePresentationSupport
+            // The spec says there is no guarantee of the queue then supporting all surfaces, but legend says
+            // this will not happen on our supported targets. We can also add the surface check and to window
+            // creation for logging / debugging, and instead trust the queue to work.
 
             // VkBool32 presentationSupport = false;
             // vkGetPhysicalDeviceSurfaceSupportKHR(physical_devices[i], j, surface, &presentationSupport);
@@ -953,7 +963,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     }
 
     // Retrieve supported surface formats.
-    // @TODO: smarter format picking logic (HDR / non sRGB displays).
+    // TODO: smarter format picking logic (HDR / non sRGB displays).
     u32 formats_count;
     result = vkGetPhysicalDeviceSurfaceFormatsKHR(vk.physical_device, surface, &formats_count, 0);
     if (result != VK_SUCCESS || formats_count == 0) {

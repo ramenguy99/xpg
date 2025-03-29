@@ -1,9 +1,8 @@
 from pyxpg import *
 from pyxpg import imgui
 from pyxpg import slang
-from pathlib import Path
 import numpy as np
-from pipelines import PipelineCache, Pipeline, compile
+from pipelines import PipelineWatch, Pipeline
 from reflection import to_dtype
 
 ctx = Context()
@@ -37,83 +36,64 @@ v_buf = Buffer.from_data(ctx, V.tobytes(), BufferUsageFlags.VERTEX, AllocType.DE
 i_buf = Buffer.from_data(ctx, I.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
 
 
-set0 = DescriptorSet(
+set = DescriptorSet(
     ctx,
     [
         DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
-        # DescriptorSetEntry(2, DescriptorType.UNIFORM_BUFFER),
     ],
 )
-# set1 = DescriptorSet(
-#     ctx,
-#     [
-#         DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
-#     ],
-# )
 
-# set0.write_buffer(u_bu3, DescriptorType.UNIFORM_BUFFER, 1, 0)
-# set0.write_buffer(u_bu3, DescriptorType.UNIFORM_BUFFER, 1, 1)
+class ColorPipeline(Pipeline):
+    vert_prog = "shaders/color.vert.slang"
+    frag_prog = "shaders/color.frag.slang"
 
-# set1.write_buffer(u_bu2, DescriptorType.UNIFORM_BUFFER, 0, 0)
+    def create(self, vert_prog: slang.Shader, frag_prog: slang.Shader):
+        refl = vert_prog.reflection
+        dt = to_dtype(refl.resources[0].type)
 
-pipeline: Pipeline = None
+        u_buf = Buffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
+        set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
-def create_pipeline():
-    global pipeline
-    global buf
+        global buf
+        buf = u_buf.view.view(dt)
+        buf["transform"] = rot
+        buf["nest1"]["val2"] = push_constants
 
-    wait_idle(ctx)
+        vert = Shader(ctx, vert_prog.code)
+        frag = Shader(ctx, frag_prog.code)
 
-    print("Rebuilding pipeline...", end="", flush=True)
-    vert_prog = compile(Path("shaders/color.vert.slang"), "main")
-    frag_prog = compile(Path("shaders/color.frag.slang"), "main")
+        self.pipeline = GraphicsPipeline(
+            ctx,
+            stages = [
+                PipelineStage(vert, Stage.VERTEX),
+                PipelineStage(frag, Stage.FRAGMENT),
+            ],
+            vertex_bindings = [
+                VertexBinding(0, 12, VertexInputRate.VERTEX),
+            ],
+            vertex_attributes = [
+                VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
+            ],
+            input_assembly = InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
+            push_constants_ranges = [
+                PushConstantsRange(12),
+            ],
+            descriptor_sets = [ set ],
+            attachments = [
+                Attachment(format=window.swapchain_format)
+            ]
+        )
 
-    refl = vert_prog.reflection
-    dt = to_dtype(refl.resources[0].type)
-
-    u_buf = Buffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
-    set0.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
-
-    buf = u_buf.view.view(dt)
-    buf["transform"] = rot
-    buf["nest1"]["val2"] = push_constants
-
-    vert = Shader(ctx, vert_prog.code)
-    frag = Shader(ctx, frag_prog.code)
-
-    pipeline = GraphicsPipeline(
-        ctx,
-        stages = [
-            PipelineStage(vert, Stage.VERTEX),
-            PipelineStage(frag, Stage.FRAGMENT),
-        ],
-        vertex_bindings = [
-            VertexBinding(0, 12, VertexInputRate.VERTEX),
-        ],
-        vertex_attributes = [
-            VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
-        ],
-        input_assembly = InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
-        push_constants_ranges = [
-            PushConstantsRange(12),
-        ],
-        descriptor_sets = [ set0 ],
-        # descriptor_sets = [ set0, set1 ],
-        attachments = [
-            Attachment(format=window.swapchain_format)
-        ]
-    )
-
-    print(" Done")
-
-cache = PipelineCache([
-    Pipeline(create_pipeline, ["shaders/color.vert.slang", "shaders/color.frag.slang"]),
+color = ColorPipeline()
+cache = PipelineWatch([
+    color,
 ])
+
 
 def draw():
     global push_constants
 
-    cache.refresh()
+    cache.refresh(lambda: wait_idle(ctx))
 
     # swapchain update
     swapchain_status = window.update_swapchain()
@@ -151,9 +131,8 @@ def draw():
                     ),
                 ]):
                 cmd.bind_pipeline_state(
-                    pipeline=pipeline,
-                    # descriptor_sets=[ set0, set1 ],
-                    descriptor_sets=[ set0 ],
+                    pipeline=color.pipeline,
+                    descriptor_sets=[ set ],
                     push_constants=push_constants.tobytes(),
                     vertex_buffers=[ v_buf ],
                     index_buffer=i_buf,

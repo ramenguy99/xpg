@@ -23,11 +23,15 @@ Python:
             - Auto resolve -> use names in python, descriptor set creation and set/binding/offset computation is automatic
             - Python bindings gen -> offline step builds shaders and creates python bindings to call stuff
     - Slang takes around 200ms to initialize in release and (2.5s in debug)...
+    - Include files / deps:
+        - Use modules for shareable reusable parts (e.g. helper functions, materials, shadows, etc..)
+        - Can use include files in shaders to share common types etc.., less prio than modules but still useful e.g. for cpp interop
 [ ] Framegraph implementation on top of reflection for easy prototyping of pipelines/shaders
     -> interesting here would be how much perf we can have when sharing data through arrays, e.g. textures, buffers, uniforms
     -> also interesting if we want to have a full python framegraph or if we can somehow leverage python callables
        + some python bindings to reuse at least the synchronization / traversal logic implemented in C++
 [ ] App ideas:
+    [ ] Expose compute and raytracing -> redo raytrace
     [ ] Try to redo sequence, can i read directly to bufs without gil?
     [ ] Huge voxel engine
         -> brickmap
@@ -40,7 +44,17 @@ Python:
 [ ] Copy / upload / blit utils
 
 Fetaures:
-[ ] File formats
+[ ] Better feature / profile management:
+    [ ] Optional debug_log / validation / gpu based validation / synchronization validation
+    [ ] Window features
+    [ ] Preferred features with a way to fallback
+    [ ] Used when picking devices
+[ ] Object names / debug API (names should be optional on python side, otherwise annoying to specify them during prototyping)
+[ ] Add helpers for timestamp queries
+[ ] Upload helper for buffer that works if device memory cannot be mapped
+    [ ] Also batch uplod helper for small images / buffer instead of copy + sync for each
+[ ] File formats:
+    [ ] Do we need this in python? Or do we keep it there?
 [ ] Meshlet stuff:
     [ ] Integrate meshoptimizer
     [ ] Rasterize meshlets
@@ -49,9 +63,10 @@ Fetaures:
     [ ] Raytrace CLAS
     [ ] Python bindings
 
-Vulkan API:
-[ ] Object names / debug API (names should be optional on python side, otherwise annoying to specify them during prototyping)
-[ ] Add helpers for timestamp queries
+Build:
+[ ] static build on windows still broken? dynamically links with lz4?
+[ ] cibuildwheel for python
+[ ] actually rename everything or too late?
 
 
 Run python examples:
@@ -61,9 +76,9 @@ Swapchain:
 [ ] Try resize without waitidle, just recreate swapchain, start using new swapchain, delete old when no more frame is using it.
     -> not entirely clear what happens when you have 3 frames in flight, can you potentially have 3 swapchains alive
        at the same time? Or do you end up calling wait idle at that point?
-    See: https://www.youtube.com/watch?v=mvkHYAu7i6c
-[ ] See todo in gfx.h, needs helper on application side, otherwise very complex to do right, should probably sacrifice
-    perf during resize (e.g. cap to 2 swapchains in flight) instead of having growing history.
+    -> See: https://www.youtube.com/watch?v=mvkHYAu7i6c
+    -> See todo in gfx.h, needs helper on application side, otherwise very complex to do right, should probably sacrifice
+       perf during resize (e.g. cap to 2 swapchains in flight) instead of having growing history.
 
 Descriptors:
 - To run a pipeline need to bind the related descriptor sets
@@ -265,3 +280,4 @@ Perf notes:
 - when not using nsight actually I get the same performance with async copy compute queue and PCIe BAR writes -> likely closer bandwidth
 - All in all we have 2.5ms draw and ~3.5ms transfer. We are just transfer bound, but with the copy queue we keep the CPU free during those transfers.
 [ ] Try with buffered stream loading directly to upload heap -> slightly more complex because we have more buffers then frames there
+- https://ctf.re/about/
