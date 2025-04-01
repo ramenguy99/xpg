@@ -27,19 +27,9 @@ I = np.array([
 ], np.uint32)
 
 rot = np.eye(4, dtype=np.float32)
-rot[:3, :3] = np.eye(3)
-
-rot2 = np.eye(4, dtype=np.float32)
-rot2[:3, :3] = np.eye(3) * 0.4
-
-rot3 = np.eye(4, dtype=np.float32)
-rot3[:3, :3] = np.eye(3) * 2
-
 push_constants = np.array([ 1.0, 0.0, 0.0], np.float32)
-
 v_buf = Buffer.from_data(ctx, V.tobytes(), BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED)
 i_buf = Buffer.from_data(ctx, I.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
-
 
 set = DescriptorSet(
     ctx,

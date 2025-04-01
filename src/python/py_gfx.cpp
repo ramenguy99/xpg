@@ -1258,7 +1258,7 @@ void CommandBuffer::bind_pipeline_state(
 
 void gfx_create_bindings(nb::module_& m)
 {
-    nb::enum_<gfx::DeviceFeatures::DeviceFeaturesFlags>(m, "DeviceFeatures", nb::is_flag())
+    nb::enum_<gfx::DeviceFeatures::DeviceFeaturesFlags>(m, "DeviceFeatures", nb::is_flag(), nb::is_arithmetic())
         .value("NONE",                gfx::DeviceFeatures::NONE)
         .value("PRESENTATION",        gfx::DeviceFeatures::PRESENTATION)
         .value("DYNAMIC_RENDERING",   gfx::DeviceFeatures::DYNAMIC_RENDERING)
@@ -1274,7 +1274,7 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<Context>([](Context *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<std::tuple<u32, u32>, gfx::DeviceFeatures::DeviceFeaturesFlags, u32, bool, bool, bool>(),
             nb::arg("version") = std::make_tuple(1, 1),
-            nb::arg("device_features") = gfx::DeviceFeatures::PRESENTATION | gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
+            nb::arg("device_features") = gfx::DeviceFeatures::DeviceFeaturesFlags(gfx::DeviceFeatures::PRESENTATION | gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::SYNCHRONIZATION_2),
             nb::arg("preferred_frames_in_flight") = 2,
             nb::arg("enable_validation_layer") = false,
             nb::arg("enable_gpu_based_validation") = false,

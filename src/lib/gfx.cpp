@@ -652,7 +652,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     vma_info.instance = instance;
     vma_info.physicalDevice = physical_device;
     vma_info.device = device;
-    vma_info.vulkanApiVersion = version;
+    vma_info.vulkanApiVersion = desc.minimum_api_version;
 
     VmaAllocator vma;
     result = vmaCreateAllocator(&vma_info, &vma);
@@ -1465,7 +1465,9 @@ VkResult CreatePoolForBuffer(VmaPool* pool, const Context& vk, const PoolBufferD
     external_memory_buffer_info.handleTypes = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
 
     VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-    buffer_info.size = 0;
+    // This creates a dummy buffer on vulkan < 1.3 or without maintenance4,
+    // in that case size must be > 0 to avoid validation errors.
+    buffer_info.size = vk.version < VK_API_VERSION_1_3 ? 1 : 0;
     buffer_info.usage = desc.usage;
     if (desc.external) {
         buffer_info.pNext = &external_memory_buffer_info;

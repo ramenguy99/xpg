@@ -3,7 +3,7 @@ from pyxpg import imgui
 from pyxpg import slang
 from pathlib import Path
 import numpy as np
-from pipelines import PipelineCache, Pipeline, compile
+from pipelines import PipelineWatch, Pipeline
 from typing import Tuple
 
 import gfxmath
@@ -23,13 +23,10 @@ from camera import Camera
 # [ ] Per voxel color
 # [ ] Pack voxel data
 
-# Scene
-
-# S = 0.5
-# N = 15
-# R = 10
+# Params
 SAMPLES = 4
 
+# Scene
 S = 2
 N = 5
 R = 10
@@ -49,7 +46,6 @@ I = (I.reshape((voxels.shape[0], -1)) + np.arange(voxels.shape[0]).reshape(voxel
 camera = Camera(Vec3(40, 40, 40), Vec3(0, 0, 0), Vec3(0, 0, 1), 45, 1, 0.1, 100.0)
 
 # Init
-
 ctx = Context()
 window = Window(ctx, "Voxels", 1280, 720)
 gui = Gui(window)
@@ -71,44 +67,39 @@ for set in descriptor_sets.resources:
 
 
 # Pipeline
-pipeline: Pipeline = None
-def create_pipeline():
-    global pipeline
-    global dt
-    global u_bufs
+class VoxelPipeline(Pipeline):
+    vert_prog = "shaders/voxels.vert.slang"
+    frag_prog = "shaders/voxels.frag.slang"
 
-    wait_idle(ctx)
+    def create(self, vert_prog: slang.Shader, frag_prog: slang.Shader):
+        global dt
+        global u_bufs
 
-    print("Rebuilding pipeline...", end="", flush=True)
-    vert_prog = compile(Path("shaders/voxels.vert.slang"), "main")
-    frag_prog = compile(Path("shaders/voxels.frag.slang"), "main")
+        refl = vert_prog.reflection
+        dt = reflection.to_dtype(refl.resources[0].type)
 
-    refl = vert_prog.reflection
-    dt = reflection.to_dtype(refl.resources[0].type)
+        u_bufs = renderutils.PerFrameResource(Buffer, window.num_frames, ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
+        vert = Shader(ctx, vert_prog.code)
+        frag = Shader(ctx, frag_prog.code)
 
-    u_bufs = renderutils.PerFrameResource(Buffer, window.num_frames, ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
-    vert = Shader(ctx, vert_prog.code)
-    frag = Shader(ctx, frag_prog.code)
+        self.pipeline = GraphicsPipeline(
+            ctx,
+            stages = [
+                PipelineStage(vert, Stage.VERTEX),
+                PipelineStage(frag, Stage.FRAGMENT),
+            ],
+            input_assembly = InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
+            descriptor_sets = [ set ],
+            samples=SAMPLES,
+            attachments = [
+                Attachment(format=window.swapchain_format)
+            ],
+            depth = Depth(format=Format.D32_SFLOAT, test=True, write=True, op=CompareOp.LESS),
+        )
 
-    pipeline = GraphicsPipeline(
-        ctx,
-        stages = [
-            PipelineStage(vert, Stage.VERTEX),
-            PipelineStage(frag, Stage.FRAGMENT),
-        ],
-        input_assembly = InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
-        descriptor_sets = [ set ],
-        samples=SAMPLES,
-        attachments = [
-            Attachment(format=window.swapchain_format)
-        ],
-        depth = Depth(format=Format.D32_SFLOAT, test=True, write=True, op=CompareOp.LESS),
-    )
-
-    print(" Done")
-
-cache = PipelineCache([
-    Pipeline(create_pipeline, ["shaders/color.vert.slang", "shaders/color.frag.slang"]),
+voxels = VoxelPipeline()
+cache = PipelineWatch([
+    voxels,
 ])
 
 first_frame: bool = True
@@ -122,7 +113,7 @@ def draw():
     global first_frame
     global proj
 
-    cache.refresh()
+    cache.refresh(lambda: wait_idle(ctx))
 
     # swapchain update
     swapchain_status = window.update_swapchain()
@@ -185,7 +176,7 @@ def draw():
                 depth = DepthAttachment(depth, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=1.0)
             ):
                 cmd.bind_pipeline_state(
-                    pipeline=pipeline,
+                    pipeline=voxels.pipeline,
                     descriptor_sets=[ set ],
                     index_buffer=index_buf,
                     viewport=viewport,
