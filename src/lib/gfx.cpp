@@ -2172,10 +2172,10 @@ WriteAccelerationStructureDescriptor(VkDescriptorSet set, const Context& vk, con
 
 VkDeviceAddress GetBufferAddress(VkBuffer buffer, VkDevice device)
 {
-	VkBufferDeviceAddressInfo info = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+	VkBufferDeviceAddressInfoKHR info = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
 	info.buffer = buffer;
 
-	VkDeviceAddress address = vkGetBufferDeviceAddress(device, &info);
+	VkDeviceAddress address = vkGetBufferDeviceAddressKHR(device, &info);
 	return address;
 }
 
