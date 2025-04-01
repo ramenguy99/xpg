@@ -1550,18 +1550,10 @@ int main(int argc, char** argv) {
         logging::error("plot", "Failed to initialize platform\n");
     }
 
-    Array<const char*> instance_extensions = gfx::GetPresentationInstanceExtensions();
-    instance_extensions.add("VK_EXT_debug_report");
-
-    Array<const char*> device_extensions;
-    device_extensions.add("VK_KHR_swapchain");
-
     gfx::Context vk = {};
     result = gfx::CreateContext(&vk, {
         .minimum_api_version = (u32)VK_API_VERSION_1_0,
-        .instance_extensions = instance_extensions,
-        .device_extensions = device_extensions,
-        .device_features = gfx::DeviceFeatures::NONE,
+        .device_features = gfx::DeviceFeatures::PRESENTATION,
         .enable_validation_layer = enable_vulkan_validation,
     });
     if (result != gfx::Result::SUCCESS) {

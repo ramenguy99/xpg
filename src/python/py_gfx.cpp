@@ -85,36 +85,29 @@ NAMESPACE_END(NB_NAMESPACE)
 namespace nb = nanobind;
 
 struct Context: public nb::intrusive_base {
-    Context()
-    {
+    Context(
+        std::tuple<u32, u32> version,
+        gfx::DeviceFeatures::DeviceFeaturesFlags device_features,
+        u32 preferred_frames_in_flight,
+        bool enable_validation_layer,
+        bool enable_gpu_based_validation,
+        bool enable_synchronization_validation
+    ) {
         gfx::Result result;
         result = gfx::Init();
         if (result != gfx::Result::SUCCESS) {
             throw std::runtime_error("Failed to initialize platform");
         }
 
-        Array<const char*> instance_extensions = gfx::GetPresentationInstanceExtensions();
-        instance_extensions.add("VK_EXT_debug_report");
-
-        Array<const char*> device_extensions;
-        device_extensions.add("VK_KHR_swapchain");
-        device_extensions.add("VK_KHR_dynamic_rendering");
-#ifdef _WIN32
-        device_extensions.add("VK_KHR_external_memory_win32");
-        device_extensions.add("VK_KHR_external_semaphore_win32");
-#else
-        device_extensions.add("VK_KHR_external_memory_fd");
-        device_extensions.add("VK_KHR_external_semaphore_fd");
-#endif
-
         result = gfx::CreateContext(&vk, {
-            .minimum_api_version = (u32)VK_API_VERSION_1_3,
-            .instance_extensions = instance_extensions,
-            .device_extensions = device_extensions,
-            .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2 | gfx::DeviceFeatures::SCALAR_BLOCK_LAYOUT,
-            .enable_validation_layer = true,
-            // .enable_gpu_based_validation = true,
+            .minimum_api_version = VK_MAKE_API_VERSION(0, get<0>(version), get<1>(version), 0),
+            .device_features = device_features,
+            .preferred_frames_in_flight = preferred_frames_in_flight,
+            .enable_validation_layer = enable_validation_layer,
+            .enable_gpu_based_validation = enable_gpu_based_validation,
+            .enable_synchronization_validation = enable_synchronization_validation,
         });
+
         if (result != gfx::Result::SUCCESS) {
             throw std::runtime_error("Failed to initialize vulkan");
         }
@@ -1265,9 +1258,28 @@ void CommandBuffer::bind_pipeline_state(
 
 void gfx_create_bindings(nb::module_& m)
 {
+    nb::enum_<gfx::DeviceFeatures::DeviceFeaturesFlags>(m, "DeviceFeatures", nb::is_flag())
+        .value("NONE",                gfx::DeviceFeatures::NONE)
+        .value("PRESENTATION",        gfx::DeviceFeatures::PRESENTATION)
+        .value("DYNAMIC_RENDERING",   gfx::DeviceFeatures::DYNAMIC_RENDERING)
+        .value("SYNCHRONIZATION_2",   gfx::DeviceFeatures::SYNCHRONIZATION_2)
+        .value("DESCRIPTOR_INDEXING", gfx::DeviceFeatures::DESCRIPTOR_INDEXING)
+        .value("SCALAR_BLOCK_LAYOUT", gfx::DeviceFeatures::SCALAR_BLOCK_LAYOUT)
+        .value("RAY_QUERY",           gfx::DeviceFeatures::RAY_QUERY)
+        .value("RAY_PIPELINE",        gfx::DeviceFeatures::RAY_PIPELINE)
+        .value("EXTERNAL_RESOURCES",  gfx::DeviceFeatures::EXTERNAL_RESOURCES)
+    ;
+        
     nb::class_<Context>(m, "Context",
         nb::intrusive_ptr<Context>([](Context *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<>())
+        .def(nb::init<std::tuple<u32, u32>, gfx::DeviceFeatures::DeviceFeaturesFlags, u32, bool, bool, bool>(),
+            nb::arg("version") = std::make_tuple(1, 1),
+            nb::arg("device_features") = gfx::DeviceFeatures::PRESENTATION | gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
+            nb::arg("preferred_frames_in_flight") = 2,
+            nb::arg("enable_validation_layer") = false,
+            nb::arg("enable_gpu_based_validation") = false,
+            nb::arg("enable_synchronization_validation") = false
+        )
     ;
 
     nb::class_<Frame>(m, "Frame",

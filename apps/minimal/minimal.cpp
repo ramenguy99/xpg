@@ -10,10 +10,8 @@ int main(int argc, char** argv) {
     app::Result result;
     app::Application application;
     result = app::CreateApplication(&application, {
-        .minimum_api_version = VK_API_VERSION_1_2,
-        .instance_extensions = instance_extensions,
-        .device_extensions = device_extensions,
-        .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING,
+        .minimum_api_version = VK_API_VERSION_1_1,
+        .device_features = gfx::DeviceFeatures::PRESENTATION | gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING,
         .enable_validation_layer = true,
     });
     if (result != app::Result::SUCCESS) {

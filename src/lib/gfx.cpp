@@ -83,22 +83,6 @@ Init() {
     return Result::SUCCESS;
 }
 
-Array<const char*>
-GetPresentationInstanceExtensions()
-{
-    // Get instance extensions required by GLFW.
-    u32 glfw_instance_extensions_count;
-    const char** glfw_instance_extensions = glfwGetRequiredInstanceExtensions(&glfw_instance_extensions_count);
-
-    Array<const char*> instance_extensions(glfw_instance_extensions_count);
-    for (u32 i = 0; i < glfw_instance_extensions_count; i++) {
-        instance_extensions[i] = glfw_instance_extensions[i];
-    }
-
-    return instance_extensions;
-}
-
-
 void Callback_WindowRefresh(GLFWwindow* window) {
     Window* w = (Window*)glfwGetWindowUserPointer(window);
     if (w && w->callbacks.draw) {
@@ -212,6 +196,45 @@ void CloseWindow(const Window& window) {
     glfwSetWindowShouldClose(window.window, 1);
 }
 
+struct GenericFeatureStruct {
+    VkStructureType sType;
+    void* pNext;
+    VkBool32 values[1];
+};
+
+template<typename T>
+struct OptionalFeature {
+    T* t;
+    DeviceFeatures device_features;
+};
+
+template <typename T>
+void Chain(GenericFeatureStruct* parent, T* child) {
+    static_assert(sizeof(T) >= sizeof(GenericFeatureStruct), "Feature struct must be equal or larger than GenericFeatureStruct");
+
+    child->pNext = parent->pNext;
+    parent->pNext = child;
+}
+
+template <typename T>
+bool CheckAllSupported(const T& requested, const T& supported) {
+    static_assert(sizeof(T) >= sizeof(GenericFeatureStruct), "Feature struct must be equal or larger than GenericFeatureStruct");
+    static_assert((sizeof(T) - offsetof(GenericFeatureStruct, values)) % sizeof(VkBool32) == 0, "Fields in feature struct must have size that is a multiple of boolean size");
+
+    assert(requested.sType == supported.sType);
+
+    GenericFeatureStruct* req = (GenericFeatureStruct*)&requested;
+    GenericFeatureStruct* sup = (GenericFeatureStruct*)&supported;
+
+    constexpr size_t count = (sizeof(T) - offsetof(GenericFeatureStruct, values)) / sizeof(VkBool32);
+
+    bool all_supported = true;
+    for(usize i = 0; i < count ; i++) {
+        all_supported = all_supported && (!req->values[i] || sup->values[i]);
+    }
+    return all_supported;
+}
+
 Result
 CreateContext(Context* vk, const ContextDesc&& desc)
 {
@@ -220,14 +243,18 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     // Initialize vulkan loader.
     result = volkInitialize();
     if (result != VK_SUCCESS) {
+        logging::error("gfx", "volkInitialize failed: %d", result);
         return Result::API_ERROR;
     }
 
-    // Query vulkan version.
-    u32 version;
-    result = vkEnumerateInstanceVersion(&version);
-    if (result != VK_SUCCESS) {
-        return Result::API_OUT_OF_MEMORY;
+    // Query vulkan version. If this is not available it's 1.0
+    u32 version = VK_API_VERSION_1_0;
+    if(vkEnumerateInstanceVersion) {
+        result = vkEnumerateInstanceVersion(&version);
+        if (result != VK_SUCCESS) {
+            logging::error("gfx", "vkEnumerateInstanceVersion failed: %d", result);
+            return Result::API_OUT_OF_MEMORY;
+        }
     }
 
     u32 version_major = VK_API_VERSION_MAJOR(version);
@@ -237,6 +264,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
     // Check if required version is met.
     if (version < desc.minimum_api_version) {
+        logging::error("gfx", "Instance API version lower than requested");
         return Result::INVALID_VERSION;
     }
 
@@ -244,12 +272,14 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     u32 layer_properties_count = 0;
     result = vkEnumerateInstanceLayerProperties(&layer_properties_count, NULL);
     if (result != VK_SUCCESS) {
+        logging::error("gfx", "vkEnumerateInstanceLayerProperties for count failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
     }
 
     Array<VkLayerProperties> layer_properties(layer_properties_count);
     result = vkEnumerateInstanceLayerProperties(&layer_properties_count, layer_properties.data);
     if (result != VK_SUCCESS) {
+        logging::error("gfx", "vkEnumerateInstanceLayerProperties for values failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
     }
 
@@ -272,10 +302,23 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     application_info.pApplicationName = "XPG";
     application_info.applicationVersion = XPG_VERSION;
 
+    // Instance extensions
+    Array<const char*> instance_extensions;
+    if (desc.device_features & DeviceFeatures::PRESENTATION) {
+        u32 glfw_instance_extensions_count;
+        const char** glfw_instance_extensions = glfwGetRequiredInstanceExtensions(&glfw_instance_extensions_count);
+        for (u32 i = 0; i < glfw_instance_extensions_count; i++) {
+            instance_extensions.add(glfw_instance_extensions[i]);
+        }
+    }
+    if (desc.enable_validation_layer) {
+        instance_extensions.add("VK_EXT_debug_report");
+    }
+
     // Instance info.
     VkInstanceCreateInfo info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    info.enabledExtensionCount = (u32)desc.instance_extensions.length;
-    info.ppEnabledExtensionNames = desc.instance_extensions.data;
+    info.enabledExtensionCount = (u32)instance_extensions.length;
+    info.ppEnabledExtensionNames = instance_extensions.data;
     info.pApplicationInfo = &application_info;
 
     const char* enabled_layers[1] = { validation_layer_name };
@@ -285,18 +328,24 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         info.ppEnabledLayerNames = enabled_layers;
     }
 
-    VkValidationFeatureEnableEXT validation_feature_enables[] = { VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT };
-    VkValidationFeaturesEXT validation_features = { VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
-    validation_features.enabledValidationFeatureCount = 1;
-    validation_features.pEnabledValidationFeatures = validation_feature_enables;
-    if (use_validation_layer && desc.enable_gpu_based_validation) {
-        info.pNext = &validation_features;
+    const VkLayerSettingEXT layer_settings[] = {
+        { "VK_LAYER_KHRONOS_validation", "validate_sync", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &desc.enable_synchronization_validation },
+        { "VK_LAYER_KHRONOS_validation", "gpuav_enable", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &desc.enable_gpu_based_validation },
+    };
+
+    VkLayerSettingsCreateInfoEXT layer_settings_create_info = {VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT};
+    layer_settings_create_info.settingCount = ArrayCount(layer_settings);
+    layer_settings_create_info.pSettings = layer_settings;
+    if (use_validation_layer) {
+        info.pNext = &layer_settings_create_info;
     }
 
     // Create instance.
     VkInstance instance = 0;
     result = vkCreateInstance(&info, 0, &instance);
     if (result != VK_SUCCESS) {
+        logging::error("gfx", "vkCreateInstance failed: %d", result);
+
         switch (result) {
         case VK_ERROR_OUT_OF_HOST_MEMORY:
         case VK_ERROR_OUT_OF_DEVICE_MEMORY:
@@ -313,174 +362,51 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     // Load vulkan functions.
     volkLoadInstance(instance);
 
-
     // Install debug callback.
     VkDebugReportCallbackEXT debug_callback = 0;
     if (use_validation_layer) {
-        VkDebugReportCallbackCreateInfoEXT createInfo = { VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT };
-        createInfo.flags = VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT;
-        createInfo.pfnCallback = VulkanDebugReportCallback;
+        if (vkCreateDebugReportCallbackEXT) {
+            VkDebugReportCallbackCreateInfoEXT createInfo = { VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT };
+            createInfo.flags = VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT;
+            createInfo.pfnCallback = VulkanDebugReportCallback;
 
-        result = vkCreateDebugReportCallbackEXT(instance, &createInfo, 0, &debug_callback);
-        if (result != VK_SUCCESS) {
-            // Failed to install debug callback.
-        }
-    }
-
-
-    // Enumerate and choose a physical devices.
-    u32 physical_device_count = 0;
-    result = vkEnumeratePhysicalDevices(instance, &physical_device_count, 0);
-    if (result != VK_SUCCESS) {
-        return Result::API_OUT_OF_MEMORY;
-    }
-
-    Array<VkPhysicalDevice> physical_devices(physical_device_count);
-    result = vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices.data);
-    if (result != VK_SUCCESS) {
-        return Result::API_OUT_OF_MEMORY;
-    }
-
-    VkPhysicalDevice physical_device = 0;
-
-    u32 picked_queue_family_index = 0;
-    u32 picked_copy_queue_family_index = 0;
-    bool picked_queue_family_found = false;
-    bool picked_copy_queue_family_found = false;
-    for (u32 i = 0; i < physical_device_count; i++) {
-        u32 queue_family_index = 0;
-        u32 copy_queue_family_index = 0;
-        bool queue_family_found = false;
-        bool copy_queue_family_found = false;
-
-        // Check queues
-        u32 queue_family_property_count = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_property_count, 0);
-        Array<VkQueueFamilyProperties> queue_family_properties(queue_family_property_count);
-        vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_property_count, queue_family_properties.data);
-        for (u32 j = 0; j < queue_family_property_count; j++) {
-            VkQueueFamilyProperties& prop = queue_family_properties[j];
-            if(prop.queueCount > 0) {
-                if(prop.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                    if(!queue_family_found) {
-                        queue_family_index = j;
-                        queue_family_found = true;
-                    }
-                } else if(prop.queueFlags & VK_QUEUE_COMPUTE_BIT) {
-                    // TODO: async compute queue
-                } else if(prop.queueFlags & VK_QUEUE_TRANSFER_BIT) {
-                    if(!copy_queue_family_found) {
-                        copy_queue_family_index = j;
-                        copy_queue_family_found = true;
-                    }
-                }
+            result = vkCreateDebugReportCallbackEXT(instance, &createInfo, 0, &debug_callback);
+            if (result != VK_SUCCESS) {
+                // Failed to install debug callback.
+                logging::warning("gfx", "vkCreateDebugReportCallbackEXT failed: %d", result);
             }
-            //@Incomplete vkGetQueueFamilyProperties* versions, support more / vendor specific queue family information
-            //printf("Queue: %x - %d\n", prop.queueFlags, prop.queueCount);
-
-            // TODO: Check presentation support, this actually requires getting a surface, so we can't
-            // do this here. To support this we need to delay queue choice after creating a window.
-            // Order of dependencies is then: instance -> window -> physical device + queue family -> device -> everthing else
-            // There is actually a platform specific version of this that does not require a window:
-            //     vkGetPhysicalDeviceWin32PresentationSupportKHR
-            // This is conveniently wrapped for us by:
-            //     glfwGetPhysicalDevicePresentationSupport
-            // The spec says there is no guarantee of the queue then supporting all surfaces, but legend says
-            // this will not happen on our supported targets. We can also add the surface check and to window
-            // creation for logging / debugging, and instead trust the queue to work.
-
-            // VkBool32 presentationSupport = false;
-            // vkGetPhysicalDeviceSurfaceSupportKHR(physical_devices[i], j, surface, &presentationSupport);
+        } else {
+            logging::warning("gfx", "vkCreateDebugReportCallbackEXT not available", result);
         }
+    }
 
-        // Check device properties
-        VkPhysicalDeviceProperties p = {};
-        vkGetPhysicalDeviceProperties(physical_devices[i], &p);
-        //@Feature: vkGetPhysicalDeviceProperties2, support more / vendor specific device information
+    // Requested device features
+    GenericFeatureStruct req_chain = {};
+    GenericFeatureStruct sup_chain = {};
 
-        bool picked = false;
-        if ((!physical_device || p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) && queue_family_found) {
-            physical_device = physical_devices[i];
-
-            picked_queue_family_index = queue_family_index;
-            picked_copy_queue_family_index = copy_queue_family_index;
-        #ifdef COPY_QUEUE_INDEX
-            picked_copy_queue_family_index = COPY_QUEUE_INDEX;
-        #endif
-            picked_queue_family_found = queue_family_found;
-            picked_copy_queue_family_found = copy_queue_family_found;
-
-            picked = true;
+    #define CHAIN(o, flags) \
+        decltype(o) o##_sup = { o.sType }; \
+        bool o##_sup_check = false; \
+        if (desc.device_features & (flags)) { \
+            o##_sup_check = true; \
+            Chain(&req_chain, &o); \
+            Chain(&sup_chain, &o##_sup); \
         }
+    
+    // TODO: ensure we always use KHR version of these in gfx
+    VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR};
+    dynamic_rendering_features.dynamicRendering = VK_TRUE;
+    CHAIN(dynamic_rendering_features, DeviceFeatures::DYNAMIC_RENDERING);
 
-        logging::info("gfx/info", "Physical device %u:%s\n    Name: %s\n    Vulkan version: %u.%u.%u\n    Drivers version: %u\n    Vendor ID: %u\n    Device ID: %u\n    Device type: %s\n    QueueFamily: %d (%s)\n    CopyQueueFamily: %d (%s)\n",
-            i, picked ? " (PICKED)" : "", p.deviceName,
-            VK_API_VERSION_MAJOR(p.apiVersion), VK_API_VERSION_MINOR(p.apiVersion), VK_API_VERSION_PATCH(p.apiVersion),
-            p.driverVersion, p.vendorID, p.deviceID, string_VkPhysicalDeviceType(p.deviceType),
-            queue_family_index, queue_family_found ? "yes" : "no", copy_queue_family_index, copy_queue_family_found ? "yes" : "no");
-
-        /*
-        //@Incomplete group of physical devices with same extensions, see 5.2 of the spec
-        u32 count = 1;
-        VkPhysicalDeviceGroupProperties group_properties[1];
-        vkEnumeratePhysicalDeviceGroups(instance, &count, group_properties);
-        */
-    }
-
-    // Check that a valid device is found.
-    if (!physical_device) {
-        return Result::NO_VALID_DEVICE_FOUND;
-    }
-
-
-    // Create a physical device.
-    VkDevice device = 0;
-
-    float queue_priorities[] = { 1.0f };
-    float copy_queue_priorities[] = { 1.0f };
-    VkDeviceQueueCreateInfo queue_create_info[2] = {};
-    queue_create_info[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info[0].queueFamilyIndex = picked_queue_family_index;
-    queue_create_info[0].queueCount = 1;
-    queue_create_info[0].pQueuePriorities = queue_priorities;
-
-    queue_create_info[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info[1].queueFamilyIndex = picked_copy_queue_family_index;
-    queue_create_info[1].queueCount = 1;
-    queue_create_info[1].pQueuePriorities = copy_queue_priorities;
-
-    VkDeviceCreateInfo device_create_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-    device_create_info.queueCreateInfoCount = picked_copy_queue_family_found ? 2 : 1;
-    device_create_info.pQueueCreateInfos = queue_create_info;
-    device_create_info.enabledExtensionCount = (u32)desc.device_extensions.length;
-    device_create_info.ppEnabledExtensionNames = desc.device_extensions.data;
-    device_create_info.pEnabledFeatures = NULL;
-
-    // Enabled dynamic rendering if requested.
-    VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_feature{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR };
-    dynamic_rendering_feature.dynamicRendering = VK_TRUE;
-
-    if (desc.device_features & DeviceFeatures::DYNAMIC_RENDERING) {
-        device_create_info.pNext = &dynamic_rendering_feature;
-    }
-
-    // Enable synchronization 2 if requested
-    VkPhysicalDeviceSynchronization2Features synchronization_2_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES };
+    VkPhysicalDeviceSynchronization2FeaturesKHR synchronization_2_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR};
     synchronization_2_features.synchronization2 = true;
-    if (desc.device_features & DeviceFeatures::SYNCHRONIZATION_2) {
-        synchronization_2_features.pNext = (void*)device_create_info.pNext;
-        device_create_info.pNext = &synchronization_2_features;
-    }
+    CHAIN(synchronization_2_features, DeviceFeatures::SYNCHRONIZATION_2);
 
-    // Enable scalar block layout if enabled
-    VkPhysicalDeviceScalarBlockLayoutFeatures scalar_block_layout_featues = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES };
-    scalar_block_layout_featues.scalarBlockLayout = true;
-    if (desc.device_features & DeviceFeatures::SCALAR_BLOCK_LAYOUT) {
-        scalar_block_layout_featues.pNext = (void*)device_create_info.pNext;
-        device_create_info.pNext = &scalar_block_layout_featues;
-    }
+    VkPhysicalDeviceScalarBlockLayoutFeaturesEXT scalar_block_layout_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT};
+    scalar_block_layout_features.scalarBlockLayout = true;
+    CHAIN(scalar_block_layout_features, DeviceFeatures::SCALAR_BLOCK_LAYOUT);
 
-    VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
+    VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT};
     // descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing = VK_TRUE;
     // descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing = VK_TRUE;
     // descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing = VK_TRUE;
@@ -501,53 +427,225 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     descriptor_indexing_features.descriptorBindingPartiallyBound = VK_TRUE;
     // descriptor_indexing_features.descriptorBindingVariableDescriptorCount = VK_TRUE;
     descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
+    CHAIN(descriptor_indexing_features, DeviceFeatures::DESCRIPTOR_INDEXING);
 
-    if (desc.device_features & DeviceFeatures::DESCRIPTOR_INDEXING) {
-        descriptor_indexing_features.pNext = const_cast<void*>(device_create_info.pNext);
-        device_create_info.pNext = &descriptor_indexing_features;
-    }
-
-    VkPhysicalDeviceBufferDeviceAddressFeatures buffer_device_address_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES };
+    VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR};
     buffer_device_address_features.bufferDeviceAddress = VK_TRUE;
+    CHAIN(buffer_device_address_features, DeviceFeatures::RAY_PIPELINE | DeviceFeatures::RAY_QUERY);
 
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
     acceleration_structure_features.accelerationStructure = VK_TRUE;
-    if (desc.device_features & DeviceFeatures::DESCRIPTOR_INDEXING) {
-        acceleration_structure_features.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
-    }
+    CHAIN(acceleration_structure_features, DeviceFeatures::RAY_PIPELINE | DeviceFeatures::RAY_QUERY);
 
-    VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
+    VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
     ray_query_features.rayQuery = VK_TRUE;
+    CHAIN(ray_query_features, DeviceFeatures::RAY_QUERY);
 
-    VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
     ray_tracing_pipeline_features.rayTracingPipeline = VK_TRUE;
+    CHAIN(ray_tracing_pipeline_features, DeviceFeatures::RAY_PIPELINE);
 
-    // Common to all raytracing
-    if (desc.device_features & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_PIPELINE)) {
-        buffer_device_address_features.pNext = const_cast<void*>(device_create_info.pNext);
-        device_create_info.pNext = &buffer_device_address_features;
-
-        acceleration_structure_features.pNext = const_cast<void*>(device_create_info.pNext);
-        device_create_info.pNext = &acceleration_structure_features;
+    // Enumerate and choose a physical devices.
+    u32 physical_device_count = 0;
+    result = vkEnumeratePhysicalDevices(instance, &physical_device_count, 0);
+    if (result != VK_SUCCESS) {
+        logging::error("gfx", "vkEnumeratePhysicalDevices for count failed: %d", result);
+        return Result::API_OUT_OF_MEMORY;
     }
 
-    // Ray query only
-    if (desc.device_features & DeviceFeatures::RAY_QUERY) {
-        ray_query_features.pNext = const_cast<void*>(device_create_info.pNext);
-        device_create_info.pNext = &ray_query_features;
+    Array<VkPhysicalDevice> physical_devices(physical_device_count);
+    result = vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices.data);
+    if (result != VK_SUCCESS) {
+        logging::error("gfx", "vkEnumeratePhysicalDevices for values failed: %d", result);
+        return Result::API_OUT_OF_MEMORY;
     }
 
-    // Raytracing pipeline only
-    if (desc.device_features & DeviceFeatures::RAY_PIPELINE) {
-        ray_tracing_pipeline_features.pNext = const_cast<void*>(device_create_info.pNext);
-        device_create_info.pNext = &ray_tracing_pipeline_features;
+    VkPhysicalDevice physical_device = 0;
+
+    u32 picked_queue_family_index = 0;
+    u32 picked_copy_queue_family_index = 0;
+    bool picked_queue_family_found = false;
+    bool picked_copy_queue_family_found = false;
+    bool picked_discrete = false;
+    for (u32 i = 0; i < physical_device_count; i++) {
+        u32 queue_family_index = 0;
+        u32 copy_queue_family_index = 0;
+        bool queue_family_found = false;
+        bool copy_queue_family_found = false;
+
+        // Check queues
+        u32 queue_family_property_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_property_count, 0);
+        Array<VkQueueFamilyProperties> queue_family_properties(queue_family_property_count);
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_property_count, queue_family_properties.data);
+
+        bool supports_presentation = false;
+        for (u32 j = 0; j < queue_family_property_count; j++) {
+            VkQueueFamilyProperties& prop = queue_family_properties[j];
+            if(prop.queueCount > 0) {
+                if(prop.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                    if(!queue_family_found) {
+                        // NOTE: Doing this properly acquire requires a surface, to support this we would need to delay queue choice after creating a window.
+                        // Order of dependencies is then: instance -> window -> physical device + queue family -> device -> everthing else
+                        // There is actually a platform specific version of this that does not require a window:
+                        //     vkGetPhysicalDeviceWin32PresentationSupportKHR
+                        // This is conveniently wrapped for us by:
+                        //     glfwGetPhysicalDevicePresentationSupport
+                        // The spec says there is no guarantee of the queue then supporting all surfaces, but legend says
+                        // this will not happen on our supported targets. We can also add the surface check and to window
+                        // creation for logging / debugging, and instead trust the queue to work.
+                        // The actual API would be:
+                        //     VkBool32 presentationSupport = false;
+                        //     vkGetPhysicalDeviceSurfaceSupportKHR(physical_devices[i], j, surface, &presentationSupport);
+                        int presentation_ok = !(desc.device_features & DeviceFeatures::PRESENTATION) || glfwGetPhysicalDevicePresentationSupport(instance, physical_devices[i], j);
+
+                        if (presentation_ok) {
+                            queue_family_index = j;
+                            queue_family_found = true;
+                        }
+                    }
+                } else if(prop.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+                    // TODO: async compute queue
+                } else if(prop.queueFlags & VK_QUEUE_TRANSFER_BIT) {
+                    if(!copy_queue_family_found) {
+                        copy_queue_family_index = j;
+                        copy_queue_family_found = true;
+                    }
+                }
+            }
+
+
+            //@Incomplete vkGetQueueFamilyProperties* versions, support more / vendor specific queue family information
+            //printf("Queue: %x - %d\n", prop.queueFlags, prop.queueCount);
+
+        }
+
+        // Check device properties
+        VkPhysicalDeviceProperties properties = {};
+        vkGetPhysicalDeviceProperties(physical_devices[i], &properties);
+
+        // TODO: vkGetPhysicalDeviceProperties2, support more / vendor specific device information
+
+        // Check if all features we need are supported. To simplify the logic we skip this
+        // if we require vulkan 1.0 and assume the only feature you can request then is
+        // PRESENTATION.
+        bool all_features_supported = true;
+        if (desc.minimum_api_version >= VK_API_VERSION_1_1) {
+            VkPhysicalDeviceFeatures2 features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+            features.pNext = sup_chain.pNext;
+
+            vkGetPhysicalDeviceFeatures2(physical_devices[i], &features);
+
+            // TODO: would be nice to add tracing logs here for debugging this kind of stuff.
+#define CHECK_SUPPORTED(o) \
+            if (o##_sup_check) { \
+                all_features_supported = all_features_supported && CheckAllSupported(o, o##_sup); \
+            }
+
+            CHECK_SUPPORTED(dynamic_rendering_features);
+            CHECK_SUPPORTED(synchronization_2_features);
+            CHECK_SUPPORTED(scalar_block_layout_features);
+            CHECK_SUPPORTED(descriptor_indexing_features);
+            CHECK_SUPPORTED(buffer_device_address_features);
+            CHECK_SUPPORTED(acceleration_structure_features);
+            CHECK_SUPPORTED(ray_query_features);
+            CHECK_SUPPORTED(ray_tracing_pipeline_features);
+        }
+
+        bool picked = false;
+
+        // Pick the first discrete GPU that matches all the constraints
+        bool discrete = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+        if ((!physical_device || (discrete && !picked_discrete)) && queue_family_found && all_features_supported) {
+            physical_device = physical_devices[i];
+
+            picked_queue_family_index = queue_family_index;
+            picked_copy_queue_family_index = copy_queue_family_index;
+        #ifdef COPY_QUEUE_INDEX
+            picked_copy_queue_family_index = COPY_QUEUE_INDEX;
+        #endif
+            picked_queue_family_found = queue_family_found;
+            picked_copy_queue_family_found = copy_queue_family_found;
+
+            picked_discrete = discrete;
+
+            picked = true;
+        }
+
+        logging::info("gfx/info", "Physical device %u:%s\n    Name: %s\n    Vulkan version: %u.%u.%u\n    Drivers version: %u\n    Vendor ID: %u\n    Device ID: %u\n    Device type: %s\n    QueueFamily: %d (%s)\n    CopyQueueFamily: %d (%s)\n",
+            i, picked ? " (PICKED)" : "", properties.deviceName,
+            VK_API_VERSION_MAJOR(properties.apiVersion), VK_API_VERSION_MINOR(properties.apiVersion), VK_API_VERSION_PATCH(properties.apiVersion),
+            properties.driverVersion, properties.vendorID, properties.deviceID, string_VkPhysicalDeviceType(properties.deviceType),
+            queue_family_index, queue_family_found ? "yes" : "no", copy_queue_family_index, copy_queue_family_found ? "yes" : "no");
+
+        // TODO: report info about group of physical devices with same extensions, see 5.2 of the spec
+        // u32 count = 1;
+        // VkPhysicalDeviceGroupProperties group_properties[1];
+        // vkEnumeratePhysicalDeviceGroups(instance, &count, group_properties);
     }
+
+    // Check that a valid device is found.
+    if (!physical_device) {
+        return Result::NO_VALID_DEVICE_FOUND;
+    }
+
+    // Device extensions
+    Array<const char*> device_extensions;
+    if (desc.device_features & DeviceFeatures::PRESENTATION)        device_extensions.add("VK_KHR_swapchain");
+    if (desc.device_features & DeviceFeatures::DYNAMIC_RENDERING) {
+        device_extensions.add("VK_KHR_create_renderpass2");
+        device_extensions.add("VK_KHR_depth_stencil_resolve");
+        device_extensions.add("VK_KHR_dynamic_rendering");
+    }
+    if (desc.device_features & DeviceFeatures::SYNCHRONIZATION_2)   device_extensions.add("VK_KHR_synchronization2");
+    if (desc.device_features & (DeviceFeatures::DESCRIPTOR_INDEXING || DeviceFeatures::RAY_QUERY || DeviceFeatures::RAY_PIPELINE))
+        device_extensions.add("VK_EXT_descriptor_indexing");
+    if (desc.device_features & DeviceFeatures::SCALAR_BLOCK_LAYOUT) device_extensions.add("VK_EXT_scalar_block_layout");
+    if (desc.device_features & (DeviceFeatures::RAY_QUERY || DeviceFeatures::RAY_PIPELINE)) {
+        device_extensions.add("VK_KHR_deferred_host_operations");
+        device_extensions.add("VK_KHR_buffer_device_address");
+        device_extensions.add("VK_KHR_acceleration_structure");
+    }
+    if (desc.device_features & DeviceFeatures::RAY_QUERY)           device_extensions.add("VK_KHR_ray_query");
+    if (desc.device_features & DeviceFeatures::RAY_PIPELINE)        device_extensions.add("VK_KHR_ray_tracing_pipeline");
+    if (desc.device_features & DeviceFeatures::EXTERNAL_RESOURCES) {
+#ifdef _WIN32
+        device_extensions.add("VK_KHR_external_memory_win32");
+        device_extensions.add("VK_KHR_external_semaphore_win32");
+#else
+        device_extensions.add("VK_KHR_external_memory_fd");
+        device_extensions.add("VK_KHR_external_semaphore_fd");
+#endif
+    }
+
+    // Create a physical device.
+    VkDevice device = 0;
+
+    float queue_priorities[] = { 1.0f };
+    float copy_queue_priorities[] = { 1.0f };
+    VkDeviceQueueCreateInfo queue_create_info[2] = {};
+    queue_create_info[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queue_create_info[0].queueFamilyIndex = picked_queue_family_index;
+    queue_create_info[0].queueCount = 1;
+    queue_create_info[0].pQueuePriorities = queue_priorities;
+
+    queue_create_info[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queue_create_info[1].queueFamilyIndex = picked_copy_queue_family_index;
+    queue_create_info[1].queueCount = 1;
+    queue_create_info[1].pQueuePriorities = copy_queue_priorities;
+
+    VkDeviceCreateInfo device_create_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
+    device_create_info.pNext = req_chain.pNext;
+    device_create_info.queueCreateInfoCount = picked_copy_queue_family_found ? 2 : 1;
+    device_create_info.pQueueCreateInfos = queue_create_info;
+    device_create_info.enabledExtensionCount = (u32)device_extensions.length;
+    device_create_info.ppEnabledExtensionNames = device_extensions.data;
+    device_create_info.pEnabledFeatures = NULL;
 
     result = vkCreateDevice(physical_device, &device_create_info, 0, &device);
     if (result != VK_SUCCESS) {
         return Result::DEVICE_CREATION_FAILED;
     }
-
 
     VmaAllocatorCreateInfo vma_info = {};
     vma_info.flags = desc.device_features & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_PIPELINE) ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT : 0; // Optionally set here that we externally synchronize.
@@ -938,7 +1036,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     GLFWwindow* window = glfwCreateWindow(width, height, name, NULL, NULL);
     if (!window) {
-        logging::error("gfx/window", "Failed to create GLFW window\n");
+        logging::error("gfx/window", "Failed to create GLFW window");
         return Result::WINDOW_CREATION_FAILED;
     }
 
@@ -946,6 +1044,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     VkSurfaceKHR surface = 0;
     VkResult result = glfwCreateWindowSurface(vk.instance, window, NULL, &surface);
     if (result != VK_SUCCESS) {
+        logging::error("gfx/window", "Failed to create GLFW window surface %d", result);
         return Result::SURFACE_CREATION_FAILED;
     }
 
@@ -953,6 +1052,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     VkSurfaceCapabilitiesKHR surface_capabilities = {};
     result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk.physical_device, surface, &surface_capabilities);
     if (result != VK_SUCCESS) {
+        logging::error("gfx/window", "vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed: %d", result);
         return Result::SWAPCHAIN_CREATION_FAILED;
     }
 
@@ -967,12 +1067,14 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     u32 formats_count;
     result = vkGetPhysicalDeviceSurfaceFormatsKHR(vk.physical_device, surface, &formats_count, 0);
     if (result != VK_SUCCESS || formats_count == 0) {
+        logging::error("gfx/window", "vkGetPhysicalDeviceSurfaceFormatsKHR for count failed: %d", result);
         return Result::SWAPCHAIN_CREATION_FAILED;
     }
 
     Array<VkSurfaceFormatKHR> formats(formats_count);
     result = vkGetPhysicalDeviceSurfaceFormatsKHR(vk.physical_device, surface, &formats_count, formats.data);
     if (result != VK_SUCCESS || formats_count == 0) {
+        logging::error("gfx/window", "vkGetPhysicalDeviceSurfaceFormatsKHR for values failed: %d", result);
         return Result::SWAPCHAIN_CREATION_FAILED;
     }
 
@@ -1105,7 +1207,7 @@ void CmdMemoryBarrier(VkCommandBuffer cmd, const MemoryBarrierDesc &&desc)
     info.memoryBarrierCount= 1;
     info.pMemoryBarriers = &barrier;
 
-    vkCmdPipelineBarrier2(cmd, &info);
+    vkCmdPipelineBarrier2KHR(cmd, &info);
 }
 
 void CmdBufferBarrier(VkCommandBuffer cmd, const BufferBarrierDesc&& desc)
@@ -1125,7 +1227,7 @@ void CmdBufferBarrier(VkCommandBuffer cmd, const BufferBarrierDesc&& desc)
     info.bufferMemoryBarrierCount= 1;
     info.pBufferMemoryBarriers = &barrier;
 
-    vkCmdPipelineBarrier2(cmd, &info);
+    vkCmdPipelineBarrier2KHR(cmd, &info);
 }
 
 void
@@ -1151,7 +1253,7 @@ CmdImageBarrier(VkCommandBuffer cmd, const ImageBarrierDesc&& desc)
     info.imageMemoryBarrierCount = 1;
     info.pImageMemoryBarriers = &barrier;
 
-    vkCmdPipelineBarrier2(cmd, &info);
+    vkCmdPipelineBarrier2KHR(cmd, &info);
 }
 
 void CmdBarriers(VkCommandBuffer cmd, const BarriersDesc &&desc)
@@ -1194,7 +1296,7 @@ void CmdBarriers(VkCommandBuffer cmd, const BarriersDesc &&desc)
     info.imageMemoryBarrierCount = desc.image.length;
     info.pImageMemoryBarriers = image_barriers;
 
-    vkCmdPipelineBarrier2(cmd, &info);
+    vkCmdPipelineBarrier2KHR(cmd, &info);
 }
 
 void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc)
@@ -1241,7 +1343,7 @@ void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc)
 
 void CmdEndRendering(VkCommandBuffer cmd)
 {
-    vkCmdEndRendering(cmd);
+    vkCmdEndRenderingKHR(cmd);
 }
 
 #ifdef _WIN32

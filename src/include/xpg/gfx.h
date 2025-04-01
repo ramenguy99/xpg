@@ -63,17 +63,26 @@ enum class Result
     WINDOW_CREATION_FAILED,
 };
 
-// TODO: substitute this with more extendable logic once
-// we rework device picking logic.
+// TODO:
+// Currently we only support picking a device that supports all the features
+// we need, and fail otherwise.
+// 
+// Other ways that we can potentially pick a device:
+// - Callback based, all burden is on app
+// - Discrete / Integrated preference or force
+// - Optional features (with priorities / scores)
+// - By number, XPG environment variable override (or app specific way, e.g. cli arg, config file)
 struct DeviceFeatures {
     enum DeviceFeaturesFlags {
-        NONE                  = 0,
-        DESCRIPTOR_INDEXING   = 1 << 0,
+        NONE                  =      0,
+        PRESENTATION          = 1 << 0,
         DYNAMIC_RENDERING     = 1 << 1,
         SYNCHRONIZATION_2     = 1 << 2,
-        SCALAR_BLOCK_LAYOUT   = 1 << 3,
-        RAY_QUERY             = 1 << 4,
-        RAY_PIPELINE          = 1 << 5,
+        DESCRIPTOR_INDEXING   = 1 << 3,
+        SCALAR_BLOCK_LAYOUT   = 1 << 4,
+        RAY_QUERY             = 1 << 5,
+        RAY_PIPELINE          = 1 << 6,
+        EXTERNAL_RESOURCES    = 1 << 7,
     };
 
     DeviceFeatures(DeviceFeaturesFlags flags): flags(flags) {}
@@ -114,7 +123,7 @@ struct Context
     VkQueue copy_queue;
     u32 copy_queue_family_index;
     VmaAllocator vma;
-    uint32_t preferred_frames_in_flight = 2;
+    u32 preferred_frames_in_flight;
 
     // Sync command submission
     VkCommandPool sync_command_pool;
@@ -127,16 +136,20 @@ struct Context
 
 struct ContextDesc {
     u32 minimum_api_version;
-    ArrayView<const char *> instance_extensions;
-    ArrayView<const char *> device_extensions;
     DeviceFeatures device_features;
+
+    // Only used if presentation is requested
+    u32 preferred_frames_in_flight = 2;
+
+    // Validation
     bool enable_validation_layer = false;
+
+    // Validation features, they require the validation to be enabled
     bool enable_gpu_based_validation = false;
-    uint32_t preferred_frames_in_flight = 2;
+    bool enable_synchronization_validation = false;
 };
 
 Result Init();
-Array<const char*> GetPresentationInstanceExtensions();
 Result CreateContext(Context* vk, const ContextDesc&& desc);
 void DestroyContext(Context* vk);
 void WaitIdle(Context& vk);

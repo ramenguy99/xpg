@@ -5,7 +5,12 @@ import numpy as np
 from pipelines import PipelineWatch, Pipeline
 from reflection import to_dtype
 
-ctx = Context()
+ctx = Context(
+    device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION, 
+    enable_validation_layer=True,
+    enable_synchronization_validation=True,
+)
+
 window = Window(ctx, "Hello", 1280, 720)
 gui = Gui(window)
 

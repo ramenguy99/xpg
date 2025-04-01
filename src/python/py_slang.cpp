@@ -255,7 +255,10 @@ nb::ref<SlangShader> slang_compile(const nb::str& file, const::nb::str& entry) {
     slang::TargetDesc targets[] = {
         slang::TargetDesc {
             .format = SLANG_SPIRV,
-            .profile = g_slang_global_session->findProfile("spirv_1_6"),
+            .profile = g_slang_global_session->findProfile("spirv_1_3"),
+            // TODO: Currently default to 1.3 because it's what vulkan 1.1
+            // supports, would make more sense to expose this as a parameter.
+            // .profile = g_slang_global_session->findProfile("spirv_1_6"),
         },
     };
 

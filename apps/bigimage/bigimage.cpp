@@ -46,19 +46,10 @@ int main(int argc, char** argv) {
         logging::error("bigimage", "Failed to initialize platform\n");
     }
 
-    Array<const char*> instance_extensions = gfx::GetPresentationInstanceExtensions();
-    instance_extensions.add("VK_EXT_debug_report");
-
-    Array<const char*> device_extensions;
-    device_extensions.add("VK_KHR_swapchain");
-    device_extensions.add("VK_KHR_dynamic_rendering");
-
     gfx::Context vk = {};
     result = gfx::CreateContext(&vk, {
-        .minimum_api_version = (u32)VK_API_VERSION_1_3,
-        .instance_extensions = instance_extensions,
-        .device_extensions = device_extensions,
-        .device_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
+        .minimum_api_version = (u32)VK_API_VERSION_1_1,
+        .device_features = gfx::DeviceFeatures::PRESENTATION | gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
         .enable_validation_layer = true,
         //        .enable_gpu_based_validation = true,
     });
