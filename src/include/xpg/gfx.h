@@ -38,8 +38,8 @@ namespace gfx {
 //      [ ] Copies
 // [ ] command buffer / pools creation (duplicate for sync and per frame)
 // [ ] descriptors:
-//     [ ] normal set creation
-//     [ ] writes
+//     [x] normal set creation
+//     [x] writes
 //     [ ] bindless descriptors management helpers
 
 struct Window;

@@ -8,7 +8,6 @@ set (CMAKE_CXX_STANDARD 20)
 set(XPG_BUILD_APPS ON CACHE BOOL "Build XPG applications")
 set(XPG_PYTHON ON CACHE BOOL "Build XPG python module")
 set(XPG_MSVC_ANALYZE OFF CACHE BOOL "Build with /analyze when using MSVC (heavily increases build times)")
-set(XPG_SLANG_PREBUILT_BINARIES ON CACHE BOOL "Download and use SLANG prebuilt binaries")
 
 # Configure GLFW
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "Build GLFW examples")
@@ -21,7 +20,7 @@ set(ZSTD_BUILD_PROGRAMS OFF)
 set(ZSTD_MULTITHREAD_SUPPORT OFF)
 set(ZSTD_LEGACY_SUPPORT OFF)
 
-# # Configure slang
+# Configure slang
 set(SLANG_ENABLE_CUDA OFF)
 set(SLANG_ENABLE_OPTIX OFF)
 set(SLANG_ENABLE_NVAPI OFF)

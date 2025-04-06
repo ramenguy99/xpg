@@ -16,6 +16,7 @@ Python:
     [x] Compilation
     [ ] Shader cache
         [x] Basic
+        [x] Handle multiple files
         [ ] Handle all cache inputs
     [x] Reflection
         - XPG provides only bindings, usage of reflection up to app
@@ -45,10 +46,12 @@ Python:
 
 Fetaures:
 [ ] Better feature / profile management:
-    [ ] Optional debug_log / validation / gpu based validation / synchronization validation
-    [ ] Window features
+    [x] Optional debug_log / validation / gpu based validation / synchronization validation
+    [ ] Headless mode
     [ ] Preferred features with a way to fallback
-    [ ] Used when picking devices
+    [ ] SYNCHRONIZATION_2 is not actually that widespread, maybe find a way to
+        ship the layer or maybe port the logic from the extension layer in case
+        it's not supported?
 [ ] Object names / debug API (names should be optional on python side, otherwise annoying to specify them during prototyping)
 [ ] Add helpers for timestamp queries
 [ ] Upload helper for buffer that works if device memory cannot be mapped

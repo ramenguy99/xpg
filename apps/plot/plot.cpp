@@ -403,8 +403,8 @@ Callback_WindowRefresh(GLFWwindow* window) {
 //   [ ] Data subsampling for drawing perf (could also be done as preprocess, but could be convenient)
 //   [ ] add options for extra stats (mean, median, quartiles, stddev) -> extra lines in histogram?
 // - Cleanup:
-//   [ ] Move stuff to more files, move apps in own directory
-//   [ ] Make XPG more standalone / clean
+//   [x] Move stuff to more files, move apps in own directory
+//   [x] Make XPG more standalone / clean
 
 // Parsing logic:
 // -t --text (<column>:<id>)*-> default, if not specified we could also autodetect by trying to parse as long as valid nums come out
