@@ -6,3 +6,4 @@ add_executable(bigimage
     chunk_cache.h
 )
 target_link_libraries(bigimage PRIVATE xpg libzstd_static)
+install(TARGETS bigimage DESTINATION "bin")

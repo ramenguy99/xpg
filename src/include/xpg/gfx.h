@@ -5,7 +5,6 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #endif
 #include <volk.h>                           // Vulkan
-#include <vulkan/vk_enum_string_helper.h>   // Vulkan helper strings for printing
 #define VMA_STATIC_VULKAN_FUNCTIONS 1
 #include <vk_mem_alloc.h>                   // Vulkan Memory Allocator
 

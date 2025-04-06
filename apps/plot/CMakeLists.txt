@@ -5,3 +5,4 @@ add_executable(plot
 )
 target_link_libraries(plot PRIVATE xpg)
 target_include_directories(plot PRIVATE ../../ext/implot ../../ext/CLI11)
+install(TARGETS plot DESTINATION "bin")

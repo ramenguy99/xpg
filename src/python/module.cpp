@@ -13,9 +13,12 @@ namespace nb = nanobind;
 
 void gfx_create_bindings(nb::module_&);
 void imgui_create_bindings(nb::module_&);
-void slang_create_bindings(nb::module_&);
 
-NB_MODULE(pyxpg, m) {
+#if PYXPG_SLANG_ENABLED
+void slang_create_bindings(nb::module_&);
+#endif
+
+NB_MODULE(_pyxpg, m) {
     nb::intrusive_init(
         [](PyObject *o) noexcept {
             nb::gil_scoped_acquire guard;
@@ -31,6 +34,8 @@ NB_MODULE(pyxpg, m) {
     nb::module_ mod_imgui = m.def_submodule("imgui", "ImGui bindings for XPG");
     imgui_create_bindings(mod_imgui);
 
+#if PYXPG_SLANG_ENABLED
     nb::module_ mod_slang = m.def_submodule("slang", "Slang bindings for XPG");
     slang_create_bindings(mod_slang);
+#endif
 }

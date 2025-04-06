@@ -67,10 +67,29 @@ Fetaures:
     [ ] Python bindings
 
 Build:
-[ ] static build on windows still broken? dynamically links with lz4?
-[ ] cibuildwheel for python
-[ ] actually rename everything or too late?
-
+[ ] cmake install double check
+    - Avoid add subdirectory shit
+    - GLFW now is a public dep because we statically link with it and use header files in public headers
+        -> Header files can be made private by copying out constants / forward declare needed stuff
+        -> can it be statically linked privately somehow? e.g. objects target? include source?
+[ ] LZ4 is dynamic on windows, no clue why
+[ ] python builds
+    [x] pyproject.toml
+    [x] test wheel
+        pip wheel . --verbose
+    [ ] sdist:
+        [x] make sdist
+            python -m build --sdist --verbose
+        [ ] build from sdist (???)
+    [ ] cibuildhweel
+        [x] Local
+            - create venv
+            - 
+        [x] manylinux
+        [x] musllinux
+        [ ] windows
+        [ ] mac
+        [ ] conda build, likely require xcb dependency (similar to vulkan issue?)
 
 Run python examples:
 cmd /C "set PYTHONPATH=install\python && python python\example.py"
@@ -140,10 +159,6 @@ Framegraph:
     [ ] Try to rewrite our exmaples and a viewer-like app with both styles, see what looks better.
         -> can try to do something a vulkan backend for aitviewer
         -> also want to support more advanced use cases like indirect rendering, batched meshes, per frame upload with triple buffering, gpu driven stuff, raytracing, etc..
-
-QOL:
-- cmake install thingy
-- CI for builds / python deploy
 
 Backlog:
 [x] Rename lru cache

@@ -3,6 +3,8 @@
 
 #include <xpg/gfx.h>
 
+#include <vulkan/vk_enum_string_helper.h>   // Vulkan helper strings for printing
+
 // #define COPY_QUEUE_INDEX 2
 
 // TODO: this technically works, but applications need to be aware of this.
@@ -376,7 +378,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                 logging::warning("gfx", "vkCreateDebugReportCallbackEXT failed: %d", result);
             }
         } else {
-            logging::warning("gfx", "vkCreateDebugReportCallbackEXT not available", result);
+            logging::warning("gfx", "vkCreateDebugReportCallbackEXT not available");
         }
     }
 
