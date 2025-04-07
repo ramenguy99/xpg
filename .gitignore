@@ -11,6 +11,7 @@ imgui.ini
 /scripts/pyimgui.pyi
 /res/
 /pyxpg
+/_gen
 
 /out/
 /build/
@@ -26,4 +27,4 @@ imgui.ini
 
 /venv
 /python-build
-/wheelhouse
+/wheel*

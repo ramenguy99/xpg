@@ -5,6 +5,7 @@ import re
 from typing import List, Optional
 from enum import Flag, auto
 import io
+import sys
 
 # TODO:
 # [x] How to handle Refs (pyimgui used to do this with pass in and multiple return values, but I never really liked it that much, but probably no other option)
@@ -45,10 +46,10 @@ DEFINES = {
 
 OUT = True
 
-data = json.load(open(os.path.join(os.path.dirname(__file__), "..", "ext", "dear_bindings", "xpg_imgui.json"), "r"))
+data = json.load(open(sys.argv[1], "r"))
 
 if OUT:
-    out_file = open(os.path.join(os.path.dirname(__file__), "pyimgui.pyi"), "w")
+    out_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "pyxpg", "imgui.pyi"), "w")
     out_cpp_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "generated_imgui.inc"), "w")
 
 pascal_re = re.compile(r'(?<!^)(?=[A-Z])')
@@ -630,18 +631,19 @@ for f in data["functions"]:
     out_cpp(f");\n")
 
 
-with open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "module.cpp"), "r") as module_file:
-    next_lines = []
-    skip = False
-    for l in module_file.readlines():
-        if "!$" in l:
-            skip = False
+if False:
+    with open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "module.cpp"), "r") as module_file:
+        next_lines = []
+        skip = False
+        for l in module_file.readlines():
+            if "!$" in l:
+                skip = False
 
-        if not skip:
-            next_lines.append(l)
+            if not skip:
+                next_lines.append(l)
 
-        if "$!" in l:
-            skip = True
-            next_lines.append(cpp_contents.getvalue())
+            if "$!" in l:
+                skip = True
+                next_lines.append(cpp_contents.getvalue())
 
-open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "module.cpp"), "w").write("".join(next_lines))
+    open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "module.cpp"), "w").write("".join(next_lines))

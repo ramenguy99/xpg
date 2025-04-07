@@ -148,24 +148,50 @@ if(XPG_BUILD_PYTHON)
     # set_target_properties(pyxpg PROPERTIES OUTPUT_NAME "xpg")
     nanobind_add_stub(pyxpg_stub
         MODULE _pyxpg
-        OUTPUT pyxpg.pyi
-        MARKER_FILE py.typed
+        OUTPUT pyxpg/__init__.pyi
+        MARKER_FILE pyxpg/py.typed
+        PYTHON_PATH $<TARGET_FILE_DIR:_pyxpg>
+        DEPENDS _pyxpg
+    )
+
+    nanobind_add_stub(pyxpg_slang_stub
+        MODULE _pyxpg.slang
+        OUTPUT pyxpg/slang/__init__.pyi
+        MARKER_FILE pyxpg/slang/py.typed
         PYTHON_PATH $<TARGET_FILE_DIR:_pyxpg>
         DEPENDS _pyxpg
     )
 
     install(TARGETS _pyxpg DESTINATION "pyxpg")
 
-    # Generated files for typing
+    # Build time generated files for typing
     install(FILES 
-        ${CMAKE_CURRENT_BINARY_DIR}/pyxpg.pyi
-        ${CMAKE_CURRENT_BINARY_DIR}/py.typed
+        ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/__init__.pyi
+        ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/py.typed
         DESTINATION
         "pyxpg")
+
+    install(FILES 
+        ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/slang/__init__.pyi
+        ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/slang/py.typed
+        DESTINATION
+        "pyxpg/slang")
 
     # Python sources
     install(FILES 
         ${CMAKE_SOURCE_DIR}/src/python/pyxpg/__init__.py
         DESTINATION
         "pyxpg")
+
+    install(FILES 
+        ${CMAKE_SOURCE_DIR}/src/python/pyxpg/slang/__init__.py
+        DESTINATION
+        "pyxpg/slang")
+
+    install(FILES 
+        ${CMAKE_SOURCE_DIR}/src/python/pyxpg/imgui/__init__.py
+        ${CMAKE_SOURCE_DIR}/src/python/pyxpg/imgui/__init__.pyi
+        ${CMAKE_SOURCE_DIR}/src/python/pyxpg/imgui/py.typed
+        DESTINATION
+        "pyxpg/imgui")
 endif()
