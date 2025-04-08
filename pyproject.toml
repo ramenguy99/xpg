@@ -35,8 +35,8 @@ cmake.define = { XPG_BUILD_APPS = "OFF", XPG_BUILD_PYTHON = "ON", XPG_BUILD_SLAN
 [tool.cibuildwheel]
 build-verbosity = 1
 archs = ["auto64"]
-build = ["cp38-*" ]
-# build = ["cp38-*", "cp39-*", "cp310-*", "cp311-*", "cp312-*"]
+#build = ["cp38-*" ]
+build = ["cp38-*", "cp39-*", "cp310-*", "cp311-*", "cp312-*"]
 
 # Install dependencies on manylinux
 [tool.cibuildwheel.linux]
