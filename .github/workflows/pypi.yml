@@ -1,0 +1,69 @@
+name: Build wheels and sdist and publish to pypi
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Upload wheels to PyPI? (0: no, 1: yes)'
+        required: true
+        default: '0'
+
+jobs:
+  # Wheels 
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.23.2
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+          path: ./wheelhouse/*.whl
+  
+  # Source distribution
+  make_sdist:
+    name: Make SDist
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        submodules: recursive
+
+    - name: Build SDist
+      run: pipx run build --sdist
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: cibw-sdist
+        path: dist/*.tar.gz
+  
+  # Upload to pypi
+  upload_all:
+    needs: [build_wheels, make_sdist]
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pyxpg/
+    permissions:
+      id-token: write
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.upload == '1'}}
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: cibw-*
+        path: dist
+        merge-multiple: true
+    - uses: pypa/gh-action-pypi-publish@release/v1
