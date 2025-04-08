@@ -17,6 +17,10 @@ endif ()
 set(GLFW_BUILD_EXAMPLES OFF)
 set(GLFW_BUILD_TESTS OFF)
 
+# Configure Volk
+set(VOLK_PULL_IN_VULKAN OFF)
+set(VOLK_HEADERS_ONLY ON)
+
 # Configure ZSTD
 set(ZSTD_BUILD_STATIC ON)
 set(ZSTD_BUILD_SHARED OFF)
@@ -50,6 +54,7 @@ endif()
 
 # Add external dependencies
 add_subdirectory(ext/glfw)
+add_subdirectory(ext/Vulkan-Headers)
 add_subdirectory(ext/volk)
 add_subdirectory(ext/glm)
 add_subdirectory(ext/VulkanMemoryAllocator)
@@ -90,10 +95,11 @@ target_include_directories(xpg PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>/src/include
     $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>/ext/imgui
     $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>/ext/atomic_queue/include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>/ext/Vulkan-Utility-Libraries/include
     $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(xpg PUBLIC volk_headers glfw glm VulkanMemoryAllocator)
+target_link_libraries(xpg PUBLIC Vulkan-Headers volk_headers glfw glm VulkanMemoryAllocator)
 
 if (NOT SKBUILD)
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/src/include/xpg DESTINATION "include" FILES_MATCHING PATTERN "*.h")

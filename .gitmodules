@@ -31,3 +31,9 @@
 [submodule "ext/slang"]
 	path = ext/slang
 	url = https://github.com/shader-slang/slang.git
+[submodule "ext/Vulkan-Headers"]
+	path = ext/Vulkan-Headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+[submodule "ext/Vulkan-Utility-Libraries"]
+	path = ext/Vulkan-Utility-Libraries
+	url = https://github.com/KhronosGroup/Vulkan-Utility-Libraries.git

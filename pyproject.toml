@@ -34,38 +34,18 @@ cmake.define = { XPG_BUILD_APPS = "OFF", XPG_BUILD_PYTHON = "ON", XPG_BUILD_SLAN
 
 [tool.cibuildwheel]
 build-verbosity = 1
-# build = ["cp38-*", "cp39-*", "cp310-*", "cp311-*", "cp312-*"]
 archs = ["auto64"]
-# For debugging just build one
-build = ["cp38-*"]
+build = ["cp38-*" ]
+# build = ["cp38-*", "cp39-*", "cp310-*", "cp311-*", "cp312-*"]
 
+# Install dependencies on manylinux
 [tool.cibuildwheel.linux]
-# Set environment to find vulkan SDK header files during build
-environment = "VULKAN_SDK=/opt/vulkansdk/1.4.309.0/x86_64"
+before-all = [ "yum install -y libXcursor-devel libXi-devel libXinerama-devel libXrandr-devel", ]
 
-# Install dependencies and download vulkan SDK on manylinux
-before-all = [
-    "yum install -y libXcursor-devel libXi-devel libXinerama-devel libXrandr-devel",
-    "mkdir -p /opt/vulkansdk",
-    "curl --output /opt/vulkansdk/vulkandsdk.tar.xz https://sdk.lunarg.com/sdk/download/1.4.309.0/linux/vulkansdk-linux-x86_64-1.4.309.0.tar.xz",
-    "tar xvf /opt/vulkansdk/vulkandsdk.tar.xz -C /opt/vulkansdk",
-]
-
-[tool.cibuildwheel.windows]
-# Install vulkan sdk
-before-all = [
-    "ci\\install-vulkan.ps1",
-]
-
+# Install dependencies on musllinux
 [[tool.cibuildwheel.overrides]]
-# Install dependencies and download vulkan SDK on muslinux
 select = "*-musllinux*"
-before-all = [
-    "apk add xorg-server-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev",
-    "mkdir -p /opt/vulkansdk",
-    "curl --output /opt/vulkansdk/vulkandsdk.tar.xz https://sdk.lunarg.com/sdk/download/1.4.309.0/linux/vulkansdk-linux-x86_64-1.4.309.0.tar.xz",
-    "tar xvf /opt/vulkansdk/vulkandsdk.tar.xz -C /opt/vulkansdk",
-]
+before-all = [ "apk add xorg-server-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev" ]
 
 # Needed for full C++17 support on macOS
 [tool.cibuildwheel.macos.environment]
