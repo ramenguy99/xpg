@@ -29,8 +29,8 @@ build-dir = "python-build/{wheel_tag}"
 wheel.py-api = "cp312"
 
 # Configure
-cmake.define = { XPG_BUILD_APPS = "OFF", XPG_BUILD_PYTHON = "ON", XPG_BUILD_SLANG = "ON" }
-#cmake.define = { XPG_BUILD_APPS = "OFF", XPG_BUILD_PYTHON = "ON", XPG_BUILD_SLANG = "OFF" }
+cmake.define = { XPG_BUILD_APPS = "OFF", XPG_BUILD_PYTHON = "ON", XPG_BUILD_SLANG = "ON", CMAKE_CXX_FLAGS = "-D_LARGEFILE64_SOURCE" }
+#cmake.define = { XPG_BUILD_APPS = "OFF", XPG_BUILD_PYTHON = "ON", XPG_BUILD_SLANG = "OFF", CMAKE_CXX_FLAGS = "-D_LARGEFILE64_SOURCE"  }
 
 [tool.cibuildwheel]
 build-verbosity = 1
