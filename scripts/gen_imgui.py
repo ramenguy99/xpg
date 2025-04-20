@@ -218,8 +218,8 @@ class Arg:
     default: Optional[str]
 
 def read_type(typ: dict) -> TypeInfo:
-    type_decl = typ["declaration"]
-    type_desc = typ["description"]
+    type_decl: str = typ["declaration"]
+    type_desc: str = typ["description"]
 
     flags = TypeFlag(0)
     array = None
@@ -245,6 +245,7 @@ def read_type(typ: dict) -> TypeInfo:
         flags |= TypeFlag.IS_PTR
         if "is_reference" in type_desc:
             flags |= TypeFlag.IS_REF
+            type_decl = type_decl.replace("*", "&")
         if inner["kind"] == "Builtin":
             name = inner["builtin_type"]
             flags |= TypeFlag.IS_BUILTIN

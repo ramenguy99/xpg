@@ -837,7 +837,7 @@ mod_imgui.def("end",
     });
 
 mod_imgui.def("begin_child",
-    [] (const char* str_id, const ImVec2& size, bool border, ImGuiWindowFlags flags) -> bool {
+    [] (const char* str_id, ImVec2 size, bool border, ImGuiWindowFlags flags) -> bool {
         return ImGui::BeginChild(str_id, size, border, flags);
     }, nb::arg("str_id"), nb::arg("size") = nb::make_tuple(0, 0), nb::arg("border") = false, nb::arg("flags") = 0);
 
@@ -902,17 +902,17 @@ mod_imgui.def("get_window_viewport",
     });
 
 mod_imgui.def("set_next_window_pos",
-    [] (const ImVec2& pos, ImGuiCond cond, const ImVec2& pivot) -> void {
+    [] (ImVec2 pos, ImGuiCond cond, ImVec2 pivot) -> void {
         return ImGui::SetNextWindowPos(pos, cond, pivot);
     }, nb::arg("pos"), nb::arg("cond") = 0, nb::arg("pivot") = nb::make_tuple(0, 0));
 
 mod_imgui.def("set_next_window_size",
-    [] (const ImVec2& size, ImGuiCond cond) -> void {
+    [] (ImVec2 size, ImGuiCond cond) -> void {
         return ImGui::SetNextWindowSize(size, cond);
     }, nb::arg("size"), nb::arg("cond") = 0);
 
 mod_imgui.def("set_next_window_content_size",
-    [] (const ImVec2& size) -> void {
+    [] (ImVec2 size) -> void {
         return ImGui::SetNextWindowContentSize(size);
     }, nb::arg("size"));
 
@@ -927,7 +927,7 @@ mod_imgui.def("set_next_window_focus",
     });
 
 mod_imgui.def("set_next_window_scroll",
-    [] (const ImVec2& scroll) -> void {
+    [] (ImVec2 scroll) -> void {
         return ImGui::SetNextWindowScroll(scroll);
     }, nb::arg("scroll"));
 
@@ -937,12 +937,12 @@ mod_imgui.def("set_next_window_bg_alpha",
     }, nb::arg("alpha"));
 
 mod_imgui.def("set_window_pos",
-    [] (const ImVec2& pos, ImGuiCond cond) -> void {
+    [] (ImVec2 pos, ImGuiCond cond) -> void {
         return ImGui::SetWindowPos(pos, cond);
     }, nb::arg("pos"), nb::arg("cond") = 0);
 
 mod_imgui.def("set_window_size",
-    [] (const ImVec2& size, ImGuiCond cond) -> void {
+    [] (ImVec2 size, ImGuiCond cond) -> void {
         return ImGui::SetWindowSize(size, cond);
     }, nb::arg("size"), nb::arg("cond") = 0);
 
@@ -962,12 +962,12 @@ mod_imgui.def("set_window_font_scale",
     }, nb::arg("scale"));
 
 mod_imgui.def("set_window_pos_str",
-    [] (const char* name, const ImVec2& pos, ImGuiCond cond) -> void {
+    [] (const char* name, ImVec2 pos, ImGuiCond cond) -> void {
         return ImGui::SetWindowPos(name, pos, cond);
     }, nb::arg("name"), nb::arg("pos"), nb::arg("cond") = 0);
 
 mod_imgui.def("set_window_size_str",
-    [] (const char* name, const ImVec2& size, ImGuiCond cond) -> void {
+    [] (const char* name, ImVec2 size, ImGuiCond cond) -> void {
         return ImGui::SetWindowSize(name, size, cond);
     }, nb::arg("name"), nb::arg("size"), nb::arg("cond") = 0);
 
@@ -1067,7 +1067,7 @@ mod_imgui.def("push_style_color",
     }, nb::arg("idx"), nb::arg("col"));
 
 mod_imgui.def("push_style_color_im_vec4",
-    [] (ImGuiCol idx, const ImVec4& col) -> void {
+    [] (ImGuiCol idx, ImVec4 col) -> void {
         return ImGui::PushStyleColor(idx, col);
     }, nb::arg("idx"), nb::arg("col"));
 
@@ -1082,7 +1082,7 @@ mod_imgui.def("push_style_var",
     }, nb::arg("idx"), nb::arg("val"));
 
 mod_imgui.def("push_style_var_im_vec2",
-    [] (ImGuiStyleVar idx, const ImVec2& val) -> void {
+    [] (ImGuiStyleVar idx, ImVec2 val) -> void {
         return ImGui::PushStyleVar(idx, val);
     }, nb::arg("idx"), nb::arg("val"));
 
@@ -1162,7 +1162,7 @@ mod_imgui.def("get_color_u32",
     }, nb::arg("idx"), nb::arg("alpha_mul") = 1.0);
 
 mod_imgui.def("get_color_u32_im_vec4",
-    [] (const ImVec4& col) -> Color {
+    [] (ImVec4 col) -> Color {
         return ImGui::GetColorU32(col);
     }, nb::arg("col"));
 
@@ -1192,7 +1192,7 @@ mod_imgui.def("spacing",
     });
 
 mod_imgui.def("dummy",
-    [] (const ImVec2& size) -> void {
+    [] (ImVec2 size) -> void {
         return ImGui::Dummy(size);
     }, nb::arg("size"));
 
@@ -1232,7 +1232,7 @@ mod_imgui.def("get_cursor_pos_y",
     });
 
 mod_imgui.def("set_cursor_pos",
-    [] (const ImVec2& local_pos) -> void {
+    [] (ImVec2 local_pos) -> void {
         return ImGui::SetCursorPos(local_pos);
     }, nb::arg("local_pos"));
 
@@ -1257,7 +1257,7 @@ mod_imgui.def("get_cursor_screen_pos",
     });
 
 mod_imgui.def("set_cursor_screen_pos",
-    [] (const ImVec2& pos) -> void {
+    [] (ImVec2 pos) -> void {
         return ImGui::SetCursorScreenPos(pos);
     }, nb::arg("pos"));
 
@@ -1312,7 +1312,7 @@ mod_imgui.def("text",
     }, nb::arg("fmt"));
 
 mod_imgui.def("text_colored",
-    [] (const ImVec4& col, const char* fmt) -> void {
+    [] (ImVec4 col, const char* fmt) -> void {
         return ImGui::TextColored(col, fmt);
     }, nb::arg("col"), nb::arg("fmt"));
 
@@ -1342,7 +1342,7 @@ mod_imgui.def("separator_text",
     }, nb::arg("label"));
 
 mod_imgui.def("button",
-    [] (const char* label, const ImVec2& size) -> bool {
+    [] (const char* label, ImVec2 size) -> bool {
         return ImGui::Button(label, size);
     }, nb::arg("label"), nb::arg("size") = nb::make_tuple(0, 0));
 
@@ -1352,7 +1352,7 @@ mod_imgui.def("small_button",
     }, nb::arg("label"));
 
 mod_imgui.def("invisible_button",
-    [] (const char* str_id, const ImVec2& size, ImGuiButtonFlags flags) -> bool {
+    [] (const char* str_id, ImVec2 size, ImGuiButtonFlags flags) -> bool {
         return ImGui::InvisibleButton(str_id, size, flags);
     }, nb::arg("str_id"), nb::arg("size"), nb::arg("flags") = 0);
 
@@ -1374,7 +1374,7 @@ mod_imgui.def("radio_button",
     }, nb::arg("label"), nb::arg("active"));
 
 mod_imgui.def("progress_bar",
-    [] (float fraction, const ImVec2& size_arg, std::optional<const char*> overlay) -> void {
+    [] (float fraction, ImVec2 size_arg, std::optional<const char*> overlay) -> void {
         return ImGui::ProgressBar(fraction, size_arg, overlay.has_value() ? overlay.value() : NULL);
     }, nb::arg("fraction"), nb::arg("size_arg") = nb::make_tuple(-1.175494351e-38, 0), nb::arg("overlay") = nb::none());
 
@@ -1384,12 +1384,12 @@ mod_imgui.def("bullet",
     });
 
 mod_imgui.def("image",
-    [] (ImTextureID user_texture_id, const ImVec2& size, const ImVec2& uv0, const ImVec2& uv1, const ImVec4& tint_col, const ImVec4& border_col) -> void {
+    [] (ImTextureID user_texture_id, ImVec2 size, ImVec2 uv0, ImVec2 uv1, ImVec4 tint_col, ImVec4 border_col) -> void {
         return ImGui::Image(user_texture_id, size, uv0, uv1, tint_col, border_col);
     }, nb::arg("user_texture_id"), nb::arg("size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1), nb::arg("border_col") = nb::make_tuple(0, 0, 0, 0));
 
 mod_imgui.def("image_button",
-    [] (const char* str_id, ImTextureID user_texture_id, const ImVec2& size, const ImVec2& uv0, const ImVec2& uv1, const ImVec4& bg_col, const ImVec4& tint_col) -> bool {
+    [] (const char* str_id, ImTextureID user_texture_id, ImVec2 size, ImVec2 uv0, ImVec2 uv1, ImVec4 bg_col, ImVec4 tint_col) -> bool {
         return ImGui::ImageButton(str_id, user_texture_id, size, uv0, uv1, bg_col, tint_col);
     }, nb::arg("str_id"), nb::arg("user_texture_id"), nb::arg("size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
 
@@ -1513,14 +1513,14 @@ mod_imgui.def("slider_int4",
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("format") = "%d", nb::arg("flags") = 0);
 
 mod_imgui.def("v_slider_float",
-    [] (const char* label, const ImVec2& size, float v, float v_min, float v_max, const char* format, ImGuiSliderFlags flags) -> nb::tuple {
+    [] (const char* label, ImVec2 size, float v, float v_min, float v_max, const char* format, ImGuiSliderFlags flags) -> nb::tuple {
         auto _call = ImGui::VSliderFloat(label, size, &v, v_min, v_max, format, flags);
         auto _ret = v;
         return nb::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("size"), nb::arg("v"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("v_slider_int",
-    [] (const char* label, const ImVec2& size, int v, int v_min, int v_max, const char* format, ImGuiSliderFlags flags) -> nb::tuple {
+    [] (const char* label, ImVec2 size, int v, int v_min, int v_max, const char* format, ImGuiSliderFlags flags) -> nb::tuple {
         auto _call = ImGui::VSliderInt(label, size, &v, v_min, v_max, format, flags);
         auto _ret = v;
         return nb::make_tuple(_call, _ret);
@@ -1604,7 +1604,7 @@ mod_imgui.def("color_picker3",
     }, nb::arg("label"), nb::arg("col"), nb::arg("flags") = 0);
 
 mod_imgui.def("color_button",
-    [] (const char* desc_id, const ImVec4& col, ImGuiColorEditFlags flags, const ImVec2& size) -> bool {
+    [] (const char* desc_id, ImVec4 col, ImGuiColorEditFlags flags, ImVec2 size) -> bool {
         return ImGui::ColorButton(desc_id, col, flags, size);
     }, nb::arg("desc_id"), nb::arg("col"), nb::arg("flags") = 0, nb::arg("size") = nb::make_tuple(0, 0));
 
@@ -1659,12 +1659,12 @@ mod_imgui.def("set_next_item_open",
     }, nb::arg("is_open"), nb::arg("cond") = 0);
 
 mod_imgui.def("selectable",
-    [] (const char* label, bool selected, ImGuiSelectableFlags flags, const ImVec2& size) -> bool {
+    [] (const char* label, bool selected, ImGuiSelectableFlags flags, ImVec2 size) -> bool {
         return ImGui::Selectable(label, selected, flags, size);
     }, nb::arg("label"), nb::arg("selected") = false, nb::arg("flags") = 0, nb::arg("size") = nb::make_tuple(0, 0));
 
 mod_imgui.def("begin_list_box",
-    [] (const char* label, const ImVec2& size) -> bool {
+    [] (const char* label, ImVec2 size) -> bool {
         return ImGui::BeginListBox(label, size);
     }, nb::arg("label"), nb::arg("size") = nb::make_tuple(0, 0));
 
@@ -1786,7 +1786,7 @@ mod_imgui.def("is_popup_open",
     }, nb::arg("str_id"), nb::arg("flags") = 0);
 
 mod_imgui.def("begin_table",
-    [] (const char* str_id, int column, ImGuiTableFlags flags, const ImVec2& outer_size, float inner_width) -> bool {
+    [] (const char* str_id, int column, ImGuiTableFlags flags, ImVec2 outer_size, float inner_width) -> bool {
         return ImGui::BeginTable(str_id, column, flags, outer_size, inner_width);
     }, nb::arg("str_id"), nb::arg("column"), nb::arg("flags") = 0, nb::arg("outer_size") = nb::make_tuple(0.0, 0.0), nb::arg("inner_width") = 0.0);
 
@@ -1933,7 +1933,7 @@ mod_imgui.def("set_tab_item_closed",
     }, nb::arg("tab_or_docked_window_label"));
 
 mod_imgui.def("dock_space",
-    [] (ImGuiID id, const ImVec2& size, ImGuiDockNodeFlags flags, std::optional<const ImGuiWindowClass*> window_class) -> ImGuiID {
+    [] (ImGuiID id, ImVec2 size, ImGuiDockNodeFlags flags, std::optional<const ImGuiWindowClass*> window_class) -> ImGuiID {
         return ImGui::DockSpace(id, size, flags, window_class.has_value() ? window_class.value() : NULL);
     }, nb::arg("id"), nb::arg("size") = nb::make_tuple(0, 0), nb::arg("flags") = 0, nb::arg("window_class") = nb::none());
 
@@ -2038,7 +2038,7 @@ mod_imgui.def("end_disabled",
     });
 
 mod_imgui.def("push_clip_rect",
-    [] (const ImVec2& clip_rect_min, const ImVec2& clip_rect_max, bool intersect_with_current_clip_rect) -> void {
+    [] (ImVec2 clip_rect_min, ImVec2 clip_rect_max, bool intersect_with_current_clip_rect) -> void {
         return ImGui::PushClipRect(clip_rect_min, clip_rect_max, intersect_with_current_clip_rect);
     }, nb::arg("clip_rect_min"), nb::arg("clip_rect_max"), nb::arg("intersect_with_current_clip_rect"));
 
@@ -2163,12 +2163,12 @@ mod_imgui.def("get_foreground_draw_list",
     });
 
 mod_imgui.def("is_rect_visible_by_size",
-    [] (const ImVec2& size) -> bool {
+    [] (ImVec2 size) -> bool {
         return ImGui::IsRectVisible(size);
     }, nb::arg("size"));
 
 mod_imgui.def("is_rect_visible",
-    [] (const ImVec2& rect_min, const ImVec2& rect_max) -> bool {
+    [] (ImVec2 rect_min, ImVec2 rect_max) -> bool {
         return ImGui::IsRectVisible(rect_min, rect_max);
     }, nb::arg("rect_min"), nb::arg("rect_max"));
 
@@ -2198,7 +2198,7 @@ mod_imgui.def("get_state_storage",
     });
 
 mod_imgui.def("begin_child_frame",
-    [] (ImGuiID id, const ImVec2& size, ImGuiWindowFlags flags) -> bool {
+    [] (ImGuiID id, ImVec2 size, ImGuiWindowFlags flags) -> bool {
         return ImGui::BeginChildFrame(id, size, flags);
     }, nb::arg("id"), nb::arg("size"), nb::arg("flags") = 0);
 
@@ -2218,7 +2218,7 @@ mod_imgui.def("color_convert_u32_to_float4",
     }, nb::arg("value"));
 
 mod_imgui.def("color_convert_float4_to_u32",
-    [] (const ImVec4& value) -> Color {
+    [] (ImVec4 value) -> Color {
         return ImGui::ColorConvertFloat4ToU32(value);
     }, nb::arg("value"));
 
@@ -2278,7 +2278,7 @@ mod_imgui.def("get_mouse_clicked_count",
     }, nb::arg("button"));
 
 mod_imgui.def("is_mouse_hovering_rect",
-    [] (const ImVec2& r_min, const ImVec2& r_max, bool clip) -> bool {
+    [] (ImVec2 r_min, ImVec2 r_max, bool clip) -> bool {
         return ImGui::IsMouseHoveringRect(r_min, r_max, clip);
     }, nb::arg("r_min"), nb::arg("r_max"), nb::arg("clip") = true);
 
@@ -2393,7 +2393,7 @@ mod_imgui.def("pop_allow_keyboard_focus",
     });
 
 mod_imgui.def("image_button_im_texture_id",
-    [] (ImTextureID user_texture_id, const ImVec2& size, const ImVec2& uv0, const ImVec2& uv1, int frame_padding, const ImVec4& bg_col, const ImVec4& tint_col) -> bool {
+    [] (ImTextureID user_texture_id, ImVec2 size, ImVec2 uv0, ImVec2 uv1, int frame_padding, ImVec4 bg_col, ImVec4 tint_col) -> bool {
         return ImGui::ImageButton(user_texture_id, size, uv0, uv1, frame_padding, bg_col, tint_col);
     }, nb::arg("user_texture_id"), nb::arg("size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("frame_padding") = -1, nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
 

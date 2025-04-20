@@ -18,6 +18,7 @@ imgui.ini
 /build-release
 /build-debug
 /build-deploy
+/build-test
 
 /install
 /install-deploy
@@ -28,3 +29,4 @@ imgui.ini
 /venv
 /python-build
 /wheel*
+/pyxpg-backup
