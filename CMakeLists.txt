@@ -10,12 +10,30 @@ set(XPG_BUILD_PYTHON ON CACHE BOOL "Build XPG python module")
 set(XPG_BUILD_SLANG ON CACHE BOOL "Build XPG with slang")
 set(XPG_MSVC_ANALYZE OFF CACHE BOOL "Build with /analyze when using MSVC (heavily increases build times)")
 
+# Compiler specific
+if (MSVC) 
+    if (${XPG_MSVC_ANALYZE})
+        set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /analyze")
+    endif()
+
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc")
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+if (NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
+endif()
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-volatile -Wno-nullability-completeness")
+endif()
+
 # Configure GLFW
 if (SKBUILD)
     set(GLFW_INSTALL OFF)
 endif ()
 set(GLFW_BUILD_EXAMPLES OFF)
 set(GLFW_BUILD_TESTS OFF)
+set(USE_MSVC_RUNTIME_LIBRARY_DLL OFF)
 
 # Configure Volk
 set(VOLK_PULL_IN_VULKAN OFF)
@@ -60,18 +78,6 @@ add_subdirectory(ext/volk)
 add_subdirectory(ext/glm)
 add_subdirectory(ext/VulkanMemoryAllocator)
 add_subdirectory(ext/zstd/build/cmake EXCLUDE_FROM_ALL)
-
-# Compiler specific
-if (MSVC AND ${XPG_MSVC_ANALYZE})
-    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /analyze")
-endif()
-
-if (NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
-endif()
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-volatile -Wno-nullability-completeness")
-endif()
 
 # Library
 add_library(xpg STATIC
