@@ -1308,32 +1308,32 @@ mod_imgui.def("pop_id",
 
 mod_imgui.def("text",
     [] (const char* fmt) -> void {
-        return ImGui::Text(fmt);
+        return ImGui::Text("%s", fmt);
     }, nb::arg("fmt"));
 
 mod_imgui.def("text_colored",
     [] (ImVec4 col, const char* fmt) -> void {
-        return ImGui::TextColored(col, fmt);
+        return ImGui::TextColored(col, "%s", fmt);
     }, nb::arg("col"), nb::arg("fmt"));
 
 mod_imgui.def("text_disabled",
     [] (const char* fmt) -> void {
-        return ImGui::TextDisabled(fmt);
+        return ImGui::TextDisabled("%s", fmt);
     }, nb::arg("fmt"));
 
 mod_imgui.def("text_wrapped",
     [] (const char* fmt) -> void {
-        return ImGui::TextWrapped(fmt);
+        return ImGui::TextWrapped("%s", fmt);
     }, nb::arg("fmt"));
 
 mod_imgui.def("label_text",
     [] (const char* label, const char* fmt) -> void {
-        return ImGui::LabelText(label, fmt);
+        return ImGui::LabelText(label, "%s", fmt);
     }, nb::arg("label"), nb::arg("fmt"));
 
 mod_imgui.def("bullet_text",
     [] (const char* fmt) -> void {
-        return ImGui::BulletText(fmt);
+        return ImGui::BulletText("%s", fmt);
     }, nb::arg("fmt"));
 
 mod_imgui.def("separator_text",
@@ -1620,7 +1620,7 @@ mod_imgui.def("tree_node",
 
 mod_imgui.def("tree_node_str",
     [] (const char* str_id, const char* fmt) -> bool {
-        return ImGui::TreeNode(str_id, fmt);
+        return ImGui::TreeNode(str_id, "%s", fmt);
     }, nb::arg("str_id"), nb::arg("fmt"));
 
 mod_imgui.def("tree_node_ex",
@@ -1630,7 +1630,7 @@ mod_imgui.def("tree_node_ex",
 
 mod_imgui.def("tree_node_ex_str",
     [] (const char* str_id, ImGuiTreeNodeFlags flags, const char* fmt) -> bool {
-        return ImGui::TreeNodeEx(str_id, flags, fmt);
+        return ImGui::TreeNodeEx(str_id, flags, "%s", fmt);
     }, nb::arg("str_id"), nb::arg("flags"), nb::arg("fmt"));
 
 mod_imgui.def("tree_push",
@@ -1720,7 +1720,7 @@ mod_imgui.def("end_tooltip",
 
 mod_imgui.def("set_tooltip",
     [] (const char* fmt) -> void {
-        return ImGui::SetTooltip(fmt);
+        return ImGui::SetTooltip("%s", fmt);
     }, nb::arg("fmt"));
 
 mod_imgui.def("begin_item_tooltip",
@@ -1730,7 +1730,7 @@ mod_imgui.def("begin_item_tooltip",
 
 mod_imgui.def("set_item_tooltip",
     [] (const char* fmt) -> void {
-        return ImGui::SetItemTooltip(fmt);
+        return ImGui::SetItemTooltip("%s", fmt);
     }, nb::arg("fmt"));
 
 mod_imgui.def("begin_popup",
@@ -1989,7 +1989,7 @@ mod_imgui.def("log_buttons",
 
 mod_imgui.def("log_text",
     [] (const char* fmt) -> void {
-        return ImGui::LogText(fmt);
+        return ImGui::LogText("%s", fmt);
     }, nb::arg("fmt"));
 
 mod_imgui.def("begin_drag_drop_source",

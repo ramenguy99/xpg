@@ -578,6 +578,8 @@ for f in data["functions"]:
         for arg in args:
             if arg.type.array is not None:
                 name = f"{arg.name}.data()"
+            elif arg.name == "fmt":
+                name = r'"%s", fmt'
             elif arg.type.name == "memoryview":
                 name = f"{arg.name}.data()"
             elif arg.type.flags & TypeFlag.IS_PTR and not arg.type.flags & TypeFlag.IS_REF:
