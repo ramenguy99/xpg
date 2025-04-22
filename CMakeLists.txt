@@ -85,9 +85,7 @@ add_library(xpg STATIC
     src/include/xpg/buffered_stream.h
     src/include/xpg/defines.h
     src/include/xpg/gfx.h
-    src/include/xpg/graph.h
     src/include/xpg/gui.h
-    src/include/xpg/hashmap.h
     src/include/xpg/log.h
     src/include/xpg/platform.h
     src/include/xpg/pool.h

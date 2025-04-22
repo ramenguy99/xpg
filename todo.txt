@@ -27,6 +27,7 @@ Python:
     - Include files / deps:
         - Use modules for shareable reusable parts (e.g. helper functions, materials, shadows, etc..)
         - Can use include files in shaders to share common types etc.., less prio than modules but still useful e.g. for cpp interop
+    - Initialize slang asynchronously on module creation? There is 100ms in release and 300 in debug to save there.
 [ ] Framegraph implementation on top of reflection for easy prototyping of pipelines/shaders
     -> interesting here would be how much perf we can have when sharing data through arrays, e.g. textures, buffers, uniforms
     -> also interesting if we want to have a full python framegraph or if we can somehow leverage python callables
@@ -299,3 +300,26 @@ Perf notes:
 - All in all we have 2.5ms draw and ~3.5ms transfer. We are just transfer bound, but with the copy queue we keep the CPU free during those transfers.
 [ ] Try with buffered stream loading directly to upload heap -> slightly more complex because we have more buffers then frames there
 - https://ctf.re/about/
+
+Slang global session creation time notes:
+- CapabilityAtom        enum of 196 values
+- CapabilityName        enum of 516 values
+- CapabilityAtomSet     array of bit flags for each atom ceil(196 / 64) -> 4 uin64 -> 32 bytes (on heap tho)
+
+- CapabilityStageSet    stage (CapabilityAtom), optional CapabilityAtomSet
+- CapabilityStageSets   CapabilityAtom -> CapabilityStageSet
+
+- CapabilityTargetSet   target CapabilityAtom, CapabilityStageSets
+- CapabilityTargetSets  CapabilityAtom -> CapabilityTargetSet dictionary
+
+- CapabilitySet         Just helpers on top of a CapabilityTargetSets
+
+Ideas:
+- Probably: not all atoms can be targets and not all atoms can be stages -> simplify those dictionary Atom -> Obj to direct indexed with proper count of possibilities
+- 
+
+Opts:                                           Debug         Release
+- Start ->                                      320ms            90ms
+- CapabilitySet::toNative (std move)       -> [285  300]
+- CapabilityTargetSet::toNative (std move) -> [275  292]
+- UintList + avoid lists in deserialize    -> [234  247]      [59 - 65]
