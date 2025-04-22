@@ -4,6 +4,8 @@
 
 #include <xpg/gui.h>
 #include <xpg/buffered_stream.h>
+#include <xpg/log.h>
+#include <xpg/platform.h>
 
 #include <math.h>
 

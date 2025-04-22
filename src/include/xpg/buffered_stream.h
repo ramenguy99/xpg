@@ -1,7 +1,7 @@
 #pragma once
 
-#include <xpg/threading.h>
-#include <xpg/function.h>
+#include "threading.h"
+#include "function.h"
 
 template<typename T>
 struct BufferedStream {

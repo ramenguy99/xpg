@@ -1,9 +1,10 @@
 #pragma once
 
-#include "defines.h"
 #include <string.h>
 #include <initializer_list>
 #include <type_traits>
+
+#include "defines.h"
 
 #ifndef BOUNDS_CHECKING_ENABLED
 #define BOUNDS_CHECKING_ENABLED 1
@@ -523,23 +524,3 @@ struct Span {
         return data[index];
     }
 };
-
-
-/*
-void printArray(ArrayView<int> a) {
-    for(usize i = 0; i < a.length; i++) {
-        printf("%d\n", a[i]);
-    }
-}
-
-void TestArray() {
-    ArrayFixed<int, 3> a;
-    a.add(5);
-    a.add(3);
-
-    ArrayView<int> view = a;
-
-    printArray(a);
-    printArray(view);
-}
-*/

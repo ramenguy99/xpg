@@ -1,5 +1,8 @@
 #include "chunk_cache.h"
 
+#include <xpg/log.h>
+#include <xpg/platform.h>
+
 ChunkCache::ChunkCache(const ZMipFile& zmip, usize cache_size, usize upload_buffers_count, usize num_workers, usize num_frames_in_flight,
                const gfx::Context& vk, const gfx::DescriptorSet& descriptor_set)
                : zmip(zmip)

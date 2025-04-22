@@ -1,4 +1,6 @@
 #include <xpg/gui.h>
+#include <xpg/log.h>
+#include <xpg/platform.h>
 
 #include "zmip.h"
 #include "chunk_cache.h"

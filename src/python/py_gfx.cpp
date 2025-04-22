@@ -15,6 +15,7 @@
 #include <nanobind/intrusive/ref.h>
 
 #include <xpg/gui.h>
+#include <xpg/log.h>
 
 #include "function.h"
 

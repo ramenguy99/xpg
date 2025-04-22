@@ -1,4 +1,5 @@
 #include <xpg/gui.h>
+#include <xpg/log.h>
 
 #include <implot.h>
 #include <implot_internal.h>

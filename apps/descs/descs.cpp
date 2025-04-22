@@ -1,4 +1,6 @@
 #include <xpg/gui.h>
+#include <xpg/log.h>
+#include <xpg/platform.h>
 
 using glm::vec2;
 using glm::vec3;

@@ -21,10 +21,8 @@
 #include <glm/gtc/matrix_transform.hpp>     // GLM matrix ops
 
 // Internal
-#include <xpg/function.h>
-#include <xpg/log.h>
-#include <xpg/platform.h>
-#include <xpg/array.h>
+#include "function.h"
+#include "array.h"
 
 #define XPG_VERSION 0
 

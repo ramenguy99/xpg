@@ -2,6 +2,8 @@
 #define VMA_IMPLEMENTATION
 
 #include <xpg/gfx.h>
+#include <xpg/log.h>
+#include <xpg/platform.h>
 
 #include <vulkan/vk_enum_string_helper.h>   // Vulkan helper strings for printing
 

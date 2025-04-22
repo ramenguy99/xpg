@@ -1,6 +1,6 @@
 #pragma once
 
-#include <xpg/gfx.h>
+#include "gfx.h"
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include <imgui.h>
