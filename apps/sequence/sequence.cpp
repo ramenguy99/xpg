@@ -389,7 +389,7 @@ int main(int argc, char** argv) {
         // ImGui
         gui::BeginFrame();
 
-        ImGui::DockSpaceOverViewport(NULL, ImGuiDockNodeFlags_PassthruCentralNode);
+        ImGui::DockSpaceOverViewport(0, NULL, ImGuiDockNodeFlags_PassthruCentralNode);
 
         if (ImGui::Begin("Playback")) {
             struct Getter {

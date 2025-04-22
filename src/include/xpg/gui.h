@@ -10,7 +10,6 @@ namespace gui {
 //- Impl
 struct ImGuiImpl {
     VkRenderPass render_pass = VK_NULL_HANDLE;
-    VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
 };
 
 struct Font {

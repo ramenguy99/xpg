@@ -36,45 +36,70 @@ class WindowFlags(IntFlag):
     NO_BRING_TO_FRONT_ON_FOCUS = 0x2000
     ALWAYS_VERTICAL_SCROLLBAR = 0x4000
     ALWAYS_HORIZONTAL_SCROLLBAR = 0x8000
-    ALWAYS_USE_WINDOW_PADDING = 0x10000
-    NO_NAV_INPUTS = 0x40000
-    NO_NAV_FOCUS = 0x80000
-    UNSAVED_DOCUMENT = 0x100000
-    NO_DOCKING = 0x200000
-    NO_NAV = 0xc0000
+    NO_NAV_INPUTS = 0x10000
+    NO_NAV_FOCUS = 0x20000
+    UNSAVED_DOCUMENT = 0x40000
+    NO_DOCKING = 0x80000
+    NO_NAV = 0x30000
     NO_DECORATION = 0x2b
-    NO_INPUTS = 0xc0200
-    NAV_FLATTENED = 0x800000
+    NO_INPUTS = 0x30200
+    DOCK_NODE_HOST = 0x800000
     CHILD_WINDOW = 0x1000000
     TOOLTIP = 0x2000000
     POPUP = 0x4000000
     MODAL = 0x8000000
     CHILD_MENU = 0x10000000
-    DOCK_NODE_HOST = 0x20000000
+    NAV_FLATTENED = 0x20000000
+    ALWAYS_USE_WINDOW_PADDING = 0x40000000
+
+class ChildFlags(IntFlag):
+    NONE = 0x0
+    BORDERS = 0x1
+    ALWAYS_USE_WINDOW_PADDING = 0x2
+    RESIZE_X = 0x4
+    RESIZE_Y = 0x8
+    AUTO_RESIZE_X = 0x10
+    AUTO_RESIZE_Y = 0x20
+    ALWAYS_AUTO_RESIZE = 0x40
+    FRAME_STYLE = 0x80
+    NAV_FLATTENED = 0x100
+    BORDER = 0x1
+
+class ItemFlags(IntFlag):
+    NONE = 0x0
+    NO_TAB_STOP = 0x1
+    NO_NAV = 0x2
+    NO_NAV_DEFAULT_FOCUS = 0x4
+    BUTTON_REPEAT = 0x8
+    AUTO_CLOSE_POPUPS = 0x10
+    ALLOW_DUPLICATE_ID = 0x20
 
 class InputTextFlags(IntFlag):
     NONE = 0x0
     CHARS_DECIMAL = 0x1
     CHARS_HEXADECIMAL = 0x2
-    CHARS_UPPERCASE = 0x4
-    CHARS_NO_BLANK = 0x8
-    AUTO_SELECT_ALL = 0x10
-    ENTER_RETURNS_TRUE = 0x20
-    CALLBACK_COMPLETION = 0x40
-    CALLBACK_HISTORY = 0x80
-    CALLBACK_ALWAYS = 0x100
-    CALLBACK_CHAR_FILTER = 0x200
-    ALLOW_TAB_INPUT = 0x400
-    CTRL_ENTER_FOR_NEW_LINE = 0x800
-    NO_HORIZONTAL_SCROLL = 0x1000
-    ALWAYS_OVERWRITE = 0x2000
-    READ_ONLY = 0x4000
-    PASSWORD = 0x8000
+    CHARS_SCIENTIFIC = 0x4
+    CHARS_UPPERCASE = 0x8
+    CHARS_NO_BLANK = 0x10
+    ALLOW_TAB_INPUT = 0x20
+    ENTER_RETURNS_TRUE = 0x40
+    ESCAPE_CLEARS_ALL = 0x80
+    CTRL_ENTER_FOR_NEW_LINE = 0x100
+    READ_ONLY = 0x200
+    PASSWORD = 0x400
+    ALWAYS_OVERWRITE = 0x800
+    AUTO_SELECT_ALL = 0x1000
+    PARSE_EMPTY_REF_VAL = 0x2000
+    DISPLAY_EMPTY_REF_VAL = 0x4000
+    NO_HORIZONTAL_SCROLL = 0x8000
     NO_UNDO_REDO = 0x10000
-    CHARS_SCIENTIFIC = 0x20000
-    CALLBACK_RESIZE = 0x40000
-    CALLBACK_EDIT = 0x80000
-    ESCAPE_CLEARS_ALL = 0x100000
+    ELIDE_LEFT = 0x20000
+    CALLBACK_COMPLETION = 0x40000
+    CALLBACK_HISTORY = 0x80000
+    CALLBACK_ALWAYS = 0x100000
+    CALLBACK_CHAR_FILTER = 0x200000
+    CALLBACK_RESIZE = 0x400000
+    CALLBACK_EDIT = 0x800000
 
 class TreeNodeFlags(IntFlag):
     NONE = 0x0
@@ -91,9 +116,13 @@ class TreeNodeFlags(IntFlag):
     FRAME_PADDING = 0x400
     SPAN_AVAIL_WIDTH = 0x800
     SPAN_FULL_WIDTH = 0x1000
-    NAV_LEFT_JUMPS_BACK_HERE = 0x2000
+    SPAN_LABEL_WIDTH = 0x2000
+    SPAN_ALL_COLUMNS = 0x4000
+    LABEL_SPAN_ALL_COLUMNS = 0x8000
+    NAV_LEFT_JUMPS_BACK_HERE = 0x20000
     COLLAPSING_HEADER = 0x1a
     ALLOW_ITEM_OVERLAP = 0x4
+    SPAN_TEXT_WIDTH = 0x2000
 
 class PopupFlags(IntFlag):
     NONE = 0x0
@@ -102,19 +131,22 @@ class PopupFlags(IntFlag):
     MOUSE_BUTTON_MIDDLE = 0x2
     MOUSE_BUTTON_MASK_ = 0x1f
     MOUSE_BUTTON_DEFAULT_ = 0x1
-    NO_OPEN_OVER_EXISTING_POPUP = 0x20
-    NO_OPEN_OVER_ITEMS = 0x40
-    ANY_POPUP_ID = 0x80
-    ANY_POPUP_LEVEL = 0x100
-    ANY_POPUP = 0x180
+    NO_REOPEN = 0x20
+    NO_OPEN_OVER_EXISTING_POPUP = 0x80
+    NO_OPEN_OVER_ITEMS = 0x100
+    ANY_POPUP_ID = 0x400
+    ANY_POPUP_LEVEL = 0x800
+    ANY_POPUP = 0xc00
 
 class SelectableFlags(IntFlag):
     NONE = 0x0
-    DONT_CLOSE_POPUPS = 0x1
+    NO_AUTO_CLOSE_POPUPS = 0x1
     SPAN_ALL_COLUMNS = 0x2
     ALLOW_DOUBLE_CLICK = 0x4
     DISABLED = 0x8
     ALLOW_OVERLAP = 0x10
+    HIGHLIGHT = 0x20
+    DONT_CLOSE_POPUPS = 0x1
     ALLOW_ITEM_OVERLAP = 0x10
 
 class ComboFlags(IntFlag):
@@ -126,6 +158,7 @@ class ComboFlags(IntFlag):
     HEIGHT_LARGEST = 0x10
     NO_ARROW_BUTTON = 0x20
     NO_PREVIEW = 0x40
+    WIDTH_FIT_PREVIEW = 0x80
     HEIGHT_MASK_ = 0x1e
 
 class TabBarFlags(IntFlag):
@@ -136,10 +169,11 @@ class TabBarFlags(IntFlag):
     NO_CLOSE_WITH_MIDDLE_MOUSE_BUTTON = 0x8
     NO_TAB_LIST_SCROLLING_BUTTONS = 0x10
     NO_TOOLTIP = 0x20
-    FITTING_POLICY_RESIZE_DOWN = 0x40
-    FITTING_POLICY_SCROLL = 0x80
-    FITTING_POLICY_MASK_ = 0xc0
-    FITTING_POLICY_DEFAULT_ = 0x40
+    DRAW_SELECTED_OVERLINE = 0x40
+    FITTING_POLICY_RESIZE_DOWN = 0x80
+    FITTING_POLICY_SCROLL = 0x100
+    FITTING_POLICY_MASK_ = 0x180
+    FITTING_POLICY_DEFAULT_ = 0x80
 
 class TabItemFlags(IntFlag):
     NONE = 0x0
@@ -151,83 +185,7 @@ class TabItemFlags(IntFlag):
     NO_REORDER = 0x20
     LEADING = 0x40
     TRAILING = 0x80
-
-class TableFlags(IntFlag):
-    NONE = 0x0
-    RESIZABLE = 0x1
-    REORDERABLE = 0x2
-    HIDEABLE = 0x4
-    SORTABLE = 0x8
-    NO_SAVED_SETTINGS = 0x10
-    CONTEXT_MENU_IN_BODY = 0x20
-    ROW_BG = 0x40
-    BORDERS_INNER_H = 0x80
-    BORDERS_OUTER_H = 0x100
-    BORDERS_INNER_V = 0x200
-    BORDERS_OUTER_V = 0x400
-    BORDERS_H = 0x180
-    BORDERS_V = 0x600
-    BORDERS_INNER = 0x280
-    BORDERS_OUTER = 0x500
-    BORDERS = 0x780
-    NO_BORDERS_IN_BODY = 0x800
-    NO_BORDERS_IN_BODY_UNTIL_RESIZE = 0x1000
-    SIZING_FIXED_FIT = 0x2000
-    SIZING_FIXED_SAME = 0x4000
-    SIZING_STRETCH_PROP = 0x6000
-    SIZING_STRETCH_SAME = 0x8000
-    NO_HOST_EXTEND_X = 0x10000
-    NO_HOST_EXTEND_Y = 0x20000
-    NO_KEEP_COLUMNS_VISIBLE = 0x40000
-    PRECISE_WIDTHS = 0x80000
-    NO_CLIP = 0x100000
-    PAD_OUTER_X = 0x200000
-    NO_PAD_OUTER_X = 0x400000
-    NO_PAD_INNER_X = 0x800000
-    SCROLL_X = 0x1000000
-    SCROLL_Y = 0x2000000
-    SORT_MULTI = 0x4000000
-    SORT_TRISTATE = 0x8000000
-    SIZING_MASK_ = 0xe000
-
-class TableColumnFlags(IntFlag):
-    NONE = 0x0
-    DISABLED = 0x1
-    DEFAULT_HIDE = 0x2
-    DEFAULT_SORT = 0x4
-    WIDTH_STRETCH = 0x8
-    WIDTH_FIXED = 0x10
-    NO_RESIZE = 0x20
-    NO_REORDER = 0x40
-    NO_HIDE = 0x80
-    NO_CLIP = 0x100
-    NO_SORT = 0x200
-    NO_SORT_ASCENDING = 0x400
-    NO_SORT_DESCENDING = 0x800
-    NO_HEADER_LABEL = 0x1000
-    NO_HEADER_WIDTH = 0x2000
-    PREFER_SORT_ASCENDING = 0x4000
-    PREFER_SORT_DESCENDING = 0x8000
-    INDENT_ENABLE = 0x10000
-    INDENT_DISABLE = 0x20000
-    IS_ENABLED = 0x1000000
-    IS_VISIBLE = 0x2000000
-    IS_SORTED = 0x4000000
-    IS_HOVERED = 0x8000000
-    WIDTH_MASK_ = 0x18
-    INDENT_MASK_ = 0x30000
-    STATUS_MASK_ = 0xf000000
-    NO_DIRECT_RESIZE_ = 0x40000000
-
-class TableRowFlags(IntFlag):
-    NONE = 0x0
-    HEADERS = 0x1
-
-class TableBgTarget(IntEnum):
-    NONE = 0
-    ROW_BG0 = 1
-    ROW_BG1 = 2
-    CELL_BG = 3
+    NO_ASSUMED_CLOSURE = 0x100
 
 class FocusedFlags(IntFlag):
     NONE = 0x0
@@ -264,11 +222,14 @@ class HoveredFlags(IntFlag):
 class DockNodeFlags(IntFlag):
     NONE = 0x0
     KEEP_ALIVE_ONLY = 0x1
-    NO_DOCKING_IN_CENTRAL_NODE = 0x4
+    NO_DOCKING_OVER_CENTRAL_NODE = 0x4
     PASSTHRU_CENTRAL_NODE = 0x8
-    NO_SPLIT = 0x10
+    NO_DOCKING_SPLIT = 0x10
     NO_RESIZE = 0x20
     AUTO_HIDE_TAB_BAR = 0x40
+    NO_UNDOCKING = 0x80
+    NO_SPLIT = 0x10
+    NO_DOCKING_IN_CENTRAL_NODE = 0x4
 
 class DragDropFlags(IntFlag):
     NONE = 0x0
@@ -277,11 +238,14 @@ class DragDropFlags(IntFlag):
     SOURCE_NO_HOLD_TO_OPEN_OTHERS = 0x4
     SOURCE_ALLOW_NULL_ID = 0x8
     SOURCE_EXTERN = 0x10
-    SOURCE_AUTO_EXPIRE_PAYLOAD = 0x20
+    PAYLOAD_AUTO_EXPIRE = 0x20
+    PAYLOAD_NO_CROSS_CONTEXT = 0x40
+    PAYLOAD_NO_CROSS_PROCESS = 0x80
     ACCEPT_BEFORE_DELIVERY = 0x400
     ACCEPT_NO_DRAW_DEFAULT_RECT = 0x800
     ACCEPT_NO_PREVIEW_TOOLTIP = 0x1000
     ACCEPT_PEEK_ONLY = 0xc00
+    SOURCE_AUTO_EXPIRE_PAYLOAD = 0x20
 
 class DataType(IntEnum):
     S8 = 0
@@ -294,6 +258,8 @@ class DataType(IntEnum):
     U64 = 7
     FLOAT = 8
     DOUBLE = 9
+    BOOL = 10
+    STRING = 11
 
 class Dir(IntEnum):
     NONE = -1
@@ -309,6 +275,7 @@ class SortDirection(IntEnum):
 
 class Key(IntEnum):
     NONE = 0
+    NAMED_KEY__B_E_G_I_N = 512
     TAB = 512
     LEFT_ARROW = 513
     RIGHT_ARROW = 514
@@ -381,116 +348,123 @@ class Key(IntEnum):
     F10 = 581
     F11 = 582
     F12 = 583
-    APOSTROPHE = 584
-    COMMA = 585
-    MINUS = 586
-    PERIOD = 587
-    SLASH = 588
-    SEMICOLON = 589
-    EQUAL = 590
-    LEFT_BRACKET = 591
-    BACKSLASH = 592
-    RIGHT_BRACKET = 593
-    GRAVE_ACCENT = 594
-    CAPS_LOCK = 595
-    SCROLL_LOCK = 596
-    NUM_LOCK = 597
-    PRINT_SCREEN = 598
-    PAUSE = 599
-    KEYPAD0 = 600
-    KEYPAD1 = 601
-    KEYPAD2 = 602
-    KEYPAD3 = 603
-    KEYPAD4 = 604
-    KEYPAD5 = 605
-    KEYPAD6 = 606
-    KEYPAD7 = 607
-    KEYPAD8 = 608
-    KEYPAD9 = 609
-    KEYPAD_DECIMAL = 610
-    KEYPAD_DIVIDE = 611
-    KEYPAD_MULTIPLY = 612
-    KEYPAD_SUBTRACT = 613
-    KEYPAD_ADD = 614
-    KEYPAD_ENTER = 615
-    KEYPAD_EQUAL = 616
-    GAMEPAD_START = 617
-    GAMEPAD_BACK = 618
-    GAMEPAD_FACE_LEFT = 619
-    GAMEPAD_FACE_RIGHT = 620
-    GAMEPAD_FACE_UP = 621
-    GAMEPAD_FACE_DOWN = 622
-    GAMEPAD_DPAD_LEFT = 623
-    GAMEPAD_DPAD_RIGHT = 624
-    GAMEPAD_DPAD_UP = 625
-    GAMEPAD_DPAD_DOWN = 626
-    GAMEPAD_L1 = 627
-    GAMEPAD_R1 = 628
-    GAMEPAD_L2 = 629
-    GAMEPAD_R2 = 630
-    GAMEPAD_L3 = 631
-    GAMEPAD_R3 = 632
-    GAMEPAD_L_STICK_LEFT = 633
-    GAMEPAD_L_STICK_RIGHT = 634
-    GAMEPAD_L_STICK_UP = 635
-    GAMEPAD_L_STICK_DOWN = 636
-    GAMEPAD_R_STICK_LEFT = 637
-    GAMEPAD_R_STICK_RIGHT = 638
-    GAMEPAD_R_STICK_UP = 639
-    GAMEPAD_R_STICK_DOWN = 640
-    MOUSE_LEFT = 641
-    MOUSE_RIGHT = 642
-    MOUSE_MIDDLE = 643
-    MOUSE_X1 = 644
-    MOUSE_X2 = 645
-    MOUSE_WHEEL_X = 646
-    MOUSE_WHEEL_Y = 647
-    RESERVED_FOR_MOD_CTRL = 648
-    RESERVED_FOR_MOD_SHIFT = 649
-    RESERVED_FOR_MOD_ALT = 650
-    RESERVED_FOR_MOD_SUPER = 651
-    NAMED_KEY__B_E_G_I_N = 512
-    NAMED_KEY__E_N_D = 652
-    KEYS_DATA__S_I_Z_E = 652
-    KEYS_DATA__O_F_F_S_E_T = 0
+    F13 = 584
+    F14 = 585
+    F15 = 586
+    F16 = 587
+    F17 = 588
+    F18 = 589
+    F19 = 590
+    F20 = 591
+    F21 = 592
+    F22 = 593
+    F23 = 594
+    F24 = 595
+    APOSTROPHE = 596
+    COMMA = 597
+    MINUS = 598
+    PERIOD = 599
+    SLASH = 600
+    SEMICOLON = 601
+    EQUAL = 602
+    LEFT_BRACKET = 603
+    BACKSLASH = 604
+    RIGHT_BRACKET = 605
+    GRAVE_ACCENT = 606
+    CAPS_LOCK = 607
+    SCROLL_LOCK = 608
+    NUM_LOCK = 609
+    PRINT_SCREEN = 610
+    PAUSE = 611
+    KEYPAD0 = 612
+    KEYPAD1 = 613
+    KEYPAD2 = 614
+    KEYPAD3 = 615
+    KEYPAD4 = 616
+    KEYPAD5 = 617
+    KEYPAD6 = 618
+    KEYPAD7 = 619
+    KEYPAD8 = 620
+    KEYPAD9 = 621
+    KEYPAD_DECIMAL = 622
+    KEYPAD_DIVIDE = 623
+    KEYPAD_MULTIPLY = 624
+    KEYPAD_SUBTRACT = 625
+    KEYPAD_ADD = 626
+    KEYPAD_ENTER = 627
+    KEYPAD_EQUAL = 628
+    APP_BACK = 629
+    APP_FORWARD = 630
+    OEM102 = 631
+    GAMEPAD_START = 632
+    GAMEPAD_BACK = 633
+    GAMEPAD_FACE_LEFT = 634
+    GAMEPAD_FACE_RIGHT = 635
+    GAMEPAD_FACE_UP = 636
+    GAMEPAD_FACE_DOWN = 637
+    GAMEPAD_DPAD_LEFT = 638
+    GAMEPAD_DPAD_RIGHT = 639
+    GAMEPAD_DPAD_UP = 640
+    GAMEPAD_DPAD_DOWN = 641
+    GAMEPAD_L1 = 642
+    GAMEPAD_R1 = 643
+    GAMEPAD_L2 = 644
+    GAMEPAD_R2 = 645
+    GAMEPAD_L3 = 646
+    GAMEPAD_R3 = 647
+    GAMEPAD_L_STICK_LEFT = 648
+    GAMEPAD_L_STICK_RIGHT = 649
+    GAMEPAD_L_STICK_UP = 650
+    GAMEPAD_L_STICK_DOWN = 651
+    GAMEPAD_R_STICK_LEFT = 652
+    GAMEPAD_R_STICK_RIGHT = 653
+    GAMEPAD_R_STICK_UP = 654
+    GAMEPAD_R_STICK_DOWN = 655
+    MOUSE_LEFT = 656
+    MOUSE_RIGHT = 657
+    MOUSE_MIDDLE = 658
+    MOUSE_X1 = 659
+    MOUSE_X2 = 660
+    MOUSE_WHEEL_X = 661
+    MOUSE_WHEEL_Y = 662
+    RESERVED_FOR_MOD_CTRL = 663
+    RESERVED_FOR_MOD_SHIFT = 664
+    RESERVED_FOR_MOD_ALT = 665
+    RESERVED_FOR_MOD_SUPER = 666
+    NAMED_KEY__E_N_D = 667
     MOD_CTRL = 4096
     MOD_SHIFT = 8192
     MOD_ALT = 16384
     MOD_SUPER = 32768
-    KEY_PAD_ENTER = 615
 
-class NavInput(IntEnum):
-    ACTIVATE = 0
-    CANCEL = 1
-    INPUT = 2
-    MENU = 3
-    DPAD_LEFT = 4
-    DPAD_RIGHT = 5
-    DPAD_UP = 6
-    DPAD_DOWN = 7
-    L_STICK_LEFT = 8
-    L_STICK_RIGHT = 9
-    L_STICK_UP = 10
-    L_STICK_DOWN = 11
-    FOCUS_PREV = 12
-    FOCUS_NEXT = 13
-    TWEAK_SLOW = 14
-    TWEAK_FAST = 15
+class InputFlags(IntFlag):
+    NONE = 0x0
+    REPEAT = 0x1
+    ROUTE_ACTIVE = 0x400
+    ROUTE_FOCUSED = 0x800
+    ROUTE_GLOBAL = 0x1000
+    ROUTE_ALWAYS = 0x2000
+    ROUTE_OVER_FOCUSED = 0x4000
+    ROUTE_OVER_ACTIVE = 0x8000
+    ROUTE_UNLESS_BG_FOCUSED = 0x10000
+    ROUTE_FROM_ROOT_WINDOW = 0x20000
+    TOOLTIP = 0x40000
 
 class ConfigFlags(IntFlag):
     NONE = 0x0
     NAV_ENABLE_KEYBOARD = 0x1
     NAV_ENABLE_GAMEPAD = 0x2
-    NAV_ENABLE_SET_MOUSE_POS = 0x4
-    NAV_NO_CAPTURE_KEYBOARD = 0x8
     NO_MOUSE = 0x10
     NO_MOUSE_CURSOR_CHANGE = 0x20
-    DOCKING_ENABLE = 0x40
+    NO_KEYBOARD = 0x40
+    DOCKING_ENABLE = 0x80
     VIEWPORTS_ENABLE = 0x400
     DPI_ENABLE_SCALE_VIEWPORTS = 0x4000
     DPI_ENABLE_SCALE_FONTS = 0x8000
     IS_S_R_G_B = 0x100000
     IS_TOUCH_SCREEN = 0x200000
+    NAV_ENABLE_SET_MOUSE_POS = 0x4
+    NAV_NO_CAPTURE_KEYBOARD = 0x8
 
 class BackendFlags(IntFlag):
     NONE = 0x0
@@ -536,28 +510,35 @@ class Col(IntEnum):
     RESIZE_GRIP = 30
     RESIZE_GRIP_HOVERED = 31
     RESIZE_GRIP_ACTIVE = 32
-    TAB = 33
-    TAB_HOVERED = 34
+    TAB_HOVERED = 33
+    TAB = 34
+    TAB_SELECTED = 35
+    TAB_SELECTED_OVERLINE = 36
+    TAB_DIMMED = 37
+    TAB_DIMMED_SELECTED = 38
+    TAB_DIMMED_SELECTED_OVERLINE = 39
+    DOCKING_PREVIEW = 40
+    DOCKING_EMPTY_BG = 41
+    PLOT_LINES = 42
+    PLOT_LINES_HOVERED = 43
+    PLOT_HISTOGRAM = 44
+    PLOT_HISTOGRAM_HOVERED = 45
+    TABLE_HEADER_BG = 46
+    TABLE_BORDER_STRONG = 47
+    TABLE_BORDER_LIGHT = 48
+    TABLE_ROW_BG = 49
+    TABLE_ROW_BG_ALT = 50
+    TEXT_LINK = 51
+    TEXT_SELECTED_BG = 52
+    DRAG_DROP_TARGET = 53
+    NAV_CURSOR = 54
+    NAV_WINDOWING_HIGHLIGHT = 55
+    NAV_WINDOWING_DIM_BG = 56
+    MODAL_WINDOW_DIM_BG = 57
     TAB_ACTIVE = 35
-    TAB_UNFOCUSED = 36
-    TAB_UNFOCUSED_ACTIVE = 37
-    DOCKING_PREVIEW = 38
-    DOCKING_EMPTY_BG = 39
-    PLOT_LINES = 40
-    PLOT_LINES_HOVERED = 41
-    PLOT_HISTOGRAM = 42
-    PLOT_HISTOGRAM_HOVERED = 43
-    TABLE_HEADER_BG = 44
-    TABLE_BORDER_STRONG = 45
-    TABLE_BORDER_LIGHT = 46
-    TABLE_ROW_BG = 47
-    TABLE_ROW_BG_ALT = 48
-    TEXT_SELECTED_BG = 49
-    DRAG_DROP_TARGET = 50
-    NAV_HIGHLIGHT = 51
-    NAV_WINDOWING_HIGHLIGHT = 52
-    NAV_WINDOWING_DIM_BG = 53
-    MODAL_WINDOW_DIM_BG = 54
+    TAB_UNFOCUSED = 37
+    TAB_UNFOCUSED_ACTIVE = 38
+    NAV_HIGHLIGHT = 54
 
 class StyleVar(IntEnum):
     ALPHA = 0
@@ -582,13 +563,19 @@ class StyleVar(IntEnum):
     SCROLLBAR_ROUNDING = 19
     GRAB_MIN_SIZE = 20
     GRAB_ROUNDING = 21
-    TAB_ROUNDING = 22
-    BUTTON_TEXT_ALIGN = 23
-    SELECTABLE_TEXT_ALIGN = 24
-    SEPARATOR_TEXT_BORDER_SIZE = 25
-    SEPARATOR_TEXT_ALIGN = 26
-    SEPARATOR_TEXT_PADDING = 27
-    DOCKING_SEPARATOR_SIZE = 28
+    IMAGE_BORDER_SIZE = 22
+    TAB_ROUNDING = 23
+    TAB_BORDER_SIZE = 24
+    TAB_BAR_BORDER_SIZE = 25
+    TAB_BAR_OVERLINE_SIZE = 26
+    TABLE_ANGLED_HEADERS_ANGLE = 27
+    TABLE_ANGLED_HEADERS_TEXT_ALIGN = 28
+    BUTTON_TEXT_ALIGN = 29
+    SELECTABLE_TEXT_ALIGN = 30
+    SEPARATOR_TEXT_BORDER_SIZE = 31
+    SEPARATOR_TEXT_ALIGN = 32
+    SEPARATOR_TEXT_PADDING = 33
+    DOCKING_SEPARATOR_SIZE = 34
 
 class ButtonFlags(IntFlag):
     NONE = 0x0
@@ -596,7 +583,7 @@ class ButtonFlags(IntFlag):
     MOUSE_BUTTON_RIGHT = 0x2
     MOUSE_BUTTON_MIDDLE = 0x4
     MOUSE_BUTTON_MASK_ = 0x7
-    MOUSE_BUTTON_DEFAULT_ = 0x1
+    ENABLE_NAV = 0x8
 
 class ColorEditFlags(IntFlag):
     NONE = 0x0
@@ -610,9 +597,10 @@ class ColorEditFlags(IntFlag):
     NO_SIDE_PREVIEW = 0x100
     NO_DRAG_DROP = 0x200
     NO_BORDER = 0x400
+    ALPHA_OPAQUE = 0x800
+    ALPHA_NO_BG = 0x1000
+    ALPHA_PREVIEW_HALF = 0x2000
     ALPHA_BAR = 0x10000
-    ALPHA_PREVIEW = 0x20000
-    ALPHA_PREVIEW_HALF = 0x40000
     H_D_R = 0x80000
     DISPLAY_R_G_B = 0x100000
     DISPLAY_H_S_V = 0x200000
@@ -624,17 +612,23 @@ class ColorEditFlags(IntFlag):
     INPUT_R_G_B = 0x8000000
     INPUT_H_S_V = 0x10000000
     DEFAULT_OPTIONS_ = 0xa900000
+    ALPHA_MASK_ = 0x3802
     DISPLAY_MASK_ = 0x700000
     DATA_TYPE_MASK_ = 0x1800000
     PICKER_MASK_ = 0x6000000
     INPUT_MASK_ = 0x18000000
+    ALPHA_PREVIEW = 0x0
 
 class SliderFlags(IntFlag):
     NONE = 0x0
-    ALWAYS_CLAMP = 0x10
     LOGARITHMIC = 0x20
     NO_ROUND_TO_FORMAT = 0x40
     NO_INPUT = 0x80
+    WRAP_AROUND = 0x100
+    CLAMP_ON_INPUT = 0x200
+    CLAMP_ZERO_RANGE = 0x400
+    NO_SPEED_TWEAKS = 0x800
+    ALWAYS_CLAMP = 0x600
     INVALID_MASK_ = 0x7000000f
 
 class MouseButton(IntEnum):
@@ -652,7 +646,9 @@ class MouseCursor(IntEnum):
     RESIZE_N_E_S_W = 5
     RESIZE_N_W_S_E = 6
     HAND = 7
-    NOT_ALLOWED = 8
+    WAIT = 8
+    PROGRESS = 9
+    NOT_ALLOWED = 10
 
 class MouseSource(IntEnum):
     MOUSE = 0
@@ -665,6 +661,109 @@ class Cond(IntEnum):
     ONCE = 2
     FIRST_USE_EVER = 4
     APPEARING = 8
+
+class TableFlags(IntFlag):
+    NONE = 0x0
+    RESIZABLE = 0x1
+    REORDERABLE = 0x2
+    HIDEABLE = 0x4
+    SORTABLE = 0x8
+    NO_SAVED_SETTINGS = 0x10
+    CONTEXT_MENU_IN_BODY = 0x20
+    ROW_BG = 0x40
+    BORDERS_INNER_H = 0x80
+    BORDERS_OUTER_H = 0x100
+    BORDERS_INNER_V = 0x200
+    BORDERS_OUTER_V = 0x400
+    BORDERS_H = 0x180
+    BORDERS_V = 0x600
+    BORDERS_INNER = 0x280
+    BORDERS_OUTER = 0x500
+    BORDERS = 0x780
+    NO_BORDERS_IN_BODY = 0x800
+    NO_BORDERS_IN_BODY_UNTIL_RESIZE = 0x1000
+    SIZING_FIXED_FIT = 0x2000
+    SIZING_FIXED_SAME = 0x4000
+    SIZING_STRETCH_PROP = 0x6000
+    SIZING_STRETCH_SAME = 0x8000
+    NO_HOST_EXTEND_X = 0x10000
+    NO_HOST_EXTEND_Y = 0x20000
+    NO_KEEP_COLUMNS_VISIBLE = 0x40000
+    PRECISE_WIDTHS = 0x80000
+    NO_CLIP = 0x100000
+    PAD_OUTER_X = 0x200000
+    NO_PAD_OUTER_X = 0x400000
+    NO_PAD_INNER_X = 0x800000
+    SCROLL_X = 0x1000000
+    SCROLL_Y = 0x2000000
+    SORT_MULTI = 0x4000000
+    SORT_TRISTATE = 0x8000000
+    HIGHLIGHT_HOVERED_COLUMN = 0x10000000
+    SIZING_MASK_ = 0xe000
+
+class TableColumnFlags(IntFlag):
+    NONE = 0x0
+    DISABLED = 0x1
+    DEFAULT_HIDE = 0x2
+    DEFAULT_SORT = 0x4
+    WIDTH_STRETCH = 0x8
+    WIDTH_FIXED = 0x10
+    NO_RESIZE = 0x20
+    NO_REORDER = 0x40
+    NO_HIDE = 0x80
+    NO_CLIP = 0x100
+    NO_SORT = 0x200
+    NO_SORT_ASCENDING = 0x400
+    NO_SORT_DESCENDING = 0x800
+    NO_HEADER_LABEL = 0x1000
+    NO_HEADER_WIDTH = 0x2000
+    PREFER_SORT_ASCENDING = 0x4000
+    PREFER_SORT_DESCENDING = 0x8000
+    INDENT_ENABLE = 0x10000
+    INDENT_DISABLE = 0x20000
+    ANGLED_HEADER = 0x40000
+    IS_ENABLED = 0x1000000
+    IS_VISIBLE = 0x2000000
+    IS_SORTED = 0x4000000
+    IS_HOVERED = 0x8000000
+    WIDTH_MASK_ = 0x18
+    INDENT_MASK_ = 0x30000
+    STATUS_MASK_ = 0xf000000
+    NO_DIRECT_RESIZE_ = 0x40000000
+
+class TableRowFlags(IntFlag):
+    NONE = 0x0
+    HEADERS = 0x1
+
+class TableBgTarget(IntEnum):
+    NONE = 0
+    ROW_BG0 = 1
+    ROW_BG1 = 2
+    CELL_BG = 3
+
+class MultiSelectFlags(IntFlag):
+    NONE = 0x0
+    SINGLE_SELECT = 0x1
+    NO_SELECT_ALL = 0x2
+    NO_RANGE_SELECT = 0x4
+    NO_AUTO_SELECT = 0x8
+    NO_AUTO_CLEAR = 0x10
+    NO_AUTO_CLEAR_ON_RESELECT = 0x20
+    BOX_SELECT1D = 0x40
+    BOX_SELECT2D = 0x80
+    BOX_SELECT_NO_SCROLL = 0x100
+    CLEAR_ON_ESCAPE = 0x200
+    CLEAR_ON_CLICK_VOID = 0x400
+    SCOPE_WINDOW = 0x800
+    SCOPE_RECT = 0x1000
+    SELECT_ON_CLICK = 0x2000
+    SELECT_ON_CLICK_RELEASE = 0x4000
+    NAV_WRAP_X = 0x10000
+
+class SelectionRequestType(IntEnum):
+    NONE = 0
+    SET_ALL = 1
+    SET_RANGE = 2
 
 class DrawFlags(IntFlag):
     NONE = 0x0
@@ -712,30 +811,11 @@ class ViewportFlags(IntFlag):
     IS_MINIMIZED = 0x1000
     IS_FOCUSED = 0x2000
 
-class DrawCornerFlags(IntFlag):
-    NONE = 0x100
-    TOP_LEFT = 0x10
-    TOP_RIGHT = 0x20
-    BOT_LEFT = 0x40
-    BOT_RIGHT = 0x80
-    ALL = 0xf0
-    TOP = 0x30
-    BOT = 0xc0
-    LEFT = 0x50
-    RIGHT = 0xa0
-
-class ModFlags(IntFlag):
-    NONE = 0x0
-    CTRL = 0x1000
-    SHIFT = 0x2000
-    ALT = 0x4000
-    SUPER = 0x8000
-
 def get_style() -> Style: ...
 def show_demo_window(p_open: Optional[bool]=None) -> bool: ...
 def show_metrics_window(p_open: Optional[bool]=None) -> bool: ...
 def show_debug_log_window(p_open: Optional[bool]=None) -> bool: ...
-def show_stack_tool_window(p_open: Optional[bool]=None) -> bool: ...
+def show_id_stack_tool_window(p_open: Optional[bool]=None) -> bool: ...
 def show_about_window(p_open: Optional[bool]=None) -> bool: ...
 def show_style_editor(ref: Optional[Style]=None): ...
 def show_style_selector(label: str) -> bool: ...
@@ -747,7 +827,7 @@ def style_colors_light(dst: Optional[Style]=None): ...
 def style_colors_classic(dst: Optional[Style]=None): ...
 def begin(name: str, p_open: Optional[bool]=None, flags: WindowFlags=0) -> Tuple[bool, bool]: ...
 def end(): ...
-def begin_child(str_id: str, size: Vec2=(0, 0), border: bool=False, flags: WindowFlags=0) -> bool: ...
+def begin_child(str_id: str, size: Vec2=(0, 0), child_flags: ChildFlags=0, window_flags: WindowFlags=0) -> bool: ...
 def end_child(): ...
 def is_window_appearing() -> bool: ...
 def is_window_collapsed() -> bool: ...
@@ -776,10 +856,6 @@ def set_window_pos_str(name: str, pos: Vec2, cond: Cond=0): ...
 def set_window_size_str(name: str, size: Vec2, cond: Cond=0): ...
 def set_window_collapsed_str(name: str, collapsed: bool, cond: Cond=0): ...
 def set_window_focus_str(name: str): ...
-def get_content_region_avail() -> Vec2: ...
-def get_content_region_max() -> Vec2: ...
-def get_window_content_region_min() -> Vec2: ...
-def get_window_content_region_max() -> Vec2: ...
 def get_scroll_x() -> float: ...
 def get_scroll_y() -> float: ...
 def set_scroll_x(scroll_x: float): ...
@@ -797,11 +873,11 @@ def push_style_color_im_vec4(idx: Col, col: Vec4): ...
 def pop_style_color(count: int=1): ...
 def push_style_var(idx: StyleVar, val: float): ...
 def push_style_var_im_vec2(idx: StyleVar, val: Vec2): ...
+def push_style_var_x(idx: StyleVar, val_x: float): ...
+def push_style_var_y(idx: StyleVar, val_y: float): ...
 def pop_style_var(count: int=1): ...
-def push_tab_stop(tab_stop: bool): ...
-def pop_tab_stop(): ...
-def push_button_repeat(repeat: bool): ...
-def pop_button_repeat(): ...
+def push_item_flag(option: ItemFlags, enabled: bool): ...
+def pop_item_flag(): ...
 def push_item_width(item_width: float): ...
 def pop_item_width(): ...
 def set_next_item_width(item_width: float): ...
@@ -813,7 +889,17 @@ def get_font_size() -> float: ...
 def get_font_tex_uv_white_pixel() -> Vec2: ...
 def get_color_u32(idx: Col, alpha_mul: float=1.0) -> Color: ...
 def get_color_u32_im_vec4(col: Vec4) -> Color: ...
-def get_color_u32_im_u32(col: Color) -> Color: ...
+def get_color_u32_im_u32(col: Color, alpha_mul: float=1.0) -> Color: ...
+def get_cursor_screen_pos() -> Vec2: ...
+def set_cursor_screen_pos(pos: Vec2): ...
+def get_content_region_avail() -> Vec2: ...
+def get_cursor_pos() -> Vec2: ...
+def get_cursor_pos_x() -> float: ...
+def get_cursor_pos_y() -> float: ...
+def set_cursor_pos(local_pos: Vec2): ...
+def set_cursor_pos_x(local_x: float): ...
+def set_cursor_pos_y(local_y: float): ...
+def get_cursor_start_pos() -> Vec2: ...
 def separator(): ...
 def same_line(offset_from_start_x: float=0.0, spacing: float=-1.0): ...
 def new_line(): ...
@@ -823,15 +909,6 @@ def indent(indent_w: float=0.0): ...
 def unindent(indent_w: float=0.0): ...
 def begin_group(): ...
 def end_group(): ...
-def get_cursor_pos() -> Vec2: ...
-def get_cursor_pos_x() -> float: ...
-def get_cursor_pos_y() -> float: ...
-def set_cursor_pos(local_pos: Vec2): ...
-def set_cursor_pos_x(local_x: float): ...
-def set_cursor_pos_y(local_y: float): ...
-def get_cursor_start_pos() -> Vec2: ...
-def get_cursor_screen_pos() -> Vec2: ...
-def set_cursor_screen_pos(pos: Vec2): ...
 def align_text_to_frame_padding(): ...
 def get_text_line_height() -> float: ...
 def get_text_line_height_with_spacing() -> float: ...
@@ -841,6 +918,7 @@ def push_id(str_id: str): ...
 def push_id_str(str_id_begin: str, str_id_end: str): ...
 def push_id_int(int_id: int): ...
 def pop_id(): ...
+def get_id_int(int_id: int) -> ID: ...
 def text(fmt: str): ...
 def text_colored(col: Vec4, fmt: str): ...
 def text_disabled(fmt: str): ...
@@ -856,8 +934,11 @@ def checkbox(label: str, v: bool) -> Tuple[bool, bool]: ...
 def radio_button(label: str, active: bool) -> bool: ...
 def progress_bar(fraction: float, size_arg: Vec2=(-1.175494351e-38, 0), overlay: Optional[str]=None): ...
 def bullet(): ...
-def image(user_texture_id: TextureID, size: Vec2, uv0: Vec2=(0, 0), uv1: Vec2=(1, 1), tint_col: Vec4=(1, 1, 1, 1), border_col: Vec4=(0, 0, 0, 0)): ...
-def image_button(str_id: str, user_texture_id: TextureID, size: Vec2, uv0: Vec2=(0, 0), uv1: Vec2=(1, 1), bg_col: Vec4=(0, 0, 0, 0), tint_col: Vec4=(1, 1, 1, 1)) -> bool: ...
+def text_link(label: str) -> bool: ...
+def text_link_open_u_r_l(label: str, url: Optional[str]=None): ...
+def image(user_texture_id: TextureID, image_size: Vec2, uv0: Vec2=(0, 0), uv1: Vec2=(1, 1)): ...
+def image_with_bg(user_texture_id: TextureID, image_size: Vec2, uv0: Vec2=(0, 0), uv1: Vec2=(1, 1), bg_col: Vec4=(0, 0, 0, 0), tint_col: Vec4=(1, 1, 1, 1)): ...
+def image_button(str_id: str, user_texture_id: TextureID, image_size: Vec2, uv0: Vec2=(0, 0), uv1: Vec2=(1, 1), bg_col: Vec4=(0, 0, 0, 0), tint_col: Vec4=(1, 1, 1, 1)) -> bool: ...
 def drag_float(label: str, v: float, v_speed: float=1.0, v_min: float=0.0, v_max: float=0.0, format: str="%.3f", flags: SliderFlags=0) -> Tuple[bool, float]: ...
 def drag_float2(label: str, v: Tuple[float, float], v_speed: float=1.0, v_min: float=0.0, v_max: float=0.0, format: str="%.3f", flags: SliderFlags=0) -> Tuple[bool, Tuple[float, float]]: ...
 def drag_float3(label: str, v: Tuple[float, float, float], v_speed: float=1.0, v_min: float=0.0, v_max: float=0.0, format: str="%.3f", flags: SliderFlags=0) -> Tuple[bool, Tuple[float, float, float]]: ...
@@ -899,9 +980,12 @@ def tree_pop(): ...
 def get_tree_node_to_label_spacing() -> float: ...
 def collapsing_header(label: str, flags: TreeNodeFlags=0) -> bool: ...
 def set_next_item_open(is_open: bool, cond: Cond=0): ...
+def set_next_item_storage_id(storage_id: ID): ...
 def selectable(label: str, selected: bool=False, flags: SelectableFlags=0, size: Vec2=(0, 0)) -> bool: ...
-def begin_list_box(label: str, size: Vec2=(0, 0)) -> bool: ...
-def end_list_box(): ...
+def begin_multi_select(flags: MultiSelectFlags, selection_size: int=-1, items_count: int=-1) -> MultiSelectIO: ...
+def end_multi_select() -> MultiSelectIO: ...
+def set_next_item_selection_user_data(selection_user_data: SelectionUserData): ...
+def is_item_toggled_selection() -> bool: ...
 def begin_menu_bar() -> bool: ...
 def end_menu_bar(): ...
 def begin_main_menu_bar() -> bool: ...
@@ -924,22 +1008,24 @@ def begin_popup_context_item(str_id: Optional[str]=None, popup_flags: PopupFlags
 def begin_popup_context_window(str_id: Optional[str]=None, popup_flags: PopupFlags=1) -> bool: ...
 def begin_popup_context_void(str_id: Optional[str]=None, popup_flags: PopupFlags=1) -> bool: ...
 def is_popup_open(str_id: str, flags: PopupFlags=0) -> bool: ...
-def begin_table(str_id: str, column: int, flags: TableFlags=0, outer_size: Vec2=(0.0, 0.0), inner_width: float=0.0) -> bool: ...
+def begin_table(str_id: str, columns: int, flags: TableFlags=0, outer_size: Vec2=(0.0, 0.0), inner_width: float=0.0) -> bool: ...
 def end_table(): ...
 def table_next_row(row_flags: TableRowFlags=0, min_row_height: float=0.0): ...
 def table_next_column() -> bool: ...
 def table_set_column_index(column_n: int) -> bool: ...
 def table_setup_scroll_freeze(cols: int, rows: int): ...
-def table_headers_row(): ...
 def table_header(label: str): ...
+def table_headers_row(): ...
+def table_angled_headers_row(): ...
 def table_get_column_count() -> int: ...
 def table_get_column_index() -> int: ...
 def table_get_row_index() -> int: ...
 def table_get_column_name(column_n: int=-1) -> str: ...
 def table_get_column_flags(column_n: int=-1) -> TableColumnFlags: ...
 def table_set_column_enabled(column_n: int, v: bool): ...
+def table_get_hovered_column() -> int: ...
 def table_set_bg_color(target: TableBgTarget, color: Color, column_n: int=-1): ...
-def columns(count: int=1, id: Optional[str]=None, border: bool=True): ...
+def columns(count: int=1, id: Optional[str]=None, borders: bool=True): ...
 def next_column(): ...
 def get_column_index() -> int: ...
 def get_column_width(column_index: int=-1) -> float: ...
@@ -953,8 +1039,8 @@ def begin_tab_item(label: str, p_open: Optional[bool]=None, flags: TabItemFlags=
 def end_tab_item(): ...
 def tab_item_button(label: str, flags: TabItemFlags=0) -> bool: ...
 def set_tab_item_closed(tab_or_docked_window_label: str): ...
-def dock_space(id: ID, size: Vec2=(0, 0), flags: DockNodeFlags=0, window_class: Optional[WindowClass]=None) -> ID: ...
-def dock_space_over_viewport(viewport: Optional[Viewport]=None, flags: DockNodeFlags=0, window_class: Optional[WindowClass]=None) -> ID: ...
+def dock_space(dockspace_id: ID, size: Vec2=(0, 0), flags: DockNodeFlags=0, window_class: Optional[WindowClass]=None) -> ID: ...
+def dock_space_over_viewport(dockspace_id: ID=0, viewport: Optional[Viewport]=None, flags: DockNodeFlags=0, window_class: Optional[WindowClass]=None) -> ID: ...
 def set_next_window_dock_id(dock_id: ID, cond: Cond=0): ...
 def set_next_window_class(window_class: WindowClass): ...
 def get_window_dock_id() -> ID: ...
@@ -978,6 +1064,7 @@ def push_clip_rect(clip_rect_min: Vec2, clip_rect_max: Vec2, intersect_with_curr
 def pop_clip_rect(): ...
 def set_item_default_focus(): ...
 def set_keyboard_focus_here(offset: int=0): ...
+def set_nav_cursor_visible(visible: bool): ...
 def set_next_item_allow_overlap(): ...
 def is_item_hovered(flags: HoveredFlags=0) -> bool: ...
 def is_item_active() -> bool: ...
@@ -997,8 +1084,8 @@ def get_item_rect_min() -> Vec2: ...
 def get_item_rect_max() -> Vec2: ...
 def get_item_rect_size() -> Vec2: ...
 def get_main_viewport() -> Viewport: ...
-def get_background_draw_list() -> DrawList: ...
-def get_foreground_draw_list() -> DrawList: ...
+def get_background_draw_list(viewport: Optional[Viewport]=None) -> DrawList: ...
+def get_foreground_draw_list(viewport: Optional[Viewport]=None) -> DrawList: ...
 def is_rect_visible_by_size(size: Vec2) -> bool: ...
 def is_rect_visible(rect_min: Vec2, rect_max: Vec2) -> bool: ...
 def get_time() -> double: ...
@@ -1006,21 +1093,24 @@ def get_frame_count() -> int: ...
 def get_style_color_name(idx: Col) -> str: ...
 def set_state_storage(storage: Storage): ...
 def get_state_storage() -> Storage: ...
-def begin_child_frame(id: ID, size: Vec2, flags: WindowFlags=0) -> bool: ...
-def end_child_frame(): ...
 def calc_text_size(text: str, text_end: Optional[str]=None, hide_text_after_double_hash: bool=False, wrap_width: float=-1.0) -> Vec2: ...
 def color_convert_u32_to_float4(value: Color) -> Vec4: ...
 def color_convert_float4_to_u32(value: Vec4) -> Color: ...
 def is_key_down(key: Key) -> bool: ...
 def is_key_pressed(key: Key, repeat: bool=True) -> bool: ...
 def is_key_released(key: Key) -> bool: ...
+def is_key_chord_pressed(key_chord: KeyChord) -> bool: ...
 def get_key_pressed_amount(key: Key, repeat_delay: float, rate: float) -> int: ...
 def get_key_name(key: Key) -> str: ...
 def set_next_frame_want_capture_keyboard(want_capture_keyboard: bool): ...
+def shortcut(key_chord: KeyChord, flags: InputFlags=0) -> bool: ...
+def set_next_item_shortcut(key_chord: KeyChord, flags: InputFlags=0): ...
+def set_item_key_owner(key: Key): ...
 def is_mouse_down(button: MouseButton) -> bool: ...
 def is_mouse_clicked(button: MouseButton, repeat: bool=False) -> bool: ...
 def is_mouse_released(button: MouseButton) -> bool: ...
 def is_mouse_double_clicked(button: MouseButton) -> bool: ...
+def is_mouse_released_with_delay(button: MouseButton, delay: float) -> bool: ...
 def get_mouse_clicked_count(button: MouseButton) -> int: ...
 def is_mouse_hovering_rect(r_min: Vec2, r_max: Vec2, clip: bool=True) -> bool: ...
 def is_any_mouse_down() -> bool: ...
@@ -1038,14 +1128,22 @@ def load_ini_settings_from_disk(ini_filename: str): ...
 def load_ini_settings_from_memory(ini_data: str, ini_size: size_t=0): ...
 def save_ini_settings_to_disk(ini_filename: str): ...
 def debug_text_encoding(text: str): ...
+def debug_flash_style_color(idx: Col): ...
+def debug_start_item_picker(): ...
 def debug_check_version_and_data_layout(version_str: str, sz_io: size_t, sz_style: size_t, sz_vec2: size_t, sz_vec4: size_t, sz_drawvert: size_t, sz_drawidx: size_t) -> bool: ...
+def debug_log(fmt: str): ...
 def find_viewport_by_id(id: ID) -> Viewport: ...
-def get_key_index(key: Key) -> Key: ...
-def get_key_index(key: Key) -> Key: ...
+def image_im_vec4(user_texture_id: TextureID, image_size: Vec2, uv0: Vec2, uv1: Vec2, tint_col: Vec4, border_col: Vec4): ...
+def push_button_repeat(repeat: bool): ...
+def pop_button_repeat(): ...
+def push_tab_stop(tab_stop: bool): ...
+def pop_tab_stop(): ...
+def get_content_region_max() -> Vec2: ...
+def get_window_content_region_min() -> Vec2: ...
+def get_window_content_region_max() -> Vec2: ...
+def begin_child_frame(id: ID, size: Vec2, window_flags: WindowFlags=0) -> bool: ...
+def end_child_frame(): ...
+def show_stack_tool_window(p_open: Optional[bool]=None) -> bool: ...
 def set_item_allow_overlap(): ...
 def push_allow_keyboard_focus(tab_stop: bool): ...
 def pop_allow_keyboard_focus(): ...
-def image_button_im_texture_id(user_texture_id: TextureID, size: Vec2, uv0: Vec2=(0, 0), uv1: Vec2=(1, 1), frame_padding: int=-1, bg_col: Vec4=(0, 0, 0, 0), tint_col: Vec4=(1, 1, 1, 1)) -> bool: ...
-def capture_keyboard_from_app(want_capture_keyboard: bool=True): ...
-def capture_mouse_from_app(want_capture_mouse: bool=True): ...
-def get_window_content_region_width() -> float: ...

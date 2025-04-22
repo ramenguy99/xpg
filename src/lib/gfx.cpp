@@ -1320,7 +1320,7 @@ void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc)
 
     VkRenderingAttachmentInfo depth { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
     depth.imageView = desc.depth.view;
-    depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     depth.resolveMode = VK_RESOLVE_MODE_NONE;
     depth.loadOp = desc.depth.load_op;
     depth.storeOp = desc.depth.store_op;

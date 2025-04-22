@@ -49,7 +49,7 @@ OUT = True
 data = json.load(open(sys.argv[1], "r"))
 
 if OUT:
-    out_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "pyxpg", "imgui.pyi"), "w")
+    out_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "pyxpg", "imgui", "__init__.pyi"), "w")
     out_cpp_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "generated_imgui.inc"), "w")
 
 pascal_re = re.compile(r'(?<!^)(?=[A-Z])')
@@ -269,6 +269,7 @@ def read_type(typ: dict) -> TypeInfo:
                 "ImGuiStorage",
                 "ImGuiPlatformIO",
                 "ImGuiStyle",
+                "ImGuiMultiSelectIO",
             }, inner
             name = inner["name"]
             flags |= TypeFlag.IS_USER_TYPE
@@ -393,6 +394,10 @@ for f in data["functions"]:
     if "Platform" in func_name:
         continue
 
+    # Skip ListBox for now, callback-based API needs manual wrappers likely
+    if "ListBox" in func_name:
+        continue
+
     # Check overloads
     cpp_name = f["original_fully_qualified_name"]
     if cpp_name in all_funcs:
@@ -427,11 +432,10 @@ for f in data["functions"]:
         typ = read_type(a["type"])
 
         if typ.flags & TypeFlag.IS_OUTPUT:
-            assert additional_ret == None, additional_ret
+            assert additional_ret == None, f"{cpp_name}: {additional_ret}"
             additional_ret = typ.name
             additional_ret_name = arg_name
             additional_ret_type = typ
-
 
         default_value = None
         if "default_value" in a:

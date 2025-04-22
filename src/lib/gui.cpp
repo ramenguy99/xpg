@@ -16,37 +16,8 @@
 namespace gui {
 
 void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Context& vk, const Config&& config) {
-    // Create descriptor pool for imgui.
-    VkDescriptorPoolSize pool_sizes[] = {
-        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
-    };
-
-    VkDescriptorPoolCreateInfo descriptor_pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-    descriptor_pool_info.flags = 0;
-    descriptor_pool_info.maxSets = 1;
-    descriptor_pool_info.pPoolSizes = pool_sizes;
-    descriptor_pool_info.poolSizeCount = ArrayCount(pool_sizes);
-
-    VkDescriptorPool descriptor_pool = 0;
-    vkCreateDescriptorPool(vk.device, &descriptor_pool_info, 0, &descriptor_pool);
-
     // Initialize ImGui.
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    if (!config.enable_ini_and_log_files) {
-        io.LogFilename = NULL;
-        io.IniFilename = NULL;
-    }
-
-    for (usize i = 0; i < config.additional_fonts.length; i++) {
-        const Font& font = config.additional_fonts[i];
-
-        ImGuiIO& io = ImGui::GetIO();
-        ImFontConfig font_cfg;
-        font_cfg.FontDataOwnedByAtlas = font.owned_by_atlas;
-        io.Fonts->AddFontFromMemoryTTF(font.data.data, (int)font.data.length, font.size, &font_cfg);
-    }
 
     if (!ImGui_ImplGlfw_InitForVulkan(window.window, true)) {
         printf("Failed to initialize ImGui\n");
@@ -55,17 +26,20 @@ void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Cont
 
     // TODO: MSAA
     ImGui_ImplVulkan_InitInfo vk_init_info = {};
+    vk_init_info.ApiVersion = vk.version;
     vk_init_info.Instance = vk.instance;
     vk_init_info.PhysicalDevice = vk.physical_device;
     vk_init_info.Device = vk.device;
     vk_init_info.QueueFamily = vk.queue_family_index;
     vk_init_info.Queue = vk.queue;
-    vk_init_info.PipelineCache = 0;
-    vk_init_info.DescriptorPool = descriptor_pool;
-    vk_init_info.Subpass = 0;
+    vk_init_info.DescriptorPool = VK_NULL_HANDLE;
+    vk_init_info.RenderPass = VK_NULL_HANDLE;
     vk_init_info.MinImageCount = (u32)window.images.length;
     vk_init_info.ImageCount = (u32)window.images.length;
     vk_init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    vk_init_info.PipelineCache = VK_NULL_HANDLE;
+    vk_init_info.Subpass = 0;
+    vk_init_info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE + 8;
     struct ImGuiCheckResult {
         static void fn(VkResult res) {
             assert(res == VK_SUCCESS);
@@ -76,7 +50,9 @@ void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Cont
     VkRenderPass render_pass = VK_NULL_HANDLE;
     if(config.dynamic_rendering) {
         vk_init_info.UseDynamicRendering = true;
-        vk_init_info.ColorAttachmentFormat = window.swapchain_format;
+        vk_init_info.PipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR };
+        vk_init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+        vk_init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &window.swapchain_format;
     } else {
         VkAttachmentDescription attachments[1];
         attachments[0].format = window.swapchain_format;
@@ -126,50 +102,33 @@ void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Cont
 
         VkResult vkr = vkCreateRenderPass(vk.device, &rp_info, NULL, &render_pass);
         assert(vkr == VK_SUCCESS);
+
+        vk_init_info.RenderPass = render_pass;
     }
 
-    if (!ImGui_ImplVulkan_Init(&vk_init_info, render_pass)) {
+    if (!ImGui_ImplVulkan_Init(&vk_init_info)) {
         printf("Failed to initialize Vulkan imgui backend\n");
         exit(1);
     }
 
-    // Upload font texture.
-    VkCommandPool command_pool = window.frames[0].command_pool;
-    VkCommandBuffer command_buffer = window.frames[0].command_buffer;
+    // Add fonts
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    if (!config.enable_ini_and_log_files) {
+        io.LogFilename = NULL;
+        io.IniFilename = NULL;
+    }
 
-    // Reset command buffer.
-    VkResult vkr = vkResetCommandPool(vk.device, command_pool, 0);
-    assert(vkr == VK_SUCCESS);
+    for (usize i = 0; i < config.additional_fonts.length; i++) {
+        const Font& font = config.additional_fonts[i];
 
-    // Begin recording commands.
-    VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkr = vkBeginCommandBuffer(command_buffer, &begin_info);
-    assert(vkr == VK_SUCCESS);
+        ImGuiIO& io = ImGui::GetIO();
+        ImFontConfig font_cfg;
+        font_cfg.FontDataOwnedByAtlas = font.owned_by_atlas;
+        io.Fonts->AddFontFromMemoryTTF(font.data.data, (int)font.data.length, font.size, &font_cfg);
+    }
+    ImGui_ImplVulkan_CreateFontsTexture();
 
-    // Create fonts texture.
-    ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
-
-    // End recording commands.
-    vkr = vkEndCommandBuffer(command_buffer);
-    assert(vkr == VK_SUCCESS);
-
-    // Submit commands.
-    VkPipelineStageFlags submit_stage_mask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-
-    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffer;
-
-    vkr = vkQueueSubmit(vk.queue, 1, &submit_info, VK_NULL_HANDLE);
-    assert(vkr == VK_SUCCESS);
-
-    // Wait for idle.
-    vkr = vkDeviceWaitIdle(vk.device);
-    assert(vkr == VK_SUCCESS);
-
-
-    impl->descriptor_pool = descriptor_pool;
     impl->render_pass = render_pass;
 }
 
@@ -178,7 +137,6 @@ void DestroyImGuiImpl(ImGuiImpl* impl, gfx::Context& vk) {
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
-    vkDestroyDescriptorPool(vk.device, impl->descriptor_pool, 0);
     vkDestroyRenderPass(vk.device, impl->render_pass, 0);
 }
 

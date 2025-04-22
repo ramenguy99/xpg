@@ -16,7 +16,6 @@ nb::enum_<ImGuiWindowFlags_>(mod_imgui, "WindowFlags", nb::is_arithmetic() , nb:
     .value("NO_BRING_TO_FRONT_ON_FOCUS", ImGuiWindowFlags_NoBringToFrontOnFocus)
     .value("ALWAYS_VERTICAL_SCROLLBAR", ImGuiWindowFlags_AlwaysVerticalScrollbar)
     .value("ALWAYS_HORIZONTAL_SCROLLBAR", ImGuiWindowFlags_AlwaysHorizontalScrollbar)
-    .value("ALWAYS_USE_WINDOW_PADDING", ImGuiWindowFlags_AlwaysUseWindowPadding)
     .value("NO_NAV_INPUTS", ImGuiWindowFlags_NoNavInputs)
     .value("NO_NAV_FOCUS", ImGuiWindowFlags_NoNavFocus)
     .value("UNSAVED_DOCUMENT", ImGuiWindowFlags_UnsavedDocument)
@@ -24,38 +23,66 @@ nb::enum_<ImGuiWindowFlags_>(mod_imgui, "WindowFlags", nb::is_arithmetic() , nb:
     .value("NO_NAV", ImGuiWindowFlags_NoNav)
     .value("NO_DECORATION", ImGuiWindowFlags_NoDecoration)
     .value("NO_INPUTS", ImGuiWindowFlags_NoInputs)
-    .value("NAV_FLATTENED", ImGuiWindowFlags_NavFlattened)
+    .value("DOCK_NODE_HOST", ImGuiWindowFlags_DockNodeHost)
     .value("CHILD_WINDOW", ImGuiWindowFlags_ChildWindow)
     .value("TOOLTIP", ImGuiWindowFlags_Tooltip)
     .value("POPUP", ImGuiWindowFlags_Popup)
     .value("MODAL", ImGuiWindowFlags_Modal)
     .value("CHILD_MENU", ImGuiWindowFlags_ChildMenu)
-    .value("DOCK_NODE_HOST", ImGuiWindowFlags_DockNodeHost)
+    .value("NAV_FLATTENED", ImGuiWindowFlags_NavFlattened)
+    .value("ALWAYS_USE_WINDOW_PADDING", ImGuiWindowFlags_AlwaysUseWindowPadding)
+    ;
+
+nb::enum_<ImGuiChildFlags_>(mod_imgui, "ChildFlags", nb::is_arithmetic() , nb::is_flag())
+    .value("NONE", ImGuiChildFlags_None)
+    .value("BORDERS", ImGuiChildFlags_Borders)
+    .value("ALWAYS_USE_WINDOW_PADDING", ImGuiChildFlags_AlwaysUseWindowPadding)
+    .value("RESIZE_X", ImGuiChildFlags_ResizeX)
+    .value("RESIZE_Y", ImGuiChildFlags_ResizeY)
+    .value("AUTO_RESIZE_X", ImGuiChildFlags_AutoResizeX)
+    .value("AUTO_RESIZE_Y", ImGuiChildFlags_AutoResizeY)
+    .value("ALWAYS_AUTO_RESIZE", ImGuiChildFlags_AlwaysAutoResize)
+    .value("FRAME_STYLE", ImGuiChildFlags_FrameStyle)
+    .value("NAV_FLATTENED", ImGuiChildFlags_NavFlattened)
+    .value("BORDER", ImGuiChildFlags_Border)
+    ;
+
+nb::enum_<ImGuiItemFlags_>(mod_imgui, "ItemFlags", nb::is_arithmetic() , nb::is_flag())
+    .value("NONE", ImGuiItemFlags_None)
+    .value("NO_TAB_STOP", ImGuiItemFlags_NoTabStop)
+    .value("NO_NAV", ImGuiItemFlags_NoNav)
+    .value("NO_NAV_DEFAULT_FOCUS", ImGuiItemFlags_NoNavDefaultFocus)
+    .value("BUTTON_REPEAT", ImGuiItemFlags_ButtonRepeat)
+    .value("AUTO_CLOSE_POPUPS", ImGuiItemFlags_AutoClosePopups)
+    .value("ALLOW_DUPLICATE_ID", ImGuiItemFlags_AllowDuplicateId)
     ;
 
 nb::enum_<ImGuiInputTextFlags_>(mod_imgui, "InputTextFlags", nb::is_arithmetic() , nb::is_flag())
     .value("NONE", ImGuiInputTextFlags_None)
     .value("CHARS_DECIMAL", ImGuiInputTextFlags_CharsDecimal)
     .value("CHARS_HEXADECIMAL", ImGuiInputTextFlags_CharsHexadecimal)
+    .value("CHARS_SCIENTIFIC", ImGuiInputTextFlags_CharsScientific)
     .value("CHARS_UPPERCASE", ImGuiInputTextFlags_CharsUppercase)
     .value("CHARS_NO_BLANK", ImGuiInputTextFlags_CharsNoBlank)
-    .value("AUTO_SELECT_ALL", ImGuiInputTextFlags_AutoSelectAll)
+    .value("ALLOW_TAB_INPUT", ImGuiInputTextFlags_AllowTabInput)
     .value("ENTER_RETURNS_TRUE", ImGuiInputTextFlags_EnterReturnsTrue)
+    .value("ESCAPE_CLEARS_ALL", ImGuiInputTextFlags_EscapeClearsAll)
+    .value("CTRL_ENTER_FOR_NEW_LINE", ImGuiInputTextFlags_CtrlEnterForNewLine)
+    .value("READ_ONLY", ImGuiInputTextFlags_ReadOnly)
+    .value("PASSWORD", ImGuiInputTextFlags_Password)
+    .value("ALWAYS_OVERWRITE", ImGuiInputTextFlags_AlwaysOverwrite)
+    .value("AUTO_SELECT_ALL", ImGuiInputTextFlags_AutoSelectAll)
+    .value("PARSE_EMPTY_REF_VAL", ImGuiInputTextFlags_ParseEmptyRefVal)
+    .value("DISPLAY_EMPTY_REF_VAL", ImGuiInputTextFlags_DisplayEmptyRefVal)
+    .value("NO_HORIZONTAL_SCROLL", ImGuiInputTextFlags_NoHorizontalScroll)
+    .value("NO_UNDO_REDO", ImGuiInputTextFlags_NoUndoRedo)
+    .value("ELIDE_LEFT", ImGuiInputTextFlags_ElideLeft)
     .value("CALLBACK_COMPLETION", ImGuiInputTextFlags_CallbackCompletion)
     .value("CALLBACK_HISTORY", ImGuiInputTextFlags_CallbackHistory)
     .value("CALLBACK_ALWAYS", ImGuiInputTextFlags_CallbackAlways)
     .value("CALLBACK_CHAR_FILTER", ImGuiInputTextFlags_CallbackCharFilter)
-    .value("ALLOW_TAB_INPUT", ImGuiInputTextFlags_AllowTabInput)
-    .value("CTRL_ENTER_FOR_NEW_LINE", ImGuiInputTextFlags_CtrlEnterForNewLine)
-    .value("NO_HORIZONTAL_SCROLL", ImGuiInputTextFlags_NoHorizontalScroll)
-    .value("ALWAYS_OVERWRITE", ImGuiInputTextFlags_AlwaysOverwrite)
-    .value("READ_ONLY", ImGuiInputTextFlags_ReadOnly)
-    .value("PASSWORD", ImGuiInputTextFlags_Password)
-    .value("NO_UNDO_REDO", ImGuiInputTextFlags_NoUndoRedo)
-    .value("CHARS_SCIENTIFIC", ImGuiInputTextFlags_CharsScientific)
     .value("CALLBACK_RESIZE", ImGuiInputTextFlags_CallbackResize)
     .value("CALLBACK_EDIT", ImGuiInputTextFlags_CallbackEdit)
-    .value("ESCAPE_CLEARS_ALL", ImGuiInputTextFlags_EscapeClearsAll)
     ;
 
 nb::enum_<ImGuiTreeNodeFlags_>(mod_imgui, "TreeNodeFlags", nb::is_arithmetic() , nb::is_flag())
@@ -73,9 +100,13 @@ nb::enum_<ImGuiTreeNodeFlags_>(mod_imgui, "TreeNodeFlags", nb::is_arithmetic() ,
     .value("FRAME_PADDING", ImGuiTreeNodeFlags_FramePadding)
     .value("SPAN_AVAIL_WIDTH", ImGuiTreeNodeFlags_SpanAvailWidth)
     .value("SPAN_FULL_WIDTH", ImGuiTreeNodeFlags_SpanFullWidth)
+    .value("SPAN_LABEL_WIDTH", ImGuiTreeNodeFlags_SpanLabelWidth)
+    .value("SPAN_ALL_COLUMNS", ImGuiTreeNodeFlags_SpanAllColumns)
+    .value("LABEL_SPAN_ALL_COLUMNS", ImGuiTreeNodeFlags_LabelSpanAllColumns)
     .value("NAV_LEFT_JUMPS_BACK_HERE", ImGuiTreeNodeFlags_NavLeftJumpsBackHere)
     .value("COLLAPSING_HEADER", ImGuiTreeNodeFlags_CollapsingHeader)
     .value("ALLOW_ITEM_OVERLAP", ImGuiTreeNodeFlags_AllowItemOverlap)
+    .value("SPAN_TEXT_WIDTH", ImGuiTreeNodeFlags_SpanTextWidth)
     ;
 
 nb::enum_<ImGuiPopupFlags_>(mod_imgui, "PopupFlags", nb::is_arithmetic() , nb::is_flag())
@@ -85,6 +116,7 @@ nb::enum_<ImGuiPopupFlags_>(mod_imgui, "PopupFlags", nb::is_arithmetic() , nb::i
     .value("MOUSE_BUTTON_MIDDLE", ImGuiPopupFlags_MouseButtonMiddle)
     .value("MOUSE_BUTTON_MASK_", ImGuiPopupFlags_MouseButtonMask_)
     .value("MOUSE_BUTTON_DEFAULT_", ImGuiPopupFlags_MouseButtonDefault_)
+    .value("NO_REOPEN", ImGuiPopupFlags_NoReopen)
     .value("NO_OPEN_OVER_EXISTING_POPUP", ImGuiPopupFlags_NoOpenOverExistingPopup)
     .value("NO_OPEN_OVER_ITEMS", ImGuiPopupFlags_NoOpenOverItems)
     .value("ANY_POPUP_ID", ImGuiPopupFlags_AnyPopupId)
@@ -94,11 +126,13 @@ nb::enum_<ImGuiPopupFlags_>(mod_imgui, "PopupFlags", nb::is_arithmetic() , nb::i
 
 nb::enum_<ImGuiSelectableFlags_>(mod_imgui, "SelectableFlags", nb::is_arithmetic() , nb::is_flag())
     .value("NONE", ImGuiSelectableFlags_None)
-    .value("DONT_CLOSE_POPUPS", ImGuiSelectableFlags_DontClosePopups)
+    .value("NO_AUTO_CLOSE_POPUPS", ImGuiSelectableFlags_NoAutoClosePopups)
     .value("SPAN_ALL_COLUMNS", ImGuiSelectableFlags_SpanAllColumns)
     .value("ALLOW_DOUBLE_CLICK", ImGuiSelectableFlags_AllowDoubleClick)
     .value("DISABLED", ImGuiSelectableFlags_Disabled)
     .value("ALLOW_OVERLAP", ImGuiSelectableFlags_AllowOverlap)
+    .value("HIGHLIGHT", ImGuiSelectableFlags_Highlight)
+    .value("DONT_CLOSE_POPUPS", ImGuiSelectableFlags_DontClosePopups)
     .value("ALLOW_ITEM_OVERLAP", ImGuiSelectableFlags_AllowItemOverlap)
     ;
 
@@ -111,6 +145,7 @@ nb::enum_<ImGuiComboFlags_>(mod_imgui, "ComboFlags", nb::is_arithmetic() , nb::i
     .value("HEIGHT_LARGEST", ImGuiComboFlags_HeightLargest)
     .value("NO_ARROW_BUTTON", ImGuiComboFlags_NoArrowButton)
     .value("NO_PREVIEW", ImGuiComboFlags_NoPreview)
+    .value("WIDTH_FIT_PREVIEW", ImGuiComboFlags_WidthFitPreview)
     .value("HEIGHT_MASK_", ImGuiComboFlags_HeightMask_)
     ;
 
@@ -122,6 +157,7 @@ nb::enum_<ImGuiTabBarFlags_>(mod_imgui, "TabBarFlags", nb::is_arithmetic() , nb:
     .value("NO_CLOSE_WITH_MIDDLE_MOUSE_BUTTON", ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)
     .value("NO_TAB_LIST_SCROLLING_BUTTONS", ImGuiTabBarFlags_NoTabListScrollingButtons)
     .value("NO_TOOLTIP", ImGuiTabBarFlags_NoTooltip)
+    .value("DRAW_SELECTED_OVERLINE", ImGuiTabBarFlags_DrawSelectedOverline)
     .value("FITTING_POLICY_RESIZE_DOWN", ImGuiTabBarFlags_FittingPolicyResizeDown)
     .value("FITTING_POLICY_SCROLL", ImGuiTabBarFlags_FittingPolicyScroll)
     .value("FITTING_POLICY_MASK_", ImGuiTabBarFlags_FittingPolicyMask_)
@@ -138,87 +174,7 @@ nb::enum_<ImGuiTabItemFlags_>(mod_imgui, "TabItemFlags", nb::is_arithmetic() , n
     .value("NO_REORDER", ImGuiTabItemFlags_NoReorder)
     .value("LEADING", ImGuiTabItemFlags_Leading)
     .value("TRAILING", ImGuiTabItemFlags_Trailing)
-    ;
-
-nb::enum_<ImGuiTableFlags_>(mod_imgui, "TableFlags", nb::is_arithmetic() , nb::is_flag())
-    .value("NONE", ImGuiTableFlags_None)
-    .value("RESIZABLE", ImGuiTableFlags_Resizable)
-    .value("REORDERABLE", ImGuiTableFlags_Reorderable)
-    .value("HIDEABLE", ImGuiTableFlags_Hideable)
-    .value("SORTABLE", ImGuiTableFlags_Sortable)
-    .value("NO_SAVED_SETTINGS", ImGuiTableFlags_NoSavedSettings)
-    .value("CONTEXT_MENU_IN_BODY", ImGuiTableFlags_ContextMenuInBody)
-    .value("ROW_BG", ImGuiTableFlags_RowBg)
-    .value("BORDERS_INNER_H", ImGuiTableFlags_BordersInnerH)
-    .value("BORDERS_OUTER_H", ImGuiTableFlags_BordersOuterH)
-    .value("BORDERS_INNER_V", ImGuiTableFlags_BordersInnerV)
-    .value("BORDERS_OUTER_V", ImGuiTableFlags_BordersOuterV)
-    .value("BORDERS_H", ImGuiTableFlags_BordersH)
-    .value("BORDERS_V", ImGuiTableFlags_BordersV)
-    .value("BORDERS_INNER", ImGuiTableFlags_BordersInner)
-    .value("BORDERS_OUTER", ImGuiTableFlags_BordersOuter)
-    .value("BORDERS", ImGuiTableFlags_Borders)
-    .value("NO_BORDERS_IN_BODY", ImGuiTableFlags_NoBordersInBody)
-    .value("NO_BORDERS_IN_BODY_UNTIL_RESIZE", ImGuiTableFlags_NoBordersInBodyUntilResize)
-    .value("SIZING_FIXED_FIT", ImGuiTableFlags_SizingFixedFit)
-    .value("SIZING_FIXED_SAME", ImGuiTableFlags_SizingFixedSame)
-    .value("SIZING_STRETCH_PROP", ImGuiTableFlags_SizingStretchProp)
-    .value("SIZING_STRETCH_SAME", ImGuiTableFlags_SizingStretchSame)
-    .value("NO_HOST_EXTEND_X", ImGuiTableFlags_NoHostExtendX)
-    .value("NO_HOST_EXTEND_Y", ImGuiTableFlags_NoHostExtendY)
-    .value("NO_KEEP_COLUMNS_VISIBLE", ImGuiTableFlags_NoKeepColumnsVisible)
-    .value("PRECISE_WIDTHS", ImGuiTableFlags_PreciseWidths)
-    .value("NO_CLIP", ImGuiTableFlags_NoClip)
-    .value("PAD_OUTER_X", ImGuiTableFlags_PadOuterX)
-    .value("NO_PAD_OUTER_X", ImGuiTableFlags_NoPadOuterX)
-    .value("NO_PAD_INNER_X", ImGuiTableFlags_NoPadInnerX)
-    .value("SCROLL_X", ImGuiTableFlags_ScrollX)
-    .value("SCROLL_Y", ImGuiTableFlags_ScrollY)
-    .value("SORT_MULTI", ImGuiTableFlags_SortMulti)
-    .value("SORT_TRISTATE", ImGuiTableFlags_SortTristate)
-    .value("SIZING_MASK_", ImGuiTableFlags_SizingMask_)
-    ;
-
-nb::enum_<ImGuiTableColumnFlags_>(mod_imgui, "TableColumnFlags", nb::is_arithmetic() , nb::is_flag())
-    .value("NONE", ImGuiTableColumnFlags_None)
-    .value("DISABLED", ImGuiTableColumnFlags_Disabled)
-    .value("DEFAULT_HIDE", ImGuiTableColumnFlags_DefaultHide)
-    .value("DEFAULT_SORT", ImGuiTableColumnFlags_DefaultSort)
-    .value("WIDTH_STRETCH", ImGuiTableColumnFlags_WidthStretch)
-    .value("WIDTH_FIXED", ImGuiTableColumnFlags_WidthFixed)
-    .value("NO_RESIZE", ImGuiTableColumnFlags_NoResize)
-    .value("NO_REORDER", ImGuiTableColumnFlags_NoReorder)
-    .value("NO_HIDE", ImGuiTableColumnFlags_NoHide)
-    .value("NO_CLIP", ImGuiTableColumnFlags_NoClip)
-    .value("NO_SORT", ImGuiTableColumnFlags_NoSort)
-    .value("NO_SORT_ASCENDING", ImGuiTableColumnFlags_NoSortAscending)
-    .value("NO_SORT_DESCENDING", ImGuiTableColumnFlags_NoSortDescending)
-    .value("NO_HEADER_LABEL", ImGuiTableColumnFlags_NoHeaderLabel)
-    .value("NO_HEADER_WIDTH", ImGuiTableColumnFlags_NoHeaderWidth)
-    .value("PREFER_SORT_ASCENDING", ImGuiTableColumnFlags_PreferSortAscending)
-    .value("PREFER_SORT_DESCENDING", ImGuiTableColumnFlags_PreferSortDescending)
-    .value("INDENT_ENABLE", ImGuiTableColumnFlags_IndentEnable)
-    .value("INDENT_DISABLE", ImGuiTableColumnFlags_IndentDisable)
-    .value("IS_ENABLED", ImGuiTableColumnFlags_IsEnabled)
-    .value("IS_VISIBLE", ImGuiTableColumnFlags_IsVisible)
-    .value("IS_SORTED", ImGuiTableColumnFlags_IsSorted)
-    .value("IS_HOVERED", ImGuiTableColumnFlags_IsHovered)
-    .value("WIDTH_MASK_", ImGuiTableColumnFlags_WidthMask_)
-    .value("INDENT_MASK_", ImGuiTableColumnFlags_IndentMask_)
-    .value("STATUS_MASK_", ImGuiTableColumnFlags_StatusMask_)
-    .value("NO_DIRECT_RESIZE_", ImGuiTableColumnFlags_NoDirectResize_)
-    ;
-
-nb::enum_<ImGuiTableRowFlags_>(mod_imgui, "TableRowFlags", nb::is_arithmetic() , nb::is_flag())
-    .value("NONE", ImGuiTableRowFlags_None)
-    .value("HEADERS", ImGuiTableRowFlags_Headers)
-    ;
-
-nb::enum_<ImGuiTableBgTarget_>(mod_imgui, "TableBgTarget", nb::is_arithmetic() )
-    .value("NONE", ImGuiTableBgTarget_None)
-    .value("ROW_BG0", ImGuiTableBgTarget_RowBg0)
-    .value("ROW_BG1", ImGuiTableBgTarget_RowBg1)
-    .value("CELL_BG", ImGuiTableBgTarget_CellBg)
+    .value("NO_ASSUMED_CLOSURE", ImGuiTabItemFlags_NoAssumedClosure)
     ;
 
 nb::enum_<ImGuiFocusedFlags_>(mod_imgui, "FocusedFlags", nb::is_arithmetic() , nb::is_flag())
@@ -258,11 +214,14 @@ nb::enum_<ImGuiHoveredFlags_>(mod_imgui, "HoveredFlags", nb::is_arithmetic() , n
 nb::enum_<ImGuiDockNodeFlags_>(mod_imgui, "DockNodeFlags", nb::is_arithmetic() , nb::is_flag())
     .value("NONE", ImGuiDockNodeFlags_None)
     .value("KEEP_ALIVE_ONLY", ImGuiDockNodeFlags_KeepAliveOnly)
-    .value("NO_DOCKING_IN_CENTRAL_NODE", ImGuiDockNodeFlags_NoDockingInCentralNode)
+    .value("NO_DOCKING_OVER_CENTRAL_NODE", ImGuiDockNodeFlags_NoDockingOverCentralNode)
     .value("PASSTHRU_CENTRAL_NODE", ImGuiDockNodeFlags_PassthruCentralNode)
-    .value("NO_SPLIT", ImGuiDockNodeFlags_NoSplit)
+    .value("NO_DOCKING_SPLIT", ImGuiDockNodeFlags_NoDockingSplit)
     .value("NO_RESIZE", ImGuiDockNodeFlags_NoResize)
     .value("AUTO_HIDE_TAB_BAR", ImGuiDockNodeFlags_AutoHideTabBar)
+    .value("NO_UNDOCKING", ImGuiDockNodeFlags_NoUndocking)
+    .value("NO_SPLIT", ImGuiDockNodeFlags_NoSplit)
+    .value("NO_DOCKING_IN_CENTRAL_NODE", ImGuiDockNodeFlags_NoDockingInCentralNode)
     ;
 
 nb::enum_<ImGuiDragDropFlags_>(mod_imgui, "DragDropFlags", nb::is_arithmetic() , nb::is_flag())
@@ -272,11 +231,14 @@ nb::enum_<ImGuiDragDropFlags_>(mod_imgui, "DragDropFlags", nb::is_arithmetic() ,
     .value("SOURCE_NO_HOLD_TO_OPEN_OTHERS", ImGuiDragDropFlags_SourceNoHoldToOpenOthers)
     .value("SOURCE_ALLOW_NULL_ID", ImGuiDragDropFlags_SourceAllowNullID)
     .value("SOURCE_EXTERN", ImGuiDragDropFlags_SourceExtern)
-    .value("SOURCE_AUTO_EXPIRE_PAYLOAD", ImGuiDragDropFlags_SourceAutoExpirePayload)
+    .value("PAYLOAD_AUTO_EXPIRE", ImGuiDragDropFlags_PayloadAutoExpire)
+    .value("PAYLOAD_NO_CROSS_CONTEXT", ImGuiDragDropFlags_PayloadNoCrossContext)
+    .value("PAYLOAD_NO_CROSS_PROCESS", ImGuiDragDropFlags_PayloadNoCrossProcess)
     .value("ACCEPT_BEFORE_DELIVERY", ImGuiDragDropFlags_AcceptBeforeDelivery)
     .value("ACCEPT_NO_DRAW_DEFAULT_RECT", ImGuiDragDropFlags_AcceptNoDrawDefaultRect)
     .value("ACCEPT_NO_PREVIEW_TOOLTIP", ImGuiDragDropFlags_AcceptNoPreviewTooltip)
     .value("ACCEPT_PEEK_ONLY", ImGuiDragDropFlags_AcceptPeekOnly)
+    .value("SOURCE_AUTO_EXPIRE_PAYLOAD", ImGuiDragDropFlags_SourceAutoExpirePayload)
     ;
 
 nb::enum_<ImGuiDataType_>(mod_imgui, "DataType", nb::is_arithmetic() )
@@ -290,9 +252,11 @@ nb::enum_<ImGuiDataType_>(mod_imgui, "DataType", nb::is_arithmetic() )
     .value("U64", ImGuiDataType_U64)
     .value("FLOAT", ImGuiDataType_Float)
     .value("DOUBLE", ImGuiDataType_Double)
+    .value("BOOL", ImGuiDataType_Bool)
+    .value("STRING", ImGuiDataType_String)
     ;
 
-nb::enum_<ImGuiDir_>(mod_imgui, "Dir", nb::is_arithmetic() )
+nb::enum_<ImGuiDir>(mod_imgui, "Dir", nb::is_arithmetic() )
     .value("NONE", ImGuiDir_None)
     .value("LEFT", ImGuiDir_Left)
     .value("RIGHT", ImGuiDir_Right)
@@ -300,7 +264,7 @@ nb::enum_<ImGuiDir_>(mod_imgui, "Dir", nb::is_arithmetic() )
     .value("DOWN", ImGuiDir_Down)
     ;
 
-nb::enum_<ImGuiSortDirection_>(mod_imgui, "SortDirection", nb::is_arithmetic() )
+nb::enum_<ImGuiSortDirection>(mod_imgui, "SortDirection", nb::is_arithmetic() )
     .value("NONE", ImGuiSortDirection_None)
     .value("ASCENDING", ImGuiSortDirection_Ascending)
     .value("DESCENDING", ImGuiSortDirection_Descending)
@@ -308,6 +272,7 @@ nb::enum_<ImGuiSortDirection_>(mod_imgui, "SortDirection", nb::is_arithmetic() )
 
 nb::enum_<ImGuiKey>(mod_imgui, "Key", nb::is_arithmetic() )
     .value("NONE", ImGuiKey_None)
+    .value("NAMED_KEY__B_E_G_I_N", ImGuiKey_NamedKey_BEGIN)
     .value("TAB", ImGuiKey_Tab)
     .value("LEFT_ARROW", ImGuiKey_LeftArrow)
     .value("RIGHT_ARROW", ImGuiKey_RightArrow)
@@ -380,6 +345,18 @@ nb::enum_<ImGuiKey>(mod_imgui, "Key", nb::is_arithmetic() )
     .value("F10", ImGuiKey_F10)
     .value("F11", ImGuiKey_F11)
     .value("F12", ImGuiKey_F12)
+    .value("F13", ImGuiKey_F13)
+    .value("F14", ImGuiKey_F14)
+    .value("F15", ImGuiKey_F15)
+    .value("F16", ImGuiKey_F16)
+    .value("F17", ImGuiKey_F17)
+    .value("F18", ImGuiKey_F18)
+    .value("F19", ImGuiKey_F19)
+    .value("F20", ImGuiKey_F20)
+    .value("F21", ImGuiKey_F21)
+    .value("F22", ImGuiKey_F22)
+    .value("F23", ImGuiKey_F23)
+    .value("F24", ImGuiKey_F24)
     .value("APOSTROPHE", ImGuiKey_Apostrophe)
     .value("COMMA", ImGuiKey_Comma)
     .value("MINUS", ImGuiKey_Minus)
@@ -413,6 +390,9 @@ nb::enum_<ImGuiKey>(mod_imgui, "Key", nb::is_arithmetic() )
     .value("KEYPAD_ADD", ImGuiKey_KeypadAdd)
     .value("KEYPAD_ENTER", ImGuiKey_KeypadEnter)
     .value("KEYPAD_EQUAL", ImGuiKey_KeypadEqual)
+    .value("APP_BACK", ImGuiKey_AppBack)
+    .value("APP_FORWARD", ImGuiKey_AppForward)
+    .value("OEM102", ImGuiKey_Oem102)
     .value("GAMEPAD_START", ImGuiKey_GamepadStart)
     .value("GAMEPAD_BACK", ImGuiKey_GamepadBack)
     .value("GAMEPAD_FACE_LEFT", ImGuiKey_GamepadFaceLeft)
@@ -448,50 +428,42 @@ nb::enum_<ImGuiKey>(mod_imgui, "Key", nb::is_arithmetic() )
     .value("RESERVED_FOR_MOD_SHIFT", ImGuiKey_ReservedForModShift)
     .value("RESERVED_FOR_MOD_ALT", ImGuiKey_ReservedForModAlt)
     .value("RESERVED_FOR_MOD_SUPER", ImGuiKey_ReservedForModSuper)
-    .value("NAMED_KEY__B_E_G_I_N", ImGuiKey_NamedKey_BEGIN)
     .value("NAMED_KEY__E_N_D", ImGuiKey_NamedKey_END)
-    .value("KEYS_DATA__S_I_Z_E", ImGuiKey_KeysData_SIZE)
-    .value("KEYS_DATA__O_F_F_S_E_T", ImGuiKey_KeysData_OFFSET)
     .value("MOD_CTRL", ImGuiKey_ModCtrl)
     .value("MOD_SHIFT", ImGuiKey_ModShift)
     .value("MOD_ALT", ImGuiKey_ModAlt)
     .value("MOD_SUPER", ImGuiKey_ModSuper)
-    .value("KEY_PAD_ENTER", ImGuiKey_KeyPadEnter)
     ;
 
-nb::enum_<ImGuiNavInput>(mod_imgui, "NavInput", nb::is_arithmetic() )
-    .value("ACTIVATE", ImGuiNavInput_Activate)
-    .value("CANCEL", ImGuiNavInput_Cancel)
-    .value("INPUT", ImGuiNavInput_Input)
-    .value("MENU", ImGuiNavInput_Menu)
-    .value("DPAD_LEFT", ImGuiNavInput_DpadLeft)
-    .value("DPAD_RIGHT", ImGuiNavInput_DpadRight)
-    .value("DPAD_UP", ImGuiNavInput_DpadUp)
-    .value("DPAD_DOWN", ImGuiNavInput_DpadDown)
-    .value("L_STICK_LEFT", ImGuiNavInput_LStickLeft)
-    .value("L_STICK_RIGHT", ImGuiNavInput_LStickRight)
-    .value("L_STICK_UP", ImGuiNavInput_LStickUp)
-    .value("L_STICK_DOWN", ImGuiNavInput_LStickDown)
-    .value("FOCUS_PREV", ImGuiNavInput_FocusPrev)
-    .value("FOCUS_NEXT", ImGuiNavInput_FocusNext)
-    .value("TWEAK_SLOW", ImGuiNavInput_TweakSlow)
-    .value("TWEAK_FAST", ImGuiNavInput_TweakFast)
+nb::enum_<ImGuiInputFlags_>(mod_imgui, "InputFlags", nb::is_arithmetic() , nb::is_flag())
+    .value("NONE", ImGuiInputFlags_None)
+    .value("REPEAT", ImGuiInputFlags_Repeat)
+    .value("ROUTE_ACTIVE", ImGuiInputFlags_RouteActive)
+    .value("ROUTE_FOCUSED", ImGuiInputFlags_RouteFocused)
+    .value("ROUTE_GLOBAL", ImGuiInputFlags_RouteGlobal)
+    .value("ROUTE_ALWAYS", ImGuiInputFlags_RouteAlways)
+    .value("ROUTE_OVER_FOCUSED", ImGuiInputFlags_RouteOverFocused)
+    .value("ROUTE_OVER_ACTIVE", ImGuiInputFlags_RouteOverActive)
+    .value("ROUTE_UNLESS_BG_FOCUSED", ImGuiInputFlags_RouteUnlessBgFocused)
+    .value("ROUTE_FROM_ROOT_WINDOW", ImGuiInputFlags_RouteFromRootWindow)
+    .value("TOOLTIP", ImGuiInputFlags_Tooltip)
     ;
 
 nb::enum_<ImGuiConfigFlags_>(mod_imgui, "ConfigFlags", nb::is_arithmetic() , nb::is_flag())
     .value("NONE", ImGuiConfigFlags_None)
     .value("NAV_ENABLE_KEYBOARD", ImGuiConfigFlags_NavEnableKeyboard)
     .value("NAV_ENABLE_GAMEPAD", ImGuiConfigFlags_NavEnableGamepad)
-    .value("NAV_ENABLE_SET_MOUSE_POS", ImGuiConfigFlags_NavEnableSetMousePos)
-    .value("NAV_NO_CAPTURE_KEYBOARD", ImGuiConfigFlags_NavNoCaptureKeyboard)
     .value("NO_MOUSE", ImGuiConfigFlags_NoMouse)
     .value("NO_MOUSE_CURSOR_CHANGE", ImGuiConfigFlags_NoMouseCursorChange)
+    .value("NO_KEYBOARD", ImGuiConfigFlags_NoKeyboard)
     .value("DOCKING_ENABLE", ImGuiConfigFlags_DockingEnable)
     .value("VIEWPORTS_ENABLE", ImGuiConfigFlags_ViewportsEnable)
     .value("DPI_ENABLE_SCALE_VIEWPORTS", ImGuiConfigFlags_DpiEnableScaleViewports)
     .value("DPI_ENABLE_SCALE_FONTS", ImGuiConfigFlags_DpiEnableScaleFonts)
     .value("IS_S_R_G_B", ImGuiConfigFlags_IsSRGB)
     .value("IS_TOUCH_SCREEN", ImGuiConfigFlags_IsTouchScreen)
+    .value("NAV_ENABLE_SET_MOUSE_POS", ImGuiConfigFlags_NavEnableSetMousePos)
+    .value("NAV_NO_CAPTURE_KEYBOARD", ImGuiConfigFlags_NavNoCaptureKeyboard)
     ;
 
 nb::enum_<ImGuiBackendFlags_>(mod_imgui, "BackendFlags", nb::is_arithmetic() , nb::is_flag())
@@ -539,11 +511,13 @@ nb::enum_<ImGuiCol_>(mod_imgui, "Col", nb::is_arithmetic() )
     .value("RESIZE_GRIP", ImGuiCol_ResizeGrip)
     .value("RESIZE_GRIP_HOVERED", ImGuiCol_ResizeGripHovered)
     .value("RESIZE_GRIP_ACTIVE", ImGuiCol_ResizeGripActive)
-    .value("TAB", ImGuiCol_Tab)
     .value("TAB_HOVERED", ImGuiCol_TabHovered)
-    .value("TAB_ACTIVE", ImGuiCol_TabActive)
-    .value("TAB_UNFOCUSED", ImGuiCol_TabUnfocused)
-    .value("TAB_UNFOCUSED_ACTIVE", ImGuiCol_TabUnfocusedActive)
+    .value("TAB", ImGuiCol_Tab)
+    .value("TAB_SELECTED", ImGuiCol_TabSelected)
+    .value("TAB_SELECTED_OVERLINE", ImGuiCol_TabSelectedOverline)
+    .value("TAB_DIMMED", ImGuiCol_TabDimmed)
+    .value("TAB_DIMMED_SELECTED", ImGuiCol_TabDimmedSelected)
+    .value("TAB_DIMMED_SELECTED_OVERLINE", ImGuiCol_TabDimmedSelectedOverline)
     .value("DOCKING_PREVIEW", ImGuiCol_DockingPreview)
     .value("DOCKING_EMPTY_BG", ImGuiCol_DockingEmptyBg)
     .value("PLOT_LINES", ImGuiCol_PlotLines)
@@ -555,12 +529,17 @@ nb::enum_<ImGuiCol_>(mod_imgui, "Col", nb::is_arithmetic() )
     .value("TABLE_BORDER_LIGHT", ImGuiCol_TableBorderLight)
     .value("TABLE_ROW_BG", ImGuiCol_TableRowBg)
     .value("TABLE_ROW_BG_ALT", ImGuiCol_TableRowBgAlt)
+    .value("TEXT_LINK", ImGuiCol_TextLink)
     .value("TEXT_SELECTED_BG", ImGuiCol_TextSelectedBg)
     .value("DRAG_DROP_TARGET", ImGuiCol_DragDropTarget)
-    .value("NAV_HIGHLIGHT", ImGuiCol_NavHighlight)
+    .value("NAV_CURSOR", ImGuiCol_NavCursor)
     .value("NAV_WINDOWING_HIGHLIGHT", ImGuiCol_NavWindowingHighlight)
     .value("NAV_WINDOWING_DIM_BG", ImGuiCol_NavWindowingDimBg)
     .value("MODAL_WINDOW_DIM_BG", ImGuiCol_ModalWindowDimBg)
+    .value("TAB_ACTIVE", ImGuiCol_TabActive)
+    .value("TAB_UNFOCUSED", ImGuiCol_TabUnfocused)
+    .value("TAB_UNFOCUSED_ACTIVE", ImGuiCol_TabUnfocusedActive)
+    .value("NAV_HIGHLIGHT", ImGuiCol_NavHighlight)
     ;
 
 nb::enum_<ImGuiStyleVar_>(mod_imgui, "StyleVar", nb::is_arithmetic() )
@@ -586,7 +565,13 @@ nb::enum_<ImGuiStyleVar_>(mod_imgui, "StyleVar", nb::is_arithmetic() )
     .value("SCROLLBAR_ROUNDING", ImGuiStyleVar_ScrollbarRounding)
     .value("GRAB_MIN_SIZE", ImGuiStyleVar_GrabMinSize)
     .value("GRAB_ROUNDING", ImGuiStyleVar_GrabRounding)
+    .value("IMAGE_BORDER_SIZE", ImGuiStyleVar_ImageBorderSize)
     .value("TAB_ROUNDING", ImGuiStyleVar_TabRounding)
+    .value("TAB_BORDER_SIZE", ImGuiStyleVar_TabBorderSize)
+    .value("TAB_BAR_BORDER_SIZE", ImGuiStyleVar_TabBarBorderSize)
+    .value("TAB_BAR_OVERLINE_SIZE", ImGuiStyleVar_TabBarOverlineSize)
+    .value("TABLE_ANGLED_HEADERS_ANGLE", ImGuiStyleVar_TableAngledHeadersAngle)
+    .value("TABLE_ANGLED_HEADERS_TEXT_ALIGN", ImGuiStyleVar_TableAngledHeadersTextAlign)
     .value("BUTTON_TEXT_ALIGN", ImGuiStyleVar_ButtonTextAlign)
     .value("SELECTABLE_TEXT_ALIGN", ImGuiStyleVar_SelectableTextAlign)
     .value("SEPARATOR_TEXT_BORDER_SIZE", ImGuiStyleVar_SeparatorTextBorderSize)
@@ -601,7 +586,7 @@ nb::enum_<ImGuiButtonFlags_>(mod_imgui, "ButtonFlags", nb::is_arithmetic() , nb:
     .value("MOUSE_BUTTON_RIGHT", ImGuiButtonFlags_MouseButtonRight)
     .value("MOUSE_BUTTON_MIDDLE", ImGuiButtonFlags_MouseButtonMiddle)
     .value("MOUSE_BUTTON_MASK_", ImGuiButtonFlags_MouseButtonMask_)
-    .value("MOUSE_BUTTON_DEFAULT_", ImGuiButtonFlags_MouseButtonDefault_)
+    .value("ENABLE_NAV", ImGuiButtonFlags_EnableNav)
     ;
 
 nb::enum_<ImGuiColorEditFlags_>(mod_imgui, "ColorEditFlags", nb::is_arithmetic() , nb::is_flag())
@@ -616,9 +601,10 @@ nb::enum_<ImGuiColorEditFlags_>(mod_imgui, "ColorEditFlags", nb::is_arithmetic()
     .value("NO_SIDE_PREVIEW", ImGuiColorEditFlags_NoSidePreview)
     .value("NO_DRAG_DROP", ImGuiColorEditFlags_NoDragDrop)
     .value("NO_BORDER", ImGuiColorEditFlags_NoBorder)
-    .value("ALPHA_BAR", ImGuiColorEditFlags_AlphaBar)
-    .value("ALPHA_PREVIEW", ImGuiColorEditFlags_AlphaPreview)
+    .value("ALPHA_OPAQUE", ImGuiColorEditFlags_AlphaOpaque)
+    .value("ALPHA_NO_BG", ImGuiColorEditFlags_AlphaNoBg)
     .value("ALPHA_PREVIEW_HALF", ImGuiColorEditFlags_AlphaPreviewHalf)
+    .value("ALPHA_BAR", ImGuiColorEditFlags_AlphaBar)
     .value("H_D_R", ImGuiColorEditFlags_HDR)
     .value("DISPLAY_R_G_B", ImGuiColorEditFlags_DisplayRGB)
     .value("DISPLAY_H_S_V", ImGuiColorEditFlags_DisplayHSV)
@@ -630,18 +616,24 @@ nb::enum_<ImGuiColorEditFlags_>(mod_imgui, "ColorEditFlags", nb::is_arithmetic()
     .value("INPUT_R_G_B", ImGuiColorEditFlags_InputRGB)
     .value("INPUT_H_S_V", ImGuiColorEditFlags_InputHSV)
     .value("DEFAULT_OPTIONS_", ImGuiColorEditFlags_DefaultOptions_)
+    .value("ALPHA_MASK_", ImGuiColorEditFlags_AlphaMask_)
     .value("DISPLAY_MASK_", ImGuiColorEditFlags_DisplayMask_)
     .value("DATA_TYPE_MASK_", ImGuiColorEditFlags_DataTypeMask_)
     .value("PICKER_MASK_", ImGuiColorEditFlags_PickerMask_)
     .value("INPUT_MASK_", ImGuiColorEditFlags_InputMask_)
+    .value("ALPHA_PREVIEW", ImGuiColorEditFlags_AlphaPreview)
     ;
 
 nb::enum_<ImGuiSliderFlags_>(mod_imgui, "SliderFlags", nb::is_arithmetic() , nb::is_flag())
     .value("NONE", ImGuiSliderFlags_None)
-    .value("ALWAYS_CLAMP", ImGuiSliderFlags_AlwaysClamp)
     .value("LOGARITHMIC", ImGuiSliderFlags_Logarithmic)
     .value("NO_ROUND_TO_FORMAT", ImGuiSliderFlags_NoRoundToFormat)
     .value("NO_INPUT", ImGuiSliderFlags_NoInput)
+    .value("WRAP_AROUND", ImGuiSliderFlags_WrapAround)
+    .value("CLAMP_ON_INPUT", ImGuiSliderFlags_ClampOnInput)
+    .value("CLAMP_ZERO_RANGE", ImGuiSliderFlags_ClampZeroRange)
+    .value("NO_SPEED_TWEAKS", ImGuiSliderFlags_NoSpeedTweaks)
+    .value("ALWAYS_CLAMP", ImGuiSliderFlags_AlwaysClamp)
     .value("INVALID_MASK_", ImGuiSliderFlags_InvalidMask_)
     ;
 
@@ -661,6 +653,8 @@ nb::enum_<ImGuiMouseCursor_>(mod_imgui, "MouseCursor", nb::is_arithmetic() )
     .value("RESIZE_N_E_S_W", ImGuiMouseCursor_ResizeNESW)
     .value("RESIZE_N_W_S_E", ImGuiMouseCursor_ResizeNWSE)
     .value("HAND", ImGuiMouseCursor_Hand)
+    .value("WAIT", ImGuiMouseCursor_Wait)
+    .value("PROGRESS", ImGuiMouseCursor_Progress)
     .value("NOT_ALLOWED", ImGuiMouseCursor_NotAllowed)
     ;
 
@@ -676,6 +670,115 @@ nb::enum_<ImGuiCond_>(mod_imgui, "Cond", nb::is_arithmetic() )
     .value("ONCE", ImGuiCond_Once)
     .value("FIRST_USE_EVER", ImGuiCond_FirstUseEver)
     .value("APPEARING", ImGuiCond_Appearing)
+    ;
+
+nb::enum_<ImGuiTableFlags_>(mod_imgui, "TableFlags", nb::is_arithmetic() , nb::is_flag())
+    .value("NONE", ImGuiTableFlags_None)
+    .value("RESIZABLE", ImGuiTableFlags_Resizable)
+    .value("REORDERABLE", ImGuiTableFlags_Reorderable)
+    .value("HIDEABLE", ImGuiTableFlags_Hideable)
+    .value("SORTABLE", ImGuiTableFlags_Sortable)
+    .value("NO_SAVED_SETTINGS", ImGuiTableFlags_NoSavedSettings)
+    .value("CONTEXT_MENU_IN_BODY", ImGuiTableFlags_ContextMenuInBody)
+    .value("ROW_BG", ImGuiTableFlags_RowBg)
+    .value("BORDERS_INNER_H", ImGuiTableFlags_BordersInnerH)
+    .value("BORDERS_OUTER_H", ImGuiTableFlags_BordersOuterH)
+    .value("BORDERS_INNER_V", ImGuiTableFlags_BordersInnerV)
+    .value("BORDERS_OUTER_V", ImGuiTableFlags_BordersOuterV)
+    .value("BORDERS_H", ImGuiTableFlags_BordersH)
+    .value("BORDERS_V", ImGuiTableFlags_BordersV)
+    .value("BORDERS_INNER", ImGuiTableFlags_BordersInner)
+    .value("BORDERS_OUTER", ImGuiTableFlags_BordersOuter)
+    .value("BORDERS", ImGuiTableFlags_Borders)
+    .value("NO_BORDERS_IN_BODY", ImGuiTableFlags_NoBordersInBody)
+    .value("NO_BORDERS_IN_BODY_UNTIL_RESIZE", ImGuiTableFlags_NoBordersInBodyUntilResize)
+    .value("SIZING_FIXED_FIT", ImGuiTableFlags_SizingFixedFit)
+    .value("SIZING_FIXED_SAME", ImGuiTableFlags_SizingFixedSame)
+    .value("SIZING_STRETCH_PROP", ImGuiTableFlags_SizingStretchProp)
+    .value("SIZING_STRETCH_SAME", ImGuiTableFlags_SizingStretchSame)
+    .value("NO_HOST_EXTEND_X", ImGuiTableFlags_NoHostExtendX)
+    .value("NO_HOST_EXTEND_Y", ImGuiTableFlags_NoHostExtendY)
+    .value("NO_KEEP_COLUMNS_VISIBLE", ImGuiTableFlags_NoKeepColumnsVisible)
+    .value("PRECISE_WIDTHS", ImGuiTableFlags_PreciseWidths)
+    .value("NO_CLIP", ImGuiTableFlags_NoClip)
+    .value("PAD_OUTER_X", ImGuiTableFlags_PadOuterX)
+    .value("NO_PAD_OUTER_X", ImGuiTableFlags_NoPadOuterX)
+    .value("NO_PAD_INNER_X", ImGuiTableFlags_NoPadInnerX)
+    .value("SCROLL_X", ImGuiTableFlags_ScrollX)
+    .value("SCROLL_Y", ImGuiTableFlags_ScrollY)
+    .value("SORT_MULTI", ImGuiTableFlags_SortMulti)
+    .value("SORT_TRISTATE", ImGuiTableFlags_SortTristate)
+    .value("HIGHLIGHT_HOVERED_COLUMN", ImGuiTableFlags_HighlightHoveredColumn)
+    .value("SIZING_MASK_", ImGuiTableFlags_SizingMask_)
+    ;
+
+nb::enum_<ImGuiTableColumnFlags_>(mod_imgui, "TableColumnFlags", nb::is_arithmetic() , nb::is_flag())
+    .value("NONE", ImGuiTableColumnFlags_None)
+    .value("DISABLED", ImGuiTableColumnFlags_Disabled)
+    .value("DEFAULT_HIDE", ImGuiTableColumnFlags_DefaultHide)
+    .value("DEFAULT_SORT", ImGuiTableColumnFlags_DefaultSort)
+    .value("WIDTH_STRETCH", ImGuiTableColumnFlags_WidthStretch)
+    .value("WIDTH_FIXED", ImGuiTableColumnFlags_WidthFixed)
+    .value("NO_RESIZE", ImGuiTableColumnFlags_NoResize)
+    .value("NO_REORDER", ImGuiTableColumnFlags_NoReorder)
+    .value("NO_HIDE", ImGuiTableColumnFlags_NoHide)
+    .value("NO_CLIP", ImGuiTableColumnFlags_NoClip)
+    .value("NO_SORT", ImGuiTableColumnFlags_NoSort)
+    .value("NO_SORT_ASCENDING", ImGuiTableColumnFlags_NoSortAscending)
+    .value("NO_SORT_DESCENDING", ImGuiTableColumnFlags_NoSortDescending)
+    .value("NO_HEADER_LABEL", ImGuiTableColumnFlags_NoHeaderLabel)
+    .value("NO_HEADER_WIDTH", ImGuiTableColumnFlags_NoHeaderWidth)
+    .value("PREFER_SORT_ASCENDING", ImGuiTableColumnFlags_PreferSortAscending)
+    .value("PREFER_SORT_DESCENDING", ImGuiTableColumnFlags_PreferSortDescending)
+    .value("INDENT_ENABLE", ImGuiTableColumnFlags_IndentEnable)
+    .value("INDENT_DISABLE", ImGuiTableColumnFlags_IndentDisable)
+    .value("ANGLED_HEADER", ImGuiTableColumnFlags_AngledHeader)
+    .value("IS_ENABLED", ImGuiTableColumnFlags_IsEnabled)
+    .value("IS_VISIBLE", ImGuiTableColumnFlags_IsVisible)
+    .value("IS_SORTED", ImGuiTableColumnFlags_IsSorted)
+    .value("IS_HOVERED", ImGuiTableColumnFlags_IsHovered)
+    .value("WIDTH_MASK_", ImGuiTableColumnFlags_WidthMask_)
+    .value("INDENT_MASK_", ImGuiTableColumnFlags_IndentMask_)
+    .value("STATUS_MASK_", ImGuiTableColumnFlags_StatusMask_)
+    .value("NO_DIRECT_RESIZE_", ImGuiTableColumnFlags_NoDirectResize_)
+    ;
+
+nb::enum_<ImGuiTableRowFlags_>(mod_imgui, "TableRowFlags", nb::is_arithmetic() , nb::is_flag())
+    .value("NONE", ImGuiTableRowFlags_None)
+    .value("HEADERS", ImGuiTableRowFlags_Headers)
+    ;
+
+nb::enum_<ImGuiTableBgTarget_>(mod_imgui, "TableBgTarget", nb::is_arithmetic() )
+    .value("NONE", ImGuiTableBgTarget_None)
+    .value("ROW_BG0", ImGuiTableBgTarget_RowBg0)
+    .value("ROW_BG1", ImGuiTableBgTarget_RowBg1)
+    .value("CELL_BG", ImGuiTableBgTarget_CellBg)
+    ;
+
+nb::enum_<ImGuiMultiSelectFlags_>(mod_imgui, "MultiSelectFlags", nb::is_arithmetic() , nb::is_flag())
+    .value("NONE", ImGuiMultiSelectFlags_None)
+    .value("SINGLE_SELECT", ImGuiMultiSelectFlags_SingleSelect)
+    .value("NO_SELECT_ALL", ImGuiMultiSelectFlags_NoSelectAll)
+    .value("NO_RANGE_SELECT", ImGuiMultiSelectFlags_NoRangeSelect)
+    .value("NO_AUTO_SELECT", ImGuiMultiSelectFlags_NoAutoSelect)
+    .value("NO_AUTO_CLEAR", ImGuiMultiSelectFlags_NoAutoClear)
+    .value("NO_AUTO_CLEAR_ON_RESELECT", ImGuiMultiSelectFlags_NoAutoClearOnReselect)
+    .value("BOX_SELECT1D", ImGuiMultiSelectFlags_BoxSelect1d)
+    .value("BOX_SELECT2D", ImGuiMultiSelectFlags_BoxSelect2d)
+    .value("BOX_SELECT_NO_SCROLL", ImGuiMultiSelectFlags_BoxSelectNoScroll)
+    .value("CLEAR_ON_ESCAPE", ImGuiMultiSelectFlags_ClearOnEscape)
+    .value("CLEAR_ON_CLICK_VOID", ImGuiMultiSelectFlags_ClearOnClickVoid)
+    .value("SCOPE_WINDOW", ImGuiMultiSelectFlags_ScopeWindow)
+    .value("SCOPE_RECT", ImGuiMultiSelectFlags_ScopeRect)
+    .value("SELECT_ON_CLICK", ImGuiMultiSelectFlags_SelectOnClick)
+    .value("SELECT_ON_CLICK_RELEASE", ImGuiMultiSelectFlags_SelectOnClickRelease)
+    .value("NAV_WRAP_X", ImGuiMultiSelectFlags_NavWrapX)
+    ;
+
+nb::enum_<ImGuiSelectionRequestType>(mod_imgui, "SelectionRequestType", nb::is_arithmetic() )
+    .value("NONE", ImGuiSelectionRequestType_None)
+    .value("SET_ALL", ImGuiSelectionRequestType_SetAll)
+    .value("SET_RANGE", ImGuiSelectionRequestType_SetRange)
     ;
 
 nb::enum_<ImDrawFlags_>(mod_imgui, "DrawFlags", nb::is_arithmetic() , nb::is_flag())
@@ -728,27 +831,6 @@ nb::enum_<ImGuiViewportFlags_>(mod_imgui, "ViewportFlags", nb::is_arithmetic() ,
     .value("IS_FOCUSED", ImGuiViewportFlags_IsFocused)
     ;
 
-nb::enum_<ImDrawCornerFlags_>(mod_imgui, "DrawCornerFlags", nb::is_arithmetic() , nb::is_flag())
-    .value("NONE", ImDrawCornerFlags_None)
-    .value("TOP_LEFT", ImDrawCornerFlags_TopLeft)
-    .value("TOP_RIGHT", ImDrawCornerFlags_TopRight)
-    .value("BOT_LEFT", ImDrawCornerFlags_BotLeft)
-    .value("BOT_RIGHT", ImDrawCornerFlags_BotRight)
-    .value("ALL", ImDrawCornerFlags_All)
-    .value("TOP", ImDrawCornerFlags_Top)
-    .value("BOT", ImDrawCornerFlags_Bot)
-    .value("LEFT", ImDrawCornerFlags_Left)
-    .value("RIGHT", ImDrawCornerFlags_Right)
-    ;
-
-nb::enum_<ImGuiModFlags_>(mod_imgui, "ModFlags", nb::is_arithmetic() , nb::is_flag())
-    .value("NONE", ImGuiModFlags_None)
-    .value("CTRL", ImGuiModFlags_Ctrl)
-    .value("SHIFT", ImGuiModFlags_Shift)
-    .value("ALT", ImGuiModFlags_Alt)
-    .value("SUPER", ImGuiModFlags_Super)
-    ;
-
 mod_imgui.def("get_style",
     [] () -> ImGuiStyle& {
         return ImGui::GetStyle();
@@ -772,9 +854,9 @@ mod_imgui.def("show_debug_log_window",
         return p_open;
     }, nb::arg("p_open") = nb::none());
 
-mod_imgui.def("show_stack_tool_window",
+mod_imgui.def("show_id_stack_tool_window",
     [] (std::optional<bool> p_open) -> std::optional<bool> {
-        ImGui::ShowStackToolWindow(p_open.has_value() ? &p_open.value() : NULL);
+        ImGui::ShowIDStackToolWindow(p_open.has_value() ? &p_open.value() : NULL);
         return p_open;
     }, nb::arg("p_open") = nb::none());
 
@@ -837,9 +919,9 @@ mod_imgui.def("end",
     });
 
 mod_imgui.def("begin_child",
-    [] (const char* str_id, ImVec2 size, bool border, ImGuiWindowFlags flags) -> bool {
-        return ImGui::BeginChild(str_id, size, border, flags);
-    }, nb::arg("str_id"), nb::arg("size") = nb::make_tuple(0, 0), nb::arg("border") = false, nb::arg("flags") = 0);
+    [] (const char* str_id, ImVec2 size, ImGuiChildFlags child_flags, ImGuiWindowFlags window_flags) -> bool {
+        return ImGui::BeginChild(str_id, size, child_flags, window_flags);
+    }, nb::arg("str_id"), nb::arg("size") = nb::make_tuple(0, 0), nb::arg("child_flags") = 0, nb::arg("window_flags") = 0);
 
 mod_imgui.def("end_child",
     [] () -> void {
@@ -981,26 +1063,6 @@ mod_imgui.def("set_window_focus_str",
         return ImGui::SetWindowFocus(name);
     }, nb::arg("name"));
 
-mod_imgui.def("get_content_region_avail",
-    [] () -> ImVec2 {
-        return ImGui::GetContentRegionAvail();
-    });
-
-mod_imgui.def("get_content_region_max",
-    [] () -> ImVec2 {
-        return ImGui::GetContentRegionMax();
-    });
-
-mod_imgui.def("get_window_content_region_min",
-    [] () -> ImVec2 {
-        return ImGui::GetWindowContentRegionMin();
-    });
-
-mod_imgui.def("get_window_content_region_max",
-    [] () -> ImVec2 {
-        return ImGui::GetWindowContentRegionMax();
-    });
-
 mod_imgui.def("get_scroll_x",
     [] () -> float {
         return ImGui::GetScrollX();
@@ -1086,29 +1148,29 @@ mod_imgui.def("push_style_var_im_vec2",
         return ImGui::PushStyleVar(idx, val);
     }, nb::arg("idx"), nb::arg("val"));
 
+mod_imgui.def("push_style_var_x",
+    [] (ImGuiStyleVar idx, float val_x) -> void {
+        return ImGui::PushStyleVarX(idx, val_x);
+    }, nb::arg("idx"), nb::arg("val_x"));
+
+mod_imgui.def("push_style_var_y",
+    [] (ImGuiStyleVar idx, float val_y) -> void {
+        return ImGui::PushStyleVarY(idx, val_y);
+    }, nb::arg("idx"), nb::arg("val_y"));
+
 mod_imgui.def("pop_style_var",
     [] (int count) -> void {
         return ImGui::PopStyleVar(count);
     }, nb::arg("count") = 1);
 
-mod_imgui.def("push_tab_stop",
-    [] (bool tab_stop) -> void {
-        return ImGui::PushTabStop(tab_stop);
-    }, nb::arg("tab_stop"));
+mod_imgui.def("push_item_flag",
+    [] (ImGuiItemFlags option, bool enabled) -> void {
+        return ImGui::PushItemFlag(option, enabled);
+    }, nb::arg("option"), nb::arg("enabled"));
 
-mod_imgui.def("pop_tab_stop",
+mod_imgui.def("pop_item_flag",
     [] () -> void {
-        return ImGui::PopTabStop();
-    });
-
-mod_imgui.def("push_button_repeat",
-    [] (bool repeat) -> void {
-        return ImGui::PushButtonRepeat(repeat);
-    }, nb::arg("repeat"));
-
-mod_imgui.def("pop_button_repeat",
-    [] () -> void {
-        return ImGui::PopButtonRepeat();
+        return ImGui::PopItemFlag();
     });
 
 mod_imgui.def("push_item_width",
@@ -1167,9 +1229,59 @@ mod_imgui.def("get_color_u32_im_vec4",
     }, nb::arg("col"));
 
 mod_imgui.def("get_color_u32_im_u32",
-    [] (Color col) -> Color {
-        return ImGui::GetColorU32(col);
-    }, nb::arg("col"));
+    [] (Color col, float alpha_mul) -> Color {
+        return ImGui::GetColorU32(col, alpha_mul);
+    }, nb::arg("col"), nb::arg("alpha_mul") = 1.0);
+
+mod_imgui.def("get_cursor_screen_pos",
+    [] () -> ImVec2 {
+        return ImGui::GetCursorScreenPos();
+    });
+
+mod_imgui.def("set_cursor_screen_pos",
+    [] (ImVec2 pos) -> void {
+        return ImGui::SetCursorScreenPos(pos);
+    }, nb::arg("pos"));
+
+mod_imgui.def("get_content_region_avail",
+    [] () -> ImVec2 {
+        return ImGui::GetContentRegionAvail();
+    });
+
+mod_imgui.def("get_cursor_pos",
+    [] () -> ImVec2 {
+        return ImGui::GetCursorPos();
+    });
+
+mod_imgui.def("get_cursor_pos_x",
+    [] () -> float {
+        return ImGui::GetCursorPosX();
+    });
+
+mod_imgui.def("get_cursor_pos_y",
+    [] () -> float {
+        return ImGui::GetCursorPosY();
+    });
+
+mod_imgui.def("set_cursor_pos",
+    [] (ImVec2 local_pos) -> void {
+        return ImGui::SetCursorPos(local_pos);
+    }, nb::arg("local_pos"));
+
+mod_imgui.def("set_cursor_pos_x",
+    [] (float local_x) -> void {
+        return ImGui::SetCursorPosX(local_x);
+    }, nb::arg("local_x"));
+
+mod_imgui.def("set_cursor_pos_y",
+    [] (float local_y) -> void {
+        return ImGui::SetCursorPosY(local_y);
+    }, nb::arg("local_y"));
+
+mod_imgui.def("get_cursor_start_pos",
+    [] () -> ImVec2 {
+        return ImGui::GetCursorStartPos();
+    });
 
 mod_imgui.def("separator",
     [] () -> void {
@@ -1216,51 +1328,6 @@ mod_imgui.def("end_group",
         return ImGui::EndGroup();
     });
 
-mod_imgui.def("get_cursor_pos",
-    [] () -> ImVec2 {
-        return ImGui::GetCursorPos();
-    });
-
-mod_imgui.def("get_cursor_pos_x",
-    [] () -> float {
-        return ImGui::GetCursorPosX();
-    });
-
-mod_imgui.def("get_cursor_pos_y",
-    [] () -> float {
-        return ImGui::GetCursorPosY();
-    });
-
-mod_imgui.def("set_cursor_pos",
-    [] (ImVec2 local_pos) -> void {
-        return ImGui::SetCursorPos(local_pos);
-    }, nb::arg("local_pos"));
-
-mod_imgui.def("set_cursor_pos_x",
-    [] (float local_x) -> void {
-        return ImGui::SetCursorPosX(local_x);
-    }, nb::arg("local_x"));
-
-mod_imgui.def("set_cursor_pos_y",
-    [] (float local_y) -> void {
-        return ImGui::SetCursorPosY(local_y);
-    }, nb::arg("local_y"));
-
-mod_imgui.def("get_cursor_start_pos",
-    [] () -> ImVec2 {
-        return ImGui::GetCursorStartPos();
-    });
-
-mod_imgui.def("get_cursor_screen_pos",
-    [] () -> ImVec2 {
-        return ImGui::GetCursorScreenPos();
-    });
-
-mod_imgui.def("set_cursor_screen_pos",
-    [] (ImVec2 pos) -> void {
-        return ImGui::SetCursorScreenPos(pos);
-    }, nb::arg("pos"));
-
 mod_imgui.def("align_text_to_frame_padding",
     [] () -> void {
         return ImGui::AlignTextToFramePadding();
@@ -1305,6 +1372,11 @@ mod_imgui.def("pop_id",
     [] () -> void {
         return ImGui::PopID();
     });
+
+mod_imgui.def("get_id_int",
+    [] (int int_id) -> ImGuiID {
+        return ImGui::GetID(int_id);
+    }, nb::arg("int_id"));
 
 mod_imgui.def("text",
     [] (const char* fmt) -> void {
@@ -1383,15 +1455,30 @@ mod_imgui.def("bullet",
         return ImGui::Bullet();
     });
 
+mod_imgui.def("text_link",
+    [] (const char* label) -> bool {
+        return ImGui::TextLink(label);
+    }, nb::arg("label"));
+
+mod_imgui.def("text_link_open_u_r_l",
+    [] (const char* label, std::optional<const char*> url) -> void {
+        return ImGui::TextLinkOpenURL(label, url.has_value() ? url.value() : NULL);
+    }, nb::arg("label"), nb::arg("url") = nb::none());
+
 mod_imgui.def("image",
-    [] (ImTextureID user_texture_id, ImVec2 size, ImVec2 uv0, ImVec2 uv1, ImVec4 tint_col, ImVec4 border_col) -> void {
-        return ImGui::Image(user_texture_id, size, uv0, uv1, tint_col, border_col);
-    }, nb::arg("user_texture_id"), nb::arg("size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1), nb::arg("border_col") = nb::make_tuple(0, 0, 0, 0));
+    [] (ImTextureID user_texture_id, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1) -> void {
+        return ImGui::Image(user_texture_id, image_size, uv0, uv1);
+    }, nb::arg("user_texture_id"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1));
+
+mod_imgui.def("image_with_bg",
+    [] (ImTextureID user_texture_id, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 bg_col, ImVec4 tint_col) -> void {
+        return ImGui::ImageWithBg(user_texture_id, image_size, uv0, uv1, bg_col, tint_col);
+    }, nb::arg("user_texture_id"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
 
 mod_imgui.def("image_button",
-    [] (const char* str_id, ImTextureID user_texture_id, ImVec2 size, ImVec2 uv0, ImVec2 uv1, ImVec4 bg_col, ImVec4 tint_col) -> bool {
-        return ImGui::ImageButton(str_id, user_texture_id, size, uv0, uv1, bg_col, tint_col);
-    }, nb::arg("str_id"), nb::arg("user_texture_id"), nb::arg("size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
+    [] (const char* str_id, ImTextureID user_texture_id, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 bg_col, ImVec4 tint_col) -> bool {
+        return ImGui::ImageButton(str_id, user_texture_id, image_size, uv0, uv1, bg_col, tint_col);
+    }, nb::arg("str_id"), nb::arg("user_texture_id"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
 
 mod_imgui.def("drag_float",
     [] (const char* label, float v, float v_speed, float v_min, float v_max, const char* format, ImGuiSliderFlags flags) -> nb::tuple {
@@ -1658,19 +1745,34 @@ mod_imgui.def("set_next_item_open",
         return ImGui::SetNextItemOpen(is_open, cond);
     }, nb::arg("is_open"), nb::arg("cond") = 0);
 
+mod_imgui.def("set_next_item_storage_id",
+    [] (ImGuiID storage_id) -> void {
+        return ImGui::SetNextItemStorageID(storage_id);
+    }, nb::arg("storage_id"));
+
 mod_imgui.def("selectable",
     [] (const char* label, bool selected, ImGuiSelectableFlags flags, ImVec2 size) -> bool {
         return ImGui::Selectable(label, selected, flags, size);
     }, nb::arg("label"), nb::arg("selected") = false, nb::arg("flags") = 0, nb::arg("size") = nb::make_tuple(0, 0));
 
-mod_imgui.def("begin_list_box",
-    [] (const char* label, ImVec2 size) -> bool {
-        return ImGui::BeginListBox(label, size);
-    }, nb::arg("label"), nb::arg("size") = nb::make_tuple(0, 0));
+mod_imgui.def("begin_multi_select",
+    [] (ImGuiMultiSelectFlags flags, int selection_size, int items_count) -> ImGuiMultiSelectIO* {
+        return ImGui::BeginMultiSelect(flags, selection_size, items_count);
+    }, nb::arg("flags"), nb::arg("selection_size") = -1, nb::arg("items_count") = -1);
 
-mod_imgui.def("end_list_box",
-    [] () -> void {
-        return ImGui::EndListBox();
+mod_imgui.def("end_multi_select",
+    [] () -> ImGuiMultiSelectIO* {
+        return ImGui::EndMultiSelect();
+    });
+
+mod_imgui.def("set_next_item_selection_user_data",
+    [] (ImGuiSelectionUserData selection_user_data) -> void {
+        return ImGui::SetNextItemSelectionUserData(selection_user_data);
+    }, nb::arg("selection_user_data"));
+
+mod_imgui.def("is_item_toggled_selection",
+    [] () -> bool {
+        return ImGui::IsItemToggledSelection();
     });
 
 mod_imgui.def("begin_menu_bar",
@@ -1786,9 +1888,9 @@ mod_imgui.def("is_popup_open",
     }, nb::arg("str_id"), nb::arg("flags") = 0);
 
 mod_imgui.def("begin_table",
-    [] (const char* str_id, int column, ImGuiTableFlags flags, ImVec2 outer_size, float inner_width) -> bool {
-        return ImGui::BeginTable(str_id, column, flags, outer_size, inner_width);
-    }, nb::arg("str_id"), nb::arg("column"), nb::arg("flags") = 0, nb::arg("outer_size") = nb::make_tuple(0.0, 0.0), nb::arg("inner_width") = 0.0);
+    [] (const char* str_id, int columns, ImGuiTableFlags flags, ImVec2 outer_size, float inner_width) -> bool {
+        return ImGui::BeginTable(str_id, columns, flags, outer_size, inner_width);
+    }, nb::arg("str_id"), nb::arg("columns"), nb::arg("flags") = 0, nb::arg("outer_size") = nb::make_tuple(0.0, 0.0), nb::arg("inner_width") = 0.0);
 
 mod_imgui.def("end_table",
     [] () -> void {
@@ -1815,15 +1917,20 @@ mod_imgui.def("table_setup_scroll_freeze",
         return ImGui::TableSetupScrollFreeze(cols, rows);
     }, nb::arg("cols"), nb::arg("rows"));
 
+mod_imgui.def("table_header",
+    [] (const char* label) -> void {
+        return ImGui::TableHeader(label);
+    }, nb::arg("label"));
+
 mod_imgui.def("table_headers_row",
     [] () -> void {
         return ImGui::TableHeadersRow();
     });
 
-mod_imgui.def("table_header",
-    [] (const char* label) -> void {
-        return ImGui::TableHeader(label);
-    }, nb::arg("label"));
+mod_imgui.def("table_angled_headers_row",
+    [] () -> void {
+        return ImGui::TableAngledHeadersRow();
+    });
 
 mod_imgui.def("table_get_column_count",
     [] () -> int {
@@ -1855,15 +1962,20 @@ mod_imgui.def("table_set_column_enabled",
         return ImGui::TableSetColumnEnabled(column_n, v);
     }, nb::arg("column_n"), nb::arg("v"));
 
+mod_imgui.def("table_get_hovered_column",
+    [] () -> int {
+        return ImGui::TableGetHoveredColumn();
+    });
+
 mod_imgui.def("table_set_bg_color",
     [] (ImGuiTableBgTarget target, Color color, int column_n) -> void {
         return ImGui::TableSetBgColor(target, color, column_n);
     }, nb::arg("target"), nb::arg("color"), nb::arg("column_n") = -1);
 
 mod_imgui.def("columns",
-    [] (int count, std::optional<const char*> id, bool border) -> void {
-        return ImGui::Columns(count, id.has_value() ? id.value() : NULL, border);
-    }, nb::arg("count") = 1, nb::arg("id") = nb::none(), nb::arg("border") = true);
+    [] (int count, std::optional<const char*> id, bool borders) -> void {
+        return ImGui::Columns(count, id.has_value() ? id.value() : NULL, borders);
+    }, nb::arg("count") = 1, nb::arg("id") = nb::none(), nb::arg("borders") = true);
 
 mod_imgui.def("next_column",
     [] () -> void {
@@ -1933,14 +2045,14 @@ mod_imgui.def("set_tab_item_closed",
     }, nb::arg("tab_or_docked_window_label"));
 
 mod_imgui.def("dock_space",
-    [] (ImGuiID id, ImVec2 size, ImGuiDockNodeFlags flags, std::optional<const ImGuiWindowClass*> window_class) -> ImGuiID {
-        return ImGui::DockSpace(id, size, flags, window_class.has_value() ? window_class.value() : NULL);
-    }, nb::arg("id"), nb::arg("size") = nb::make_tuple(0, 0), nb::arg("flags") = 0, nb::arg("window_class") = nb::none());
+    [] (ImGuiID dockspace_id, ImVec2 size, ImGuiDockNodeFlags flags, std::optional<const ImGuiWindowClass*> window_class) -> ImGuiID {
+        return ImGui::DockSpace(dockspace_id, size, flags, window_class.has_value() ? window_class.value() : NULL);
+    }, nb::arg("dockspace_id"), nb::arg("size") = nb::make_tuple(0, 0), nb::arg("flags") = 0, nb::arg("window_class") = nb::none());
 
 mod_imgui.def("dock_space_over_viewport",
-    [] (std::optional<const ImGuiViewport*> viewport, ImGuiDockNodeFlags flags, std::optional<const ImGuiWindowClass*> window_class) -> ImGuiID {
-        return ImGui::DockSpaceOverViewport(viewport.has_value() ? viewport.value() : NULL, flags, window_class.has_value() ? window_class.value() : NULL);
-    }, nb::arg("viewport") = nb::none(), nb::arg("flags") = 0, nb::arg("window_class") = nb::none());
+    [] (ImGuiID dockspace_id, std::optional<const ImGuiViewport*> viewport, ImGuiDockNodeFlags flags, std::optional<const ImGuiWindowClass*> window_class) -> ImGuiID {
+        return ImGui::DockSpaceOverViewport(dockspace_id, viewport.has_value() ? viewport.value() : NULL, flags, window_class.has_value() ? window_class.value() : NULL);
+    }, nb::arg("dockspace_id") = 0, nb::arg("viewport") = nb::none(), nb::arg("flags") = 0, nb::arg("window_class") = nb::none());
 
 mod_imgui.def("set_next_window_dock_id",
     [] (ImGuiID dock_id, ImGuiCond cond) -> void {
@@ -2057,6 +2169,11 @@ mod_imgui.def("set_keyboard_focus_here",
         return ImGui::SetKeyboardFocusHere(offset);
     }, nb::arg("offset") = 0);
 
+mod_imgui.def("set_nav_cursor_visible",
+    [] (bool visible) -> void {
+        return ImGui::SetNavCursorVisible(visible);
+    }, nb::arg("visible"));
+
 mod_imgui.def("set_next_item_allow_overlap",
     [] () -> void {
         return ImGui::SetNextItemAllowOverlap();
@@ -2153,14 +2270,14 @@ mod_imgui.def("get_main_viewport",
     });
 
 mod_imgui.def("get_background_draw_list",
-    [] () -> ImDrawList* {
-        return ImGui::GetBackgroundDrawList();
-    });
+    [] (std::optional<ImGuiViewport*> viewport) -> ImDrawList* {
+        return ImGui::GetBackgroundDrawList(viewport.has_value() ? viewport.value() : NULL);
+    }, nb::arg("viewport") = nb::none());
 
 mod_imgui.def("get_foreground_draw_list",
-    [] () -> ImDrawList* {
-        return ImGui::GetForegroundDrawList();
-    });
+    [] (std::optional<ImGuiViewport*> viewport) -> ImDrawList* {
+        return ImGui::GetForegroundDrawList(viewport.has_value() ? viewport.value() : NULL);
+    }, nb::arg("viewport") = nb::none());
 
 mod_imgui.def("is_rect_visible_by_size",
     [] (ImVec2 size) -> bool {
@@ -2197,16 +2314,6 @@ mod_imgui.def("get_state_storage",
         return ImGui::GetStateStorage();
     });
 
-mod_imgui.def("begin_child_frame",
-    [] (ImGuiID id, ImVec2 size, ImGuiWindowFlags flags) -> bool {
-        return ImGui::BeginChildFrame(id, size, flags);
-    }, nb::arg("id"), nb::arg("size"), nb::arg("flags") = 0);
-
-mod_imgui.def("end_child_frame",
-    [] () -> void {
-        return ImGui::EndChildFrame();
-    });
-
 mod_imgui.def("calc_text_size",
     [] (const char* text, std::optional<const char*> text_end, bool hide_text_after_double_hash, float wrap_width) -> ImVec2 {
         return ImGui::CalcTextSize(text, text_end.has_value() ? text_end.value() : NULL, hide_text_after_double_hash, wrap_width);
@@ -2237,6 +2344,11 @@ mod_imgui.def("is_key_released",
         return ImGui::IsKeyReleased(key);
     }, nb::arg("key"));
 
+mod_imgui.def("is_key_chord_pressed",
+    [] (ImGuiKeyChord key_chord) -> bool {
+        return ImGui::IsKeyChordPressed(key_chord);
+    }, nb::arg("key_chord"));
+
 mod_imgui.def("get_key_pressed_amount",
     [] (ImGuiKey key, float repeat_delay, float rate) -> int {
         return ImGui::GetKeyPressedAmount(key, repeat_delay, rate);
@@ -2251,6 +2363,21 @@ mod_imgui.def("set_next_frame_want_capture_keyboard",
     [] (bool want_capture_keyboard) -> void {
         return ImGui::SetNextFrameWantCaptureKeyboard(want_capture_keyboard);
     }, nb::arg("want_capture_keyboard"));
+
+mod_imgui.def("shortcut",
+    [] (ImGuiKeyChord key_chord, ImGuiInputFlags flags) -> bool {
+        return ImGui::Shortcut(key_chord, flags);
+    }, nb::arg("key_chord"), nb::arg("flags") = 0);
+
+mod_imgui.def("set_next_item_shortcut",
+    [] (ImGuiKeyChord key_chord, ImGuiInputFlags flags) -> void {
+        return ImGui::SetNextItemShortcut(key_chord, flags);
+    }, nb::arg("key_chord"), nb::arg("flags") = 0);
+
+mod_imgui.def("set_item_key_owner",
+    [] (ImGuiKey key) -> void {
+        return ImGui::SetItemKeyOwner(key);
+    }, nb::arg("key"));
 
 mod_imgui.def("is_mouse_down",
     [] (ImGuiMouseButton button) -> bool {
@@ -2271,6 +2398,11 @@ mod_imgui.def("is_mouse_double_clicked",
     [] (ImGuiMouseButton button) -> bool {
         return ImGui::IsMouseDoubleClicked(button);
     }, nb::arg("button"));
+
+mod_imgui.def("is_mouse_released_with_delay",
+    [] (ImGuiMouseButton button, float delay) -> bool {
+        return ImGui::IsMouseReleasedWithDelay(button, delay);
+    }, nb::arg("button"), nb::arg("delay"));
 
 mod_imgui.def("get_mouse_clicked_count",
     [] (ImGuiMouseButton button) -> int {
@@ -2357,25 +2489,86 @@ mod_imgui.def("debug_text_encoding",
         return ImGui::DebugTextEncoding(text);
     }, nb::arg("text"));
 
+mod_imgui.def("debug_flash_style_color",
+    [] (ImGuiCol idx) -> void {
+        return ImGui::DebugFlashStyleColor(idx);
+    }, nb::arg("idx"));
+
+mod_imgui.def("debug_start_item_picker",
+    [] () -> void {
+        return ImGui::DebugStartItemPicker();
+    });
+
 mod_imgui.def("debug_check_version_and_data_layout",
     [] (const char* version_str, size_t sz_io, size_t sz_style, size_t sz_vec2, size_t sz_vec4, size_t sz_drawvert, size_t sz_drawidx) -> bool {
         return ImGui::DebugCheckVersionAndDataLayout(version_str, sz_io, sz_style, sz_vec2, sz_vec4, sz_drawvert, sz_drawidx);
     }, nb::arg("version_str"), nb::arg("sz_io"), nb::arg("sz_style"), nb::arg("sz_vec2"), nb::arg("sz_vec4"), nb::arg("sz_drawvert"), nb::arg("sz_drawidx"));
+
+mod_imgui.def("debug_log",
+    [] (const char* fmt) -> void {
+        return ImGui::DebugLog("%s", fmt);
+    }, nb::arg("fmt"));
 
 mod_imgui.def("find_viewport_by_id",
     [] (ImGuiID id) -> ImGuiViewport* {
         return ImGui::FindViewportByID(id);
     }, nb::arg("id"));
 
-mod_imgui.def("get_key_index",
-    [] (ImGuiKey key) -> ImGuiKey {
-        return ImGui::GetKeyIndex(key);
-    }, nb::arg("key"));
+mod_imgui.def("image_im_vec4",
+    [] (ImTextureID user_texture_id, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 tint_col, ImVec4 border_col) -> void {
+        return ImGui::Image(user_texture_id, image_size, uv0, uv1, tint_col, border_col);
+    }, nb::arg("user_texture_id"), nb::arg("image_size"), nb::arg("uv0"), nb::arg("uv1"), nb::arg("tint_col"), nb::arg("border_col"));
 
-mod_imgui.def("get_key_index",
-    [] (ImGuiKey key) -> ImGuiKey {
-        return ImGui::GetKeyIndex(key);
-    }, nb::arg("key"));
+mod_imgui.def("push_button_repeat",
+    [] (bool repeat) -> void {
+        return ImGui::PushButtonRepeat(repeat);
+    }, nb::arg("repeat"));
+
+mod_imgui.def("pop_button_repeat",
+    [] () -> void {
+        return ImGui::PopButtonRepeat();
+    });
+
+mod_imgui.def("push_tab_stop",
+    [] (bool tab_stop) -> void {
+        return ImGui::PushTabStop(tab_stop);
+    }, nb::arg("tab_stop"));
+
+mod_imgui.def("pop_tab_stop",
+    [] () -> void {
+        return ImGui::PopTabStop();
+    });
+
+mod_imgui.def("get_content_region_max",
+    [] () -> ImVec2 {
+        return ImGui::GetContentRegionMax();
+    });
+
+mod_imgui.def("get_window_content_region_min",
+    [] () -> ImVec2 {
+        return ImGui::GetWindowContentRegionMin();
+    });
+
+mod_imgui.def("get_window_content_region_max",
+    [] () -> ImVec2 {
+        return ImGui::GetWindowContentRegionMax();
+    });
+
+mod_imgui.def("begin_child_frame",
+    [] (ImGuiID id, ImVec2 size, ImGuiWindowFlags window_flags) -> bool {
+        return ImGui::BeginChildFrame(id, size, window_flags);
+    }, nb::arg("id"), nb::arg("size"), nb::arg("window_flags") = 0);
+
+mod_imgui.def("end_child_frame",
+    [] () -> void {
+        return ImGui::EndChildFrame();
+    });
+
+mod_imgui.def("show_stack_tool_window",
+    [] (std::optional<bool> p_open) -> std::optional<bool> {
+        ImGui::ShowStackToolWindow(p_open.has_value() ? &p_open.value() : NULL);
+        return p_open;
+    }, nb::arg("p_open") = nb::none());
 
 mod_imgui.def("set_item_allow_overlap",
     [] () -> void {
@@ -2390,25 +2583,5 @@ mod_imgui.def("push_allow_keyboard_focus",
 mod_imgui.def("pop_allow_keyboard_focus",
     [] () -> void {
         return ImGui::PopAllowKeyboardFocus();
-    });
-
-mod_imgui.def("image_button_im_texture_id",
-    [] (ImTextureID user_texture_id, ImVec2 size, ImVec2 uv0, ImVec2 uv1, int frame_padding, ImVec4 bg_col, ImVec4 tint_col) -> bool {
-        return ImGui::ImageButton(user_texture_id, size, uv0, uv1, frame_padding, bg_col, tint_col);
-    }, nb::arg("user_texture_id"), nb::arg("size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("frame_padding") = -1, nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
-
-mod_imgui.def("capture_keyboard_from_app",
-    [] (bool want_capture_keyboard) -> void {
-        return ImGui::CaptureKeyboardFromApp(want_capture_keyboard);
-    }, nb::arg("want_capture_keyboard") = true);
-
-mod_imgui.def("capture_mouse_from_app",
-    [] (bool want_capture_mouse) -> void {
-        return ImGui::CaptureMouseFromApp(want_capture_mouse);
-    }, nb::arg("want_capture_mouse") = true);
-
-mod_imgui.def("get_window_content_region_width",
-    [] () -> float {
-        return ImGui::GetWindowContentRegionWidth();
     });
 
