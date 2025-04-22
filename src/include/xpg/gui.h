@@ -5,6 +5,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include <imgui.h>
 
+namespace xpg {
 namespace gui {
 
 //- Impl
@@ -35,5 +36,5 @@ void EndFrame();
 //- GUIs
 void DrawStats(f32 SecondsElapsed, u32 width, u32 height);
 
-}
-
+} // namespace gui
+} // namespace xpg

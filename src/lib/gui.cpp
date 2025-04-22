@@ -13,6 +13,7 @@
 #include <backends/imgui_impl_vulkan.h>
 #include <backends/imgui_impl_vulkan.cpp>
 
+namespace xpg {
 namespace gui {
 
 void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Context& vk, const Config&& config) {
@@ -191,4 +192,5 @@ void DrawStats(f32 SecondsElapsed, u32 width, u32 height)
     }
 }
 
-}
+} // namespace gui
+} // namespace xpg

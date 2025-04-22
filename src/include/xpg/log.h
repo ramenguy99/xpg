@@ -24,8 +24,8 @@
 
 #include "defines.h"
 
-namespace logging
-{
+namespace xpg {
+namespace logging {
 
 enum class LogLevel : u32 {
     Trace = 0,
@@ -75,4 +75,5 @@ DEFINE_LOG_FUNC(trace, Trace, "trace")
 
 #undef DEFINE_LOG_FUNC
 
-}
+} // namespace logging
+} // namespace xpg

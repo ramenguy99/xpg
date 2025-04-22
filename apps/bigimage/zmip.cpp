@@ -4,6 +4,8 @@
 
 #include "zmip.h"
 
+using namespace xpg;
+
 ChunkLoadContext AllocChunkLoadContext(const ZMipFile& zmip) {
     Array<u8> compressed_data(zmip.largest_compressed_chunk_size);
     Array<u8> interleaved(zmip.header.chunk_width * zmip.header.chunk_height * zmip.header.channels);

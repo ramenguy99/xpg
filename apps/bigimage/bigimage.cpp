@@ -11,6 +11,8 @@ using glm::vec3;
 using glm::vec4;
 using glm::mat4;
 
+using namespace xpg;
+
 // TODO:
 // [x] Load data from disk
 // [x] First load everything from disk and decompress into chunks

@@ -7,6 +7,8 @@ using glm::vec3;
 using glm::vec4;
 using glm::mat4;
 
+using namespace xpg;
+
 // TODO:
 // - Cleanup:
 //   - remove imgui_impl asserts

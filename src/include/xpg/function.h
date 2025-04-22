@@ -26,9 +26,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-template <typename FuncType>
-struct Function;
-
 struct PlacementNew {};
 
 #if _MSC_VER
@@ -40,6 +37,11 @@ inline void* operator new(size_t, void* p, PlacementNew) noexcept { return p; }
 
 /// Placement New
 template<typename T, typename... Q> void placementNew(T& storage, Q&&... other) { new (&storage, PlacementNew()) T(forward<Q>(other)...); }
+
+namespace xpg {
+
+template <typename FuncType>
+struct Function;
 
 template <typename R, typename... Args>
 struct Function<R(Args...)>
@@ -279,3 +281,5 @@ struct Function<R(Args...)>
         return vtable != nullptr;
     }
 };
+
+} // namespace xpg

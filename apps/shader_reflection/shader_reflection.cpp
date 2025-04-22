@@ -11,6 +11,7 @@
 #include <xpg/platform.h>
 
 using namespace slang;
+using namespace xpg;
 
 // const char* shortestShader =
 // "RWStructuredBuffer<float> result;"

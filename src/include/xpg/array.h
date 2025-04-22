@@ -10,6 +10,8 @@
 #define BOUNDS_CHECKING_ENABLED 1
 #endif
 
+namespace xpg {
+
 template<typename T, usize ALIGN=alignof(T)> struct Array;
 template<typename T, usize N> struct ArrayFixed;
 
@@ -524,3 +526,5 @@ struct Span {
         return data[index];
     }
 };
+
+} // namespace xpg

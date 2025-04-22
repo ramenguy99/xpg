@@ -24,8 +24,7 @@
 #include "function.h"
 #include "array.h"
 
-#define XPG_VERSION 0
-
+namespace xpg {
 namespace gfx {
 
 // Missing helpers:
@@ -807,4 +806,5 @@ struct FormatInfo {
 };
 FormatInfo GetFormatInfo(VkFormat format);
 
-}
+} // namespace gfx
+} // namespace xpg

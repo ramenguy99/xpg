@@ -1,5 +1,6 @@
 #include <xpg/platform.h>
 
+namespace xpg {
 namespace platform {
 
 Result OpenFile(const char* path, File* result) {
@@ -138,4 +139,5 @@ f64 GetElapsed(Timestamp begin, Timestamp end) {
 }
 #endif
 
-}
+} // namespace platform
+} // namespace xpg

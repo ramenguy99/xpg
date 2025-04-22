@@ -26,10 +26,10 @@ struct ZMipLevelInfo {
 };
 
 struct ZMipFile {
-    platform::File file;
+    xpg::platform::File file;
     ZMipHeader header;
-    Array<ZMipChunk> chunks;
-    Array<ZMipLevelInfo> levels;
+    xpg::Array<ZMipChunk> chunks;
+    xpg::Array<ZMipLevelInfo> levels;
     usize largest_compressed_chunk_size;
 };
 
@@ -41,9 +41,9 @@ struct ChunkId {
 
 struct ChunkLoadContext {
     const ZMipFile* zmip;
-    Array<u8> compressed_data;
-    Array<u8> interleaved;
-    Array<u8> deinterleaved;
+    xpg::Array<u8> compressed_data;
+    xpg::Array<u8> interleaved;
+    xpg::Array<u8> deinterleaved;
 };
 
 ChunkLoadContext AllocChunkLoadContext(const ZMipFile& zmip);

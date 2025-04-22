@@ -5,11 +5,11 @@ NAMESPACE_BEGIN(NB_NAMESPACE)
 NAMESPACE_BEGIN(detail)
 
 template <typename Return, typename... Args>
-struct type_caster<Function<Return(Args...)>> {
+struct type_caster<xpg::Function<Return(Args...)>> {
     using ReturnCaster = make_caster<
         std::conditional_t<std::is_void_v<Return>, void_type, Return>>;
 
-    NB_TYPE_CASTER(Function <Return(Args...)>,
+    NB_TYPE_CASTER(xpg::Function <Return(Args...)>,
                    const_name(NB_TYPING_CALLABLE "[[") +
                        concat(make_caster<Args>::Name...) + const_name("], ") +
                        ReturnCaster::Name + const_name("]"))

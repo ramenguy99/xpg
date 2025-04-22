@@ -35,6 +35,8 @@
 #define THREAD_PROC(x) void* x(void* data)
 #endif // _WIN32
 
+namespace xpg {
+
 typedef THREAD_PROC(ThreadProc);
 
 struct Semaphore {
@@ -267,3 +269,4 @@ struct WorkerPool {
     }
 };
 
+} // namespace xpg

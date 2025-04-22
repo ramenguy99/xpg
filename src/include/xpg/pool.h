@@ -2,6 +2,8 @@
 
 #include "array.h"
 
+namespace xpg {
+
 // A grow-only pool allocator.
 //
 // This allocator provides two main features:
@@ -160,3 +162,5 @@ struct PoolQueue {
         e->prev = 0;
     }
 };
+
+} // namespace xpg

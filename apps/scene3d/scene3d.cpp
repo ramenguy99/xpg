@@ -8,6 +8,8 @@ using glm::vec3;
 using glm::vec4;
 using glm::mat4;
 
+using namespace xpg;
+
 int main(int argc, char** argv) {
     gfx::Result result;
     result = gfx::Init();

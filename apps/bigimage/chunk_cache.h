@@ -31,25 +31,25 @@ struct ChunkCache {
     // Information about a chunk, contains all possible chunks
     struct Chunk {
         u32 refcount;                                 // Frames in flight that use this chunk
-        PoolQueue<Entry>::Entry* lru_entry;     // Optional entry into the LRU cache. The value in the entry indexes both the images array and descriptor set.
+        xpg::PoolQueue<Entry>::Entry* lru_entry;     // Optional entry into the LRU cache. The value in the entry indexes both the images array and descriptor set.
     };
 
     // Struct passed to worker threads to load a chunk
     struct Work {
-        ArrayView<u8> buffer_map;
+        xpg::ArrayView<u8> buffer_map;
         ChunkId c;
-        BlockingCounter* work_done_counter;
+        xpg::BlockingCounter* work_done_counter;
     };
 
     ChunkCache(const ZMipFile& zmip, usize cache_size, usize upload_buffers_count, usize num_workers, usize num_frames_in_flight,
-        const gfx::Context& vk, const gfx::DescriptorSet& descriptor_set);
+        const xpg::gfx::Context& vk, const xpg::gfx::DescriptorSet& descriptor_set);
 
-    void destroy_resources(const gfx::Context& vk);
-    void resize(usize cache_size, usize upload_buffers_count, const gfx::Context& vk, const gfx::DescriptorSet descriptor_set);
+    void destroy_resources(const xpg::gfx::Context& vk);
+    void resize(usize cache_size, usize upload_buffers_count, const xpg::gfx::Context& vk, const xpg::gfx::DescriptorSet descriptor_set);
     void release_chunk(usize chunk_index);
-    static void worker_func(WorkerPool::WorkerInfo* worker_info, void* user_data);
-    void request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32> output_descriptors, const gfx::Context& vk, const gfx::DescriptorSet& descriptor_set, VkCommandBuffer cmd, u32 frame_index);
-    u32 request_chunk_sync(ChunkId c, const gfx::Context& vk, const gfx::DescriptorSet& descriptor_set);
+    static void worker_func(xpg::WorkerPool::WorkerInfo* worker_info, void* user_data);
+    void request_chunk_batch(xpg::ArrayView<ChunkId> chunk_ids, xpg::ArrayView<u32> output_descriptors, const xpg::gfx::Context& vk, const xpg::gfx::DescriptorSet& descriptor_set, VkCommandBuffer cmd, u32 frame_index);
+    u32 request_chunk_sync(ChunkId c, const xpg::gfx::Context& vk, const xpg::gfx::DescriptorSet& descriptor_set);
 
     inline Chunk& get_chunk(ChunkId c) {
         usize index = GetChunkIndex(zmip, c);
@@ -60,21 +60,21 @@ struct ChunkCache {
     const ZMipFile& zmip;
 
     // Chunks metadata
-    Array<Chunk> chunks;
+    xpg::Array<Chunk> chunks;
 
     // LRU cache of images
-    Array<gfx::Image> images;
-    PoolQueue<Entry> lru;
+    xpg::Array<xpg::gfx::Image> images;
+    xpg::PoolQueue<Entry> lru;
 
     // Sync upload
     ChunkLoadContext sync_load_context;
 
     // Async upload
-    ObjArray<Array<gfx::Buffer>> upload_buffers; // Pool of staging buffers for upload, one pool for each frame.
-    ObjArray<ChunkLoadContext> worker_infos;     // Worker data, one per worker thread
-    Array<Work> work_items;                      // Work data, one per work item
-    WorkerPool worker_pool;
-    BlockingCounter work_done_counter;
+    xpg::ObjArray<xpg::Array<xpg::gfx::Buffer>> upload_buffers; // Pool of staging buffers for upload, one pool for each frame.
+    xpg::ObjArray<ChunkLoadContext> worker_infos;     // Worker data, one per worker thread
+    xpg::Array<Work> work_items;                      // Work data, one per work item
+    xpg::WorkerPool worker_pool;
+    xpg::BlockingCounter work_done_counter;
 
     // Stats
     u64 chunk_memory_size;

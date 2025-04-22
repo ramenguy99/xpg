@@ -16,6 +16,7 @@
 
 #include "array.h"
 
+namespace xpg {
 namespace platform {
 
 struct File {
@@ -58,4 +59,5 @@ struct Timestamp {
 Timestamp GetTimestamp();
 f64 GetElapsed(Timestamp begin, Timestamp end);
 
-}
+} // namespace platform
+} // namespace xpg

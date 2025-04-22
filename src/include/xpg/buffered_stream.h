@@ -3,6 +3,8 @@
 #include "threading.h"
 #include "function.h"
 
+namespace xpg {
+
 template<typename T>
 struct BufferedStream {
     typedef Function<T(u64, u64, bool)> InitProc;
@@ -193,3 +195,5 @@ struct BufferedStream {
         return value;
     }
 };
+
+} // namespace xpg

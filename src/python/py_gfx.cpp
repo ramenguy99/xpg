@@ -84,6 +84,7 @@ NAMESPACE_END(detail)
 NAMESPACE_END(NB_NAMESPACE)
 
 namespace nb = nanobind;
+using namespace xpg;
 
 struct Context: public nb::intrusive_base {
     Context(

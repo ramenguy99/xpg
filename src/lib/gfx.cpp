@@ -7,6 +7,8 @@
 
 #include <vulkan/vk_enum_string_helper.h>   // Vulkan helper strings for printing
 
+#define XPG_VERSION 0
+
 // #define COPY_QUEUE_INDEX 2
 
 // TODO: this technically works, but applications need to be aware of this.
@@ -29,6 +31,7 @@
 // support both recreation logics in app, can maybe make this not that bad if helpers are good.
 #define SYNC_SWAPCHAIN_DESTRUCTION 1
 
+namespace xpg {
 namespace gfx {
 
 static VkBool32 VKAPI_CALL
@@ -2715,4 +2718,5 @@ FormatInfo GetFormatInfo(VkFormat format)
     }
 }
 
-}
+} // namespace gfx
+} // namespace xpg
