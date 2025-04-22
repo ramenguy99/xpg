@@ -247,7 +247,7 @@ struct CompilationError: public std::runtime_error
 nb::ref<SlangShader> slang_compile(const nb::str& file, const::nb::str& entry) {
     if(!g_slang_global_session) {
         SlangGlobalSessionDesc desc = {
-            .enableGLSL = true,
+            .enableGLSL = false, // This enables glsl compat, but increases startup time by a lot
         };
         slang::createGlobalSession(&desc, g_slang_global_session.writeRef());
     }

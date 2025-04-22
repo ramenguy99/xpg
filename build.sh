@@ -26,7 +26,7 @@
 # ./build-debug/apps/raytrace/raytrace
 
 pushd build-debug
-make -j 16 pyxpg
+make -j 16 _pyxpg
 popd
 
 # Move python 
@@ -37,4 +37,4 @@ pushd python
 python -m nanobind.stubgen -m pyxpg -r
 popd
 
-python python/warp_interop.py
+python python/slang_perf.py
