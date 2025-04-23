@@ -18,7 +18,6 @@
 #include <xpg/log.h>
 
 #include "py_function.h"
-#include "py_math.h"
 
 namespace nb = nanobind;
 using namespace xpg;

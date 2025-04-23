@@ -1,7 +1,17 @@
-#include "py_math.h"
-
+#include <nanobind/nanobind.h>
+#include <nanobind/stl/array.h>
+#include <nanobind/stl/vector.h>
+#include <nanobind/stl/tuple.h>
+#include <nanobind/ndarray.h>
 #include <nanobind/make_iterator.h>
 #include <nanobind/operators.h>
+
+
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/glm.hpp>                      // GLM math
+#include <glm/gtc/matrix_transform.hpp>     // GLM matrix ops
+#include <glm/gtx/norm.hpp>                 // length2, distance and distance2
 
 namespace nb = nanobind;
 using namespace glm;
