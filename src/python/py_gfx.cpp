@@ -17,71 +17,8 @@
 #include <xpg/gui.h>
 #include <xpg/log.h>
 
-#include "function.h"
-
-NAMESPACE_BEGIN(NB_NAMESPACE)
-NAMESPACE_BEGIN(detail)
-
-// TODO: likely can easily generalize to any N, T pairs, probably needs nested
-// template, look at stl/array for reference.
-template<>
-struct type_caster<glm::ivec2> {
-    NB_TYPE_CASTER(glm::ivec2, const_name(NB_TYPING_TUPLE "[int, int]"))
-
-    using Caster = make_caster<int>;
-
-    bool from_python(handle src, uint8_t flags, cleanup_list *cleanup) noexcept {
-        PyObject *temp;
-
-        /* Will initialize 'temp' (NULL in the case of a failure.) */
-        PyObject **o = seq_get_with_size(src.ptr(), 2, &temp);
-
-        bool success = o != nullptr;
-
-        Caster caster;
-        flags = flags_for_local_caster<int>(flags);
-
-        if (success) {
-            for (size_t i = 0; i < 2; ++i) {
-                if (!caster.from_python(o[i], flags, cleanup) ||
-                    !caster.template can_cast<int>()) {
-                    success = false;
-                    break;
-                }
-
-                value[i] = caster.operator cast_t<int>();
-            }
-
-            Py_XDECREF(temp);
-        }
-
-        return success;
-    }
-
-    static handle from_cpp(glm::ivec2 &&src, rv_policy policy, cleanup_list *cleanup) {
-        object ret = steal(PyTuple_New(2));
-
-        if (ret.is_valid()) {
-            Py_ssize_t index = 0;
-
-            for (size_t i = 0; i < 2; ++i) {
-                handle h = Caster::from_cpp(src[i], policy, cleanup);
-
-                if (!h.is_valid()) {
-                    ret.reset();
-                    break;
-                }
-
-                NB_TUPLE_SET_ITEM(ret.ptr(), index++, h.ptr());
-            }
-        }
-
-        return ret.release();
-    }
-};
-
-NAMESPACE_END(detail)
-NAMESPACE_END(NB_NAMESPACE)
+#include "py_function.h"
+#include "py_math.h"
 
 namespace nb = nanobind;
 using namespace xpg;
@@ -102,7 +39,7 @@ struct Context: public nb::intrusive_base {
         }
 
         result = gfx::CreateContext(&vk, {
-            .minimum_api_version = VK_MAKE_API_VERSION(0, get<0>(version), get<1>(version), 0),
+            .minimum_api_version = VK_MAKE_API_VERSION(0, std::get<0>(version), std::get<1>(version), 0),
             .device_features = device_features,
             .preferred_frames_in_flight = preferred_frames_in_flight,
             .enable_validation_layer = enable_validation_layer,

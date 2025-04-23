@@ -4,6 +4,15 @@
 
 Trivia:
 - [ ] Better name
+- [ ] Better README
+    [ ] Description
+    [ ] C++:
+        - Build instructions
+        - Cmake variables
+        - Example apps
+    [ ] Python:
+        - Pip install instructions
+        - Conda install instructions (`conda install conda-forge::vulkan-tools`)
 
 Build:
 - [x] Better cmake install with all apps
@@ -29,10 +38,15 @@ C++:
 Python:
 - [ ] Math helpers:
     - [ ] Wrap glm types and utils (xpg.math)
-        - [ ] vector, matrix and quaternion types (likely autogen / template)
+        - [x] vector,
+        - [x] conversion from tuple, list
+        - [ ] matrix
         - [ ] helper functions and transformation utils
-        - [ ] conversion from / to numpy array, tuple, list
+        - [ ] numpy array interop
+        - [ ] quaternions (later?)
     - [ ] Use them also for imgui stuff by defining our own vector type in imgui
+- [ ] Check if there is a better way to do imports that works more intuitively
+      (likely by importing stuff in __init__.py of subpackage)
 - [ ] Hook XPG logs into python logs
 - [ ] Low level barriers
 - [ ] Queues + queue sync
@@ -47,6 +61,7 @@ Python:
     - [ ] Pipeline cache with all important inputs
     - [ ] Expose spirv targets
     - [ ] Cleaner handling of multiple entry points
+- [ ] Cleanup some stubs with pattern matching file (especially numpy arrays)
 
 
 ## Future

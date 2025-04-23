@@ -21,12 +21,15 @@ void imgui_create_bindings(nb::module_& mod_imgui)
         .def(nb::init<>())
         .def(nb::init<float, float>())
         .def_rw("x", &ImVec2::x)
-        .def_rw("y", &ImVec2::y);
+        .def_rw("y", &ImVec2::y)
+    ;
+    
     nb::class_<ImVec4>(mod_imgui, "Vec4")
         .def(nb::init<>())
         .def(nb::init<float, float, float, float>())
         .def_rw("x", &ImVec4::x)
         .def_rw("y", &ImVec4::y)
         .def_rw("z", &ImVec4::z)
-        .def_rw("w", &ImVec4::w);
+        .def_rw("w", &ImVec4::w)
+    ;
 }
