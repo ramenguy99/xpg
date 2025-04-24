@@ -35,6 +35,9 @@ nb::class_<vec2>(mod_math, "vec2")
     .def("__iter__", [](const vec2 &v) {
         return nb::make_iterator(nb::type<vec2>(), "vec2_iterator", &v.x, &v.x + 2);
     })
+    .def("__array__", [] (const vec2& v, nb::handle dtype, std::optional<bool> copy) {
+        return nb::ndarray<const float, nb::numpy, nb::shape<2>>(&v.x);
+    }, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())
     .def(nb::self +  nb::self, nb::arg("other"))
     .def(nb::self += nb::self, nb::arg("other"))
     .def(nb::self +  float (), nb::arg("other"))
@@ -102,6 +105,9 @@ nb::class_<vec3>(mod_math, "vec3")
     .def("__iter__", [](const vec3 &v) {
         return nb::make_iterator(nb::type<vec3>(), "vec3_iterator", &v.x, &v.x + 3);
     })
+    .def("__array__", [] (const vec3& v, nb::handle dtype, std::optional<bool> copy) {
+        return nb::ndarray<const float, nb::numpy, nb::shape<3>>(&v.x);
+    }, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())
     .def(nb::self +  nb::self, nb::arg("other"))
     .def(nb::self += nb::self, nb::arg("other"))
     .def(nb::self +  float (), nb::arg("other"))
@@ -170,6 +176,9 @@ nb::class_<vec4>(mod_math, "vec4")
     .def("__iter__", [](const vec4 &v) {
         return nb::make_iterator(nb::type<vec4>(), "vec4_iterator", &v.x, &v.x + 4);
     })
+    .def("__array__", [] (const vec4& v, nb::handle dtype, std::optional<bool> copy) {
+        return nb::ndarray<const float, nb::numpy, nb::shape<4>>(&v.x);
+    }, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())
     .def(nb::self +  nb::self, nb::arg("other"))
     .def(nb::self += nb::self, nb::arg("other"))
     .def(nb::self +  float (), nb::arg("other"))
@@ -238,6 +247,9 @@ nb::class_<dvec2>(mod_math, "dvec2")
     .def("__iter__", [](const dvec2 &v) {
         return nb::make_iterator(nb::type<dvec2>(), "dvec2_iterator", &v.x, &v.x + 2);
     })
+    .def("__array__", [] (const dvec2& v, nb::handle dtype, std::optional<bool> copy) {
+        return nb::ndarray<const double, nb::numpy, nb::shape<2>>(&v.x);
+    }, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())
     .def(nb::self +  nb::self, nb::arg("other"))
     .def(nb::self += nb::self, nb::arg("other"))
     .def(nb::self +  double(), nb::arg("other"))
@@ -305,6 +317,9 @@ nb::class_<dvec3>(mod_math, "dvec3")
     .def("__iter__", [](const dvec3 &v) {
         return nb::make_iterator(nb::type<dvec3>(), "dvec3_iterator", &v.x, &v.x + 3);
     })
+    .def("__array__", [] (const dvec3& v, nb::handle dtype, std::optional<bool> copy) {
+        return nb::ndarray<const double, nb::numpy, nb::shape<3>>(&v.x);
+    }, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())
     .def(nb::self +  nb::self, nb::arg("other"))
     .def(nb::self += nb::self, nb::arg("other"))
     .def(nb::self +  double(), nb::arg("other"))
@@ -373,6 +388,9 @@ nb::class_<dvec4>(mod_math, "dvec4")
     .def("__iter__", [](const dvec4 &v) {
         return nb::make_iterator(nb::type<dvec4>(), "dvec4_iterator", &v.x, &v.x + 4);
     })
+    .def("__array__", [] (const dvec4& v, nb::handle dtype, std::optional<bool> copy) {
+        return nb::ndarray<const double, nb::numpy, nb::shape<4>>(&v.x);
+    }, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())
     .def(nb::self +  nb::self, nb::arg("other"))
     .def(nb::self += nb::self, nb::arg("other"))
     .def(nb::self +  double(), nb::arg("other"))
@@ -441,6 +459,9 @@ nb::class_<ivec2>(mod_math, "ivec2")
     .def("__iter__", [](const ivec2 &v) {
         return nb::make_iterator(nb::type<ivec2>(), "ivec2_iterator", &v.x, &v.x + 2);
     })
+    .def("__array__", [] (const ivec2& v, nb::handle dtype, std::optional<bool> copy) {
+        return nb::ndarray<const int32_t, nb::numpy, nb::shape<2>>(&v.x);
+    }, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())
     .def(nb::self +  nb::self, nb::arg("other"))
     .def(nb::self += nb::self, nb::arg("other"))
     .def(nb::self +  int32_t(), nb::arg("other"))
@@ -523,6 +544,9 @@ nb::class_<ivec3>(mod_math, "ivec3")
     .def("__iter__", [](const ivec3 &v) {
         return nb::make_iterator(nb::type<ivec3>(), "ivec3_iterator", &v.x, &v.x + 3);
     })
+    .def("__array__", [] (const ivec3& v, nb::handle dtype, std::optional<bool> copy) {
+        return nb::ndarray<const int32_t, nb::numpy, nb::shape<3>>(&v.x);
+    }, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())
     .def(nb::self +  nb::self, nb::arg("other"))
     .def(nb::self += nb::self, nb::arg("other"))
     .def(nb::self +  int32_t(), nb::arg("other"))
@@ -605,6 +629,9 @@ nb::class_<ivec4>(mod_math, "ivec4")
     .def("__iter__", [](const ivec4 &v) {
         return nb::make_iterator(nb::type<ivec4>(), "ivec4_iterator", &v.x, &v.x + 4);
     })
+    .def("__array__", [] (const ivec4& v, nb::handle dtype, std::optional<bool> copy) {
+        return nb::ndarray<const int32_t, nb::numpy, nb::shape<4>>(&v.x);
+    }, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())
     .def(nb::self +  nb::self, nb::arg("other"))
     .def(nb::self += nb::self, nb::arg("other"))
     .def(nb::self +  int32_t(), nb::arg("other"))
@@ -688,6 +715,9 @@ nb::class_<uvec2>(mod_math, "uvec2")
     .def("__iter__", [](const uvec2 &v) {
         return nb::make_iterator(nb::type<uvec2>(), "uvec2_iterator", &v.x, &v.x + 2);
     })
+    .def("__array__", [] (const uvec2& v, nb::handle dtype, std::optional<bool> copy) {
+        return nb::ndarray<const uint32_t, nb::numpy, nb::shape<2>>(&v.x);
+    }, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())
     .def(nb::self +  nb::self, nb::arg("other"))
     .def(nb::self += nb::self, nb::arg("other"))
     .def(nb::self +  uint32_t(), nb::arg("other"))
@@ -770,6 +800,9 @@ nb::class_<uvec3>(mod_math, "uvec3")
     .def("__iter__", [](const uvec3 &v) {
         return nb::make_iterator(nb::type<uvec3>(), "uvec3_iterator", &v.x, &v.x + 3);
     })
+    .def("__array__", [] (const uvec3& v, nb::handle dtype, std::optional<bool> copy) {
+        return nb::ndarray<const uint32_t, nb::numpy, nb::shape<3>>(&v.x);
+    }, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())
     .def(nb::self +  nb::self, nb::arg("other"))
     .def(nb::self += nb::self, nb::arg("other"))
     .def(nb::self +  uint32_t(), nb::arg("other"))
@@ -852,6 +885,9 @@ nb::class_<uvec4>(mod_math, "uvec4")
     .def("__iter__", [](const uvec4 &v) {
         return nb::make_iterator(nb::type<uvec4>(), "uvec4_iterator", &v.x, &v.x + 4);
     })
+    .def("__array__", [] (const uvec4& v, nb::handle dtype, std::optional<bool> copy) {
+        return nb::ndarray<const uint32_t, nb::numpy, nb::shape<4>>(&v.x);
+    }, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())
     .def(nb::self +  nb::self, nb::arg("other"))
     .def(nb::self += nb::self, nb::arg("other"))
     .def(nb::self +  uint32_t(), nb::arg("other"))

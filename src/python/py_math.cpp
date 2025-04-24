@@ -2,9 +2,11 @@
 #include <nanobind/stl/array.h>
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/tuple.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/make_iterator.h>
 #include <nanobind/operators.h>
+#include <nanobind/ndarray.h>
 
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE

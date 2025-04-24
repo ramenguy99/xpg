@@ -114,6 +114,11 @@ for pref, typ, is_int in types:
         out(f'        return nb::make_iterator(nb::type<{vec}>(), "{vec}_iterator", &v.x, &v.x + {n});')
         out(f'    }})')
 
+        # Numpy interop
+        out(f'    .def("__array__", [] (const {vec}& v, nb::handle dtype, std::optional<bool> copy) {{')
+        out(f'        return nb::ndarray<const {typ}, nb::numpy, nb::shape<{n}>>(&v.x);')
+        out(f'    }}, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())')
+
         # Operators
         binary_ops = list(common_binary_ops)
         if is_int:
