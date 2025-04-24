@@ -934,3 +934,357 @@ nb::class_<uvec4>(mod_math, "uvec4")
 nb::implicitly_convertible<nb::tuple, uvec4>();
 nb::implicitly_convertible<nb::list, uvec4>();
 
+nb::class_<mat2>(mod_math, "mat2")
+    .def(nb::init<>())
+    .def(nb::init<float>(), nb::arg("diag"))
+    .def(nb::init<vec2, vec2>(), nb::arg("c0"), nb::arg("c1"))
+    .def(nb::init<float, float, float, float>(), nb::arg("m00"), nb::arg("m10"), nb::arg("m01"), nb::arg("m11"))
+    .def(nb::init<mat2>(), nb::arg("m"))
+    .def(nb::init<mat3>(), nb::arg("m"))
+    .def(nb::init<mat4>(), nb::arg("m"))
+    .def(nb::init<dmat2>(), nb::arg("m"))
+    .def(nb::init<dmat3>(), nb::arg("m"))
+    .def(nb::init<dmat4>(), nb::arg("m"))
+    .def("__init__", [](mat2* m, nb::tuple t) {
+        if (t.size() == 4) {
+            new (m) mat2(nb::cast<float>(t[0]), nb::cast<float>(t[1]), nb::cast<float>(t[2]), nb::cast<float>(t[3]));
+        } else if (t.size() == 2) {
+            new (m) mat2(nb::cast<vec2>(t[0]), nb::cast<vec2>(t[1]));
+        } else {
+            nb::raise_type_error("Cannot convert tuple of length %zu to mat2", t.size());
+        }
+    }, nb::arg("t"))
+    .def("__init__", [](mat2* m, nb::list l) {
+        if (l.size() == 4) {
+            new (m) mat2(nb::cast<float>(l[0]), nb::cast<float>(l[1]), nb::cast<float>(l[2]), nb::cast<float>(l[3]));
+        } else if (l.size() == 2) {
+            new (m) mat2(nb::cast<vec2>(l[0]), nb::cast<vec2>(l[1]));
+        } else {
+            nb::raise_type_error("Cannot convert list of length %zu to mat2", l.size());
+        }
+    }, nb::arg("t"))
+    .def("__repr__", [](const mat2& m) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "mat2((%g, %g),(%g, %g))", m[0][0], m[0][1], m[1][0], m[1][1]);
+        return nb::str(buf);
+    })
+    .def("__iter__", [](const mat2 &v) {
+        return nb::make_iterator(nb::type<mat2>(), "mat2_iterator", &v[0][0], &v[0][0] + 4);
+    })
+    .def(nb::self +  nb::self, nb::arg("other"))
+    .def(nb::self += nb::self, nb::arg("other"))
+    .def(nb::self +  float (), nb::arg("other"))
+    .def(nb::self += float (), nb::arg("other"))
+    .def(float () +  nb::self, nb::arg("other"))
+    .def(nb::self -  nb::self, nb::arg("other"))
+    .def(nb::self -= nb::self, nb::arg("other"))
+    .def(nb::self -  float (), nb::arg("other"))
+    .def(nb::self -= float (), nb::arg("other"))
+    .def(float () -  nb::self, nb::arg("other"))
+    .def(nb::self *  nb::self, nb::arg("other"))
+    .def(nb::self *= nb::self, nb::arg("other"))
+    .def(nb::self *  float (), nb::arg("other"))
+    .def(nb::self *= float (), nb::arg("other"))
+    .def(float () *  nb::self, nb::arg("other"))
+    .def(-nb::self)
+;
+mod_math.def("transpose", [](const mat2& m) { return transpose(m); }, nb::arg("m"));
+mod_math.def("inverse", [](const mat2& m) { return inverse(m); }, nb::arg("m"));
+nb::implicitly_convertible<nb::tuple, mat2>();
+nb::implicitly_convertible<nb::list, mat2>();
+ 
+nb::class_<mat3>(mod_math, "mat3")
+    .def(nb::init<>())
+    .def(nb::init<float>(), nb::arg("diag"))
+    .def(nb::init<vec3, vec3, vec3>(), nb::arg("c0"), nb::arg("c1"), nb::arg("c2"))
+    .def(nb::init<float, float, float, float, float, float, float, float, float>(), nb::arg("m00"), nb::arg("m10"), nb::arg("m20"), nb::arg("m01"), nb::arg("m11"), nb::arg("m21"), nb::arg("m02"), nb::arg("m12"), nb::arg("m22"))
+    .def(nb::init<mat2>(), nb::arg("m"))
+    .def(nb::init<mat3>(), nb::arg("m"))
+    .def(nb::init<mat4>(), nb::arg("m"))
+    .def(nb::init<dmat2>(), nb::arg("m"))
+    .def(nb::init<dmat3>(), nb::arg("m"))
+    .def(nb::init<dmat4>(), nb::arg("m"))
+    .def("__init__", [](mat3* m, nb::tuple t) {
+        if (t.size() == 9) {
+            new (m) mat3(nb::cast<float>(t[0]), nb::cast<float>(t[1]), nb::cast<float>(t[2]), nb::cast<float>(t[3]), nb::cast<float>(t[4]), nb::cast<float>(t[5]), nb::cast<float>(t[6]), nb::cast<float>(t[7]), nb::cast<float>(t[8]));
+        } else if (t.size() == 3) {
+            new (m) mat3(nb::cast<vec3>(t[0]), nb::cast<vec3>(t[1]), nb::cast<vec3>(t[2]));
+        } else {
+            nb::raise_type_error("Cannot convert tuple of length %zu to mat3", t.size());
+        }
+    }, nb::arg("t"))
+    .def("__init__", [](mat3* m, nb::list l) {
+        if (l.size() == 9) {
+            new (m) mat3(nb::cast<float>(l[0]), nb::cast<float>(l[1]), nb::cast<float>(l[2]), nb::cast<float>(l[3]), nb::cast<float>(l[4]), nb::cast<float>(l[5]), nb::cast<float>(l[6]), nb::cast<float>(l[7]), nb::cast<float>(l[8]));
+        } else if (l.size() == 3) {
+            new (m) mat3(nb::cast<vec3>(l[0]), nb::cast<vec3>(l[1]), nb::cast<vec3>(l[2]));
+        } else {
+            nb::raise_type_error("Cannot convert list of length %zu to mat3", l.size());
+        }
+    }, nb::arg("t"))
+    .def("__repr__", [](const mat3& m) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "mat3((%g, %g, %g),(%g, %g, %g),(%g, %g, %g))", m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2]);
+        return nb::str(buf);
+    })
+    .def("__iter__", [](const mat3 &v) {
+        return nb::make_iterator(nb::type<mat3>(), "mat3_iterator", &v[0][0], &v[0][0] + 9);
+    })
+    .def(nb::self +  nb::self, nb::arg("other"))
+    .def(nb::self += nb::self, nb::arg("other"))
+    .def(nb::self +  float (), nb::arg("other"))
+    .def(nb::self += float (), nb::arg("other"))
+    .def(float () +  nb::self, nb::arg("other"))
+    .def(nb::self -  nb::self, nb::arg("other"))
+    .def(nb::self -= nb::self, nb::arg("other"))
+    .def(nb::self -  float (), nb::arg("other"))
+    .def(nb::self -= float (), nb::arg("other"))
+    .def(float () -  nb::self, nb::arg("other"))
+    .def(nb::self *  nb::self, nb::arg("other"))
+    .def(nb::self *= nb::self, nb::arg("other"))
+    .def(nb::self *  float (), nb::arg("other"))
+    .def(nb::self *= float (), nb::arg("other"))
+    .def(float () *  nb::self, nb::arg("other"))
+    .def(-nb::self)
+;
+mod_math.def("transpose", [](const mat3& m) { return transpose(m); }, nb::arg("m"));
+mod_math.def("inverse", [](const mat3& m) { return inverse(m); }, nb::arg("m"));
+nb::implicitly_convertible<nb::tuple, mat3>();
+nb::implicitly_convertible<nb::list, mat3>();
+ 
+nb::class_<mat4>(mod_math, "mat4")
+    .def(nb::init<>())
+    .def(nb::init<float>(), nb::arg("diag"))
+    .def(nb::init<vec4, vec4, vec4, vec4>(), nb::arg("c0"), nb::arg("c1"), nb::arg("c2"), nb::arg("c3"))
+    .def(nb::init<float, float, float, float, float, float, float, float, float, float, float, float, float, float, float, float>(), nb::arg("m00"), nb::arg("m10"), nb::arg("m20"), nb::arg("m30"), nb::arg("m01"), nb::arg("m11"), nb::arg("m21"), nb::arg("m31"), nb::arg("m02"), nb::arg("m12"), nb::arg("m22"), nb::arg("m32"), nb::arg("m03"), nb::arg("m13"), nb::arg("m23"), nb::arg("m33"))
+    .def(nb::init<mat2>(), nb::arg("m"))
+    .def(nb::init<mat3>(), nb::arg("m"))
+    .def(nb::init<mat4>(), nb::arg("m"))
+    .def(nb::init<dmat2>(), nb::arg("m"))
+    .def(nb::init<dmat3>(), nb::arg("m"))
+    .def(nb::init<dmat4>(), nb::arg("m"))
+    .def("__init__", [](mat4* m, nb::tuple t) {
+        if (t.size() == 16) {
+            new (m) mat4(nb::cast<float>(t[0]), nb::cast<float>(t[1]), nb::cast<float>(t[2]), nb::cast<float>(t[3]), nb::cast<float>(t[4]), nb::cast<float>(t[5]), nb::cast<float>(t[6]), nb::cast<float>(t[7]), nb::cast<float>(t[8]), nb::cast<float>(t[9]), nb::cast<float>(t[10]), nb::cast<float>(t[11]), nb::cast<float>(t[12]), nb::cast<float>(t[13]), nb::cast<float>(t[14]), nb::cast<float>(t[15]));
+        } else if (t.size() == 4) {
+            new (m) mat4(nb::cast<vec4>(t[0]), nb::cast<vec4>(t[1]), nb::cast<vec4>(t[2]), nb::cast<vec4>(t[3]));
+        } else {
+            nb::raise_type_error("Cannot convert tuple of length %zu to mat4", t.size());
+        }
+    }, nb::arg("t"))
+    .def("__init__", [](mat4* m, nb::list l) {
+        if (l.size() == 16) {
+            new (m) mat4(nb::cast<float>(l[0]), nb::cast<float>(l[1]), nb::cast<float>(l[2]), nb::cast<float>(l[3]), nb::cast<float>(l[4]), nb::cast<float>(l[5]), nb::cast<float>(l[6]), nb::cast<float>(l[7]), nb::cast<float>(l[8]), nb::cast<float>(l[9]), nb::cast<float>(l[10]), nb::cast<float>(l[11]), nb::cast<float>(l[12]), nb::cast<float>(l[13]), nb::cast<float>(l[14]), nb::cast<float>(l[15]));
+        } else if (l.size() == 4) {
+            new (m) mat4(nb::cast<vec4>(l[0]), nb::cast<vec4>(l[1]), nb::cast<vec4>(l[2]), nb::cast<vec4>(l[3]));
+        } else {
+            nb::raise_type_error("Cannot convert list of length %zu to mat4", l.size());
+        }
+    }, nb::arg("t"))
+    .def("__repr__", [](const mat4& m) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "mat4((%g, %g, %g, %g),(%g, %g, %g, %g),(%g, %g, %g, %g),(%g, %g, %g, %g))", m[0][0], m[0][1], m[0][2], m[0][3], m[1][0], m[1][1], m[1][2], m[1][3], m[2][0], m[2][1], m[2][2], m[2][3], m[3][0], m[3][1], m[3][2], m[3][3]);
+        return nb::str(buf);
+    })
+    .def("__iter__", [](const mat4 &v) {
+        return nb::make_iterator(nb::type<mat4>(), "mat4_iterator", &v[0][0], &v[0][0] + 16);
+    })
+    .def(nb::self +  nb::self, nb::arg("other"))
+    .def(nb::self += nb::self, nb::arg("other"))
+    .def(nb::self +  float (), nb::arg("other"))
+    .def(nb::self += float (), nb::arg("other"))
+    .def(float () +  nb::self, nb::arg("other"))
+    .def(nb::self -  nb::self, nb::arg("other"))
+    .def(nb::self -= nb::self, nb::arg("other"))
+    .def(nb::self -  float (), nb::arg("other"))
+    .def(nb::self -= float (), nb::arg("other"))
+    .def(float () -  nb::self, nb::arg("other"))
+    .def(nb::self *  nb::self, nb::arg("other"))
+    .def(nb::self *= nb::self, nb::arg("other"))
+    .def(nb::self *  float (), nb::arg("other"))
+    .def(nb::self *= float (), nb::arg("other"))
+    .def(float () *  nb::self, nb::arg("other"))
+    .def(-nb::self)
+;
+mod_math.def("transpose", [](const mat4& m) { return transpose(m); }, nb::arg("m"));
+mod_math.def("inverse", [](const mat4& m) { return inverse(m); }, nb::arg("m"));
+nb::implicitly_convertible<nb::tuple, mat4>();
+nb::implicitly_convertible<nb::list, mat4>();
+ 
+nb::class_<dmat2>(mod_math, "dmat2")
+    .def(nb::init<>())
+    .def(nb::init<double>(), nb::arg("diag"))
+    .def(nb::init<dvec2, dvec2>(), nb::arg("c0"), nb::arg("c1"))
+    .def(nb::init<double, double, double, double>(), nb::arg("m00"), nb::arg("m10"), nb::arg("m01"), nb::arg("m11"))
+    .def(nb::init<mat2>(), nb::arg("m"))
+    .def(nb::init<mat3>(), nb::arg("m"))
+    .def(nb::init<mat4>(), nb::arg("m"))
+    .def(nb::init<dmat2>(), nb::arg("m"))
+    .def(nb::init<dmat3>(), nb::arg("m"))
+    .def(nb::init<dmat4>(), nb::arg("m"))
+    .def("__init__", [](dmat2* m, nb::tuple t) {
+        if (t.size() == 4) {
+            new (m) dmat2(nb::cast<double>(t[0]), nb::cast<double>(t[1]), nb::cast<double>(t[2]), nb::cast<double>(t[3]));
+        } else if (t.size() == 2) {
+            new (m) dmat2(nb::cast<dvec2>(t[0]), nb::cast<dvec2>(t[1]));
+        } else {
+            nb::raise_type_error("Cannot convert tuple of length %zu to dmat2", t.size());
+        }
+    }, nb::arg("t"))
+    .def("__init__", [](dmat2* m, nb::list l) {
+        if (l.size() == 4) {
+            new (m) dmat2(nb::cast<double>(l[0]), nb::cast<double>(l[1]), nb::cast<double>(l[2]), nb::cast<double>(l[3]));
+        } else if (l.size() == 2) {
+            new (m) dmat2(nb::cast<dvec2>(l[0]), nb::cast<dvec2>(l[1]));
+        } else {
+            nb::raise_type_error("Cannot convert list of length %zu to dmat2", l.size());
+        }
+    }, nb::arg("t"))
+    .def("__repr__", [](const dmat2& m) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "dmat2((%g, %g),(%g, %g))", m[0][0], m[0][1], m[1][0], m[1][1]);
+        return nb::str(buf);
+    })
+    .def("__iter__", [](const dmat2 &v) {
+        return nb::make_iterator(nb::type<dmat2>(), "dmat2_iterator", &v[0][0], &v[0][0] + 4);
+    })
+    .def(nb::self +  nb::self, nb::arg("other"))
+    .def(nb::self += nb::self, nb::arg("other"))
+    .def(nb::self +  double(), nb::arg("other"))
+    .def(nb::self += double(), nb::arg("other"))
+    .def(double() +  nb::self, nb::arg("other"))
+    .def(nb::self -  nb::self, nb::arg("other"))
+    .def(nb::self -= nb::self, nb::arg("other"))
+    .def(nb::self -  double(), nb::arg("other"))
+    .def(nb::self -= double(), nb::arg("other"))
+    .def(double() -  nb::self, nb::arg("other"))
+    .def(nb::self *  nb::self, nb::arg("other"))
+    .def(nb::self *= nb::self, nb::arg("other"))
+    .def(nb::self *  double(), nb::arg("other"))
+    .def(nb::self *= double(), nb::arg("other"))
+    .def(double() *  nb::self, nb::arg("other"))
+    .def(-nb::self)
+;
+mod_math.def("transpose", [](const dmat2& m) { return transpose(m); }, nb::arg("m"));
+mod_math.def("inverse", [](const dmat2& m) { return inverse(m); }, nb::arg("m"));
+nb::implicitly_convertible<nb::tuple, dmat2>();
+nb::implicitly_convertible<nb::list, dmat2>();
+ 
+nb::class_<dmat3>(mod_math, "dmat3")
+    .def(nb::init<>())
+    .def(nb::init<double>(), nb::arg("diag"))
+    .def(nb::init<dvec3, dvec3, dvec3>(), nb::arg("c0"), nb::arg("c1"), nb::arg("c2"))
+    .def(nb::init<double, double, double, double, double, double, double, double, double>(), nb::arg("m00"), nb::arg("m10"), nb::arg("m20"), nb::arg("m01"), nb::arg("m11"), nb::arg("m21"), nb::arg("m02"), nb::arg("m12"), nb::arg("m22"))
+    .def(nb::init<mat2>(), nb::arg("m"))
+    .def(nb::init<mat3>(), nb::arg("m"))
+    .def(nb::init<mat4>(), nb::arg("m"))
+    .def(nb::init<dmat2>(), nb::arg("m"))
+    .def(nb::init<dmat3>(), nb::arg("m"))
+    .def(nb::init<dmat4>(), nb::arg("m"))
+    .def("__init__", [](dmat3* m, nb::tuple t) {
+        if (t.size() == 9) {
+            new (m) dmat3(nb::cast<double>(t[0]), nb::cast<double>(t[1]), nb::cast<double>(t[2]), nb::cast<double>(t[3]), nb::cast<double>(t[4]), nb::cast<double>(t[5]), nb::cast<double>(t[6]), nb::cast<double>(t[7]), nb::cast<double>(t[8]));
+        } else if (t.size() == 3) {
+            new (m) dmat3(nb::cast<dvec3>(t[0]), nb::cast<dvec3>(t[1]), nb::cast<dvec3>(t[2]));
+        } else {
+            nb::raise_type_error("Cannot convert tuple of length %zu to dmat3", t.size());
+        }
+    }, nb::arg("t"))
+    .def("__init__", [](dmat3* m, nb::list l) {
+        if (l.size() == 9) {
+            new (m) dmat3(nb::cast<double>(l[0]), nb::cast<double>(l[1]), nb::cast<double>(l[2]), nb::cast<double>(l[3]), nb::cast<double>(l[4]), nb::cast<double>(l[5]), nb::cast<double>(l[6]), nb::cast<double>(l[7]), nb::cast<double>(l[8]));
+        } else if (l.size() == 3) {
+            new (m) dmat3(nb::cast<dvec3>(l[0]), nb::cast<dvec3>(l[1]), nb::cast<dvec3>(l[2]));
+        } else {
+            nb::raise_type_error("Cannot convert list of length %zu to dmat3", l.size());
+        }
+    }, nb::arg("t"))
+    .def("__repr__", [](const dmat3& m) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "dmat3((%g, %g, %g),(%g, %g, %g),(%g, %g, %g))", m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2]);
+        return nb::str(buf);
+    })
+    .def("__iter__", [](const dmat3 &v) {
+        return nb::make_iterator(nb::type<dmat3>(), "dmat3_iterator", &v[0][0], &v[0][0] + 9);
+    })
+    .def(nb::self +  nb::self, nb::arg("other"))
+    .def(nb::self += nb::self, nb::arg("other"))
+    .def(nb::self +  double(), nb::arg("other"))
+    .def(nb::self += double(), nb::arg("other"))
+    .def(double() +  nb::self, nb::arg("other"))
+    .def(nb::self -  nb::self, nb::arg("other"))
+    .def(nb::self -= nb::self, nb::arg("other"))
+    .def(nb::self -  double(), nb::arg("other"))
+    .def(nb::self -= double(), nb::arg("other"))
+    .def(double() -  nb::self, nb::arg("other"))
+    .def(nb::self *  nb::self, nb::arg("other"))
+    .def(nb::self *= nb::self, nb::arg("other"))
+    .def(nb::self *  double(), nb::arg("other"))
+    .def(nb::self *= double(), nb::arg("other"))
+    .def(double() *  nb::self, nb::arg("other"))
+    .def(-nb::self)
+;
+mod_math.def("transpose", [](const dmat3& m) { return transpose(m); }, nb::arg("m"));
+mod_math.def("inverse", [](const dmat3& m) { return inverse(m); }, nb::arg("m"));
+nb::implicitly_convertible<nb::tuple, dmat3>();
+nb::implicitly_convertible<nb::list, dmat3>();
+ 
+nb::class_<dmat4>(mod_math, "dmat4")
+    .def(nb::init<>())
+    .def(nb::init<double>(), nb::arg("diag"))
+    .def(nb::init<dvec4, dvec4, dvec4, dvec4>(), nb::arg("c0"), nb::arg("c1"), nb::arg("c2"), nb::arg("c3"))
+    .def(nb::init<double, double, double, double, double, double, double, double, double, double, double, double, double, double, double, double>(), nb::arg("m00"), nb::arg("m10"), nb::arg("m20"), nb::arg("m30"), nb::arg("m01"), nb::arg("m11"), nb::arg("m21"), nb::arg("m31"), nb::arg("m02"), nb::arg("m12"), nb::arg("m22"), nb::arg("m32"), nb::arg("m03"), nb::arg("m13"), nb::arg("m23"), nb::arg("m33"))
+    .def(nb::init<mat2>(), nb::arg("m"))
+    .def(nb::init<mat3>(), nb::arg("m"))
+    .def(nb::init<mat4>(), nb::arg("m"))
+    .def(nb::init<dmat2>(), nb::arg("m"))
+    .def(nb::init<dmat3>(), nb::arg("m"))
+    .def(nb::init<dmat4>(), nb::arg("m"))
+    .def("__init__", [](dmat4* m, nb::tuple t) {
+        if (t.size() == 16) {
+            new (m) dmat4(nb::cast<double>(t[0]), nb::cast<double>(t[1]), nb::cast<double>(t[2]), nb::cast<double>(t[3]), nb::cast<double>(t[4]), nb::cast<double>(t[5]), nb::cast<double>(t[6]), nb::cast<double>(t[7]), nb::cast<double>(t[8]), nb::cast<double>(t[9]), nb::cast<double>(t[10]), nb::cast<double>(t[11]), nb::cast<double>(t[12]), nb::cast<double>(t[13]), nb::cast<double>(t[14]), nb::cast<double>(t[15]));
+        } else if (t.size() == 4) {
+            new (m) dmat4(nb::cast<dvec4>(t[0]), nb::cast<dvec4>(t[1]), nb::cast<dvec4>(t[2]), nb::cast<dvec4>(t[3]));
+        } else {
+            nb::raise_type_error("Cannot convert tuple of length %zu to dmat4", t.size());
+        }
+    }, nb::arg("t"))
+    .def("__init__", [](dmat4* m, nb::list l) {
+        if (l.size() == 16) {
+            new (m) dmat4(nb::cast<double>(l[0]), nb::cast<double>(l[1]), nb::cast<double>(l[2]), nb::cast<double>(l[3]), nb::cast<double>(l[4]), nb::cast<double>(l[5]), nb::cast<double>(l[6]), nb::cast<double>(l[7]), nb::cast<double>(l[8]), nb::cast<double>(l[9]), nb::cast<double>(l[10]), nb::cast<double>(l[11]), nb::cast<double>(l[12]), nb::cast<double>(l[13]), nb::cast<double>(l[14]), nb::cast<double>(l[15]));
+        } else if (l.size() == 4) {
+            new (m) dmat4(nb::cast<dvec4>(l[0]), nb::cast<dvec4>(l[1]), nb::cast<dvec4>(l[2]), nb::cast<dvec4>(l[3]));
+        } else {
+            nb::raise_type_error("Cannot convert list of length %zu to dmat4", l.size());
+        }
+    }, nb::arg("t"))
+    .def("__repr__", [](const dmat4& m) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "dmat4((%g, %g, %g, %g),(%g, %g, %g, %g),(%g, %g, %g, %g),(%g, %g, %g, %g))", m[0][0], m[0][1], m[0][2], m[0][3], m[1][0], m[1][1], m[1][2], m[1][3], m[2][0], m[2][1], m[2][2], m[2][3], m[3][0], m[3][1], m[3][2], m[3][3]);
+        return nb::str(buf);
+    })
+    .def("__iter__", [](const dmat4 &v) {
+        return nb::make_iterator(nb::type<dmat4>(), "dmat4_iterator", &v[0][0], &v[0][0] + 16);
+    })
+    .def(nb::self +  nb::self, nb::arg("other"))
+    .def(nb::self += nb::self, nb::arg("other"))
+    .def(nb::self +  double(), nb::arg("other"))
+    .def(nb::self += double(), nb::arg("other"))
+    .def(double() +  nb::self, nb::arg("other"))
+    .def(nb::self -  nb::self, nb::arg("other"))
+    .def(nb::self -= nb::self, nb::arg("other"))
+    .def(nb::self -  double(), nb::arg("other"))
+    .def(nb::self -= double(), nb::arg("other"))
+    .def(double() -  nb::self, nb::arg("other"))
+    .def(nb::self *  nb::self, nb::arg("other"))
+    .def(nb::self *= nb::self, nb::arg("other"))
+    .def(nb::self *  double(), nb::arg("other"))
+    .def(nb::self *= double(), nb::arg("other"))
+    .def(double() *  nb::self, nb::arg("other"))
+    .def(-nb::self)
+;
+mod_math.def("transpose", [](const dmat4& m) { return transpose(m); }, nb::arg("m"));
+mod_math.def("inverse", [](const dmat4& m) { return inverse(m); }, nb::arg("m"));
+nb::implicitly_convertible<nb::tuple, dmat4>();
+nb::implicitly_convertible<nb::list, dmat4>();
+ 

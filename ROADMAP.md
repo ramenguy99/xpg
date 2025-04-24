@@ -40,10 +40,10 @@ Python:
     - [ ] Wrap glm types and utils (xpg.math)
         - [x] vector,
         - [x] conversion from tuple, list
-        - [ ] matrix
-        - [ ] helper functions and transformation utils
-        - [ ] numpy array interop
-        - [ ] quaternions (later?)
+        - [x] helper functions for vec
+        - [x] numpy array interop
+        - [-] matrix
+        - [ ] transformation helpers
     - [ ] Use them also for imgui stuff by defining our own vector type in imgui
 - [ ] Check if there is a better way to do imports that works more intuitively
       (likely by importing stuff in __init__.py of subpackage)

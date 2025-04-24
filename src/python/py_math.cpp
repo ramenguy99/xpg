@@ -32,29 +32,34 @@ void math_create_bindings(nb::module_& mod_math) {
 
     // List of things to generate
     // vec: (2, 3, 4 | i, f to start | d, h maybe also useful)
-    //  Constructors:
+    //  [x] Constructors:
     //   - scalar
     //   - all vector types of same or bigger size
     //   - same vector types of smaller size padded with scalars (or 2 vec2s)
     //   - tuples and lists (also define implicit conversion)
-    //  RW props:
+    //  [x] RW props:
     //   - x, y, z, w (also alias for rgb?)
-    //  Slots:
+    //  [x] Slots:
     //   - __iter__: conversion to list
     //   - __repr__: conversion to string
-    //  Operators:
+    //  [x] Operators:
     //   - Arithmetic + - * / 
     //   - Unary -
     //   - % (int only)
     //   - Bitwise & | ^ ~ (int only)
-    //  Numpy array compat
-    // mat:
-    //   - TODO
-    // quaternion:
+    //  [x] Numpy array compat
+    //  [ ] Comparison / boolean / any,all?
+    //  [ ] min, max, clamp
+    //  [ ] ==, !=
+    //  [ ] indexing?
+    // [ ] mat
+    //     - Matrix vector ops (just add as methods on mat?)
+    // [ ] quaternion:
     //   - TODO
     // funcs (prefer not-method style):
-    //  - length, normalize, dot, cross, square, pow, sqrt (float only)
-    //  - transformations
+    //  [x] length, normalize, dot, cross(float only)
+    //  [ ] square, sqrt, pow?
+    //  [ ] transformations
     //      - translation
     //      - lookat / perspective
 #if 0
