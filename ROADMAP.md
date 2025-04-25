@@ -39,6 +39,13 @@ Python:
 - [x] Check if there is a better way to do imports that works more intuitively
       (likely by importing stuff in __init__.py of subpackage)
 - [ ] Hook XPG logs into python logs
+    - Two problems with this:
+        - Logging is a global concept in XPG, we can use a global callback, but how do we ensure
+          this is freed properly? If it's just a module global, what is the best way to expose it?
+        - How do we ensure that the logging is freed after everything else? Ideally we would like
+          to see teardown logs (we currently don't see the Contxt teardown)
+        - Can we somehow bind the lifetime of this to the module? Does not seem to be exposed by
+          nanobind, but technically possible also with gc.
 - [ ] Low level barriers
 - [ ] Queues + queue sync
 - [ ] Clean examples

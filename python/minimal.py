@@ -1,6 +1,13 @@
 from pyxpg import *
 from pyxpg import imgui
 from typing import Tuple
+import atexit
+
+def log_callback(level, ctx, s):
+    print(f"{level} {ctx} {s}")
+
+log_ovverride = set_log_callback(log_callback)
+atexit.register(lambda: set_log_callback(None))
 
 ctx = Context(
     device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION, 

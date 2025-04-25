@@ -36,13 +36,26 @@ enum class LogLevel : u32 {
     Disabled,
 };
 
+inline const char* log_level_to_string[] = {
+    "Trace",
+    "Debug",
+    "Info",
+    "Warning",
+    "Error",
+    "Disabled",
+};
+
+inline void log_stdout(LogLevel level, const char* ctx, const char* fmt, va_list args);
+typedef void (*LogFunc)(LogLevel level, const char* ctx, const char* fmt, va_list args);
+
 inline std::atomic<LogLevel> g_log_level = LogLevel::Info;
+inline std::atomic<LogFunc> g_log_func = log_stdout;
 
 inline void set_log_level(LogLevel level) {
     g_log_level.store(level, std::memory_order_seq_cst);
 }
 
-inline void log_internal(const char* level_string, const char* ctx, const char* fmt, va_list args) {
+inline void log_stdout(LogLevel level, const char* ctx, const char* fmt, va_list args) {
     time_t rawtime;
     struct tm* timeinfo;
     char buffer[128];
@@ -50,12 +63,13 @@ inline void log_internal(const char* level_string, const char* ctx, const char* 
     timeinfo = localtime(&rawtime);
     strftime(buffer, sizeof(buffer), "[%H:%M:%S %d-%m-%Y]", timeinfo);
 
-    printf("%s %-6s [%s] ", buffer, level_string, ctx);
+    const char* level_str = (u32)level < ArrayCount(log_level_to_string) ? log_level_to_string[(u32)level] : "";
+    printf("%s %-6s [%s] ", buffer, level_str, ctx);
     vprintf(fmt, args);
     printf("\n");
 }
 
-#define DEFINE_LOG_FUNC(name, level, str) \
+#define DEFINE_LOG_FUNC(name, level) \
     PRINTF_FORMAT_ATTR(2,3) \
     inline void name(const char* ctx, PRINTF_FORMAT const char* fmt, ...) { \
         if (g_log_level.load(std::memory_order_relaxed) > LogLevel::level) { \
@@ -63,15 +77,18 @@ inline void log_internal(const char* level_string, const char* ctx, const char* 
         } \
         va_list args; \
         va_start(args, fmt); \
-        log_internal(str, ctx, fmt, args); \
+        LogFunc func = g_log_func.load(std::memory_order_relaxed); \
+        if (func) { \
+            func(LogLevel::level, ctx, fmt, args); \
+        } \
         va_end(args); \
     }
 
-DEFINE_LOG_FUNC(error,   Error, "error")
-DEFINE_LOG_FUNC(warning, Warning, "warning")
-DEFINE_LOG_FUNC(debug, Debug, "debug")
-DEFINE_LOG_FUNC(info, Info, "info")
-DEFINE_LOG_FUNC(trace, Trace, "trace")
+DEFINE_LOG_FUNC(error,   Error)
+DEFINE_LOG_FUNC(warning, Warning)
+DEFINE_LOG_FUNC(debug, Debug)
+DEFINE_LOG_FUNC(info, Info)
+DEFINE_LOG_FUNC(trace, Trace)
 
 #undef DEFINE_LOG_FUNC
 
