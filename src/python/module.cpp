@@ -13,7 +13,6 @@ namespace nb = nanobind;
 
 void gfx_create_bindings(nb::module_&);
 void imgui_create_bindings(nb::module_&);
-void math_create_bindings(nb::module_&);
 
 #if PYXPG_SLANG_ENABLED
 void slang_create_bindings(nb::module_&);
@@ -31,9 +30,6 @@ NB_MODULE(_pyxpg, m) {
         });
     
     gfx_create_bindings(m);
-
-    nb::module_ mod_math = m.def_submodule("math", "Math bindings for XPG");
-    math_create_bindings(mod_math);
 
     nb::module_ mod_imgui = m.def_submodule("imgui", "ImGui bindings for XPG");
     imgui_create_bindings(mod_imgui);

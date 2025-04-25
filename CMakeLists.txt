@@ -127,7 +127,6 @@ if(XPG_BUILD_PYTHON)
     set(PYXPG_SOURCES
         src/python/module.cpp
         src/python/py_gfx.cpp
-        src/python/py_math.cpp
         src/python/py_imgui.cpp
     )
     if(XPG_BUILD_SLANG)
@@ -180,25 +179,6 @@ if(XPG_BUILD_PYTHON)
         ${CMAKE_SOURCE_DIR}/src/python/pyxpg/__init__.py
         DESTINATION
         "pyxpg")
-
-    nanobind_add_stub(pyxpg_math_stub
-        MODULE _pyxpg.math
-        OUTPUT pyxpg/math/__init__.pyi
-        MARKER_FILE pyxpg/math/py.typed
-        PYTHON_PATH $<TARGET_FILE_DIR:_pyxpg>
-        DEPENDS _pyxpg
-    )
-
-    install(FILES 
-        ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/math/__init__.pyi
-        ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/math/py.typed
-        DESTINATION
-        "pyxpg/math")
-
-    install(FILES 
-        ${CMAKE_SOURCE_DIR}/src/python/pyxpg/math/__init__.py
-        DESTINATION
-        "pyxpg/math")
 
     install(FILES 
         ${CMAKE_SOURCE_DIR}/src/python/pyxpg/imgui/__init__.py

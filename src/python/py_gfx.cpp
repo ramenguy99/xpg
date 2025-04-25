@@ -619,9 +619,9 @@ struct Window: public nb::intrusive_base {
 
     void set_callbacks(
         Function<void()> draw,
-        Function<void(glm::ivec2)> mouse_move_event,
-        Function<void(glm::ivec2, gfx::MouseButton, gfx::Action, gfx::Modifiers)> mouse_button_event,
-        Function<void(glm::ivec2, glm::ivec2)> mouse_scroll_event,
+        Function<void(nb::tuple)> mouse_move_event,
+        Function<void(nb::tuple, gfx::MouseButton, gfx::Action, gfx::Modifiers)> mouse_button_event,
+        Function<void(nb::tuple, nb::tuple)> mouse_scroll_event,
         Function<void(gfx::Key, gfx::Action, gfx::Modifiers)> key_event
     )
     {
@@ -636,7 +636,7 @@ struct Window: public nb::intrusive_base {
                 .mouse_move_event = [this](glm::ivec2 p) {
                     try {
                         if(this->mouse_move_event)
-                            this->mouse_move_event(p);
+                            this->mouse_move_event(nb::make_tuple(p.x, p.y));
                     } catch (nb::python_error &e) {
                         e.restore();
                     }
@@ -644,7 +644,7 @@ struct Window: public nb::intrusive_base {
                 .mouse_button_event = [this] (glm::ivec2 p, gfx::MouseButton b, gfx::Action a, gfx::Modifiers m) {
                     try {
                         if(this->mouse_button_event)
-                            this->mouse_button_event(p, b, a, m);
+                            this->mouse_button_event(nb::make_tuple(p.x, p.y), b, a, m);
                     } catch (nb::python_error &e) {
                         e.restore();
                     }
@@ -652,7 +652,7 @@ struct Window: public nb::intrusive_base {
                 .mouse_scroll_event = [this] (glm::ivec2 p, glm::ivec2 s) {
                     try {
                         if(this->mouse_scroll_event)
-                            this->mouse_scroll_event(p, s);
+                            this->mouse_scroll_event(nb::make_tuple(p.x, p.y), nb::make_tuple(s.x, s.y));
                     } catch (nb::python_error &e) {
                         e.restore();
                     }
@@ -757,9 +757,9 @@ struct Window: public nb::intrusive_base {
     std::vector<Frame> frames;
 
     Function<void()> draw;
-    Function<void(glm::ivec2)> mouse_move_event;
-    Function<void(glm::ivec2, gfx::MouseButton, gfx::Action, gfx::Modifiers)> mouse_button_event;
-    Function<void(glm::ivec2, glm::ivec2)> mouse_scroll_event;
+    Function<void(nb::tuple)> mouse_move_event;
+    Function<void(nb::tuple, gfx::MouseButton, gfx::Action, gfx::Modifiers)> mouse_button_event;
+    Function<void(nb::tuple, nb::tuple)> mouse_scroll_event;
     Function<void(gfx::Key, gfx::Action, gfx::Modifiers)> key_event;
 
     // Garbage collection:

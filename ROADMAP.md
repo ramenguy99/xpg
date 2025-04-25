@@ -36,16 +36,7 @@ C++:
 - [ ] Cleanup apps
 
 Python:
-- [ ] Math helpers:
-    - [ ] Wrap glm types and utils (xpg.math)
-        - [x] vector,
-        - [x] conversion from tuple, list
-        - [x] helper functions for vec
-        - [x] numpy array interop
-        - [-] matrix
-        - [ ] transformation helpers
-    - [ ] Use them also for imgui stuff by defining our own vector type in imgui
-- [ ] Check if there is a better way to do imports that works more intuitively
+- [x] Check if there is a better way to do imports that works more intuitively
       (likely by importing stuff in __init__.py of subpackage)
 - [ ] Hook XPG logs into python logs
 - [ ] Low level barriers
@@ -61,7 +52,9 @@ Python:
     - [ ] Pipeline cache with all important inputs
     - [ ] Expose spirv targets
     - [ ] Cleaner handling of multiple entry points
-- [ ] Cleanup some stubs with pattern matching file (especially numpy arrays)
+- [ ] Cleanup some stubs with pattern matching file:
+    - numpy arrays over buffers -> maybe somehow switch to memory view? should be available everywhere
+    - tuple args in window callbacks are actually Tuple[float, float]
 
 
 ## Future
