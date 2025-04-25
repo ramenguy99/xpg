@@ -124,6 +124,17 @@ def gen_vec():
             out(f'        return nb::ndarray<const {typ}, nb::numpy, nb::shape<{n}>>(&v.x);')
             out(f'    }}, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())')
 
+            # Accessors
+            out(f'    .def("__getitem__", [](const {vec} &v, size_t i) {{')
+            out(f'        if (i >= {n}) throw nb::index_error();')
+            out(f'        return v[i];')
+            out(f'    }})')
+
+            out(f'    .def("__setitem__", []({vec} &v, size_t i, {typ} value) {{')
+            out(f'        if (i >= {n}) throw nb::index_error();')
+            out(f'        v[i] = value;')
+            out(f'    }})')
+
             # Operators
             binary_ops = list(common_binary_ops)
             if is_int:
@@ -243,11 +254,40 @@ def gen_mat():
             out(f'        return nb::make_iterator(nb::type<{mat}>(), "{mat}_iterator", &v[0][0], &v[0][0] + {n * n});')
             out(f'    }})')
 
+            # Accessors
+            out(f'    .def("__getitem__", [](const {mat} &m, size_t i) {{')
+            out(f'        if (i >= {n}) throw nb::index_error();')
+            out(f'        return m[i];')
+            out(f'    }})')
+
+            out(f'    .def("__setitem__", []({mat} &m, size_t i, {colvec} value) {{')
+            out(f'        if (i >= {n}) throw nb::index_error();')
+            out(f'        m[i] = value;')
+            out(f'    }})')
+
+            # out(f'    .def("__getitem__", [](const {mat} &m, std::array<size_t, {n}> i) {{')
+            # out(f'        return m[i[0]][i[0]];')
+            # out(f'    }})')
+
+            # out(f'    .def("__setitem__", []({mat} &m, std::array<size_t, {n}>, {colvec} value) {{')
+            # out(f'        if (i >= {n}) throw nb::index_error();')
+            # out(f'        m[i] = value;')
+            # out(f'    }})')
+
             # Numpy interop
-            # TODO: check if can do col major layout or if just easier to transpose before creting it
-            # out(f'    .def("__array__", [] (const {vec}& v, nb::handle dtype, std::optional<bool> copy) {{')
-            # out(f'        return nb::ndarray<const {typ}, nb::numpy, nb::shape<{n}>>(&v.x);')
-            # out(f'    }}, nb::rv_policy::copy, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())')
+            #
+            # We transpose to use the c_contig order, which is the most standard and least surprising.
+            #
+            # This is not strictly necessary, we could specify the c_order here, but this could lead to
+            # some inconsistencies between structurAed dtypes (that force c_order and would convert automatically)
+            # and manual call to tobytes(). Since this copy should be pretty cheap we pick the more conventional option.
+            #
+            # We also need to nb::cast because we are referencing a temporary.
+            # See: https://nanobind.readthedocs.io/en/latest/ndarray.html#returning-temporaries
+            out(f'    .def("__array__", [] (const {mat}& m, nb::handle dtype, std::optional<bool> copy) {{')
+            out(f'        {mat} t = transpose(m);')
+            out(f'        return nb::cast(nb::ndarray<const {typ}, nb::numpy, nb::shape<{n},{n}>>(&t[0][0]));')
+            out(f'    }}, nb::arg("dtype") = nb::none(), nb::arg("copy") = nb::none())')
 
             # Operators
             for op in binary_ops:
