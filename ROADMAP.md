@@ -33,7 +33,11 @@ C++:
     - [x] hashmap
     - [x] result
     - [x] framegraph
+- [ ] Cleanup platform stuff (file IO and threading)
+    - maybe pickup a small filesystem library?
+    - maybe pickup a small utf8 library too for strings/paths?
 - [ ] Cleanup apps
+    - [ ] Embed shaders somehow?
 
 Python:
 - [x] Check if there is a better way to do imports that works more intuitively
@@ -46,17 +50,15 @@ Python:
           to see teardown logs (we currently don't see the Contxt teardown)
         - Can we somehow bind the lifetime of this to the module? Does not seem to be exposed by
           nanobind, but technically possible also with gc.
-        -> GC on module does not seem to work
-        -> atexit runs earlier than Context (unless nested in func)
-        -> user fixes would be:
-            - user manually calls cleanup funcs if he wants to see cleanup -> suitable for viewer
-            - user manually wraps uses of the library outside global scope -> annoying for small scripts?
-              But maybe don't care about cleanup logs?
-        => Decided to use global object, if user instantiates it twice it throws, automatically cleaned up,
+        - GC on module does not seem to work
+        - atexit runs earlier than Context (unless nested in func)
+        - user fixes would be:
+           - user manually calls cleanup funcs if he wants to see cleanup -> suitable for viewer
+           - user manually wraps uses of the library outside global scope -> annoying for small scripts?
+             But maybe don't care about cleanup logs?
+        - Decided to use global object, if user instantiates it twice it throws, automatically cleaned up,
            can potentially add methods (e.g. log level control). Can be cleaned up before other stuff, but not
            critical.
-- [ ] Low level barriers
-- [ ] Queues + queue sync
 - [ ] Clean examples
     - [ ] Basic
     - [ ] Gui
@@ -68,6 +70,11 @@ Python:
     - [ ] Pipeline cache with all important inputs
     - [ ] Expose spirv targets
     - [ ] Cleaner handling of multiple entry points
+- [ ] Queues + queue sync
+- [ ] Barriers
+    - [ ] Memory barrier for buffers?
+    - [ ] Queue transfer barriers?
+    - [ ] Low level combined barrier API?
 - [ ] Cleanup some stubs with pattern matching file:
     - numpy arrays over buffers -> maybe somehow switch to memory view? should be available everywhere
     - tuple args in window callbacks are actually Tuple[float, float]
