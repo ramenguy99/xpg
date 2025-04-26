@@ -23,6 +23,7 @@
 #endif
 
 #include "defines.h"
+#include "platform.h"
 
 namespace xpg {
 namespace logging {
@@ -37,12 +38,12 @@ enum class LogLevel : u32 {
 };
 
 inline const char* log_level_to_string[] = {
-    "Trace",
-    "Debug",
-    "Info",
-    "Warning",
-    "Error",
-    "Disabled",
+    "TRACE",
+    "DEBUG",
+    "INFO",
+    "WARNING",
+    "ERROR",
+    "DISABLED",
 };
 
 inline void log_stdout(LogLevel level, const char* ctx, const char* fmt, va_list args);
@@ -56,15 +57,20 @@ inline void set_log_level(LogLevel level) {
 }
 
 inline void log_stdout(LogLevel level, const char* ctx, const char* fmt, va_list args) {
-    time_t rawtime;
-    struct tm* timeinfo;
-    char buffer[128];
-    time(&rawtime);
-    timeinfo = localtime(&rawtime);
-    strftime(buffer, sizeof(buffer), "[%H:%M:%S %d-%m-%Y]", timeinfo);
+    platform::SystemTime system_time = {};
+    platform::GetLocalTime(&system_time);
 
+    // TODO: likely grab mutex here to prevent log mixing? (need a mutex with OS block in threading.h)
     const char* level_str = (u32)level < ArrayCount(log_level_to_string) ? log_level_to_string[(u32)level] : "";
-    printf("%s %-6s [%s] ", buffer, level_str, ctx);
+    printf("[%04u-%02u-%02u %02u:%02u:%02u.%03u] %-6s [%s] ",
+        system_time.year,
+        system_time.month,
+        system_time.day,
+        system_time.hour,
+        system_time.minute,
+        system_time.second,
+        system_time.milliseconds,
+        level_str, ctx);
     vprintf(fmt, args);
     printf("\n");
 }

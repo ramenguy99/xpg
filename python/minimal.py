@@ -1,16 +1,12 @@
 from pyxpg import *
-from pyxpg import imgui
 from typing import Tuple
 import logging
-import atexit
-import coloredlogs
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.NOTSET,
-    format='%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s',
+    format='[%(asctime)s.%(msecs)03d] %(levelname)-6s %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
-logger.info('Started')
 
 log_levels = {
     LogLevel.TRACE: logging.DEBUG,
@@ -21,10 +17,9 @@ log_levels = {
 }
 
 def log_callback(level, ctx, s):
-    logger.log(log_levels[level], f"[xpg/{ctx}] {s}")
+    logger.log(log_levels[level], f"[{ctx}] {s}")
 
-log_ovverride = set_log_callback(log_callback)
-atexit.register(lambda: set_log_callback(None))
+log_ovverride = LogCapture(log_callback)
 
 ctx = Context(
     device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION, 

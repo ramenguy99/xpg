@@ -36,6 +36,7 @@ Result OpenFile(const char* path, File* result) {
     return Result::Success;
 }
 
+// TODO: correctly handle EOF during read and EINTR in this and the following
 Result ReadAtOffset(File file, ArrayView<u8> buffer, u64 offset) {
     if (offset + buffer.length > file.size) {
         return Result::OutOfBounds;
@@ -136,6 +137,44 @@ Timestamp GetTimestamp() {
 
 f64 GetElapsed(Timestamp begin, Timestamp end) {
     return (f64)(end.value - begin.value) * 1e-9;
+}
+#endif
+
+#ifdef _WIN32
+Result GetLocalTime(SystemTime* s) {
+    SYSTEMTIME system;
+    GetLocalTime(&system);
+    s->year         = system.wYear;
+    s->month        = system.wMonth;
+    s->day          = system.wDay;
+    s->hour         = system.wHour;
+    s->minute       = system.wMinute;
+    s->second       = system.wSecond;
+    s->milliseconds = system.wMilliseconds;
+    return Result::Success;
+}
+#else
+Result GetLocalTime(SystemTime* s) {
+    timespec ts = {};
+    if (clock_gettime(CLOCK_REALTIME, &ts)) {
+        return Result::OSError;
+    }
+
+    time_t tim = ts.tv_sec;
+    tm tm = {};
+    if (localtime_r(&tim, &tm)) {
+        return Result::OSError;
+    }
+
+    s->year         = tm.tm_year + 1900;
+    s->month        = tm.tm_mon;
+    s->day          = tm.tm_mday;
+    s->hour         = tm.tm_hour;
+    s->minute       = tm.tm_min;
+    s->second       = tm.tm_sec;
+    s->milliseconds = ts.tv_nsec / 1000000;
+
+    return Result::Success;
 }
 #endif
 

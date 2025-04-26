@@ -46,54 +46,36 @@ void log_impl(xpg::logging::LogLevel level, const char* ctx, const char* fmt, va
     }
 }
 
-static int m_traverse(PyObject *self, visitproc visit, void *arg) {
-    // // Inform the Python GC about the instance (if non-NULL)
-    // auto ptr = nb::find(g_log_callback).ptr();
-    // printf("YOOOOOOOOOOOO: %p\n", ptr);
-    // Py_VISIT(ptr);
-    return 0;
-}
-
-static int m_clear(PyObject *self) {
-    // printf("NNNNNNNNNNNNNN\n");
-    // g_log_callback = nullptr;
-    return 0;
-}
-static void m_free(void*) {
-    // printf("FREEEEEEEEEEEEEE\n");
-}
-
-struct LogGuard: public nb::intrusive_base {
-    LogGuard(std::function<void(xpg::logging::LogLevel, nb::str, nb::str)> f) {
-        g_log_callback = std::move(f);
+struct LogCapture: public nb::intrusive_base {
+    LogCapture(std::function<void(xpg::logging::LogLevel, nb::str, nb::str)> cb) {
+        if (g_log_callback) {
+            throw std::runtime_error("Only a single instance of LogCapture can be created");
+        }
+        g_log_callback = std::move(cb);
     }
-    ~LogGuard() {
+    ~LogCapture() {
         g_log_callback = nullptr;
-        printf("FREED LOG!\n");
     }
 
     static int tp_traverse(PyObject *self, visitproc visit, void *arg) {
         auto ptr = nb::find(g_log_callback).ptr();
-        printf("YOOOOOOOOOOOO: %p\n", ptr);
         Py_VISIT(ptr);
         return 0;
     }
 
     static int tp_clear(PyObject *self) {
-        printf("NNNNNNNNNNNNNN\n");
         g_log_callback = nullptr;
         return 0;
     }
 };
 
-// Slot data structure referencing the above two functions
 static PyType_Slot log_guard_tp_slots[] = {
-    { Py_tp_traverse, (void*)LogGuard::tp_traverse },
-    { Py_tp_clear, (void*)LogGuard::tp_clear },
+    { Py_tp_traverse, (void*)LogCapture::tp_traverse },
+    { Py_tp_clear, (void*)LogCapture::tp_clear },
     { 0, nullptr }
 };
 
-NB_MODULE(_pyxpg, m, m_traverse, m_clear, m_free) {
+NB_MODULE(_pyxpg, m) {
     nb::intrusive_init(
         [](PyObject *o) noexcept {
             nb::gil_scoped_acquire guard;
@@ -104,9 +86,9 @@ NB_MODULE(_pyxpg, m, m_traverse, m_clear, m_free) {
             Py_DECREF(o);
         });
 
-    nb::class_<LogGuard>(m, "LogGuard",
+    nb::class_<LogCapture>(m, "LogCapture",
         nb::type_slots(log_guard_tp_slots),
-        nb::intrusive_ptr<LogGuard>([](LogGuard *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        nb::intrusive_ptr<LogCapture>([](LogCapture *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<std::function<void(xpg::logging::LogLevel, nb::str, nb::str)>>())
     ;
 
@@ -121,11 +103,6 @@ NB_MODULE(_pyxpg, m, m_traverse, m_clear, m_free) {
         .value("ERROR", xpg::logging::LogLevel::Error)
         .value("DISABLED", xpg::logging::LogLevel::Disabled)
     ;
-
-    m.def("set_log_callback", [](std::optional<std::function<void(xpg::logging::LogLevel, nb::str, nb::str)>> callback) {
-        g_log_callback = std::move(callback.value_or(nullptr));
-    }, nb::arg("callback").none());
-
 
     gfx_create_bindings(m);
 

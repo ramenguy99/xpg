@@ -45,6 +45,7 @@ enum class Result {
     FileNotFound,
     IOError,
     OutOfBounds,
+    OSError,
 };
 
 Result OpenFile(const char* path, File* result);
@@ -58,6 +59,17 @@ struct Timestamp {
 
 Timestamp GetTimestamp();
 f64 GetElapsed(Timestamp begin, Timestamp end);
+
+struct SystemTime {
+    uint32_t year;
+    uint32_t month;
+    uint32_t day;
+    uint32_t hour;
+    uint32_t minute;
+    uint32_t second;
+    uint32_t milliseconds;
+};
+Result GetLocalTime(SystemTime* s);
 
 } // namespace platform
 } // namespace xpg

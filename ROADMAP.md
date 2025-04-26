@@ -38,7 +38,7 @@ C++:
 Python:
 - [x] Check if there is a better way to do imports that works more intuitively
       (likely by importing stuff in __init__.py of subpackage)
-- [ ] Hook XPG logs into python logs
+- [x] Hook XPG logs into python logs
     - Two problems with this:
         - Logging is a global concept in XPG, we can use a global callback, but how do we ensure
           this is freed properly? If it's just a module global, what is the best way to expose it?
@@ -46,6 +46,15 @@ Python:
           to see teardown logs (we currently don't see the Contxt teardown)
         - Can we somehow bind the lifetime of this to the module? Does not seem to be exposed by
           nanobind, but technically possible also with gc.
+        -> GC on module does not seem to work
+        -> atexit runs earlier than Context (unless nested in func)
+        -> user fixes would be:
+            - user manually calls cleanup funcs if he wants to see cleanup -> suitable for viewer
+            - user manually wraps uses of the library outside global scope -> annoying for small scripts?
+              But maybe don't care about cleanup logs?
+        => Decided to use global object, if user instantiates it twice it throws, automatically cleaned up,
+           can potentially add methods (e.g. log level control). Can be cleaned up before other stuff, but not
+           critical.
 - [ ] Low level barriers
 - [ ] Queues + queue sync
 - [ ] Clean examples

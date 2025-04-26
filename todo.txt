@@ -2,6 +2,8 @@ Python:
 
     Interactive recompile on import:
         pip install -C cmake.build-type=Debug -Ceditable.rebuild=true  --no-build-isolation -ve .
+    Same but force ninja (much faster on windows):
+        pip install -C cmake.args=-GNinja -C cmake.build-type=Debug -Ceditable.rebuild=true  --no-build-isolation -ve .
 
 [-] Imgui bindings with dear_bindings:
     -> json file looks straight forward for binding gen, nice that we can match API 1 to 1 with what we use in xpg
