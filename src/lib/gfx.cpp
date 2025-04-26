@@ -723,6 +723,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 }
 
 void DestroyContext(Context* vk) {
+    vkFreeCommandBuffers(vk->device, vk->sync_command_pool, 1, &vk->sync_command_buffer);
     vkDestroyCommandPool(vk->device, vk->sync_command_pool, 0);
     vkDestroyFence(vk->device, vk->sync_fence, 0);
 
@@ -1351,6 +1352,25 @@ void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc)
 void CmdEndRendering(VkCommandBuffer cmd)
 {
     vkCmdEndRenderingKHR(cmd);
+}
+
+void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageToBufferDesc&& desc)
+{
+    VkBufferImageCopy region = {};
+    region.bufferOffset = desc.buffer_offset;
+    region.bufferRowLength = desc.buffer_row_stride;
+    region.bufferImageHeight = desc.buffer_image_height;
+    region.imageSubresource.aspectMask = desc.image_aspect;
+    region.imageSubresource.mipLevel = desc.image_mip;
+    region.imageSubresource.baseArrayLayer = desc.image_base_layer;
+    region.imageSubresource.layerCount = desc.image_layer_count;
+    region.imageOffset.x = desc.image_x;
+    region.imageOffset.y = desc.image_y;
+    region.imageOffset.z = desc.image_z;
+    region.imageExtent.width = desc.image_width;
+    region.imageExtent.height = desc.image_height;
+    region.imageExtent.depth = desc.image_depth;
+    vkCmdCopyImageToBuffer(cmd, desc.image, desc.image_layout, desc.buffer, 1, &region);
 }
 
 #ifdef _WIN32

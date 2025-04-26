@@ -240,6 +240,8 @@ enum class ImageUsage {
     DepthStencilAttachment,
     DepthStencilAttachmentReadOnly,
     DepthStencilAttachmentWriteOnly,
+    TransferSrc,
+    TransferDst,
     Present,
 };
 
@@ -305,6 +307,18 @@ namespace ImageUsagePresets {
         .access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
         .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
     };
+    constexpr ImageUsageState TransferSrc = {
+        .first_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .access = VK_ACCESS_2_TRANSFER_READ_BIT,
+        .layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    };
+    constexpr ImageUsageState TransferDst = {
+        .first_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        .layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    };
     constexpr ImageUsageState Present = {
         .first_stage = VK_PIPELINE_STAGE_2_NONE,
         .last_stage = VK_PIPELINE_STAGE_2_NONE,
@@ -322,6 +336,8 @@ namespace ImageUsagePresets {
         DepthStencilAttachment,
         DepthStencilAttachmentReadOnly,
         DepthStencilAttachmentWriteOnly,
+        TransferSrc,
+        TransferDst,
         Present,
     };
 }
@@ -329,6 +345,8 @@ namespace ImageUsagePresets {
 struct Image: public GfxObject {
     Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type, int samples = 1)
         : GfxObject(ctx, true)
+        , width(width)
+        , height(height)
     {
         VkResult vkr = gfx::CreateImage(&image, ctx->vk, {
             .width = width,
@@ -379,11 +397,14 @@ struct Image: public GfxObject {
     // }
 
     gfx::Image image = {};
+    u32 width;
+    u32 height;
     ImageUsageState current_state = ImageUsagePresets::Types[(usize)ImageUsage::None];
 };
 
 struct Window;
 struct GraphicsPipeline;
+struct ComputePipeline;
 struct DescriptorSet;
 struct Buffer;
 
@@ -546,15 +567,46 @@ struct CommandBuffer: GfxObject {
         gfx::CmdEndRendering(buffer);
     }
 
-    void bind_pipeline_state(
+    void bind_pipeline_common(
+        VkPipelineBindPoint bind_point,
+        VkPipeline pipeline,
+        VkPipelineLayout layout,
+        const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+        const std::optional<nb::bytes>& push_constants
+    );
+
+    void bind_compute_pipeline(
+        const ComputePipeline& pipeline,
+        const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+        const std::optional<nb::bytes>& push_constants
+    );
+
+    void bind_graphics_pipeline(
         const GraphicsPipeline& pipeline,
-        const std::vector<nb::ref<DescriptorSet>> descriptor_sets,
-        std::optional<nb::bytes> push_constants,
+        const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+        const std::optional<nb::bytes>& push_constants,
         const std::vector<nb::ref<Buffer>> vertex_buffers,
         std::optional<nb::ref<Buffer>> index_buffer,
         std::array<u32, 4> viewport,
         std::array<u32, 4> scissors
     );
+
+    void dispatch(
+        u32 groups_x,
+        u32 groups_y,
+        u32 groups_z
+    ) {
+        vkCmdDispatch(buffer, groups_x, groups_y, groups_z);
+    }
+
+    void draw(
+        u32 num_vertices,
+        u32 num_instances,
+        s32 first_vertex,
+        u32 first_instance
+    ) {
+        vkCmdDraw(buffer, num_vertices, num_instances, first_vertex, first_instance);
+    }
 
     void draw_indexed(
         u32 num_indices,
@@ -566,8 +618,36 @@ struct CommandBuffer: GfxObject {
         vkCmdDrawIndexed(buffer, num_indices, num_instances, first_index, vertex_offset, first_instance);
     }
 
+    void copy_image_to_buffer(nb::ref<Image> image, nb::ref<Buffer> buf) {
+        // TODO: add error checking that image fits into buffer
+
+        gfx::CmdCopyImageToBuffer(buffer, {
+            .image = image->image.image,
+            .image_layout = image->current_state.layout,
+            .image_width = image->width,
+            .image_height = image->height,
+            .buffer = buf->buffer.buffer,
+        });
+    }
+
+    ~CommandBuffer() {
+        if (owned) {
+            vkFreeCommandBuffers(ctx->vk.device, pool, 1, &buffer);
+            vkDestroyCommandPool(ctx->vk.device, pool, 0);
+        }
+    }
+
     VkCommandPool pool;
     VkCommandBuffer buffer;
+};
+
+struct Queue: GfxObject {
+    Queue(nb::ref<Context> ctx, VkQueue queue)
+        : GfxObject(ctx, false)
+        , queue(queue)
+    {}
+
+    VkQueue queue;
 };
 
 struct Frame: public nb::intrusive_base {
@@ -935,6 +1015,19 @@ struct DescriptorSet: public nb::intrusive_base {
         });
     };
 
+    void write_image(const Image& image, ImageUsage usage, VkDescriptorType type, u32 binding, u32 element) {
+        assert((usize)usage < ArrayCount(ImageUsagePresets::Types));
+        ImageUsageState state = ImageUsagePresets::Types[(usize)usage];
+
+        gfx::WriteImageDescriptor(set.set, ctx->vk, {
+            .view = image.image.view,
+            .layout = state.layout,
+            .type = type,
+            .binding = binding,
+            .element = element,
+        });
+    };
+
     ~DescriptorSet()
     {
         destroy();
@@ -1076,7 +1169,46 @@ struct PushConstantsRange: gfx::PushConstantsRangeDesc {
 
 static_assert(sizeof(PushConstantsRange) == sizeof(gfx::PushConstantsRangeDesc));
 
-struct GraphicsPipeline: nb::intrusive_base {
+struct ComputePipeline: GfxObject {
+    ComputePipeline(nb::ref<Context> ctx,
+        nb::ref<Shader> shader,
+        nb::str entry,
+        const std::vector<PushConstantsRange>& push_constant_ranges,
+        const std::vector<nb::ref<DescriptorSet>>& descriptor_sets
+        )
+        : GfxObject(ctx, true)
+    {
+        Array<VkDescriptorSetLayout> d(descriptor_sets.size());
+        for(usize i = 0; i < d.length; i++) {
+            d[i] = descriptor_sets[i]->set.layout;
+        }
+
+        VkResult vkr = gfx::CreateComputePipeline(&pipeline, ctx->vk, {
+            .shader = shader->shader,
+            .entry = entry.c_str(),
+            .push_constants = ArrayView((gfx::PushConstantsRangeDesc*)push_constant_ranges.data(), push_constant_ranges.size()),
+            .descriptor_sets = ArrayView(d),
+        });
+
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create graphics pipeline");
+        }
+    }
+
+    ~ComputePipeline() {
+        destroy();
+    }
+
+    void destroy() {
+        if (owned) {
+            gfx::DestroyComputePipeline(&pipeline, ctx->vk);
+        }
+    }
+
+    gfx::ComputePipeline pipeline;
+};
+
+struct GraphicsPipeline: GfxObject {
     GraphicsPipeline(nb::ref<Context> ctx,
         const std::vector<nb::ref<PipelineStage>>& stages,
         const std::vector<VertexBinding>& vertex_bindings,
@@ -1088,7 +1220,7 @@ struct GraphicsPipeline: nb::intrusive_base {
         const std::vector<Attachment>& attachments,
         Depth depth
         )
-        : ctx(ctx)
+        : GfxObject(ctx, true)
     {
         Array<gfx::PipelineStageDesc> s(stages.size());
         for(usize i = 0; i < s.length; i++) {
@@ -1124,25 +1256,23 @@ struct GraphicsPipeline: nb::intrusive_base {
     }
 
     void destroy() {
-        gfx::DestroyGraphicsPipeline(&pipeline, ctx->vk);
+        if (owned) {
+            gfx::DestroyGraphicsPipeline(&pipeline, ctx->vk);
+        }
     }
 
     gfx::GraphicsPipeline pipeline;
-    nb::ref<Context> ctx;
 };
 
-void CommandBuffer::bind_pipeline_state(
-    const GraphicsPipeline& pipeline,
-    const std::vector<nb::ref<DescriptorSet>> descriptor_sets,
-    std::optional<nb::bytes> push_constants,
-    const std::vector<nb::ref<Buffer>> vertex_buffers,
-    std::optional<nb::ref<Buffer>> index_buffer,
-    std::array<u32, 4> viewport,
-    std::array<u32, 4> scissors
-)
+void CommandBuffer::bind_pipeline_common(
+    VkPipelineBindPoint bind_point,
+    VkPipeline pipeline,
+    VkPipelineLayout layout,
+    const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+    const std::optional<nb::bytes>& push_constants)
 {
     // Pipeline
-    vkCmdBindPipeline(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.pipeline);
+    vkCmdBindPipeline(buffer, bind_point, pipeline);
 
     // Descriptor sets
     if(descriptor_sets.size() > 0) {
@@ -1150,13 +1280,34 @@ void CommandBuffer::bind_pipeline_state(
         for(usize i = 0; i < sets.length; i++) {
             sets[i] = descriptor_sets[i]->set.set;
         }
-        vkCmdBindDescriptorSets(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.layout, 0, sets.length, sets.data, 0, 0);
+        vkCmdBindDescriptorSets(buffer, bind_point, layout, 0, sets.length, sets.data, 0, 0);
     }
 
     // Push constants
     if(push_constants.has_value()) {
-        vkCmdPushConstants(buffer, pipeline.pipeline.layout, VK_SHADER_STAGE_ALL, 0, push_constants->size(), push_constants->data());
+        vkCmdPushConstants(buffer, layout, VK_SHADER_STAGE_ALL, 0, push_constants->size(), push_constants->data());
     }
+}
+
+void CommandBuffer::bind_compute_pipeline(
+    const ComputePipeline& pipeline,
+    const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+    const std::optional<nb::bytes>& push_constants)
+{
+    bind_pipeline_common(VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, push_constants);
+}
+
+void CommandBuffer::bind_graphics_pipeline(
+    const GraphicsPipeline& pipeline,
+    const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+    const std::optional<nb::bytes>& push_constants,
+    const std::vector<nb::ref<Buffer>> vertex_buffers,
+    std::optional<nb::ref<Buffer>> index_buffer,
+    std::array<u32, 4> viewport,
+    std::array<u32, 4> scissors
+)
+{
+    bind_pipeline_common(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, push_constants);
 
     // Vertex buffers
     if(vertex_buffers.size() > 0) {
@@ -1218,6 +1369,12 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("enable_gpu_based_validation") = false,
             nb::arg("enable_synchronization_validation") = false
         )
+        .def("get_sync_command_buffer", [] (nb::ref<Context> ctx) {
+            return new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer, false);
+        })
+        .def("submit_sync", [](const Context& ctx) {
+            gfx::SubmitSync(ctx.vk);
+        })
     ;
 
     nb::class_<Frame>(m, "Frame",
@@ -1395,6 +1552,8 @@ void gfx_create_bindings(nb::module_& m)
         .value("DEPTH_STENCIL_ATTACHMENT", ImageUsage::DepthStencilAttachment)
         .value("DEPTH_STENCIL_ATTACHMENT_READ_ONLY", ImageUsage::DepthStencilAttachmentReadOnly)
         .value("DEPTH_STENCIL_ATTACHMENT_WRITE_ONLY", ImageUsage::DepthStencilAttachmentWriteOnly)
+        .value("TRANSFER_SRC", ImageUsage::TransferSrc)
+        .value("TRANSFER_DST", ImageUsage::TransferDst)
         .value("PRESENT", ImageUsage::Present)
     ;
 
@@ -1470,7 +1629,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth").none() = nb::none())
         .def("end_rendering", &CommandBuffer::end_rendering)
         .def("rendering", &CommandBuffer::rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth").none() = nb::none())
-        .def("bind_pipeline_state", &CommandBuffer::bind_pipeline_state,
+        .def("bind_graphics_pipeline", &CommandBuffer::bind_graphics_pipeline,
             nb::arg("pipeline"),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
             nb::arg("push_constants") = std::optional<nb::bytes>(),
@@ -1479,12 +1638,32 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("viewport") = std::array<float, 4>(),
             nb::arg("scissors") = std::array<float, 4>()
         )
+        .def("bind_compute_pipeline", &CommandBuffer::bind_compute_pipeline,
+            nb::arg("pipeline"),
+            nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("push_constants") = std::optional<nb::bytes>()
+        )
+        .def("dispatch", &CommandBuffer::dispatch,
+            nb::arg("groups_x"),
+            nb::arg("groups_y") = 1,
+            nb::arg("groups_z") = 1
+        )
+        .def("draw", &CommandBuffer::draw,
+            nb::arg("num_vertices"),
+            nb::arg("num_instances") = 1,
+            nb::arg("first_vertex") = 0,
+            nb::arg("first_instance") = 0
+        )
         .def("draw_indexed", &CommandBuffer::draw_indexed,
             nb::arg("num_indices"),
             nb::arg("num_instances") = 1,
             nb::arg("first_index") = 0,
             nb::arg("vertex_offset") = 0,
-            nb::arg("first_instanc") = 0
+            nb::arg("first_instance") = 0
+        )
+        .def("copy_image_to_buffer", &CommandBuffer::copy_image_to_buffer,
+            nb::arg("image"),
+            nb::arg("buffer")
         )
     ;
 
@@ -1889,6 +2068,7 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<DescriptorSet>([](DescriptorSet *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Context>, const std::vector<DescriptorSetEntry>&, VkDescriptorBindingFlagBits>(), nb::arg("ctx"), nb::arg("entries"), nb::arg("flags") = VkDescriptorBindingFlagBits())
         .def("write_buffer", &DescriptorSet::write_buffer, nb::arg("buffer"), nb::arg("type"), nb::arg("binding"), nb::arg("element"))
+        .def("write_image", &DescriptorSet::write_image, nb::arg("image"), nb::arg("usage"), nb::arg("type"), nb::arg("binding"), nb::arg("element"))
     ;
 
     nb::enum_<VkBlendFactor>(m, "BlendFactor")
@@ -2022,8 +2202,22 @@ void gfx_create_bindings(nb::module_& m)
         )
     ;
 
-    nb::class_<GraphicsPipeline>(m, "GraphicsPipeline",
-        nb::intrusive_ptr<GraphicsPipeline>([](GraphicsPipeline *o, PyObject *po) noexcept { o->set_self_py(po); }))
+    nb::class_<ComputePipeline, GfxObject>(m, "ComputePipeline")
+        .def(nb::init<nb::ref<Context>,
+                nb::ref<Shader>,
+                nb::str,
+                const std::vector<PushConstantsRange>&,
+                const std::vector<nb::ref<DescriptorSet>>&
+            >(),
+            nb::arg("ctx"),
+            nb::arg("shader"),
+            nb::arg("name"),
+            nb::arg("push_constants_ranges") = std::vector<PushConstantsRange>(),
+            nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>()
+        )
+        .def("destroy", &ComputePipeline::destroy)
+    ;
+    nb::class_<GraphicsPipeline, GfxObject>(m, "GraphicsPipeline")
         .def(nb::init<nb::ref<Context>,
                 const std::vector<nb::ref<PipelineStage>>&,
                 const std::vector<VertexBinding>&,

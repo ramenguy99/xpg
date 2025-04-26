@@ -1,4 +1,5 @@
 #include <vector>
+#include <functional>
 
 #include <nanobind/nanobind.h>
 #include <nanobind/intrusive/counter.h>
@@ -124,6 +125,7 @@ struct Reflection_Resource: nb::intrusive_base {
     enum class Kind {
         ConstantBuffer,
         StructuredBuffer,
+        Texture2D,
     };
     Kind kind;
 
@@ -244,7 +246,7 @@ struct CompilationError: public std::runtime_error
     CompilationError(std::string error): std::runtime_error(error) {}
 };
 
-nb::ref<SlangShader> slang_compile(const nb::str& file, const::nb::str& entry) {
+nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISession*, ISlangBlob**)> func, const nb::str& entry) {
     if(!g_slang_global_session) {
         SlangGlobalSessionDesc desc = {
             .enableGLSL = false, // This enables glsl compat, but increases startup time by a lot, and forces generation of .bin file on first run.
@@ -271,7 +273,7 @@ nb::ref<SlangShader> slang_compile(const nb::str& file, const::nb::str& entry) {
     g_slang_global_session->createSession(session_desc, session.writeRef());
 
     Slang::ComPtr<slang::IBlob> diagnostics;
-    Slang::ComPtr<slang::IModule> mod = Slang::ComPtr<slang::IModule>(session->loadModule(file.c_str(), diagnostics.writeRef()));
+    Slang::ComPtr<slang::IModule> mod = Slang::ComPtr<slang::IModule>(func(session.get(), diagnostics.writeRef()));
 
     if(!mod) {
         throw CompilationError((char *)diagnostics->getBufferPointer());
@@ -350,6 +352,9 @@ nb::ref<SlangShader> slang_compile(const nb::str& file, const::nb::str& entry) {
                             case SlangResourceShape::SLANG_STRUCTURED_BUFFER: {
                                 resource->kind = Reflection_Resource::Kind::StructuredBuffer;
                             } break;
+                            case SlangResourceShape::SLANG_TEXTURE_2D: {
+                                resource->kind = Reflection_Resource::Kind::Texture2D;
+                            } break;
                             default:
                                 throw std::runtime_error("Unexpected resource shape in shader reflection");
                         }
@@ -381,6 +386,18 @@ nb::ref<SlangShader> slang_compile(const nb::str& file, const::nb::str& entry) {
     }
 
     return nb::ref<SlangShader>(new SlangShader(nb::bytes(kernel->getBufferPointer(), kernel->getBufferSize()), reflection, std::move(dependencies)));
+}
+
+nb::ref<SlangShader> slang_compile_str(const nb::str& str, const nb::str& entry, const nb::str& filename) {
+    return slang_compile_any([&str, &filename] (slang::ISession* session, ISlangBlob** diagnostics) {
+        return session->loadModuleFromSourceString(filename.c_str(), filename.c_str(), str.c_str(), diagnostics);
+    }, entry);
+}
+
+nb::ref<SlangShader> slang_compile(const nb::str& file, const nb::str& entry) {
+    return slang_compile_any([&file] (slang::ISession* session, ISlangBlob** diagnostics) {
+        return session->loadModule(file.c_str(), diagnostics);
+    }, entry);
 }
 
 void slang_create_bindings(nb::module_& mod_slang)
@@ -494,7 +511,8 @@ void slang_create_bindings(nb::module_& mod_slang)
         .def("__setstate__", SlangShader::__setstate__)
     ;
 
-    mod_slang.def("compile", slang_compile);
+    mod_slang.def("compile", slang_compile, nb::arg("path"), nb::arg("entry") = "main");
+    mod_slang.def("compile_str", slang_compile_str, nb::arg("source"), nb::arg("entry") = "main", nb::arg("filename") = "");
 
     nb::enum_<slang::TypeReflection::ScalarType>(mod_slang, "ScalarKind")
         .value("None", slang::TypeReflection::ScalarType::None)

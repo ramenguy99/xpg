@@ -413,6 +413,29 @@ struct BeginRenderingDesc {
 void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc);
 void CmdEndRendering(VkCommandBuffer cmd);
 
+
+struct CopyImageToBufferDesc {
+    VkImage image;
+    VkImageLayout image_layout;
+    u32 image_x = 0;
+    u32 image_y = 0;
+    u32 image_z = 0;
+    u32 image_width;
+    u32 image_height;
+    u32 image_depth = 1;
+    VkImageAspectFlags image_aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+    u32 image_mip = 0;
+    u32 image_base_layer = 0;  // Index of first layer in array
+    u32 image_layer_count = 1; // Number of layers in array
+
+    VkBuffer buffer;
+    u64 buffer_offset = 0;
+    u32 buffer_row_stride = 0; // 0 means rows are tightly packed
+    u32 buffer_image_height = 0; // 0 means planes are tightly packed (for 3D images)
+};
+void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageToBufferDesc&& desc);
+
+
 // - Shaders
 struct Shader {
     VkShaderModule shader;

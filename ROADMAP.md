@@ -59,7 +59,17 @@ Python:
         - Decided to use global object, if user instantiates it twice it throws, automatically cleaned up,
            can potentially add methods (e.g. log level control). Can be cleaned up before other stuff, but not
            critical.
+- [ ] Finish gfx bindings
+    - [x] Image descriptors
+    - [x] Sync commands
+    - [x] Compute
+    - [ ] Queues + queue sync
+    - [ ] Barriers
+        - [ ] Memory barrier for buffers?
+        - [ ] Queue transfer barriers?
+        - [ ] Low level combined barrier API?
 - [ ] Clean examples
+    - [x] Headless graphics and compute
     - [ ] Basic
     - [ ] Gui
     - [ ] Pipeline cache
@@ -67,17 +77,20 @@ Python:
     - [ ] Raytrace
     - [ ] Warp interop
 - [ ] Slang:
+    - [x] Compile from string
     - [ ] Pipeline cache with all important inputs
     - [ ] Expose spirv targets
     - [ ] Cleaner handling of multiple entry points
-- [ ] Queues + queue sync
-- [ ] Barriers
-    - [ ] Memory barrier for buffers?
-    - [ ] Queue transfer barriers?
-    - [ ] Low level combined barrier API?
 - [ ] Cleanup some stubs with pattern matching file:
     - numpy arrays over buffers -> maybe somehow switch to memory view? should be available everywhere
     - tuple args in window callbacks are actually Tuple[float, float]
+- [ ] Some validation errors can cause hard segfaults, do we have a way right now
+      to catch those and bubble them up to python, or at least print them before segfault?
+      e.g. Create image with unsupported format -> Format.R8G8B8 (missing A8) is not supported
+        img = Image(ctx, W, H, Format.R8G8B8_UNORM,
+                    ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.TRANSFER_SRC,
+                    AllocType.DEVICE)
+- [ ] Synchronization 2 is not actually optional!
 
 
 ## Future
