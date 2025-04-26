@@ -1,10 +1,27 @@
 from pyxpg import *
 from pyxpg import imgui
 from typing import Tuple
+import logging
 import atexit
+import coloredlogs
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.NOTSET,
+    format='%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger.info('Started')
+
+log_levels = {
+    LogLevel.TRACE: logging.DEBUG,
+    LogLevel.DEBUG: logging.DEBUG,
+    LogLevel.INFO: logging.INFO,
+    LogLevel.WARN: logging.WARN,
+    LogLevel.ERROR: logging.ERROR,
+}
 
 def log_callback(level, ctx, s):
-    print(f"{level} {ctx} {s}")
+    logger.log(log_levels[level], f"[xpg/{ctx}] {s}")
 
 log_ovverride = set_log_callback(log_callback)
 atexit.register(lambda: set_log_callback(None))
@@ -66,6 +83,3 @@ while True:
         break
 
     draw()
-
-# if __name__ == "__main__":
-#     run()

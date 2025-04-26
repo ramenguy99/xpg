@@ -46,7 +46,54 @@ void log_impl(xpg::logging::LogLevel level, const char* ctx, const char* fmt, va
     }
 }
 
-NB_MODULE(_pyxpg, m) {
+static int m_traverse(PyObject *self, visitproc visit, void *arg) {
+    // // Inform the Python GC about the instance (if non-NULL)
+    // auto ptr = nb::find(g_log_callback).ptr();
+    // printf("YOOOOOOOOOOOO: %p\n", ptr);
+    // Py_VISIT(ptr);
+    return 0;
+}
+
+static int m_clear(PyObject *self) {
+    // printf("NNNNNNNNNNNNNN\n");
+    // g_log_callback = nullptr;
+    return 0;
+}
+static void m_free(void*) {
+    // printf("FREEEEEEEEEEEEEE\n");
+}
+
+struct LogGuard: public nb::intrusive_base {
+    LogGuard(std::function<void(xpg::logging::LogLevel, nb::str, nb::str)> f) {
+        g_log_callback = std::move(f);
+    }
+    ~LogGuard() {
+        g_log_callback = nullptr;
+        printf("FREED LOG!\n");
+    }
+
+    static int tp_traverse(PyObject *self, visitproc visit, void *arg) {
+        auto ptr = nb::find(g_log_callback).ptr();
+        printf("YOOOOOOOOOOOO: %p\n", ptr);
+        Py_VISIT(ptr);
+        return 0;
+    }
+
+    static int tp_clear(PyObject *self) {
+        printf("NNNNNNNNNNNNNN\n");
+        g_log_callback = nullptr;
+        return 0;
+    }
+};
+
+// Slot data structure referencing the above two functions
+static PyType_Slot log_guard_tp_slots[] = {
+    { Py_tp_traverse, (void*)LogGuard::tp_traverse },
+    { Py_tp_clear, (void*)LogGuard::tp_clear },
+    { 0, nullptr }
+};
+
+NB_MODULE(_pyxpg, m, m_traverse, m_clear, m_free) {
     nb::intrusive_init(
         [](PyObject *o) noexcept {
             nb::gil_scoped_acquire guard;
@@ -56,6 +103,12 @@ NB_MODULE(_pyxpg, m) {
             nb::gil_scoped_acquire guard;
             Py_DECREF(o);
         });
+
+    nb::class_<LogGuard>(m, "LogGuard",
+        nb::type_slots(log_guard_tp_slots),
+        nb::intrusive_ptr<LogGuard>([](LogGuard *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def(nb::init<std::function<void(xpg::logging::LogLevel, nb::str, nb::str)>>())
+    ;
 
     // Initialize logging
     xpg::logging::g_log_func = log_impl;
