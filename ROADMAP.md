@@ -70,9 +70,13 @@ Python:
         - [ ] Low level combined barrier API?
 - [ ] Clean examples
     - [x] Headless graphics and compute
-    - [ ] Basic
-    - [ ] Gui
-    - [ ] Pipeline cache
+    - [x] Minimal
+    - [x] Basic app
+    - [x] Voxels
+        - Per frame resources
+        - Depth buffer
+        - Mouse interaction
+        - [ ] transform not working properly, z is flipped? Debug this with proper x,y,z axis drawn
     - [ ] Sequence (?) -> showcases multithreaded loading
     - [ ] Raytrace
     - [ ] Warp interop

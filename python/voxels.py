@@ -1,16 +1,20 @@
-from pyxpg import *
-from pyxpg import imgui
-from pyxpg import slang
 from pathlib import Path
 import numpy as np
 from typing import Tuple
 
+from pyglm.glm import vec3
+from pyxpg import *
+from pyxpg import imgui
+from pyxpg import slang
+
 from utils.pipelines import PipelineWatch, Pipeline
-from utils import gfxmath
-from utils.gfxmath import Vec3
 from utils import reflection
 from utils import render
 from utils.camera import Camera
+
+def grid3d(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
+    x, y, z = np.meshgrid(x, y, z)
+    return np.vstack((x.flatten(), y.flatten(), z.flatten())).T
 
 # Params
 SAMPLES = 4
@@ -19,7 +23,7 @@ SAMPLES = 4
 S = 2
 N = 5
 R = 10
-voxels = gfxmath.grid3d(np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32))
+voxels = grid3d(np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32))
 
 I = np.tile(np.array([
     [0, 1, 3],
@@ -31,8 +35,7 @@ I = np.tile(np.array([
 ], np.uint32), (voxels.shape[0], 1))
 I = (I.reshape((voxels.shape[0], -1)) + np.arange(voxels.shape[0]).reshape(voxels.shape[0], 1) * 8).astype(np.uint32)
 
-
-camera = Camera(Vec3(40, 40, 40), Vec3(0, 0, 0), Vec3(0, 0, 1), 45, 1, 0.1, 100.0)
+camera = Camera(vec3(30, 30, -30), vec3(0, 0, 0), vec3(0, 0, 1), 45, 1, 0.1, 100.0)
 
 # Init
 ctx = Context()
@@ -151,6 +154,7 @@ def draw():
         u_buf_view["view"] = camera.view()
         u_buf_view["camera_pos"] = camera.position
         u_buf_view["size"] = S
+        print(camera.position)
 
         set: DescriptorSet = descriptor_sets.get_current_and_advance()
         set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
