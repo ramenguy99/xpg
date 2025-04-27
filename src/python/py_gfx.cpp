@@ -87,6 +87,9 @@ struct Buffer: public GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create buffer");
         }
+        if (usage_flags & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
+            device_address = gfx::GetBufferAddress(buffer.buffer, ctx->vk.device);
+        }
     }
 
     Buffer(nb::ref<Context> ctx)
@@ -113,11 +116,15 @@ struct Buffer: public GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create buffer");
         }
+        if (usage_flags & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
+            self->device_address = gfx::GetBufferAddress(self->buffer.buffer, ctx->vk.device);
+        }
 
         return self.release();
     }
 
     gfx::Buffer buffer = {};
+    std::optional<VkDeviceAddress> device_address;
 };
 
 struct Semaphore: public GfxObject {
@@ -1178,6 +1185,62 @@ struct PushConstantsRange: gfx::PushConstantsRangeDesc {
 
 static_assert(sizeof(PushConstantsRange) == sizeof(gfx::PushConstantsRangeDesc));
 
+struct AccelerationStructureMesh: gfx::AccelerationStructureMeshDesc {
+    AccelerationStructureMesh(
+        VkDeviceAddress vertices_address,
+        u64 vertices_stride,
+        u32 vertices_count,
+        VkFormat vertices_format,
+        VkDeviceAddress indices_address,
+        VkIndexType indices_type,
+        u32 primitive_count,
+        std::array<float, 12> transform)
+        : gfx::AccelerationStructureMeshDesc {
+              .vertices_address = vertices_address,
+              .vertices_stride = vertices_stride,
+              .vertices_count = vertices_count,
+              .vertices_format = vertices_format,
+              .indices_address = indices_address,
+              .indices_type = indices_type,
+              .primitive_count = primitive_count,
+              .transform = glm::mat4x3(
+                transform[0], transform[ 1], transform[ 2],
+                transform[3], transform[ 4], transform[ 5],
+                transform[6], transform[ 7], transform[ 8],
+                transform[9], transform[10], transform[11]
+            ),
+        }
+    {
+    }
+};
+
+static_assert(sizeof(AccelerationStructureMesh) == sizeof(gfx::AccelerationStructureMeshDesc));
+
+struct AccelerationStructure: public GfxObject {
+    AccelerationStructure(nb::ref<Context> ctx, const std::vector<AccelerationStructureMesh>& meshes)
+        : GfxObject(ctx, true)
+    {
+        VkResult vkr = gfx::CreateAccelerationStructure(&as, ctx->vk, gfx::AccelerationStructureDesc {
+            .meshes = ArrayView((gfx::AccelerationStructureMeshDesc*)meshes.data(), meshes.size()),
+        });
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create acceleration structure");
+        }
+    }
+
+    ~AccelerationStructure() {
+        destroy();
+    }
+
+    void destroy() {
+        if(owned) {
+            gfx::DestroyAccelerationStructure(&as, ctx->vk);
+        }
+    }
+
+    gfx::AccelerationStructure as;
+};
+
 struct ComputePipeline: GfxObject {
     ComputePipeline(nb::ref<Context> ctx,
         nb::ref<Shader> shader,
@@ -1564,6 +1627,12 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("view", [] (Buffer& buffer) {
             return nb::ndarray<u8, nb::numpy, nb::shape<-1>>(buffer.buffer.map.data, {buffer.buffer.map.length}, buffer.self_py());
         }, nb::rv_policy::reference_internal)
+        .def_prop_ro("address", [](Buffer& buffer) {
+            if (!buffer.device_address.has_value()) {
+                throw std::runtime_error("Buffer address can only be accessed if BufferUsageFlags.SHADER_DEVICE_ADDRESS was set when creating the buffer");
+            }
+            return buffer.device_address.value();
+        })
     ;
 
     nb::class_<ExternalBuffer, Buffer>(m, "ExternalBuffer")
@@ -1576,6 +1645,11 @@ void gfx_create_bindings(nb::module_& m)
         .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlags, gfx::AllocPresets::Type, int>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("samples") = 1)
         .def("destroy", &Image::destroy)
         // .def_static("from_data", &Image::from_data)
+    ;
+
+    nb::class_<AccelerationStructure, GfxObject>(m, "AccelerationStructure")
+        .def(nb::init<nb::ref<Context>, const std::vector<AccelerationStructureMesh>>(), nb::arg("ctx"), nb::arg("meshes"))
+        .def("destroy", &AccelerationStructure::destroy)
     ;
 
     nb::class_<Semaphore, GfxObject>(m, "Semaphore")
@@ -1749,6 +1823,14 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<VertexBinding>(m, "VertexBinding")
         .def(nb::init<u32, u32, VertexBinding::InputRate>(), nb::arg("binding"), nb::arg("stride"), nb::arg("input_rate") = VertexBinding::InputRate::Vertex)
+    ;
+
+    nb::enum_<VkIndexType>(m, "IndexType")
+        .value("UINT16",    VK_INDEX_TYPE_UINT16)
+        .value("UINT32",    VK_INDEX_TYPE_UINT32)
+        .value("UINT8",     VK_INDEX_TYPE_UINT8)
+        .value("NONE_KHR",  VK_INDEX_TYPE_NONE_KHR)
+        .value("UINT8_KHR", VK_INDEX_TYPE_UINT8_KHR)
     ;
 
     nb::enum_<VkFormat>(m, "Format")
@@ -2227,6 +2309,28 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<PushConstantsRange>(m, "PushConstantsRange")
         .def(nb::init<u32, u32, VkShaderStageFlagBits>(), nb::arg("size"), nb::arg("offset") = 0, nb::arg("stages") = VK_SHADER_STAGE_ALL)
+    ;
+
+    nb::class_<AccelerationStructureMesh>(m, "AccelerationStructureMesh")
+        .def(nb::init<
+            VkDeviceAddress,
+            u64,
+            u32,
+            VkFormat,
+            VkDeviceAddress,
+            VkIndexType,
+            u32,
+            std::array<float, 12>
+        >(),
+            nb::arg("vertices_address"),
+            nb::arg("vertices_stride"),
+            nb::arg("vertices_count"),
+            nb::arg("vertices_format"),
+            nb::arg("indices_address"),
+            nb::arg("indices_type"),
+            nb::arg("primitive_count"),
+            nb::arg("transform")
+        )
     ;
 
     nb::enum_<VkCompareOp>(m, "CompareOp")

@@ -1,8 +1,9 @@
 import numpy as np
 from pathlib import Path
+from typing import List
 
 from pyxpg import *
-from pyglm.glm import vec4
+from pyglm.glm import vec3, vec4, mat4, mat4x3, rotate
 
 from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype
@@ -93,10 +94,34 @@ class RaytracePipeline(Pipeline):
 rt = RaytracePipeline()
 
 # Get mesh instance type from reflection
+as_meshes: List[AccelerationStructureMesh] = []
+rot = rotate(0.75, vec3(0, 0, 1))
+to_z_up = mat4(
+    vec4(1., 0., 0., 0.),
+    vec4(0., 0., 1., 0.),
+    vec4(0., 1., 0., 0.),
+    vec4(0., 0., 0., 1.),
+)
+vertices_address = positions_buf.address
+indices_address = indices_buf.address
+
 mesh_instances = np.zeros(len(scene.meshes), to_dtype(rt.reflection.resources[3].type))
 vertex_offset = 0
 index_offset = 0
 for i, m in enumerate(scene.meshes):
+    # Fill acceleration structure info
+    as_meshes.append(AccelerationStructureMesh(
+        vertices_address = vertices_address + vertex_offset * 12,
+        vertices_stride = 12,
+        vertices_count = m.positions.shape[0],
+        vertices_format = Format.R32G32B32_SFLOAT,
+        indices_address = indices_address + index_offset * 4,
+        indices_type = IndexType.UINT32,
+        primitive_count = m.indices.shape[0] // 3,
+        transform = tuple(sum(mat4x3(rot @ to_z_up @ m.transform).to_tuple(), ())),
+    )) 
+
+    # Fill mesh instances
     mesh_instances[i]["transform"] = m.transform
     mesh_instances[i]["vertex_offset"] = vertex_offset
     mesh_instances[i]["index_offset"] = index_offset
@@ -121,7 +146,8 @@ for i, m in enumerate(scene.meshes):
 assert vertex_offset == positions.shape[0]
 assert index_offset == indices.shape[0]
 
-# TODO: acceleration structures
+acceleration_structure = AccelerationStructure(ctx, as_meshes)
+
 # TODO: sampler
 # TODO: fill descriptors
 # TODO: fill constants
