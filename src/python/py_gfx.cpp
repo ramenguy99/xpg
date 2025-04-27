@@ -714,6 +714,7 @@ struct Window: public nb::intrusive_base {
 
         gfx::SetWindowCallbacks(&window, {
                 .mouse_move_event = [this](glm::ivec2 p) {
+                    nb::gil_scoped_acquire gil;
                     try {
                         if(this->mouse_move_event)
                             this->mouse_move_event(nb::make_tuple(p.x, p.y));
@@ -722,6 +723,7 @@ struct Window: public nb::intrusive_base {
                     }
                 },
                 .mouse_button_event = [this] (glm::ivec2 p, gfx::MouseButton b, gfx::Action a, gfx::Modifiers m) {
+                    nb::gil_scoped_acquire gil;
                     try {
                         if(this->mouse_button_event)
                             this->mouse_button_event(nb::make_tuple(p.x, p.y), b, a, m);
@@ -730,6 +732,7 @@ struct Window: public nb::intrusive_base {
                     }
                 },
                 .mouse_scroll_event = [this] (glm::ivec2 p, glm::ivec2 s) {
+                    nb::gil_scoped_acquire gil;
                     try {
                         if(this->mouse_scroll_event)
                             this->mouse_scroll_event(nb::make_tuple(p.x, p.y), nb::make_tuple(s.x, s.y));
@@ -738,6 +741,7 @@ struct Window: public nb::intrusive_base {
                     }
                 },
                 .key_event = [this] (gfx::Key k, gfx::Action a, gfx::Modifiers m) {
+                    nb::gil_scoped_acquire gil;
                     try {
                         if(this->key_event)
                             this->key_event(k, a, m);
@@ -746,6 +750,7 @@ struct Window: public nb::intrusive_base {
                     }
                 },
                 .draw = [this] () {
+                    nb::gil_scoped_acquire gil;
                     try {
                         if(this->draw)
                             this->draw();
@@ -820,6 +825,10 @@ struct Window: public nb::intrusive_base {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to present frame");
         }
+    }
+    
+    void post_empty_event() {
+        glfwPostEmptyEvent();
     }
 
     ~Window()
@@ -1403,6 +1412,9 @@ void gfx_create_bindings(nb::module_& m)
         .def("submit_sync", [](const Context& ctx) {
             gfx::SubmitSync(ctx.vk);
         })
+        .def("wait_idle", [](Context& ctx) {
+            gfx::WaitIdle(ctx.vk);
+        })
     ;
 
     nb::class_<SyncCommandsManager>(m, "SyncCommands")
@@ -1439,6 +1451,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("additional_wait_semaphores") = nb::list(),
             nb::arg("additional_signal_semaphores") = nb::list()
         )
+        .def("post_empty_event", &Window::post_empty_event)
         .def_prop_ro("swapchain_format", [](Window& w) -> VkFormat { return w.window.swapchain_format; })
         .def_prop_ro("fb_width", [](Window& w) -> u32 { return w.window.fb_width; })
         .def_prop_ro("fb_height", [](Window& w) -> u32 { return w.window.fb_height; })
@@ -2282,6 +2295,12 @@ void gfx_create_bindings(nb::module_& m)
         .value("MINIMIZED", gfx::SwapchainStatus::MINIMIZED)
     ;
 
-    m.def("process_events", &gfx::ProcessEvents, nb::arg("wait"));
-    m.def("wait_idle", [](Context& ctx) { gfx::WaitIdle(ctx.vk); });
+    m.def("process_events", [](bool wait) {
+        if (wait) {
+            nb::gil_scoped_release release_gil;
+            gfx::ProcessEvents(true);
+        } else {
+            gfx::ProcessEvents(false);
+        }
+    }, nb::arg("wait"));
 }

@@ -1,49 +1,26 @@
 from pyxpg import *
 from typing import Tuple
-import logging
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.NOTSET,
-    format='[%(asctime)s.%(msecs)03d] %(levelname)-6s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-log_levels = {
-    LogLevel.TRACE: logging.DEBUG,
-    LogLevel.DEBUG: logging.DEBUG,
-    LogLevel.INFO: logging.INFO,
-    LogLevel.WARN: logging.WARN,
-    LogLevel.ERROR: logging.ERROR,
-}
-
-def log_callback(level, ctx, s):
-    logger.log(log_levels[level], f"[{ctx}] {s}")
-
-log_ovverride = LogCapture(log_callback)
-
-ctx = Context(
-    device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION, 
-    enable_validation_layer=True,
-    enable_synchronization_validation=True,
-)
-
-window = Window(ctx, "Hello", 1280, 720)
+ctx = Context()
+window = Window(ctx, "Minimal", 1280, 720)
 gui = Gui(window)
 
+# Draw function
 def draw():
+    # Update swapchain, this handles resizing the window buffers
     swapchain_status = window.update_swapchain()
-
     if swapchain_status == SwapchainStatus.MINIMIZED:
         return
-
     if swapchain_status == SwapchainStatus.RESIZED:
         pass
 
+    # Create GUI
     with gui.frame():
-        if imgui.begin("wow"):
+        if imgui.begin("Window"):
             imgui.text("Hello")
         imgui.end()
 
+    # Render a frame
     with window.frame() as frame:
         with frame.command_buffer as cmd:
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
@@ -58,21 +35,24 @@ def draw():
                         clear=[0.1, 0.2, 0.4, 1],
                     ),
                 ]):
+                # Render GUI
                 gui.render(cmd)
 
             cmd.use_image(frame.image, ImageUsage.PRESENT)
 
+# Input event
 def mouse_button_event(p: Tuple[int, int], button: MouseButton, action: Action, mods: Modifiers):
     print("Mouse button event:", p, button, action, mods)
 
+# Register window callbacks
 window.set_callbacks(
     draw,
     mouse_button_event=mouse_button_event,
 )
 
-
+# Main loop
 while True:
-    process_events(False)
+    process_events(True)
 
     if window.should_close():
         break

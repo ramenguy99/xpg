@@ -3,25 +3,14 @@ from pyxpg import imgui
 from pyxpg import slang
 from pathlib import Path
 import numpy as np
-from pipelines import PipelineWatch, Pipeline
 from typing import Tuple
 
-import gfxmath
-from gfxmath import Vec3
-import reflection
-import renderutils
-from camera import Camera
-
-# TODO:
-# [x] Fix indices (make small diagram)
-# [x] Fix lighting
-# [x] Depth buffer
-# [x] MSAA
-# [x] Triple buffering
-# [x] Better camera utils
-#     [x] Debug perspective / lookat
-# [ ] Per voxel color
-# [ ] Pack voxel data
+from utils.pipelines import PipelineWatch, Pipeline
+from utils import gfxmath
+from utils.gfxmath import Vec3
+from utils import reflection
+from utils import render
+from utils.camera import Camera
 
 # Params
 SAMPLES = 4
@@ -53,7 +42,7 @@ gui = Gui(window)
 index_buf = Buffer.from_data(ctx, I.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
 voxels_buf = Buffer.from_data(ctx, voxels.tobytes(), BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
 
-descriptor_sets = renderutils.PerFrameResource(DescriptorSet, window.num_frames,
+descriptor_sets = render.PerFrameResource(DescriptorSet, window.num_frames,
     ctx,
     [
         DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
@@ -66,10 +55,12 @@ for set in descriptor_sets.resources:
     set.write_buffer(voxels_buf, DescriptorType.STORAGE_BUFFER, 1, 0)
 
 
+SHADERS = Path(__file__).parent.joinpath("shaders")
+
 # Pipeline
 class VoxelPipeline(Pipeline):
-    vert_prog = "shaders/voxels.vert.slang"
-    frag_prog = "shaders/voxels.frag.slang"
+    vert_prog = Path(SHADERS, "voxels.vert.slang")
+    frag_prog = Path(SHADERS, "voxels.frag.slang")
 
     def create(self, vert_prog: slang.Shader, frag_prog: slang.Shader):
         global dt
@@ -78,7 +69,7 @@ class VoxelPipeline(Pipeline):
         refl = vert_prog.reflection
         dt = reflection.to_dtype(refl.resources[0].type)
 
-        u_bufs = renderutils.PerFrameResource(Buffer, window.num_frames, ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
+        u_bufs = render.PerFrameResource(Buffer, window.num_frames, ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
         vert = Shader(ctx, vert_prog.code)
         frag = Shader(ctx, frag_prog.code)
 
@@ -100,7 +91,7 @@ class VoxelPipeline(Pipeline):
 voxels = VoxelPipeline()
 cache = PipelineWatch([
     voxels,
-])
+], window)
 
 first_frame: bool = True
 depth: Image = None
@@ -111,9 +102,8 @@ def draw():
     global msaa_target
     global depth
     global first_frame
-    global proj
 
-    cache.refresh(lambda: wait_idle(ctx))
+    cache.refresh(lambda: ctx.wait_idle())
 
     # swapchain update
     swapchain_status = window.update_swapchain()
@@ -125,7 +115,7 @@ def draw():
     if first_frame or swapchain_status == SwapchainStatus.RESIZED:
         first_frame = False
 
-        # Refresh proj
+        # Update aspect ratio
         camera.ar = window.fb_width / window.fb_height
 
         # Resize depth
@@ -138,8 +128,18 @@ def draw():
 
     # GUI
     with gui.frame():
-        if imgui.begin("wow"):
-            imgui.text("Hello")
+        # TODO: implement once binding are available
+        # imgui.set_next_window_pos((50, 50))
+        # imgui.set_next_window_size((50, 200))
+        if imgui.begin(
+            "transparent",
+            flags=
+                imgui.WindowFlags.NO_TITLE_BAR |
+                imgui.WindowFlags.NO_BACKGROUND |
+                imgui.WindowFlags.NO_MOUSE_INPUTS |
+                imgui.WindowFlags.NO_RESIZE
+        ):
+            imgui.text("Left-click and drag left and right to rotate!")
         imgui.end()
 
     # Render
@@ -169,13 +169,13 @@ def draw():
             # Render voxels
             with cmd.rendering(viewport,
                 color_attachments=[
-                    (RenderingAttachment(msaa_target, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=[0.9, 0.9, 0.9, 1], resolve_mode=ResolveMode.AVERAGE, resolve_image=frame.image)
+                    (RenderingAttachment(msaa_target, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=[0.1, 0.1, 0.1, 1], resolve_mode=ResolveMode.AVERAGE, resolve_image=frame.image)
                      if SAMPLES > 1 else
-                     RenderingAttachment(frame.image, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=[0.9, 0.9, 0.9, 1])),
+                     RenderingAttachment(frame.image, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=[0.1, 0.1, 0.1, 1])),
                 ],
                 depth = DepthAttachment(depth, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=1.0)
             ):
-                cmd.bind_pipeline_state(
+                cmd.bind_graphics_pipeline(
                     pipeline=voxels.pipeline,
                     descriptor_sets=[ set ],
                     index_buffer=index_buf,
@@ -231,7 +231,7 @@ window.set_callbacks(
 )
 
 while True:
-    process_events(True)
+    process_events(False)
 
     if window.should_close():
         break
@@ -239,5 +239,3 @@ while True:
     draw()
 
 cache.stop()
-# if __name__ == "__main__":
-#     run()

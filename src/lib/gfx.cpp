@@ -209,12 +209,6 @@ struct GenericFeatureStruct {
     VkBool32 values[1];
 };
 
-template<typename T>
-struct OptionalFeature {
-    T* t;
-    DeviceFeatures device_features;
-};
-
 template <typename T>
 void Chain(GenericFeatureStruct* parent, T* child) {
     static_assert(sizeof(T) >= sizeof(GenericFeatureStruct), "Feature struct must be equal or larger than GenericFeatureStruct");

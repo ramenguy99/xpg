@@ -93,6 +93,18 @@ Python:
 - [ ] Device features
     - [ ] Synchronization 2 is not actually optional!
     - [ ] Validation errors when not using vulkan 1.3 (for some reason enabling descriptor indexing is not enough)
+- [ ] If blocked in process_events -> ctrl+c not working
+    - [x] Check if should release GIL
+    - [ ] Check if can get interrupt somehow and unblock the loop (e.g. with glfwPostEmptyEvent)
+        - check on linux
+        - on windows glfw waits on WaitMessage -> an easy workaraound would be to wait with some timoeout
+           and check the signals with PyErr_CheckSignals
+- [ ] Fix gui with waitevents on linux
+    - likely need some form of animation frame flag / counter to render at least one additional frame
+- [ ] ImGui:
+    - [ ] vec2 / vec4
+    - [ ] images interop
+    - [ ] fonts
 
 
 ## Future

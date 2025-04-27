@@ -2,8 +2,8 @@ from pyxpg import *
 from pyxpg import imgui
 from pathlib import Path
 import numpy as np
-from pipelines import PipelineWatch, Pipeline
-from reflection import to_dtype
+from utils.pipelines import PipelineWatch, Pipeline
+from utils.reflection import to_dtype
 from time import perf_counter
 import os
 
@@ -116,7 +116,7 @@ first_frame = True
 def draw():
     global push_constants, first_frame
 
-    cache.refresh(lambda: wait_idle(ctx))
+    cache.refresh(lambda: ctx.wait_idle())
 
     # swapchain update
     swapchain_status = window.update_swapchain()
@@ -170,7 +170,7 @@ def draw():
                         clear=[0.1, 0.2, 0.4, 1],
                     ),
                 ]):
-                cmd.bind_pipeline_state(
+                cmd.bind_graphics_pipeline(
                     pipeline=color.pipeline,
                     descriptor_sets=[ set ],
                     push_constants=push_constants.tobytes(),

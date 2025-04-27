@@ -5,7 +5,7 @@ from typing import TypeVar
 R = TypeVar("R")
 
 class PerFrameResource:
-    def __init__(self, Resource: type, n: int, *args, **kwargs):
+    def __init__(self, Resource: R, n: int, *args, **kwargs):
         self.resources = []
         for _ in range(n):
             self.resources.append(Resource(*args, **kwargs))

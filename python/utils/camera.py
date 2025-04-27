@@ -1,4 +1,4 @@
-from gfxmath import Mat4, Vec3, perspective, lookat
+from .gfxmath import Mat4, Vec3, perspective, lookat
 from dataclasses import dataclass
 
 @dataclass

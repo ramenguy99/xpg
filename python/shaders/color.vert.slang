@@ -26,18 +26,12 @@ struct Constants
 [[vk::binding(0, 0)]]
 ConstantBuffer<Constants> u;
 
-// ConstantBuffer<Constants> u[2];
-
-// [[vk::binding(0, 1)]]
-// StructuredBuffer<Constants> b;
-
 [shader("vertex")]
 VSOutput main(VSInput in)
 {
     VSOutput out;
     out.position = mul(u.transform, float4(in.position, 1.0));
     out.color = u.nest1.val2;
-    // out.position = mul(u[1].transform, float4(in.position, 1.0));
     
     return out;
 }

@@ -1,9 +1,10 @@
 from pyxpg import *
-from pyxpg import imgui
-from pyxpg import slang
+
 import numpy as np
-from pipelines import PipelineWatch, Pipeline
-from reflection import to_dtype
+from pathlib import Path
+
+from utils.pipelines import PipelineWatch, Pipeline
+from utils.reflection import to_dtype
 
 ctx = Context(
     device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION, 
@@ -11,7 +12,7 @@ ctx = Context(
     enable_synchronization_validation=True,
 )
 
-window = Window(ctx, "Hello", 1280, 720)
+window = Window(ctx, "App", 1280, 720)
 gui = Gui(window)
 
 V = np.array([
@@ -27,7 +28,7 @@ I = np.array([
 ], np.uint32)
 
 rot = np.eye(4, dtype=np.float32)
-push_constants = np.array([ 1.0, 0.0, 0.0], np.float32)
+color_value = np.array([ 1.0, 0.0, 0.0], np.float32)
 v_buf = Buffer.from_data(ctx, V.tobytes(), BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED)
 i_buf = Buffer.from_data(ctx, I.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
 
@@ -38,25 +39,40 @@ set = DescriptorSet(
     ],
 )
 
+SHADERS = Path(__file__).parent.joinpath("shaders")
+
+# Define a pipeline with a basic color only vertex and fragment shader.
+#
+# Any number of shaders can be defined as class fields. They will be compiled
+# with slang  and passed automatically to the "create" method with matching
+# parameter names. The slang.Shader object contains SPIR-V bytecode, reflection
+# information and a list of file dependencies used to compile this shader.
 class ColorPipeline(Pipeline):
-    vert_prog = "shaders/color.vert.slang"
-    frag_prog = "shaders/color.frag.slang"
+    vert_prog = Path(SHADERS, "color.vert.slang")
+    frag_prog = Path(SHADERS, "color.frag.slang")
 
     def create(self, vert_prog: slang.Shader, frag_prog: slang.Shader):
+        # Get type reflection from vertex shader. We use this to create a
+        # numpy dtype that represents the layout of the constant buffer.
         refl = vert_prog.reflection
         dt = to_dtype(refl.resources[0].type)
 
+        # Create a buffer to hold the constants with the required size.
         u_buf = Buffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
         set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
+        # Write initial values into the buffer by creating a view over it
+        # with the dtype generated from the reflection.
         global buf
         buf = u_buf.view.view(dt)
         buf["transform"] = rot
-        buf["nest1"]["val2"] = push_constants
+        buf["nest1"]["val2"] = color_value
 
+        # Turn SPIR-V code into vulkan shader modules
         vert = Shader(ctx, vert_prog.code)
         frag = Shader(ctx, frag_prog.code)
 
+        # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
             ctx,
             stages = [
@@ -70,47 +86,51 @@ class ColorPipeline(Pipeline):
                 VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
             ],
             input_assembly = InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
-            push_constants_ranges = [
-                PushConstantsRange(12),
-            ],
             descriptor_sets = [ set ],
             attachments = [
                 Attachment(format=window.swapchain_format)
             ]
         )
 
+# Instantiate the color pipeline
 color = ColorPipeline()
+
+# Register the color pipeline for hot reloading. We pass the window
+# so that event loop can be unblocked if a hot reloading event happens.
 cache = PipelineWatch([
     color,
-])
-
+], window=window)
 
 def draw():
-    global push_constants
+    global color_value
 
-    cache.refresh(lambda: wait_idle(ctx))
+    # Refresh shaders. If a shader needs to be recompiled we first wait
+    # for the device to become idle. This is needed because as part of the
+    # refresh the old pipeline is destroyed, and we need to ensure that no
+    # previous frame is still using it.
+    cache.refresh(lambda: ctx.wait_idle())
 
-    # swapchain update
+    # Update swapchain
     swapchain_status = window.update_swapchain()
-
     if swapchain_status == SwapchainStatus.MINIMIZED:
         return
-
     if swapchain_status == SwapchainStatus.RESIZED:
         pass
 
+    # GUI
     with gui.frame():
         if imgui.begin("wow"):
             imgui.text("Hello")
             try:
-                updated, v = imgui.color_edit3("Value", tuple(push_constants))
+                updated, c = imgui.color_edit3("Color", tuple(color_value))
                 if updated:
-                    push_constants = np.array(v, np.float32)
-                    buf["nest1"]["val2"] = v
+                    color_value = np.array(c, np.float32)
+                    buf["nest1"]["val2"] = c
             except Exception as e:
                 print(e)
         imgui.end()
 
+    # Render
     with window.frame() as frame:
         with frame.command_buffer as cmd:
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
@@ -125,16 +145,19 @@ def draw():
                         clear=[0.1, 0.2, 0.4, 1],
                     ),
                 ]):
-                cmd.bind_pipeline_state(
+                # Bind the pipeline
+                cmd.bind_graphics_pipeline(
                     pipeline=color.pipeline,
                     descriptor_sets=[ set ],
-                    push_constants=push_constants.tobytes(),
                     vertex_buffers=[ v_buf ],
                     index_buffer=i_buf,
                     viewport=viewport,
                     scissors=viewport,
                 )
+                # Issue a draw
                 cmd.draw_indexed(I.size)
+
+                # Render gui
                 gui.render(cmd)
 
             cmd.use_image(frame.image, ImageUsage.PRESENT)
@@ -142,7 +165,7 @@ def draw():
 window.set_callbacks(draw)
 
 while True:
-    process_events(False)
+    process_events(True)
 
     if window.should_close():
         break
@@ -150,5 +173,3 @@ while True:
     draw()
 
 cache.stop()
-# if __name__ == "__main__":
-#     run()

@@ -1,6 +1,6 @@
 import watchfiles
 from queue import Queue
-from typing import List, Dict, Callable
+from typing import List, Dict, Callable, Optional
 from threading import Thread
 from pathlib import Path
 import atexit
@@ -10,6 +10,7 @@ import pickle
 import abc
 
 from pyxpg import slang
+from pyxpg import Window
 
 def compile(file: Path, entry: str):
     # TODO:
@@ -102,7 +103,8 @@ class Pipeline:
 ALIVE_CACHES = []
 
 class PipelineWatch:
-    def __init__(self, pipelines: List[Pipeline]):
+    def __init__(self, pipelines: List[Pipeline], window: Optional[Window]=None):
+        self.window = window
         self.queue = Queue()
         self.reload: Dict[Path, List[Pipeline]] = {}
         for pipe in pipelines:
@@ -122,11 +124,16 @@ class PipelineWatch:
             if self.should_stop:
                 break
 
+            any_change = False
             for change, path in changes:
                 if change == watchfiles.Change.modified:
                     for pipe in self.reload[Path(path).absolute()]:
                         if pipe._mark_dirty():
                             self.queue.put(pipe)
+                            any_change = True
+            if any_change:
+                if self.window is not None:
+                    self.window.post_empty_event()
 
     def refresh(self, before_any_update: Callable):
         if len(self.reload) and not self.thread.is_alive():
