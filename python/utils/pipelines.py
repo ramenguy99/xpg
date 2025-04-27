@@ -8,9 +8,15 @@ from platformdirs import user_cache_path
 import hashlib
 import pickle
 import abc
+import shutil
 
 from pyxpg import slang
 from pyxpg import Window
+
+CACHE_DIR = user_cache_path("pyxpg")
+
+def clear_cache():
+    shutil.rmtree(CACHE_DIR, ignore_errors=True)
 
 def compile(file: Path, entry: str):
     # TODO:
@@ -26,8 +32,7 @@ def compile(file: Path, entry: str):
     name = f"{hashlib.sha256(file.read_bytes()).digest().hex()}_{entry}.shdr"
 
     # Check cache
-    cache_dir = user_cache_path("pyxpg")
-    path = Path(cache_dir, name)
+    path = Path(CACHE_DIR, name)
     if path.exists():
         try:
             pkl = pickle.load(open(path, "rb"))
@@ -52,7 +57,7 @@ def compile(file: Path, entry: str):
     hashes = [ hashlib.sha256(Path(d).read_bytes()).digest().hex() for d in sorted(prog.dependencies) ]
 
     # Populate cache
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
     pickle.dump((prog, hashes), open(path, "wb"))
     return prog
 

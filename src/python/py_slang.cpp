@@ -126,6 +126,8 @@ struct Reflection_Resource: nb::intrusive_base {
         ConstantBuffer,
         StructuredBuffer,
         Texture2D,
+        AccelerationStructure,
+        Sampler,
     };
     Kind kind;
 
@@ -136,15 +138,16 @@ struct Reflection_Resource: nb::intrusive_base {
     nb::str name;
     u32 set;
     u32 binding;
+    u32 array_count = 1; // UINT32_MAX means unbounded array
 
     nb::ref<Reflection_Obj> type;
 
-    static std::tuple<Kind, SlangResourceShape, SlangResourceAccess, nb::str, u32,u32, nb::ref<Reflection_Obj>>
+    static std::tuple<Kind, SlangResourceShape, SlangResourceAccess, nb::str, u32, u32, u32, nb::ref<Reflection_Obj>>
     __getstate__(const Reflection_Resource& obj) {
-        return std::make_tuple(obj.kind, obj.shape, obj.access, obj.name, obj.set, obj.binding, obj.type);
+        return std::make_tuple(obj.kind, obj.shape, obj.access, obj.name, obj.set, obj.binding, obj.array_count, obj.type);
     }
 
-    static void __setstate__(Reflection_Resource& obj, const std::tuple<Kind, SlangResourceShape, SlangResourceAccess, nb::str, u32,u32, nb::ref<Reflection_Obj>>& resource) {
+    static void __setstate__(Reflection_Resource& obj, const std::tuple<Kind, SlangResourceShape, SlangResourceAccess, nb::str, u32, u32, u32, nb::ref<Reflection_Obj>>& resource) {
         new (&obj) Reflection_Resource();
 
         obj.kind = std::get<0>(resource);
@@ -153,7 +156,8 @@ struct Reflection_Resource: nb::intrusive_base {
         obj.name = std::get<3>(resource);
         obj.set = std::get<4>(resource);
         obj.binding = std::get<5>(resource);
-        obj.type = std::get<6>(resource);
+        obj.array_count = std::get<6>(resource);
+        obj.type = std::get<7>(resource);
     }
 };
 
@@ -237,7 +241,7 @@ nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
             return s.release();
         } break;
         default:
-            throw std::runtime_error("Unhandled type kind while parsing shader reflection");
+            nb::raise("Unhandled type kind while parsing shader reflection: %d", type->getKind());
     }
 }
 
@@ -341,26 +345,32 @@ nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISes
                         resource->type = parse_type(content_type);
                     } break;
                     case slang::TypeReflection::Kind::Resource: {
-                        slang::VariableLayoutReflection* content = type->getElementVarLayout();
-                        slang::TypeLayoutReflection* content_type = content->getTypeLayout();
-                        const char* content_type_name = content_type->getName();
-
                         resource->shape = (SlangResourceShape)(type->getResourceShape() & SLANG_RESOURCE_BASE_SHAPE_MASK);
                         resource->access = type->getResourceAccess();
 
                         switch(resource->shape) {
                             case SlangResourceShape::SLANG_STRUCTURED_BUFFER: {
-                                resource->kind = Reflection_Resource::Kind::StructuredBuffer;
+                                slang::TypeLayoutReflection* content_type = type->getElementTypeLayout();
+                                resource->type = parse_type(content_type);
                             } break;
                             case SlangResourceShape::SLANG_TEXTURE_2D: {
                                 resource->kind = Reflection_Resource::Kind::Texture2D;
+                            } break;
+                            case SlangResourceShape::SLANG_ACCELERATION_STRUCTURE: {
+                                resource->kind = Reflection_Resource::Kind::AccelerationStructure;
                             } break;
                             default:
                                 throw std::runtime_error("Unexpected resource shape in shader reflection");
                         }
                     } break;
+                    case slang::TypeReflection::Kind::Array: {
+                        // TODO: not sure how to handle this yet
+                    } break;
+                    case slang::TypeReflection::Kind::SamplerState: {
+                        resource->kind = Reflection_Resource::Kind::Sampler;
+                    } break;
                     default:
-                        throw std::runtime_error("Unexpected variable type in shader reflection");
+                        nb::raise("Unexpected variable type in shader reflection %d", type->getKind());
                 }
 
                 reflection->resources.push_back(resource);
@@ -455,6 +465,9 @@ void slang_create_bindings(nb::module_& mod_slang)
     nb::enum_<Reflection_Resource::Kind>(mod_slang, "ResourceKind")
         .value("CONSTANT_BUFFER", Reflection_Resource::Kind::ConstantBuffer)
         .value("STRUCTURED_BUFFER", Reflection_Resource::Kind::StructuredBuffer)
+        .value("TEXTURE_2D", Reflection_Resource::Kind::Texture2D)
+        .value("ACCELERATION_STRUCTURE", Reflection_Resource::Kind::AccelerationStructure)
+        .value("SAMPLER", Reflection_Resource::Kind::Sampler)
     ;
 
     nb::enum_<SlangResourceAccess>(mod_slang, "ResourceAccess")

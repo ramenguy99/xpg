@@ -77,7 +77,7 @@ struct GfxObject: public nb::intrusive_base {
 };
 
 struct Buffer: public GfxObject {
-    Buffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type)
+    Buffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type)
         : GfxObject(ctx, true)
     {
         VkResult vkr = gfx::CreateBuffer(&buffer, ctx->vk, size, {
@@ -103,7 +103,7 @@ struct Buffer: public GfxObject {
         }
     }
 
-    static nb::ref<Buffer> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type) {
+    static nb::ref<Buffer> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type) {
         std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx);
 
         VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), {
@@ -167,7 +167,7 @@ struct ExternalSemaphore: public Semaphore {
 };
 
 struct ExternalBuffer: public Buffer {
-    ExternalBuffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type)
+    ExternalBuffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type)
         : Buffer(ctx)
     {
         VkResult vkr;
@@ -1525,6 +1525,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("INDIRECT",                       VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT)
         .value("ACCELERATION_STRUCTURE_INPUT",   VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR)
         .value("ACCELERATION_STRUCTURE_STORAGE", VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR)
+        .value("SHADER_DEVICE_ADDRESS",          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
     ;
 
     nb::enum_<VkImageUsageFlagBits>(m, "ImageUsageFlags", nb::is_arithmetic() , nb::is_flag())
@@ -1557,16 +1558,16 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Buffer, GfxObject>(m, "Buffer")
-        .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"))
         .def("destroy", &Buffer::destroy)
-        .def_static("from_data", &Buffer::from_data)
+        .def_static("from_data", &Buffer::from_data, nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
         .def_prop_ro("view", [] (Buffer& buffer) {
             return nb::ndarray<u8, nb::numpy, nb::shape<-1>>(buffer.buffer.map.data, {buffer.buffer.map.length}, buffer.self_py());
         }, nb::rv_policy::reference_internal)
     ;
 
     nb::class_<ExternalBuffer, Buffer>(m, "ExternalBuffer")
-        .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlags, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"))
         .def("destroy", &ExternalBuffer::destroy)
         .def_prop_ro("handle", [] (ExternalBuffer& buffer) { return (u64)buffer.handle; });
     ;
