@@ -90,7 +90,9 @@ Python:
         img = Image(ctx, W, H, Format.R8G8B8_UNORM,
                     ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.TRANSFER_SRC,
                     AllocType.DEVICE)
-- [ ] Synchronization 2 is not actually optional!
+- [ ] Device features
+    - [ ] Synchronization 2 is not actually optional!
+    - [ ] Validation errors when not using vulkan 1.3 (for some reason enabling descriptor indexing is not enough)
 
 
 ## Future

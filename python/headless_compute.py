@@ -5,7 +5,7 @@ import numpy as np
 # Initialize without DeviceFeatures.PRESENTATION for headless
 print("Initializing context...")
 ctx = Context(
-    version=(1, 1),
+    version=(1, 3),
     device_features=DeviceFeatures.SYNCHRONIZATION_2,
     enable_validation_layer=True,
     enable_synchronization_validation=True,
@@ -13,8 +13,8 @@ ctx = Context(
 
 # Create an image for drawing on the GPU and a buffer for readback on the CPU
 print("Creating resources...")
-W = 512
-H = 512
+W = 256
+H = 256
 format = Format.R8G8B8A8_UNORM
 img = Image(ctx, W, H, format,
             ImageUsageFlags.STORAGE | ImageUsageFlags.TRANSFER_SRC,
@@ -66,15 +66,12 @@ pipeline = ComputePipeline(ctx, comp, "main", descriptor_sets=[ set ])
 
 # Record commands
 print("Dispatching...")
-with ctx.get_sync_command_buffer() as cmd:
+with ctx.sync_commands() as cmd:
     cmd.use_image(img, ImageUsage.IMAGE_WRITE_ONLY)
     cmd.bind_compute_pipeline(pipeline, descriptor_sets=[ set ])
     cmd.dispatch((W + 7) // 8, (H + 7) // 8)
     cmd.use_image(img, ImageUsage.TRANSFER_SRC)
     cmd.copy_image_to_buffer(img, buf)
-
-# Submit commands and wait for them to complete
-ctx.submit_sync()
 
 # Interpret buffer as image and save it to a file
 print("Reading back...")

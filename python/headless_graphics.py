@@ -91,7 +91,7 @@ pipeline = GraphicsPipeline(
 
 # Record commands
 print("Rendering...")
-with ctx.get_sync_command_buffer() as cmd:
+with ctx.sync_commands() as cmd:
     cmd.use_image(img, ImageUsage.COLOR_ATTACHMENT)
     viewport = [0, 0, W, H]
     with cmd.rendering(viewport,
@@ -112,9 +112,6 @@ with ctx.get_sync_command_buffer() as cmd:
             cmd.draw(3)
     cmd.use_image(img, ImageUsage.TRANSFER_SRC)
     cmd.copy_image_to_buffer(img, buf)
-
-# Submit commands and wait for them to complete
-ctx.submit_sync()
 
 # Interpret buffer as image and save it to a file
 print("Reading back...")

@@ -1345,6 +1345,31 @@ void CommandBuffer::bind_graphics_pipeline(
     vkCmdSetScissor(buffer, 0, 1, &scissor);
 }
 
+struct SyncCommandsManager {
+    SyncCommandsManager(nb::ref<Context> ctx)
+        : ctx(ctx)
+    {
+        cmd = new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer, false);
+    }
+
+    nb::ref<CommandBuffer> enter() {
+        cmd->begin();
+        return cmd;
+    }
+
+    void exit(nb::object, nb::object, nb::object) {
+        cmd->end();
+        gfx::SubmitSync(ctx->vk);
+    }
+
+    nb::ref<Context> ctx;
+    nb::ref<CommandBuffer> cmd;
+};
+
+nb::ref<SyncCommandsManager> sync_commands(nb::ref<Context> ctx) {
+    return new SyncCommandsManager(std::move(ctx));
+}
+
 void gfx_create_bindings(nb::module_& m)
 {
     nb::enum_<gfx::DeviceFeatures::DeviceFeaturesFlags>(m, "DeviceFeatures", nb::is_flag(), nb::is_arithmetic())
@@ -1369,12 +1394,20 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("enable_gpu_based_validation") = false,
             nb::arg("enable_synchronization_validation") = false
         )
+        .def("sync_commands", [] (nb::ref<Context> ctx) {
+            return sync_commands(std::move(ctx));
+        })
         .def("get_sync_command_buffer", [] (nb::ref<Context> ctx) {
             return new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer, false);
         })
         .def("submit_sync", [](const Context& ctx) {
             gfx::SubmitSync(ctx.vk);
         })
+    ;
+
+    nb::class_<SyncCommandsManager>(m, "SyncCommands")
+        .def("__enter__", &SyncCommandsManager::enter)
+        .def("__exit__", &SyncCommandsManager::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
     ;
 
     nb::class_<Frame>(m, "Frame",
