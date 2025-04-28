@@ -8,11 +8,11 @@ import struct
 import numpy as np
 
 class MaterialParameterKind(IntEnum):
-    NONE = 0,
-    TEXTURE = 1,
-    VEC2 = 2,
-    VEC3 = 3,
-    VEC4 = 4,
+    NONE = 0
+    TEXTURE = 1
+    VEC2 = 2
+    VEC3 = 3
+    VEC4 = 4
 
 @dataclass
 class MaterialParameter:
@@ -37,18 +37,17 @@ class Mesh:
     transform: mat4
     material: Material
 
-@dataclass
-class Format(IntEnum):
-    RGBA8 = 0,
-    SRGBA8 = 1,
-    RGBA8_BC7 = 2,
-    SRGBA8_BC7 = 3,
+class ImageFormat(IntEnum):
+    RGBA8 = 0
+    SRGBA8 = 1
+    RGBA8_BC7 = 2
+    SRGBA8_BC7 = 3
 
 @dataclass
 class Image:
     width: int
     height: int
-    format: Format
+    format: ImageFormat
     data: np.ndarray
 
 @dataclass
@@ -128,7 +127,7 @@ def parse_scene(path: Path) -> Scene:
         images.append(Image(
             width=consume_u32(),
             height=consume_u32(),
-            format=Format(consume_u32()),
+            format=ImageFormat(consume_u32()),
             data=consume_vec(np.uint8, 1)
         ))
 

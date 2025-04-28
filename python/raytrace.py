@@ -3,12 +3,14 @@ from pathlib import Path
 from typing import List
 
 from pyxpg import *
-from pyglm.glm import vec3, vec4, mat4, mat4x3, rotate
+from pyglm.glm import vec3, vec4, mat4, mat4x3, rotate, normalize
+import tqdm
+from time import perf_counter
 
 from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype
 from utils.render import PerFrameResource
-from utils.scene import parse_scene, MaterialParameter, MaterialParameterKind
+from utils.scene import parse_scene, MaterialParameter, MaterialParameterKind, ImageFormat
 
 scene = parse_scene(Path("res", "bistro.bin"))
 
@@ -27,7 +29,7 @@ ctx = Context(
 window = Window(ctx, "Raytrace", 1280, 720)
 gui = Gui(window)
 
-set_0 = DescriptorSet(
+scene_descriptor_set = DescriptorSet(
     ctx,
     [
         DescriptorSetEntry(1, DescriptorType.STORAGE_BUFFER),
@@ -41,7 +43,7 @@ set_0 = DescriptorSet(
     ],
 )
 
-sets_1 = PerFrameResource(DescriptorSet, window.num_frames,
+descriptor_sets = PerFrameResource(DescriptorSet, window.num_frames,
     ctx,
     [
         DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
@@ -56,10 +58,10 @@ uvs = np.vstack([m.uvs for m in scene.meshes])
 indices = np.vstack([m.indices for m in scene.meshes])
 
 positions_buf = Buffer.from_data(ctx, positions.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS, AllocType.DEVICE_MAPPED)
-normals_buf = Buffer.from_data(ctx, normals.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS, AllocType.DEVICE_MAPPED)
-tangents_buf = Buffer.from_data(ctx, tangents.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS, AllocType.DEVICE_MAPPED)
-uvs_buf = Buffer.from_data(ctx, uvs.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS, AllocType.DEVICE_MAPPED)
-indices_buf = Buffer.from_data(ctx, indices.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS, AllocType.DEVICE_MAPPED)
+normals_buf = Buffer.from_data(ctx, normals.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
+tangents_buf = Buffer.from_data(ctx, tangents.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
+uvs_buf = Buffer.from_data(ctx, uvs.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
+indices_buf = Buffer.from_data(ctx, indices.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
 
 SHADERS = Path(__file__).parent.parent.joinpath("shaders")
 
@@ -68,14 +70,15 @@ class RaytracePipeline(Pipeline):
     rt_prog = Path(SHADERS, "raytrace.comp.slang")
 
     def create(self, rt_prog: slang.Shader):
+        global u_bufs, constants_dt
+
         refl = rt_prog.reflection
-        dt = to_dtype(refl.resources[8].type)
+        constants_dt = to_dtype(refl.resources[8].type)
 
         # Create a buffer to hold the constants with the required size.
-        u_bufs = PerFrameResource(Buffer, window.num_frames, ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
-        for set_1, u_buf in zip(sets_1.resources, u_bufs.resources):
+        u_bufs = PerFrameResource(Buffer, window.num_frames, ctx, constants_dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
+        for set_1, u_buf in zip(descriptor_sets.resources, u_bufs.resources):
             set_1: DescriptorSet
-            u_buf: Buffer
             set_1.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         # Turn SPIR-V code into vulkan shader modules
@@ -86,7 +89,7 @@ class RaytracePipeline(Pipeline):
             ctx,
             shader=rt,
             name="main",
-            descriptor_sets = [ set_0, sets_1.get_current() ],
+            descriptor_sets = [ scene_descriptor_set, descriptor_sets.get_current() ],
         )
         self.reflection = refl
 
@@ -146,13 +149,46 @@ for i, m in enumerate(scene.meshes):
 assert vertex_offset == positions.shape[0]
 assert index_offset == indices.shape[0]
 
-acceleration_structure = AccelerationStructure(ctx, as_meshes)
+images: List[Image] = []
+for image in tqdm.tqdm(scene.images, "Uploading images"):
+    format = 0
+    if image.format == ImageFormat.RGBA8: format = Format.R8G8B8A8_UNORM
+    elif image.format == ImageFormat.SRGBA8: format = Format.R8G8B8A8_SRGB
+    elif image.format == ImageFormat.RGBA8_BC7: format = Format.BC7_UNORM_BLOCK
+    elif image.format == ImageFormat.SRGBA8_BC7: format = Format.BC7_SRGB_BLOCK
+    else:
+        raise ValueError(f"Unhandled image format: {image.format}")
 
-# TODO: sampler
-# TODO: fill descriptors
-# TODO: fill constants
-# ???
-# PROFIT
+    images.append(
+        Image.from_data(
+            ctx, image.data.tobytes(), ImageUsage.SHADER_READ_ONLY, 
+            image.width, image.height, format,
+            ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE
+        )
+    )
+mesh_instances_buf = Buffer.from_data(ctx, mesh_instances.tobytes(), BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
+
+print("Creating acceleration structures... ", end="")
+begin = perf_counter()
+acceleration_structure = AccelerationStructure(ctx, as_meshes)
+print(f" Took {perf_counter() - begin:.3f}s")
+
+
+sampler = Sampler(
+    ctx,
+    min_filter=Filter.LINEAR,
+    mag_filter=Filter.LINEAR,
+)
+
+# Write scene descriptos
+scene_descriptor_set.write_buffer(normals_buf,        DescriptorType.STORAGE_BUFFER, 0)
+scene_descriptor_set.write_buffer(uvs_buf,            DescriptorType.STORAGE_BUFFER, 1)
+scene_descriptor_set.write_buffer(indices_buf,        DescriptorType.STORAGE_BUFFER, 2)
+scene_descriptor_set.write_buffer(mesh_instances_buf, DescriptorType.STORAGE_BUFFER, 3)
+scene_descriptor_set.write_acceleration_structure(acceleration_structure, 4)
+scene_descriptor_set.write_sampler(sampler, 5)
+for i, image in enumerate(images):
+    scene_descriptor_set.write_image(image, ImageUsage.SHADER_READ_ONLY, DescriptorType.SAMPLED_IMAGE, 7, i)
 
 # Register the color pipeline for hot reloading. We pass the window
 # so that event loop can be unblocked if a hot reloading event happens.
@@ -160,7 +196,12 @@ cache = PipelineWatch([
     rt,
 ], window=window)
 
+first_frame = True
+
 def draw():
+    global first_frame
+    global output
+
     # Refresh shaders. If a shader needs to be recompiled we first wait
     # for the device to become idle. This is needed because as part of the
     # refresh the old pipeline is destroyed, and we need to ensure that no
@@ -171,8 +212,11 @@ def draw():
     swapchain_status = window.update_swapchain()
     if swapchain_status == SwapchainStatus.MINIMIZED:
         return
-    if swapchain_status == SwapchainStatus.RESIZED:
-        pass
+    if first_frame or swapchain_status == SwapchainStatus.RESIZED:
+        first_frame = False
+
+        output = Image(ctx, window.fb_width, window.fb_height, Format.R32G32B32A32_SFLOAT, ImageUsageFlags.STORAGE | ImageUsageFlags.TRANSFER_SRC, AllocType.DEVICE_DEDICATED)
+        scene_descriptor_set.write_image(output, ImageUsage.IMAGE, DescriptorType.STORAGE_IMAGE, 6)
 
     # GUI
     with gui.frame():
@@ -182,23 +226,42 @@ def draw():
 
     # Render
     with window.frame() as frame:
-        set_1 = sets_1.get_current_and_advance()
+        descriptor_set = descriptor_sets.get_current_and_advance()
+
+        # TODO: I don't really like the idea of writing these constants
+        # 1 by 1 into write-combining memory. I feel like we should probably
+        # not return buffer views as numpy arrays, but memory_view if possible.
+        #
+        # I just want to memcpy bytes in there man!
+        u_buf: Buffer = u_bufs.get_current_and_advance()
+        constants: np.ndarray = u_buf.view.view(constants_dt)
+        constants["width"] = window.fb_width
+        constants["height"] = window.fb_height
+        constants["camera_position"] = vec3(-9.9, -19.044, 4.352)
+        constants["camera_direction"] = normalize(vec3(-1., 3., 0.3) - vec3(-9.9, -19.044, 4.352))
+        constants["film_dist"] = 0.7
 
         with frame.command_buffer as cmd:
-            cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
+            cmd.use_image(output, ImageUsage.IMAGE)
 
             viewport = [0, 0, window.fb_width, window.fb_height]
 
-            cmd.bind_compute_pipeline(rt.pipeline, descriptor_sets=[set_0, set_1])
+            cmd.bind_compute_pipeline(rt.pipeline, descriptor_sets=[scene_descriptor_set, descriptor_set])
             cmd.dispatch((window.fb_width + 7) // 8, (window.fb_height + 7) // 8)
+
+            cmd.use_image(output, ImageUsage.TRANSFER_SRC)
+            cmd.use_image(frame.image, ImageUsage.TRANSFER_DST)
+
+            cmd.blit_image(output, frame.image)
+
+            cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
 
             with cmd.rendering(viewport,
                 color_attachments=[
                     RenderingAttachment(
                         frame.image,
-                        load_op=LoadOp.CLEAR,
+                        load_op=LoadOp.LOAD,
                         store_op=StoreOp.STORE,
-                        clear=[0.2, 0.2, 0.2, 1],
                     ),
                 ]):
                 # Render gui

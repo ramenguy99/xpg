@@ -242,6 +242,7 @@ enum class ImageUsage {
     Image,
     ImageReadOnly,
     ImageWriteOnly,
+    ShaderReadOnly,
     ColorAttachment,
     ColorAttachmentWriteOnly,
     DepthStencilAttachment,
@@ -250,6 +251,8 @@ enum class ImageUsage {
     TransferSrc,
     TransferDst,
     Present,
+
+    Count,
 };
 
 struct ImageUsageState {
@@ -283,6 +286,12 @@ namespace ImageUsagePresets {
         .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
         .access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
         .layout = VK_IMAGE_LAYOUT_GENERAL, // This can potentially be READ_ONLY or even SHADER_READ_ONLY?
+    };
+    constexpr ImageUsageState ShaderReadOnly {
+        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_READ_BIT,
+        .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
     constexpr ImageUsageState ColorAttachment = {
         .first_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -338,6 +347,7 @@ namespace ImageUsagePresets {
         Image,
         ImageReadOnly,
         ImageWriteOnly,
+        ShaderReadOnly,
         ColorAttachment,
         ColorAttachmentWriteOnly,
         DepthStencilAttachment,
@@ -347,10 +357,12 @@ namespace ImageUsagePresets {
         TransferDst,
         Present,
     };
+
+    static_assert(ArrayCount(Types) == (size_t)ImageUsage::Count, "ImageUsage count does not match length of Types array");
 }
 
 struct Image: public GfxObject {
-    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type, int samples = 1)
+    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples = 1)
         : GfxObject(ctx, true)
         , width(width)
         , height(height)
@@ -368,8 +380,11 @@ struct Image: public GfxObject {
         }
     }
 
-    Image(nb::ref<Context> ctx, VkImage image, VkImageView view)
-        : GfxObject(ctx, false) {
+    Image(nb::ref<Context> ctx, VkImage image, VkImageView view, u32 width, u32 height)
+        : GfxObject(ctx, false)
+        , width(width)
+        , height(height)
+    {
         this->image.image = image;
         this->image.view = view;
         this->image.allocation = 0;
@@ -389,25 +404,88 @@ struct Image: public GfxObject {
         }
     }
 
-    // static nb::ref<Image> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlags usage_flags, gfx::AllocPresets::Type alloc_type) {
-    //     std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx);
+    static nb::ref<Image> from_data(nb::ref<Context> ctx, const nb::bytes& data, ImageUsage usage,
+        u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples = 1)
+    {
+        assert((usize)usage < ArrayCount(ImageUsagePresets::Types));
+        ImageUsageState state = ImageUsagePresets::Types[(usize)usage];
 
-    //     VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), {
-    //         .usage = (VkBufferUsageFlags)usage_flags,
-    //         .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
-    //     });
-    //     if (vkr != VK_SUCCESS) {
-    //         throw std::runtime_error("Failed to create buffer");
-    //     }
+        std::unique_ptr<Image> self = std::make_unique<Image>(ctx);
+        VkResult vkr = gfx::CreateAndUploadImage(&self->image, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), state.layout, {
+            .width = width,
+            .height = height,
+            .format = format,
+            .samples = (VkSampleCountFlagBits)samples,
+            .usage = (VkBufferUsageFlags)usage_flags,
+            .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
+        });
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create image");
+        }
+        self->current_state.layout = state.layout;
 
-    //     return self.release();
-    // }
+        return self.release();
+    }
 
     gfx::Image image = {};
     u32 width;
     u32 height;
     ImageUsageState current_state = ImageUsagePresets::Types[(usize)ImageUsage::None];
 };
+
+
+struct Sampler: GfxObject {
+    Sampler(
+        nb::ref<Context> ctx,
+        VkFilter min_filter,
+        VkFilter mag_filter,
+        VkSamplerMipmapMode mipmap_mode,
+        float mip_lod_bias,
+        float min_lod,
+        float max_lod,
+        VkSamplerAddressMode u,
+        VkSamplerAddressMode v,
+        VkSamplerAddressMode w,
+        bool anisotroy_enabled,
+        float max_anisotropy,
+        bool compare_enable,
+        VkCompareOp compare_op
+    ) : GfxObject(ctx, true)
+    {
+        VkResult vkr = gfx::CreateSampler(&sampler, ctx->vk, gfx::SamplerDesc {
+            .min_filter =        min_filter,
+            .mag_filter =        mag_filter,
+            .mipmap_mode =       mipmap_mode,
+            .mip_lod_bias =      mip_lod_bias,
+            .min_lod =           min_lod,
+            .max_lod =           max_lod,
+            .u =                 u,
+            .v =                 v,
+            .w =                 w,
+            .anisotroy_enabled = anisotroy_enabled,
+            .max_anisotropy =    max_anisotropy,
+            .compare_enable =    compare_enable,
+            .compare_op =        compare_op
+        });
+
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create sampler");
+        }
+    }
+
+    ~Sampler() {
+        destroy();
+    }
+
+    void destroy() {
+        if(owned) {
+            gfx::DestroySampler(&sampler, ctx->vk);
+        }
+    }
+
+    gfx::Sampler sampler;
+};
+
 
 struct Window;
 struct GraphicsPipeline;
@@ -625,16 +703,35 @@ struct CommandBuffer: GfxObject {
         vkCmdDrawIndexed(buffer, num_indices, num_instances, first_index, vertex_offset, first_instance);
     }
 
-    void copy_image_to_buffer(nb::ref<Image> image, nb::ref<Buffer> buf) {
+    void copy_image_to_buffer(Image& image, Buffer& buf) {
         // TODO: add error checking that image fits into buffer
 
         gfx::CmdCopyImageToBuffer(buffer, {
-            .image = image->image.image,
-            .image_layout = image->current_state.layout,
-            .image_width = image->width,
-            .image_height = image->height,
-            .buffer = buf->buffer.buffer,
+            .image = image.image.image,
+            .image_layout = image.current_state.layout,
+            .image_width = image.width,
+            .image_height = image.height,
+            .buffer = buf.buffer.buffer,
         });
+    }
+
+    void blit_image(Image& src, Image& dst) {
+        // TODO: add  error checking (check spec for what blits are valid)
+        // TODO: add options for aspect and interpolation type
+        // TODO: wrap in gfx:: helper
+
+        VkImageBlit region = {};
+        region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.srcSubresource.layerCount = 1;
+        region.srcOffsets[1].x = src.width;
+        region.srcOffsets[1].y = src.height;
+        region.srcOffsets[1].z = 1;
+        region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.dstSubresource.layerCount = 1;
+        region.dstOffsets[1].x = dst.width;
+        region.dstOffsets[1].y = dst.height;
+        region.dstOffsets[1].z = 1;
+        vkCmdBlitImage(buffer, src.image.image, src.current_state.layout, dst.image.image, dst.current_state.layout, 1, &region, VK_FILTER_NEAREST);
     }
 
     ~CommandBuffer() {
@@ -912,7 +1009,7 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
     : window(window)
     , frame(frame)
 {
-    image = new Image(window->ctx, frame.current_image, frame.current_image_view);
+    image = new Image(window->ctx, frame.current_image, frame.current_image_view, window->window.fb_width, window->window.fb_height);
     command_buffer = new CommandBuffer(window->ctx, frame.command_pool, frame.command_buffer, false);
 }
 
@@ -998,6 +1095,61 @@ static PyType_Slot gui_tp_slots[] = {
     { 0, nullptr }
 };
 
+struct AccelerationStructureMesh: gfx::AccelerationStructureMeshDesc {
+    AccelerationStructureMesh(
+        VkDeviceAddress vertices_address,
+        u64 vertices_stride,
+        u32 vertices_count,
+        VkFormat vertices_format,
+        VkDeviceAddress indices_address,
+        VkIndexType indices_type,
+        u32 primitive_count,
+        std::array<float, 12> transform)
+        : gfx::AccelerationStructureMeshDesc {
+              .vertices_address = vertices_address,
+              .vertices_stride = vertices_stride,
+              .vertices_count = vertices_count,
+              .vertices_format = vertices_format,
+              .indices_address = indices_address,
+              .indices_type = indices_type,
+              .primitive_count = primitive_count,
+              .transform = glm::mat4x3(
+                transform[0], transform[ 1], transform[ 2],
+                transform[3], transform[ 4], transform[ 5],
+                transform[6], transform[ 7], transform[ 8],
+                transform[9], transform[10], transform[11]
+            ),
+        }
+    {
+    }
+};
+
+static_assert(sizeof(AccelerationStructureMesh) == sizeof(gfx::AccelerationStructureMeshDesc));
+
+struct AccelerationStructure: public GfxObject {
+    AccelerationStructure(nb::ref<Context> ctx, const std::vector<AccelerationStructureMesh>& meshes)
+        : GfxObject(ctx, true)
+    {
+        VkResult vkr = gfx::CreateAccelerationStructure(&as, ctx->vk, gfx::AccelerationStructureDesc {
+            .meshes = ArrayView((gfx::AccelerationStructureMeshDesc*)meshes.data(), meshes.size()),
+        });
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create acceleration structure");
+        }
+    }
+
+    ~AccelerationStructure() {
+        destroy();
+    }
+
+    void destroy() {
+        if(owned) {
+            gfx::DestroyAccelerationStructure(&as, ctx->vk);
+        }
+    }
+
+    gfx::AccelerationStructure as;
+};
 struct DescriptorSetEntry: gfx::DescriptorSetEntryDesc {
     DescriptorSetEntry(u32 count, VkDescriptorType type)
         : gfx::DescriptorSetEntryDesc {
@@ -1043,6 +1195,22 @@ struct DescriptorSet: public nb::intrusive_base {
             .element = element,
         });
     };
+
+    void write_sampler(const Sampler& sampler, u32 binding, u32 element) {
+        gfx::WriteSamplerDescriptor(set.set, ctx->vk, {
+            .sampler = sampler.sampler.sampler,
+            .binding = binding,
+            .element = element,
+        });
+    }
+
+    void write_acceleration_structure(const AccelerationStructure& as, u32 binding, u32 element) {
+        gfx::WriteAccelerationStructureDescriptor(set.set, ctx->vk, {
+            .acceleration_structure = as.as.tlas,
+            .binding = binding,
+            .element = element,
+        });
+    }
 
     ~DescriptorSet()
     {
@@ -1183,63 +1351,9 @@ struct PushConstantsRange: gfx::PushConstantsRangeDesc {
     }
 };
 
+
 static_assert(sizeof(PushConstantsRange) == sizeof(gfx::PushConstantsRangeDesc));
 
-struct AccelerationStructureMesh: gfx::AccelerationStructureMeshDesc {
-    AccelerationStructureMesh(
-        VkDeviceAddress vertices_address,
-        u64 vertices_stride,
-        u32 vertices_count,
-        VkFormat vertices_format,
-        VkDeviceAddress indices_address,
-        VkIndexType indices_type,
-        u32 primitive_count,
-        std::array<float, 12> transform)
-        : gfx::AccelerationStructureMeshDesc {
-              .vertices_address = vertices_address,
-              .vertices_stride = vertices_stride,
-              .vertices_count = vertices_count,
-              .vertices_format = vertices_format,
-              .indices_address = indices_address,
-              .indices_type = indices_type,
-              .primitive_count = primitive_count,
-              .transform = glm::mat4x3(
-                transform[0], transform[ 1], transform[ 2],
-                transform[3], transform[ 4], transform[ 5],
-                transform[6], transform[ 7], transform[ 8],
-                transform[9], transform[10], transform[11]
-            ),
-        }
-    {
-    }
-};
-
-static_assert(sizeof(AccelerationStructureMesh) == sizeof(gfx::AccelerationStructureMeshDesc));
-
-struct AccelerationStructure: public GfxObject {
-    AccelerationStructure(nb::ref<Context> ctx, const std::vector<AccelerationStructureMesh>& meshes)
-        : GfxObject(ctx, true)
-    {
-        VkResult vkr = gfx::CreateAccelerationStructure(&as, ctx->vk, gfx::AccelerationStructureDesc {
-            .meshes = ArrayView((gfx::AccelerationStructureMeshDesc*)meshes.data(), meshes.size()),
-        });
-        if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create acceleration structure");
-        }
-    }
-
-    ~AccelerationStructure() {
-        destroy();
-    }
-
-    void destroy() {
-        if(owned) {
-            gfx::DestroyAccelerationStructure(&as, ctx->vk);
-        }
-    }
-
-    gfx::AccelerationStructure as;
-};
 
 struct ComputePipeline: GfxObject {
     ComputePipeline(nb::ref<Context> ctx,
@@ -1616,7 +1730,37 @@ void gfx_create_bindings(nb::module_& m)
         // .value("SHADING_RATE_IMAGE_NV",                VK_IMAGE_USAGE_SHADING_RATE_IMAGE_BIT_NV)
     ;
 
-    nb::class_<GfxObject>(m, "GfxObject",
+    nb::enum_<VkCompareOp>(m, "CompareOp")
+        .value("NEVER",            VK_COMPARE_OP_NEVER)
+        .value("LESS",             VK_COMPARE_OP_LESS)
+        .value("EQUAL",            VK_COMPARE_OP_EQUAL)
+        .value("LESS_OR_EQUAL",    VK_COMPARE_OP_LESS_OR_EQUAL)
+        .value("GREATER",          VK_COMPARE_OP_GREATER)
+        .value("NOT_EQUAL",        VK_COMPARE_OP_NOT_EQUAL)
+        .value("GREATER_OR_EQUAL", VK_COMPARE_OP_GREATER_OR_EQUAL)
+        .value("ALWAYS",           VK_COMPARE_OP_ALWAYS)
+    ;
+
+    nb::enum_<VkFilter>(m, "Filter")
+        .value("NEAREST", VK_FILTER_NEAREST)
+        .value("LINEAR",  VK_FILTER_LINEAR)
+        .value("CUBIC",   VK_FILTER_CUBIC_EXT)
+    ;
+
+    nb::enum_<VkSamplerMipmapMode>(m, "SamplerMipmapMode")
+        .value("NEAREST", VK_SAMPLER_MIPMAP_MODE_NEAREST)
+        .value("LINEAR", VK_SAMPLER_MIPMAP_MODE_LINEAR)
+    ;
+
+    nb::enum_<VkSamplerAddressMode>(m, "SamplerAddressMode")
+        .value("REPEAT", VK_SAMPLER_ADDRESS_MODE_REPEAT)
+        .value("MIRRORED_REPEAT", VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT)
+        .value("CLAMP_TO_EDGE", VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+        .value("CLAMP_TO_BORDER", VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER)
+        .value("MIRROR_CLAMP_TO_EDGE", VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE)
+    ;
+
+    nb::class_<GfxObject>(m, "GfxObjVK_FILTER_MAX_ENUM = 0x7FFFFFFF           ect",
         nb::intrusive_ptr<GfxObject>([](GfxObject *o, PyObject *po) noexcept { o->set_self_py(po); }))
     ;
 
@@ -1642,9 +1786,53 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Image, GfxObject>(m, "Image")
-        .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlags, gfx::AllocPresets::Type, int>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("samples") = 1)
+        .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, int>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("samples") = 1)
         .def("destroy", &Image::destroy)
-        // .def_static("from_data", &Image::from_data)
+        .def_static("from_data", &Image::from_data,
+            nb::arg("ctx"),
+            nb::arg("data"),
+            nb::arg("usage"),
+            nb::arg("width"),
+            nb::arg("height"),
+            nb::arg("format"),
+            nb::arg("usage_flags"),
+            nb::arg("alloc_type"),
+            nb::arg("samples") = 1
+        )
+    ;
+
+    nb::class_<Sampler, GfxObject>(m, "Sampler")
+        .def(nb::init<
+                nb::ref<Context>,
+                VkFilter,
+                VkFilter,
+                VkSamplerMipmapMode,
+                float,
+                float,
+                float,
+                VkSamplerAddressMode,
+                VkSamplerAddressMode,
+                VkSamplerAddressMode,
+                bool,
+                float,
+                bool,
+                VkCompareOp
+            >(),
+                nb::arg("ctx"),
+                nb::arg("min_filter")        = VK_FILTER_NEAREST,
+                nb::arg("mag_filter")        = VK_FILTER_NEAREST,
+                nb::arg("mipmap_mode")       = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+                nb::arg("mip_lod_bias")      = 0.0f,
+                nb::arg("min_lod")           = 0.0f,
+                nb::arg("max_lod")           = VK_LOD_CLAMP_NONE,
+                nb::arg("u")                 = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                nb::arg("v")                 = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                nb::arg("w")                 = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                nb::arg("anisotroy_enabled") = false,
+                nb::arg("max_anisotropy")    = 0.0f,
+                nb::arg("compare_enable")    = false,
+                nb::arg("compare_op")        = VK_COMPARE_OP_ALWAYS
+            )
     ;
 
     nb::class_<AccelerationStructure, GfxObject>(m, "AccelerationStructure")
@@ -1668,6 +1856,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("IMAGE", ImageUsage::Image)
         .value("IMAGE_READ_ONLY", ImageUsage::ImageReadOnly)
         .value("IMAGE_WRITE_ONLY", ImageUsage::ImageWriteOnly)
+        .value("SHADER_READ_ONLY", ImageUsage::ShaderReadOnly)
         .value("COLOR_ATTACHMENT", ImageUsage::ColorAttachment)
         .value("COLOR_ATTACHMENT_WRITE_ONLY", ImageUsage::ColorAttachmentWriteOnly)
         .value("DEPTH_STENCIL_ATTACHMENT", ImageUsage::DepthStencilAttachment)
@@ -1785,6 +1974,10 @@ void gfx_create_bindings(nb::module_& m)
         .def("copy_image_to_buffer", &CommandBuffer::copy_image_to_buffer,
             nb::arg("image"),
             nb::arg("buffer")
+        )
+        .def("blit_image", &CommandBuffer::blit_image,
+            nb::arg("src"),
+            nb::arg("dst")
         )
     ;
 
@@ -2196,8 +2389,10 @@ void gfx_create_bindings(nb::module_& m)
     nb::class_<DescriptorSet>(m, "DescriptorSet",
         nb::intrusive_ptr<DescriptorSet>([](DescriptorSet *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Context>, const std::vector<DescriptorSetEntry>&, VkDescriptorBindingFlagBits>(), nb::arg("ctx"), nb::arg("entries"), nb::arg("flags") = VkDescriptorBindingFlagBits())
-        .def("write_buffer", &DescriptorSet::write_buffer, nb::arg("buffer"), nb::arg("type"), nb::arg("binding"), nb::arg("element"))
-        .def("write_image", &DescriptorSet::write_image, nb::arg("image"), nb::arg("usage"), nb::arg("type"), nb::arg("binding"), nb::arg("element"))
+        .def("write_buffer", &DescriptorSet::write_buffer, nb::arg("buffer"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0)
+        .def("write_image", &DescriptorSet::write_image, nb::arg("image"), nb::arg("usage"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0)
+        .def("write_sampler", &DescriptorSet::write_sampler, nb::arg("sampler"), nb::arg("binding"), nb::arg("element") = 0)
+        .def("write_acceleration_structure", &DescriptorSet::write_acceleration_structure, nb::arg("acceleration_structure"), nb::arg("binding"), nb::arg("element") = 0)
     ;
 
     nb::enum_<VkBlendFactor>(m, "BlendFactor")
@@ -2331,17 +2526,6 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("primitive_count"),
             nb::arg("transform")
         )
-    ;
-
-    nb::enum_<VkCompareOp>(m, "CompareOp")
-        .value("NEVER",            VK_COMPARE_OP_NEVER)
-        .value("LESS",             VK_COMPARE_OP_LESS)
-        .value("EQUAL",            VK_COMPARE_OP_EQUAL)
-        .value("LESS_OR_EQUAL",    VK_COMPARE_OP_LESS_OR_EQUAL)
-        .value("GREATER",          VK_COMPARE_OP_GREATER)
-        .value("NOT_EQUAL",        VK_COMPARE_OP_NOT_EQUAL)
-        .value("GREATER_OR_EQUAL", VK_COMPARE_OP_GREATER_OR_EQUAL)
-        .value("ALWAYS",           VK_COMPARE_OP_ALWAYS)
     ;
 
     nb::class_<Depth>(m, "Depth")
