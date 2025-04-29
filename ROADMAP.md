@@ -103,8 +103,10 @@ Python:
                     ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.TRANSFER_SRC,
                     AllocType.DEVICE)
 - [ ] Device features
+    - [x] Validation errors when not using vulkan 1.3 (for some reason enabling descriptor indexing is not enough)
     - [ ] Synchronization 2 is not actually optional!
-    - [ ] Validation errors when not using vulkan 1.3 (for some reason enabling descriptor indexing is not enough)
+        - Remove this as a device feature, enable if the device supports it, otherwise use the fallback mechanism
+          ported / included as the layer mechanism
 - [ ] If blocked in process_events -> ctrl+c not working
     - [x] Check if should release GIL
     - [ ] Check if can get interrupt somehow and unblock the loop (e.g. with glfwPostEmptyEvent)

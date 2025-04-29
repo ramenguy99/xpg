@@ -5,7 +5,7 @@ import numpy as np
 # Initialize without DeviceFeatures.PRESENTATION for headless
 print("Initializing context...")
 ctx = Context(
-    version=(1, 3),
+    version=(1, 1),
     device_features=DeviceFeatures.SYNCHRONIZATION_2,
     enable_validation_layer=True,
     enable_synchronization_validation=True,

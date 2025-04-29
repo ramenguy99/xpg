@@ -599,10 +599,10 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         device_extensions.add("VK_KHR_dynamic_rendering");
     }
     if (desc.device_features & DeviceFeatures::SYNCHRONIZATION_2)   device_extensions.add("VK_KHR_synchronization2");
-    if (desc.device_features & (DeviceFeatures::DESCRIPTOR_INDEXING || DeviceFeatures::RAY_QUERY || DeviceFeatures::RAY_PIPELINE))
+    if (desc.device_features & (DeviceFeatures::DESCRIPTOR_INDEXING | DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_PIPELINE))
         device_extensions.add("VK_EXT_descriptor_indexing");
     if (desc.device_features & DeviceFeatures::SCALAR_BLOCK_LAYOUT) device_extensions.add("VK_EXT_scalar_block_layout");
-    if (desc.device_features & (DeviceFeatures::RAY_QUERY || DeviceFeatures::RAY_PIPELINE)) {
+    if (desc.device_features & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_PIPELINE)) {
         device_extensions.add("VK_KHR_deferred_host_operations");
         device_extensions.add("VK_KHR_buffer_device_address");
         device_extensions.add("VK_KHR_acceleration_structure");
@@ -2022,10 +2022,14 @@ VkResult CreateDescriptorSet(DescriptorSet* set, const Context& vk, const Descri
     binding_flags.pBindingFlags = flags.data;
 
     VkDescriptorSetLayoutCreateInfo create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-    create_info.pNext = &binding_flags;
+    if (desc.flags) {
+        create_info.pNext = &binding_flags;
+    }
     create_info.bindingCount = (uint32_t)bindings.length;
     create_info.pBindings = bindings.data;
-    create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+    if (desc.flags & VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT) {
+        create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+    }
 
     // Create layout
     VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
@@ -2036,7 +2040,9 @@ VkResult CreateDescriptorSet(DescriptorSet* set, const Context& vk, const Descri
 
     // Create pool
     VkDescriptorPoolCreateInfo descriptor_pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-    descriptor_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+    if (desc.flags & VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT) {
+        descriptor_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+    }
     descriptor_pool_info.maxSets = 1;
     descriptor_pool_info.pPoolSizes = descriptor_pool_sizes.data;
     descriptor_pool_info.poolSizeCount = (uint32_t)descriptor_pool_sizes.length;
