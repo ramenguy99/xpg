@@ -606,6 +606,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         device_extensions.add("VK_KHR_deferred_host_operations");
         device_extensions.add("VK_KHR_buffer_device_address");
         device_extensions.add("VK_KHR_acceleration_structure");
+        device_extensions.add("VK_KHR_spirv_1_4");
+        device_extensions.add("VK_KHR_shader_float_controls");
     }
     if (desc.device_features & DeviceFeatures::RAY_QUERY)           device_extensions.add("VK_KHR_ray_query");
     if (desc.device_features & DeviceFeatures::RAY_PIPELINE)        device_extensions.add("VK_KHR_ray_tracing_pipeline");
