@@ -206,7 +206,7 @@ def draw():
     # for the device to become idle. This is needed because as part of the
     # refresh the old pipeline is destroyed, and we need to ensure that no
     # previous frame is still using it.
-    cache.refresh(lambda: ctx.wait_idle())
+    # cache.refresh(lambda: ctx.wait_idle())
 
     # Update swapchain
     swapchain_status = window.update_swapchain()
@@ -228,18 +228,16 @@ def draw():
     with window.frame() as frame:
         descriptor_set = descriptor_sets.get_current_and_advance()
 
-        # TODO: I don't really like the idea of writing these constants
-        # 1 by 1 into write-combining memory. I feel like we should probably
-        # not return buffer views as numpy arrays, but memory_view if possible.
-        #
-        # I just want to memcpy bytes in there man!
-        u_buf: Buffer = u_bufs.get_current_and_advance()
-        constants: np.ndarray = u_buf.view.view(constants_dt)
+        constants: np.ndarray = np.zeros(1, dtype=constants_dt)
         constants["width"] = window.fb_width
         constants["height"] = window.fb_height
         constants["camera_position"] = vec3(-9.9, -19.044, 4.352)
         constants["camera_direction"] = normalize(vec3(-1., 3., 0.3) - vec3(-9.9, -19.044, 4.352))
         constants["film_dist"] = 0.7
+
+        # Upload constants in a single copy
+        u_buf: Buffer = u_bufs.get_current_and_advance()
+        u_buf.view.data[:] = constants.view(np.uint8).data
 
         with frame.command_buffer as cmd:
             cmd.use_image(output, ImageUsage.IMAGE)
