@@ -105,9 +105,16 @@ Python:
 - [ ] If blocked in process_events -> ctrl+c not working
     - [x] Check if should release GIL
     - [ ] Check if can get interrupt somehow and unblock the loop (e.g. with glfwPostEmptyEvent)
-        - check on linux
-        - on windows glfw waits on WaitMessage -> an easy workaraound would be to wait with some timoeout
-           and check the signals with PyErr_CheckSignals
+        [x] on windows glfw waits on WaitMessage -> an easy workaraound would be to wait with some timoeout
+            and check the signals with PyErr_CheckSignals
+            - actually glfw does not seem to tell us if any event was received or the timeout expired, which
+               means that we then force a redraw at this timeout which does not seem super ok.
+                - can potentially
+            - not sure if we can actually install the signal handler here
+            -> Using platform specific SetConsoleCtrlHandler works fine
+        [ ] check on linux
+
+
 - [ ] ImGui:
     - [ ] Fix imgui with waitevents on linux, likely need some form of animation frame flag / counter to render at least one additional frame
     - [ ] vec2 / vec4

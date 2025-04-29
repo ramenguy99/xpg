@@ -1556,8 +1556,19 @@ nb::ref<SyncCommandsManager> sync_commands(nb::ref<Context> ctx) {
     return new SyncCommandsManager(std::move(ctx));
 }
 
+#ifdef _WIN32
+BOOL WINAPI ctrlc_handler(DWORD) {
+    glfwPostEmptyEvent();
+    return FALSE;
+}
+#endif
+
 void gfx_create_bindings(nb::module_& m)
 {
+#ifdef _WIN32
+    SetConsoleCtrlHandler(ctrlc_handler, TRUE);
+#endif
+
     nb::enum_<gfx::DeviceFeatures::DeviceFeaturesFlags>(m, "DeviceFeatures", nb::is_flag(), nb::is_arithmetic())
         .value("NONE",                gfx::DeviceFeatures::NONE)
         .value("PRESENTATION",        gfx::DeviceFeatures::PRESENTATION)
