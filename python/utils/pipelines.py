@@ -1,7 +1,7 @@
 import watchfiles
 from queue import Queue
 from typing import List, Dict, Callable, Optional
-from threading import Thread
+from threading import Thread, Event
 from pathlib import Path
 import atexit
 from platformdirs import user_cache_path
@@ -115,7 +115,7 @@ class PipelineWatch:
         for pipe in pipelines:
             for dep in pipe._deps:
                 self.reload.setdefault(Path(dep).absolute(), []).append(pipe)
-        self.should_stop = False
+        self.stop_event = Event()
         self.thread = Thread(target=self.__thread_entry, daemon=True, name="pipeline-watch")
         self.thread.start()
 
@@ -125,10 +125,7 @@ class PipelineWatch:
         if not len(self.reload):
             return
 
-        for changes in watchfiles.watch(*self.reload.keys(), debounce=200):
-            if self.should_stop:
-                break
-
+        for changes in watchfiles.watch(*self.reload.keys(), debounce=200, stop_event=self.stop_event):
             any_change = False
             for change, path in changes:
                 if change == watchfiles.Change.modified:
@@ -153,13 +150,8 @@ class PipelineWatch:
             pipe._update()
 
     def stop(self):
-        if len(self.reload):
-            self.should_stop = True
-            for p in self.reload.keys():
-                p.touch()
-                break
+        self.stop_event.set()
         self.thread.join()
-
         ALIVE_CACHES.remove(self)
 
 def __close_all():
