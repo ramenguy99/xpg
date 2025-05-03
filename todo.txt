@@ -328,3 +328,67 @@ Opts:                                           Debug         Release
 - CapabilitySet::toNative (std move)       -> [285  300]
 - CapabilityTargetSet::toNative (std move) -> [275  292]
 - UintList + avoid lists in deserialize    -> [234  247]      [59 - 65]
+
+Shaders:
+- DECIDE IF CONTINUE WITH SLANG (means at least implement the binding ranges api for global stuff)
+    Pros:
+    - Already mostly integrated
+    - More powerful language:
+        - Better module system
+        - Potentially can use autodiff stuff
+        - Interfaces
+        - Generics
+        - Overloading
+    - Cross platform -> could port to HLSL
+    Cons:
+    - Way more complex
+    - Build is super slow
+    - Slower to run
+    - Naming does not
+- OR GO WITH SPIR-V CROSS (seems easy to statically link and use as submodule, then wrap in python)
+    Pros:
+    - Simple, faster, easier to understand
+    - Maps well to vulkan
+    - Better subgroup stuff
+    Cons:
+    - Not very expressive
+    - Requires at least glslang for dynamic compilation and spirv-cross for reflection
+    - Not sure yet if reflection gives us all we need.
+        - Struct layouts
+        - Descriptor sets (need to assign bindings by hand? maybe ok..)
+        - List of dependency files -> available ony in glslang
+- Plan:
+    - Try integrating glslang + spirv-cross, see build times / static linking pain
+        - spriv-cross:
+            - looks very easy, can easily parse structs of basetypes
+            - can probably also easily get resources and their types:
+                - images:
+                    - distinguish combined image sampler / sampled images / storage images
+                    - image format for storage images
+                    - internal type (number of channels could be useful to know what is used?)
+                    - readonly / writeonly / readwrite attributes
+                - storage buffers:
+                    - fixed size vs infinite array
+                    - parse internal type too
+                    - readonly / writeonly / readwrite attributes
+        - glslang:
+            - Configure compiler
+            - Pass files
+            - Extract spirv
+            - Define include handler and extract depfiles
+    - Slang
+        - The issue with the bindingranges api is that it's already flattened.
+          It's ok for creating layouts, but not for binding. If we have structure
+          in the source we want to have the same structure in reflection, not
+          just the flattened version.
+        - One options is to understand how the binding ranges work, how the
+          bindingtype and set/binding is inferred, and try to reconstruct that
+          ourselves.
+        - Other option is to use the binding ranges, but still somehow parse
+          the tree and match the two. Feels a bit more hacky but maybe easier?
+    - Notes:
+        - glslang already can do most of the reflection that we need, probably
+          do not need spirv-cross then.
+        - slang does not seem to handle well redefined targets, likely just
+          a matter of checking if a target already exist and not add it again.
+          But need to do this and upstream it.

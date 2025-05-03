@@ -8,6 +8,7 @@ set (CMAKE_CXX_STANDARD 20)
 set(XPG_BUILD_APPS ON CACHE BOOL "Build XPG applications")
 set(XPG_BUILD_PYTHON ON CACHE BOOL "Build XPG python module")
 set(XPG_BUILD_SLANG ON CACHE BOOL "Build XPG with slang")
+set(XPG_BUILD_GLSLANG_AND_SPIRV OFF CACHE BOOL "Build XPG with GLSL and SPIRV support")
 set(XPG_MSVC_ANALYZE OFF CACHE BOOL "Build with /analyze when using MSVC (heavily increases build times)")
 
 # Compiler specific
@@ -45,6 +46,35 @@ set(ZSTD_BUILD_SHARED OFF)
 set(ZSTD_BUILD_PROGRAMS OFF)
 set(ZSTD_MULTITHREAD_SUPPORT OFF)
 set(ZSTD_LEGACY_SUPPORT OFF)
+
+if (XPG_BUILD_GLSLANG_AND_SPIRV)
+    # Configure SPIRV-cross
+    # TODO: figure out why setting some of this with option is disbling warnings
+    # but also messing up with our build.
+    set(SPIRV_CROSS_SHARED OFF)
+    set(SPIRV_CROSS_STATIC ON)
+    set(SPIRV_CROSS_CLI OFF)
+    set(SPIRV_CROSS_ENABLE_TESTS OFF)
+    set(SPIRV_CROSS_ENABLE_C_API OFF)
+    set(SPIRV_CROSS_ENABLE_HLSL OFF)
+    set(SPIRV_CROSS_ENABLE_MSL OFF)
+    set(SPIRV_CROSS_SKIP_INSTALL ON)
+
+    # Configure SPIRV-Tools
+    set(SKIP_SPIRV_TOOLS_INSTALL ON)
+    set(SPIRV_TOOLS_BUILD_STATIC ON)
+    set(SPIRV_SKIP_EXECUTABLES ON)
+    set(SPIRV_SKIP_TESTS ON)
+
+    # Configure glslang
+    set(ENABLE_SPVREMAPPER OFF)
+    set(ENABLE_HLSL OFF)
+
+    add_subdirectory(ext/SPIRV-Headers)
+    add_subdirectory(ext/SPIRV-Tools)
+    add_subdirectory(ext/SPIRV-Cross)
+    add_subdirectory(ext/glslang)
+endif()
 
 # Configure slang
 if (XPG_BUILD_SLANG)

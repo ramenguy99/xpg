@@ -19,6 +19,7 @@ imgui.ini
 /build-debug
 /build-deploy
 /build-test
+/build-slang
 
 /install
 /install-deploy

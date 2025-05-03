@@ -66,7 +66,7 @@ struct ReflectingPrinting
         Result result = SLANG_OK;
 
         // ### Loading a Module
-        ObjArray<ComPtr<slang::IComponentType>> componentsToLink;
+        xpg::ObjArray<ComPtr<slang::IComponentType>> componentsToLink;
 
         // ### Finding Entry Points
         //
@@ -870,7 +870,7 @@ struct ReflectingPrinting
         }
         return SLANG_OK;
     }
-    ObjArray<ComPtr<slang::IMetadata>> _metadataForEntryPoints;
+    xpg::ObjArray<ComPtr<slang::IMetadata>> _metadataForEntryPoints;
 
     typedef unsigned int StageMask;
 

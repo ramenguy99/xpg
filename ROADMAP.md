@@ -91,8 +91,15 @@ Python:
     - [x] Compile from string
     - [ ] Pipeline cache with all important inputs
     - [ ] Expose spirv targets
-    - [ ] Cleaner handling of multiple entry points
     - [ ] Reflection of resource arrays and maybe other types -> look for descriptor set helper ideas
+        - [ ] Handling of unbounded descriptors
+        - [ ] Distinguish SAMPLED_IMAGE vs STORAGE_IMAGE vs COMBINED_IMAGE_SAMPLER
+        - [ ] Figure out if we like this API, or if something
+        - [ ] Fix pickling
+    - [ ] Cleaner handling of multiple entry points
+        -> actually not a spirv feature, so can just get rid of this?
+        -> should we check that there is only one defined and throw otherwise?
+        -> does slang support picking one out of many anyways? maybe we should expose that, e.g. for combined comput / vertex + frag in same source file.
 - [x] Cleanup some stubs with pattern matching file:
     - [x] numpy arrays over buffers -> maybe somehow switch to memory view? should be available everywhere
     - [x] tuple args in window callbacks are actually Tuple[float, float]
