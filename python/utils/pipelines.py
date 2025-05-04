@@ -63,12 +63,14 @@ def compile(file: Path, entry: str):
 
 class Pipeline:
     def __init__(self):
-        items = [a for a in dir(self) if not a.startswith('__') and not callable(getattr(self, a))]
-        self.__shaders: Dict[str, Path] = { a: Path(getattr(self, a)) for a in items }
+        items = [a for a in dir(type(self)) if not a.startswith('__') and not callable(getattr(type(self), a))]
+        self.__shaders: Dict[str, Path] = { a: Path(getattr(type(self), a)) for a in items }
         self.__compiled_shaders: Dict[str, slang.Shader] = {}
-        self._update()
+        self._update(True)
     
-    @abc.abstractmethod
+    def init(self, **kwargs):
+        pass
+
     def create(self, **kwargs):
         pass
 
@@ -79,7 +81,7 @@ class Pipeline:
         self.__dirty = True
         return True
     
-    def _update(self):
+    def _update(self, init):
         compiled_shaders: Dict[str, slang.Shader] = {}
         for k, v in self.__shaders.items():
             try:
@@ -102,6 +104,8 @@ class Pipeline:
         for s in self.__compiled_shaders.values():
             for d in s.dependencies:
                 self._deps.append(d)
+        if init:
+            self.init(**self.__compiled_shaders)
         self.create(**self.__compiled_shaders)
         self.__dirty = False
     
@@ -147,7 +151,7 @@ class PipelineWatch:
                 before_any_update()
                 called = True
             pipe: Pipeline = self.queue.get()
-            pipe._update()
+            pipe._update(False)
 
     def stop(self):
         self.stop_event.set()

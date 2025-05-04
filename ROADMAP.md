@@ -89,13 +89,19 @@ Python:
     - [ ] Warp interop
 - [ ] Slang:
     - [x] Compile from string
-    - [ ] Pipeline cache with all important inputs
+    - [x] Reflection of resource arrays and maybe other types -> look for descriptor set helper ideas
+        - [x] Handling of unbounded descriptors
+        - [x] Distinguish SAMPLED_IMAGE vs STORAGE_IMAGE vs COMBINED_IMAGE_SAMPLER
+    - [x] Think what makes sense to be hot-reloadable (e.g. does not need python changes to keep working)
+            vs what is useful for pipeline instantiation and can be done only once at start.
+            [x] maybe add other hooks / callbacks to Pipeline object to make this split more obvious
+                init vs create seems useful, even though they both need reflection, can just call it twice at start
+            [ ] maybe add helpers that are commonly used in this kind of pipeline creation step
+                (keep in mind that often some inputs / logic comes from outside). Do this later with more apps / viewer.
+    - [ ] Slang not outputting binding decoration when using parameter block, but reflection seems to get it? Bug in slang?
+    - [ ] Fix reflection serialization / deserialization
     - [ ] Expose spirv targets
-    - [ ] Reflection of resource arrays and maybe other types -> look for descriptor set helper ideas
-        - [ ] Handling of unbounded descriptors
-        - [ ] Distinguish SAMPLED_IMAGE vs STORAGE_IMAGE vs COMBINED_IMAGE_SAMPLER
-        - [ ] Figure out if we like this API, or if something
-        - [ ] Fix pickling
+    - [ ] Pipeline cache with all important inputs
     - [ ] Cleaner handling of multiple entry points
         -> actually not a spirv feature, so can just get rid of this?
         -> should we check that there is only one defined and throw otherwise?

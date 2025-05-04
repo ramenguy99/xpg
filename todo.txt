@@ -392,3 +392,10 @@ Shaders:
         - slang does not seem to handle well redefined targets, likely just
           a matter of checking if a target already exist and not add it again.
           But need to do this and upstream it.
+
+
+        u32 binding = content->getBindingIndex();
+        u32 space = content->getBindingSpace();
+        u32 regspace = content->getOffset(slang::ParameterCategory::RegisterSpace);
+        u32 sub_regspace = content->getOffset(slang::ParameterCategory::SubElementRegisterSpace);
+        u32 table = content->getOffset(slang::ParameterCategory::DescriptorTableSlot);

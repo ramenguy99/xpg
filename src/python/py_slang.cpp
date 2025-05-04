@@ -88,22 +88,67 @@ struct Reflection_Matrix: Reflection_Obj {
     }
 };
 
+struct Reflection_Resource: Reflection_Obj {
+    enum class Kind {
+        ConstantBuffer,
+        StructuredBuffer,
+        Texture2D,
+        AccelerationStructure,
+        Sampler,
+    };
+    Kind kind;
+
+    // Only for StructuredBuffer
+    SlangResourceShape shape;
+    SlangResourceAccess access;
+    slang::BindingType binding_type = slang::BindingType::Unknown;
+
+    // For Constant buffer, StructuredBuffer and Texture2D, the underlying type. None for the others.
+    nb::ref<Reflection_Obj> type;
+
+    static std::tuple<Kind, SlangResourceShape, SlangResourceAccess, slang::BindingType, nb::ref<Reflection_Obj>>
+    __getstate__(const Reflection_Resource& obj) {
+        return std::make_tuple(obj.kind, obj.shape, obj.access, obj.binding_type, obj.type);
+    }
+
+    static void __setstate__(Reflection_Resource& obj, const std::tuple<Kind, SlangResourceShape, SlangResourceAccess, slang::BindingType, nb::ref<Reflection_Obj>>& resource) {
+        new (&obj) Reflection_Resource();
+
+        obj.kind = std::get<0>(resource);
+        obj.shape = std::get<1>(resource);
+        obj.access = std::get<2>(resource);
+        obj.binding_type = std::get<3>(resource);
+        obj.type = std::get<4>(resource);
+    }
+};
+
 struct Reflection_Field: Reflection_Obj {
     nb::str name;
     nb::ref<Reflection_Obj> type;
+    
+    // If type is a constant
     u32 offset;
     // u32 size;
 
-    static std::tuple<nb::str, nb::ref<Reflection_Obj>, u32> __getstate__(const Reflection_Field& obj) {
-        return std::make_tuple(obj.name, obj.type, obj.offset);
+    // If type is a resource
+    u32 binding; 
+    u32 set;
+    SlangImageFormat image_format;
+
+    static std::tuple<nb::str, nb::ref<Reflection_Obj>, u32, u32, u32, SlangImageFormat>
+    __getstate__(const Reflection_Field &obj) {
+        return std::make_tuple(obj.name, obj.type, obj.offset, obj.binding, obj.set, obj.image_format);
     }
 
-    static void __setstate__(Reflection_Field& obj, const std::tuple<nb::str, nb::ref<Reflection_Obj>, u32>& field) {
+    static void __setstate__(Reflection_Field& obj, const std::tuple<nb::str, nb::ref<Reflection_Obj>, u32, u32, u32 , SlangImageFormat>& field) {
         new (&obj) Reflection_Field();
 
         obj.name = std::get<0>(field);
         obj.type = std::get<1>(field);
         obj.offset = std::get<2>(field);
+        obj.binding = std::get<3>(field);
+        obj.set = std::get<4>(field);
+        obj.image_format = std::get<5>(field);
     }
 };
 
@@ -121,59 +166,19 @@ struct Reflection_Struct: Reflection_Obj {
     }
 };
 
-struct Reflection_Resource: nb::intrusive_base {
-    enum class Kind {
-        ConstantBuffer,
-        StructuredBuffer,
-        Texture2D,
-        AccelerationStructure,
-        Sampler,
-    };
-    Kind kind;
-
-    // Only for StructuredBuffer
-    SlangResourceShape shape;
-    SlangResourceAccess access;
-
-    nb::str name;
-    u32 set;
-    u32 binding;
-    u32 array_count = 1; // UINT32_MAX means unbounded array
-
-    nb::ref<Reflection_Obj> type;
-
-    static std::tuple<Kind, SlangResourceShape, SlangResourceAccess, nb::str, u32, u32, u32, nb::ref<Reflection_Obj>>
-    __getstate__(const Reflection_Resource& obj) {
-        return std::make_tuple(obj.kind, obj.shape, obj.access, obj.name, obj.set, obj.binding, obj.array_count, obj.type);
-    }
-
-    static void __setstate__(Reflection_Resource& obj, const std::tuple<Kind, SlangResourceShape, SlangResourceAccess, nb::str, u32, u32, u32, nb::ref<Reflection_Obj>>& resource) {
-        new (&obj) Reflection_Resource();
-
-        obj.kind = std::get<0>(resource);
-        obj.shape = std::get<1>(resource);
-        obj.access = std::get<2>(resource);
-        obj.name = std::get<3>(resource);
-        obj.set = std::get<4>(resource);
-        obj.binding = std::get<5>(resource);
-        obj.array_count = std::get<6>(resource);
-        obj.type = std::get<7>(resource);
-    }
-};
-
 struct Reflection: nb::intrusive_base {
-    std::vector<nb::ref<Reflection_Resource>> resources;
+    nb::ref<Reflection_Obj> object;
 
     // TODO: push constants
 
-    static std::vector<nb::ref<Reflection_Resource>> __getstate__(const Reflection& obj) {
-        return obj.resources;
+    static nb::ref<Reflection_Obj> __getstate__(Reflection& obj) {
+        return obj.object;
     }
 
-    static void __setstate__(Reflection& obj, const std::vector<nb::ref<Reflection_Resource>>& resources) {
+    static void __setstate__(Reflection& obj, nb::ref<Reflection_Obj>& object) {
         new (&obj) Reflection();
 
-        obj.resources = resources;
+        obj.object = object;
     }
 };
 
@@ -202,6 +207,9 @@ struct SlangShader: public nb::intrusive_base {
 
 nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
     switch(type->getKind()) {
+        case slang::TypeReflection::Kind::None: {
+            return new Reflection_Resource();
+        } break;
         case slang::TypeReflection::Kind::Scalar: {
             std::unique_ptr<Reflection_Scalar> s = std::make_unique<Reflection_Scalar>();
             s->scalar = type->getScalarType();
@@ -235,10 +243,77 @@ nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
                 f->name = nb::str(field->getName());
                 f->type = parse_type(field->getTypeLayout());
                 f->offset = field->getOffset();
+                f->binding = field->getBindingIndex();
+                f->set = field->getBindingSpace();
+                f->image_format = field->getImageFormat();
+
+                u32 sub_regspace = field->getOffset(slang::ParameterCategory::SubElementRegisterSpace);
+                u32 table = field->getOffset(slang::ParameterCategory::DescriptorTableSlot);
+                f->set = field->getBindingSpace() + sub_regspace;
+                f->binding = table;
 
                 s->fields.push_back(f.release());
             }
             return s.release();
+        } break;
+        case slang::TypeReflection::Kind::Resource: {
+            std::unique_ptr<Reflection_Resource> r = std::make_unique<Reflection_Resource>();
+
+            r->shape = (SlangResourceShape)(type->getResourceShape() & SLANG_RESOURCE_BASE_SHAPE_MASK);
+            r->access = type->getResourceAccess();
+
+            int count = type->getBindingRangeCount();
+            if (count > 0) {
+                r->binding_type = type->getBindingRangeType(0);
+            }
+
+            switch(r->shape) {
+                case SlangResourceShape::SLANG_STRUCTURED_BUFFER: {
+                    r->kind = Reflection_Resource::Kind::StructuredBuffer;
+
+                    slang::TypeLayoutReflection* content_type = type->getElementTypeLayout();
+                    r->type = parse_type(content_type);
+
+                } break;
+                case SlangResourceShape::SLANG_TEXTURE_2D: {
+                    r->kind = Reflection_Resource::Kind::Texture2D;
+                } break;
+                case SlangResourceShape::SLANG_ACCELERATION_STRUCTURE: {
+                    r->kind = Reflection_Resource::Kind::AccelerationStructure;
+                } break;
+                default:
+                    throw std::runtime_error("Unexpected resource shape in shader reflection");
+            }
+
+            return r.release();
+        } break;
+        case slang::TypeReflection::Kind::SamplerState: {
+            std::unique_ptr<Reflection_Resource> r = std::make_unique<Reflection_Resource>();
+            r->kind = Reflection_Resource::Kind::Sampler;
+            int count = type->getBindingRangeCount();
+            if (count > 0) {
+                r->binding_type = type->getBindingRangeType(0);
+            }
+            return r.release();
+        } break;
+        case slang::TypeReflection::Kind::ConstantBuffer: {
+            std::unique_ptr<Reflection_Resource> r = std::make_unique<Reflection_Resource>();
+            r->kind = Reflection_Resource::Kind::ConstantBuffer;
+
+            slang::VariableLayoutReflection* content = type->getElementVarLayout();
+            slang::TypeLayoutReflection* content_type = content->getTypeLayout();
+            const char* content_type_name = content_type->getName();
+            r->type = parse_type(content_type);
+
+            int count = type->getBindingRangeCount();
+            if (count > 0) {
+                r->binding_type = type->getBindingRangeType(0);
+            }
+
+            return r.release();
+        } break;
+        case slang::TypeReflection::Kind::ParameterBlock: {
+            return parse_type(type->getElementTypeLayout());
         } break;
         default:
             nb::raise("Unhandled type kind while parsing shader reflection: %d", type->getKind());
@@ -247,7 +322,7 @@ nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
 
 struct CompilationError: public std::runtime_error
 {
-    CompilationError(std::string error): std::runtime_error(error) {}
+    CompilationError(const std::string& error): std::runtime_error(error) {}
 };
 
 nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISession*, ISlangBlob**)> func, const nb::str& entry) {
@@ -280,7 +355,7 @@ nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISes
     Slang::ComPtr<slang::IModule> mod = Slang::ComPtr<slang::IModule>(func(session.get(), diagnostics.writeRef()));
 
     if(!mod) {
-        throw CompilationError((char *)diagnostics->getBufferPointer());
+        throw CompilationError(diagnostics ? (char *)diagnostics->getBufferPointer() : "");
     }
 
     Slang::ComPtr<slang::IEntryPoint> entry_point;
@@ -306,93 +381,24 @@ nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISes
     Slang::ComPtr<slang::IComponentType> linked_program;
     result = program->link(linked_program.writeRef(), diagnostics.writeRef());
     if(SLANG_FAILED(result)) {
-        throw CompilationError((char*)diagnostics->getBufferPointer());
+        throw CompilationError(diagnostics ? (char*)diagnostics->getBufferPointer() : "");
     }
 
     nb::ref<Reflection> reflection = new Reflection();
 
     slang::ProgramLayout* layout = program->getLayout();
-    slang::VariableLayoutReflection* refl = layout->getGlobalParamsVarLayout();
-    slang::TypeLayoutReflection* type_layout = refl->getTypeLayout();
-    switch(type_layout->getKind()) {
-        case slang::TypeReflection::Kind::Struct: {
-            usize count = type_layout->getFieldCount();
+    slang::VariableLayoutReflection* var = layout->getGlobalParamsVarLayout();
+    const char* name = var->getName();
+    nb::ref<Reflection_Obj> type = parse_type(var->getTypeLayout());
 
-            for (usize i = 0; i < count; i++) {
-                nb::ref<Reflection_Resource> resource = new Reflection_Resource();
-
-                slang::VariableLayoutReflection* var = type_layout->getFieldByIndex(i);
-                slang::ParameterCategory cat = var->getCategory();
-                if(cat != slang::ParameterCategory::DescriptorTableSlot) {
-                    // TODO: remove
-                    continue;
-                    throw std::runtime_error("Unexpected parameter category in shader reflection");
-                }
-
-                resource->name = nb::str(var->getName());
-                resource->binding = var->getBindingIndex();
-                resource->set = var->getBindingSpace();
-
-                slang::TypeLayoutReflection* type = var->getTypeLayout();
-                switch(type->getKind()) {
-                    case slang::TypeReflection::Kind::ConstantBuffer: {
-                        resource->kind = Reflection_Resource::Kind::ConstantBuffer;
-
-                        slang::VariableLayoutReflection* content = type->getElementVarLayout();
-                        slang::TypeLayoutReflection* content_type = content->getTypeLayout();
-                        const char* content_type_name = content_type->getName();
-
-                        resource->type = parse_type(content_type);
-                    } break;
-                    case slang::TypeReflection::Kind::Resource: {
-                        resource->shape = (SlangResourceShape)(type->getResourceShape() & SLANG_RESOURCE_BASE_SHAPE_MASK);
-                        resource->access = type->getResourceAccess();
-
-                        switch(resource->shape) {
-                            case SlangResourceShape::SLANG_STRUCTURED_BUFFER: {
-                                slang::TypeLayoutReflection* content_type = type->getElementTypeLayout();
-                                resource->type = parse_type(content_type);
-                            } break;
-                            case SlangResourceShape::SLANG_TEXTURE_2D: {
-                                resource->kind = Reflection_Resource::Kind::Texture2D;
-                            } break;
-                            case SlangResourceShape::SLANG_ACCELERATION_STRUCTURE: {
-                                resource->kind = Reflection_Resource::Kind::AccelerationStructure;
-                            } break;
-                            default:
-                                throw std::runtime_error("Unexpected resource shape in shader reflection");
-                        }
-                    } break;
-                    case slang::TypeReflection::Kind::Array: {
-                        // TODO: not sure how to handle this yet
-                    } break;
-                    case slang::TypeReflection::Kind::SamplerState: {
-                        resource->kind = Reflection_Resource::Kind::Sampler;
-                    } break;
-                    default:
-                        nb::raise("Unexpected variable type in shader reflection %d", type->getKind());
-                }
-
-                reflection->resources.push_back(resource);
-            }
-        } break;
-
-        // not hit yet
-        case slang::TypeReflection::Kind::ConstantBuffer:
-        case slang::TypeReflection::Kind::ParameterBlock:
-
-        // should never be hit
-        default:
-            throw std::runtime_error("Unexpected type layout kind in shader reflection");
-            break;
-    }
+    reflection->object = type;
 
     Slang::ComPtr<slang::IBlob> kernel;
     result = linked_program->getEntryPointCode(0, // entryPointIndex
                                                0, // targetIndex
                                                kernel.writeRef(), diagnostics.writeRef());
     if(SLANG_FAILED(result)) {
-        throw CompilationError((char*)diagnostics->getBufferPointer());
+        throw CompilationError(diagnostics ? (char*)diagnostics->getBufferPointer() : "");
     }
 
     return nb::ref<SlangShader>(new SlangShader(nb::bytes(kernel->getBufferPointer(), kernel->getBufferSize()), reflection, std::move(dependencies)));
@@ -413,6 +419,81 @@ nb::ref<SlangShader> slang_compile(const nb::str& file, const nb::str& entry) {
 void slang_create_bindings(nb::module_& mod_slang)
 {
     nb::exception<CompilationError>(mod_slang, "CompilationError");
+
+    nb::enum_<SlangImageFormat>(mod_slang, "ImageFormat")
+        .value("UNKNOWN"        , SLANG_IMAGE_FORMAT_unknown)
+        .value("RGBA32F"        , SLANG_IMAGE_FORMAT_rgba32f)
+        .value("RGBA16F"        , SLANG_IMAGE_FORMAT_rgba16f)
+        .value("RG32F"          , SLANG_IMAGE_FORMAT_rg32f)
+        .value("RG16F"          , SLANG_IMAGE_FORMAT_rg16f)
+        .value("R11F_G11F_B10F" , SLANG_IMAGE_FORMAT_r11f_g11f_b10f)
+        .value("R32F"           , SLANG_IMAGE_FORMAT_r32f)
+        .value("R16F"           , SLANG_IMAGE_FORMAT_r16f)
+        .value("RGBA16"         , SLANG_IMAGE_FORMAT_rgba16)
+        .value("RGB10_A2"       , SLANG_IMAGE_FORMAT_rgb10_a2)
+        .value("RGBA8"          , SLANG_IMAGE_FORMAT_rgba8)
+        .value("RG16"           , SLANG_IMAGE_FORMAT_rg16)
+        .value("RG8"            , SLANG_IMAGE_FORMAT_rg8)
+        .value("R16"            , SLANG_IMAGE_FORMAT_r16)
+        .value("R8"             , SLANG_IMAGE_FORMAT_r8)
+        .value("RGBA16_SNORM"   , SLANG_IMAGE_FORMAT_rgba16_snorm)
+        .value("RGBA8_SNORM"    , SLANG_IMAGE_FORMAT_rgba8_snorm)
+        .value("RG16_SNORM"     , SLANG_IMAGE_FORMAT_rg16_snorm)
+        .value("RG8_SNORM"      , SLANG_IMAGE_FORMAT_rg8_snorm)
+        .value("R16_SNORM"      , SLANG_IMAGE_FORMAT_r16_snorm)
+        .value("R8_SNORM"       , SLANG_IMAGE_FORMAT_r8_snorm)
+        .value("RGBA32I"        , SLANG_IMAGE_FORMAT_rgba32i)
+        .value("RGBA16I"        , SLANG_IMAGE_FORMAT_rgba16i)
+        .value("RGBA8I"         , SLANG_IMAGE_FORMAT_rgba8i)
+        .value("RG32I"          , SLANG_IMAGE_FORMAT_rg32i)
+        .value("RG16I"          , SLANG_IMAGE_FORMAT_rg16i)
+        .value("RG8I"           , SLANG_IMAGE_FORMAT_rg8i)
+        .value("R32I"           , SLANG_IMAGE_FORMAT_r32i)
+        .value("R16I"           , SLANG_IMAGE_FORMAT_r16i)
+        .value("R8I"            , SLANG_IMAGE_FORMAT_r8i)
+        .value("RGBA32UI"       , SLANG_IMAGE_FORMAT_rgba32ui)
+        .value("RGBA16UI"       , SLANG_IMAGE_FORMAT_rgba16ui)
+        .value("RGB10_A2UI"     , SLANG_IMAGE_FORMAT_rgb10_a2ui)
+        .value("RGBA8UI"        , SLANG_IMAGE_FORMAT_rgba8ui)
+        .value("RG32UI"         , SLANG_IMAGE_FORMAT_rg32ui)
+        .value("RG16UI"         , SLANG_IMAGE_FORMAT_rg16ui)
+        .value("RG8UI"          , SLANG_IMAGE_FORMAT_rg8ui)
+        .value("R32UI"          , SLANG_IMAGE_FORMAT_r32ui)
+        .value("R16UI"          , SLANG_IMAGE_FORMAT_r16ui)
+        .value("R8UI"           , SLANG_IMAGE_FORMAT_r8ui)
+        .value("R64UI"          , SLANG_IMAGE_FORMAT_r64ui)
+        .value("R64I"           , SLANG_IMAGE_FORMAT_r64i)
+        .value("BGRA8"          , SLANG_IMAGE_FORMAT_bgra8)
+    ;
+
+    nb::enum_<slang::BindingType>(mod_slang, "BindingType")
+        .value("UNKNOWN",                           slang::BindingType::Unknown)
+        .value("SAMPLER",                           slang::BindingType::Sampler)
+        .value("TEXTURE",                           slang::BindingType::Texture)
+        .value("CONSTANT_BUFFER",                   slang::BindingType::ConstantBuffer)
+        .value("PARAMETER_BLOCK",                   slang::BindingType::ParameterBlock)
+        .value("TYPED_BUFFER",                      slang::BindingType::TypedBuffer)
+        .value("RAW_BUFFER",                        slang::BindingType::RawBuffer)
+        .value("COMBINED_TEXTURE_SAMPLER",          slang::BindingType::CombinedTextureSampler)
+        .value("INPUT_RENDER_TARGET",               slang::BindingType::InputRenderTarget)
+        .value("INLINE_UNIFORM_DATA",               slang::BindingType::InlineUniformData)
+        .value("RAYTRACING_ACCELERATION_STRUCTURE", slang::BindingType::RayTracingAccelerationStructure)
+        .value("VARYING_INPUT",                     slang::BindingType::VaryingInput)
+        .value("VARYING_OUTPUT",                    slang::BindingType::VaryingOutput)
+        .value("EXISTENTIAL_VALUE",                 slang::BindingType::ExistentialValue)
+        .value("PUSH_CONSTANT",                     slang::BindingType::PushConstant)
+        .value("MUTABLE_TEXTURE",                   slang::BindingType::MutableTexture)
+        .value("MUTABLE_TYPED_BUFFER",              slang::BindingType::MutableTypedBuffer)
+        .value("MUTABLE_RAW_BUFFER",                slang::BindingType::MutableRawBuffer)
+    ;
+
+    nb::enum_<Reflection_Resource::Kind>(mod_slang, "ResourceKind")
+        .value("CONSTANT_BUFFER", Reflection_Resource::Kind::ConstantBuffer)
+        .value("STRUCTURED_BUFFER", Reflection_Resource::Kind::StructuredBuffer)
+        .value("TEXTURE_2D", Reflection_Resource::Kind::Texture2D)
+        .value("ACCELERATION_STRUCTURE", Reflection_Resource::Kind::AccelerationStructure)
+        .value("SAMPLER", Reflection_Resource::Kind::Sampler)
+    ;
 
     nb::class_<Reflection_Obj>(mod_slang, "Type",
         nb::intrusive_ptr<Reflection_Obj>([](Reflection_Obj *o, PyObject *po) noexcept { o->set_self_py(po); }))
@@ -448,28 +529,6 @@ void slang_create_bindings(nb::module_& mod_slang)
        .def("__setstate__", Reflection_Matrix::__setstate__)
     ;
 
-    nb::class_<Reflection_Field, Reflection_Obj>(mod_slang, "Field")
-       .def_ro("name", &Reflection_Field::name)
-       .def_ro("type", &Reflection_Field::type)
-       .def_ro("offset", &Reflection_Field::offset)
-       .def("__getstate__", Reflection_Field::__getstate__)
-       .def("__setstate__", Reflection_Field::__setstate__)
-    ;
-
-    nb::class_<Reflection_Struct, Reflection_Obj>(mod_slang, "Struct")
-       .def_ro("fields", &Reflection_Struct::fields)
-       .def("__getstate__", Reflection_Struct::__getstate__)
-       .def("__setstate__", Reflection_Struct::__setstate__)
-    ;
-
-    nb::enum_<Reflection_Resource::Kind>(mod_slang, "ResourceKind")
-        .value("CONSTANT_BUFFER", Reflection_Resource::Kind::ConstantBuffer)
-        .value("STRUCTURED_BUFFER", Reflection_Resource::Kind::StructuredBuffer)
-        .value("TEXTURE_2D", Reflection_Resource::Kind::Texture2D)
-        .value("ACCELERATION_STRUCTURE", Reflection_Resource::Kind::AccelerationStructure)
-        .value("SAMPLER", Reflection_Resource::Kind::Sampler)
-    ;
-
     nb::enum_<SlangResourceAccess>(mod_slang, "ResourceAccess")
         .value("SLANG_RESOURCE_ACCESS_NONE", SLANG_RESOURCE_ACCESS_NONE)
         .value("SLANG_RESOURCE_ACCESS_READ", SLANG_RESOURCE_ACCESS_READ)
@@ -495,24 +554,38 @@ void slang_create_bindings(nb::module_& mod_slang)
         .value("ACCELERATION_STRUCTURE", SLANG_ACCELERATION_STRUCTURE)
     ;
 
-    nb::class_<Reflection_Resource>(mod_slang, "Resource",
-        nb::intrusive_ptr<Reflection_Resource>([](Reflection_Resource *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def_ro("name", &Reflection_Resource::name)
+    nb::class_<Reflection_Resource, Reflection_Obj>(mod_slang, "Resource")
         .def_ro("kind", &Reflection_Resource::kind)
         .def_ro("shape", &Reflection_Resource::shape)
         .def_ro("access", &Reflection_Resource::access)
-        .def_ro("set", &Reflection_Resource::set)
-        .def_ro("binding", &Reflection_Resource::binding)
         .def_ro("type", &Reflection_Resource::type)
+        .def_ro("binding_type", &Reflection_Resource::binding_type)
         .def("__getstate__", Reflection_Resource::__getstate__)
         .def("__setstate__", Reflection_Resource::__setstate__)
     ;
 
+    nb::class_<Reflection_Field, Reflection_Obj>(mod_slang, "Field")
+       .def_ro("name", &Reflection_Field::name)
+       .def_ro("type", &Reflection_Field::type)
+       .def_ro("offset", &Reflection_Field::offset)
+       .def_ro("set", &Reflection_Field::set)
+       .def_ro("binding", &Reflection_Field::binding)
+       .def_ro("image_format", &Reflection_Field::image_format)
+       .def("__getstate__", Reflection_Field::__getstate__)
+       .def("__setstate__", Reflection_Field::__setstate__)
+    ;
+
+    nb::class_<Reflection_Struct, Reflection_Obj>(mod_slang, "Struct")
+       .def_ro("fields", &Reflection_Struct::fields)
+       .def("__getstate__", Reflection_Struct::__getstate__)
+       .def("__setstate__", Reflection_Struct::__setstate__)
+    ;
+
     nb::class_<Reflection>(mod_slang, "Reflection",
         nb::intrusive_ptr<Reflection>([](Reflection *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def_ro("resources", &Reflection::resources)
         .def("__getstate__", Reflection::__getstate__)
         .def("__setstate__", Reflection::__setstate__)
+        .def_ro("object", &Reflection::object)
     ;
 
     nb::class_<SlangShader>(mod_slang, "Shader",

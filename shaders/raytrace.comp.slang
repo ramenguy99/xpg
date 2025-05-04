@@ -16,46 +16,36 @@ struct MeshInstance {
     float4 emissive_value;
 };
 
+struct Camera {
+    float3 position;
+    uint _padding;
+
+    float3 direction;
+    float film_dist;
+};
+
 struct Constants {
     uint width;
     uint height;
     uint _padding0;
     uint _padding1;
 
-    float3 camera_position;
-    uint _padding2;
-
-    float3 camera_direction;
-    float film_dist;
+    Camera camera;
 };
 
-[vk::binding(0, 0)]
 StructuredBuffer<float3, ScalarDataLayout> normals_buffer;
-
-[vk::binding(1, 0)]
 StructuredBuffer<float2> uvs_buffer;
-
-[vk::binding(2, 0)]
 StructuredBuffer<uint> indices_buffer;
-
-[vk::binding(3, 0)]
 StructuredBuffer<MeshInstance> instances_buffer;
-
-[vk::binding(4, 0)]
 RaytracingAccelerationStructure acceleration_structure;
-
-[vk::binding(5, 0)]
 SamplerState sampler;
-
 [vk::image_format("rgba32f")]
-[vk::binding(6, 0)]
 RWTexture2D<float3> output;
-
-[vk::binding(7, 0)]
 Texture2D<float4> textures[];
 
 [vk::binding(0, 1)]
 ConstantBuffer<Constants> constants;
+
 
 inline void GenerateCameraRay(uint2 p, out float3 origin, out float3 direction)
 {
@@ -64,13 +54,13 @@ inline void GenerateCameraRay(uint2 p, out float3 origin, out float3 direction)
     float2 xy = p;
     float2 offset = xy / size.xy * 2.0 - 1.0;
 
-    float3 camera_forward = constants.camera_direction;
+    float3 camera_forward = constants.camera.direction;
     float3 world_up = float3(0, 0, 1);
     float3 camera_right = normalize(cross(camera_forward, world_up));
     float3 camera_up = cross(camera_right, camera_forward);
-    float3 camera_p = constants.camera_position;
+    float3 camera_p = constants.camera.position;
 
-    float film_dist = constants.film_dist;
+    float film_dist = constants.camera.film_dist;
     float2 film_size = float2(1.0, 1.0);
     film_size.y = (float)size.y / (float)size.x;
     float2 half_film = film_size * 0.5f;
