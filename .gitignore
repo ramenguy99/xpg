@@ -32,3 +32,6 @@ imgui.ini
 /python-build
 /wheel*
 /pyxpg-backup
+
+/misc
+/ext/thsvs

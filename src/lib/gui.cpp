@@ -27,7 +27,7 @@ void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Cont
 
     // TODO: MSAA
     ImGui_ImplVulkan_InitInfo vk_init_info = {};
-    vk_init_info.ApiVersion = vk.version;
+    vk_init_info.ApiVersion = vk.instance_version;
     vk_init_info.Instance = vk.instance;
     vk_init_info.PhysicalDevice = vk.physical_device;
     vk_init_info.Device = vk.device;

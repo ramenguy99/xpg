@@ -60,9 +60,9 @@ void main(uint3 threadId : SV_DispatchThreadID)
 """
 
 print("Compiling shaders...")
-comp = Shader(ctx, slang.compile_str(comp_source, "main", "comp.slang").code)
+comp = Shader(ctx, slang.compile_str(comp_source, filename="comp.slang").code)
 
-pipeline = ComputePipeline(ctx, comp, "main", descriptor_sets=[ set ])
+pipeline = ComputePipeline(ctx, comp, descriptor_sets=[ set ])
 
 # Record commands
 print("Dispatching...")

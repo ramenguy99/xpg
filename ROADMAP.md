@@ -87,12 +87,12 @@ Python:
           -> opened issue on github, seems to be in general related to directly nesting Resources in ParameterBlock, works fine
              with direct data and structs in between
           [ ] Should fix the ParameterBlock with data directly to create implicit constant buffer for completeness.
-    - [ ] Expose spirv targets (does slang increase the target for us automatically if we just say spirv? maybe thats better?)
-    - [ ] Pipeline cache with all important inputs
-    - [ ] Cleaner handling of multiple entry points
-        -> actually not a spirv feature, so can just get rid of this?
-        -> should we check that there is only one defined and throw otherwise?
-        -> does slang support picking one out of many anyways? maybe we should expose that, e.g. for combined comput / vertex + frag in same source file.
+    - [x] Expose spirv targets (does slang increase the target for us automatically if we just say spirv? maybe thats better?) -> no, this is now exposed
+    - [x] Pipeline cache with all important inputs
+    - [x] Cleaner handling of multiple entry points
+        - slang supports picking the entry point you want but always generates one with main now.
+        - output spirv always uses "main", we go for single spirv entry point for each shader
+        -> potentially can support multiple spirv entry points in a single spirv module in the future?
 - [x] Cleanup some stubs with pattern matching file:
     - [x] numpy arrays over buffers -> maybe somehow switch to memory view? should be available everywhere
     - [x] tuple args in window callbacks are actually Tuple[float, float]

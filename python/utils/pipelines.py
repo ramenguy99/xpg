@@ -7,29 +7,49 @@ import atexit
 from platformdirs import user_cache_path
 import hashlib
 import pickle
-import abc
 import shutil
+from typing import Tuple, Union
 
 from pyxpg import slang
 from pyxpg import Window
 
 CACHE_DIR = user_cache_path("pyxpg")
 
+CACHE_VERSION_MAJOR = 0
+CACHE_VERSION_MINOR = 1
+CACHE_VERSION_PATCH = 1
+CACHE_VERSION = f"{CACHE_VERSION_MAJOR}.{CACHE_VERSION_MINOR}.{CACHE_VERSION_PATCH}"
+
 def clear_cache():
     shutil.rmtree(CACHE_DIR, ignore_errors=True)
 
-def compile(file: Path, entry: str) -> slang.Shader:
-    # TODO:
-    # [ ] This cache does not currently consider
+def vulkan_version_to_minimum_supported_spirv_version(version: Tuple[int, int]) -> str:
+    if version[0] == 0:
+        raise ValueError("Unsupported Vulkan version < 1")
+    if version[0] == 1:
+        if version[1] == 0:
+            return "spirv_1_0"
+        elif version[1] == 1:
+            return "spirv_1_3"
+        elif version[1] == 2:
+            return "spirv_1_5"
+        elif version[1] == 3 or version[1] == 4:
+            return "spirv_1_6"
+    return "spirv_1_6"
+
+def compile(file: Path, entry: str = "main", target: str = "spirv_1_3") -> slang.Shader:
+    # [x] This cache does not currently consider
     #   [x] imported files / modules  -> highest importance
     #       [x] Export list of deps in prog
     #       [x] Use this in pipeline cache creation for deps
-    #   [ ] compiler version          -> should expose this as an API
-    #   [-] slang target              -> only spirv currently supported
-    #   [-] preprocessor defines      -> not supported currently
-    #   [-] params (if any)           -> not supported currently
-    # [ ] No obvious way to clear the cache, maybe should have some LRU with max size? e.g. touch files when using them
-    name = f"{hashlib.sha256(file.read_bytes()).digest().hex()}_{entry}.shdr"
+    #   [x] compiler version          -> should expose this as an API
+    #   [x] slang target              -> only spirv currently supported
+    #   Fill need if ever supported:
+    #   - preprocessor defines
+    #   - specialization constants
+    #   - compilation options
+    # [ ] No automatic way to clear the cache, maybe should have some LRU with max size? e.g. touch files when using them
+    name = f"{hashlib.sha256(file.read_bytes()).digest().hex()}_{entry}_{target}_{CACHE_VERSION}.shdr"
 
     # Check cache
     path = Path(CACHE_DIR, name)
@@ -52,8 +72,7 @@ def compile(file: Path, entry: str) -> slang.Shader:
 
     # Create prog
     print(f"Shader cache miss: {file}")
-    prog = slang.compile(str(file), entry)
-
+    prog = slang.compile(str(file), entry, target)
     hashes = [ hashlib.sha256(Path(d).read_bytes()).digest().hex() for d in sorted(prog.dependencies) ]
 
     # Populate cache
@@ -64,7 +83,7 @@ def compile(file: Path, entry: str) -> slang.Shader:
 class Pipeline:
     def __init__(self):
         items = [a for a in dir(type(self)) if not a.startswith('__') and not callable(getattr(type(self), a))]
-        self.__shaders: Dict[str, Path] = { a: Path(getattr(type(self), a)) for a in items }
+        self.__shaders: Dict[str, Union[Path, Tuple[Path, str]]] = { a: getattr(type(self), a) for a in items }
         self.__compiled_shaders: Dict[str, slang.Shader] = {}
         self._update(True)
     
@@ -85,7 +104,11 @@ class Pipeline:
         compiled_shaders: Dict[str, slang.Shader] = {}
         for k, v in self.__shaders.items():
             try:
-                prog = compile(v, "main")
+                if isinstance(v, list) or isinstance(v, tuple):
+                    file, entry = v
+                else:
+                    file, entry = v, "main"
+                prog = compile(Path(file), entry)
                 compiled_shaders[k] = prog
             except slang.CompilationError as e:
                 if k in self.__compiled_shaders:

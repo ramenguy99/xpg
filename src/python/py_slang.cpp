@@ -186,8 +186,9 @@ Slang::ComPtr<slang::IGlobalSession> g_slang_global_session;
 
 struct SlangShader: public nb::intrusive_base {
     SlangShader() {}
-    SlangShader(nb::bytes c, nb::ref<Reflection> refl, nb::list dependencies): code(std::move(c)), reflection(refl), dependencies(std::move(dependencies)) {}
+    SlangShader(nb::str entry, nb::bytes c, nb::ref<Reflection> refl, nb::list dependencies): entry(std::move(entry)), code(std::move(c)), reflection(refl), dependencies(std::move(dependencies)) {}
 
+    nb::str entry;
     nb::bytes code;
     nb::ref<Reflection> reflection;
     nb::list dependencies;
@@ -325,7 +326,7 @@ struct CompilationError: public std::runtime_error
     CompilationError(const std::string& error): std::runtime_error(error) {}
 };
 
-nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISession*, ISlangBlob**)> func, const nb::str& entry) {
+nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISession*, ISlangBlob**)> func, const nb::str& entry, const nb::str& target) {
     if(!g_slang_global_session) {
         SlangGlobalSessionDesc desc = {
             .enableGLSL = false, // This enables glsl compat, but increases startup time by a lot, and forces generation of .bin file on first run.
@@ -333,13 +334,25 @@ nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISes
         slang::createGlobalSession(&desc, g_slang_global_session.writeRef());
     }
 
+#if 0
+    slang::CompilerOptionEntry options[1] = {
+        {
+            .name = slang::CompilerOptionName::VulkanUseEntryPointName,
+            .value = {
+                .intValue0 = 1,
+            },
+        }
+    };
+#endif
+
     slang::TargetDesc targets[] = {
         slang::TargetDesc {
             .format = SLANG_SPIRV,
-            .profile = g_slang_global_session->findProfile("spirv_1_3"),
-            // TODO: Currently default to 1.3 because it's what vulkan 1.1
-            // supports, would make more sense to expose this as a parameter.
-            // .profile = g_slang_global_session->findProfile("spirv_1_6"),
+            .profile = g_slang_global_session->findProfile(target.c_str()),
+#if 0
+            .compilerOptionEntries = options,
+            .compilerOptionEntryCount = ArrayCount(options),
+#endif
         },
     };
 
@@ -401,19 +414,19 @@ nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISes
         throw CompilationError(diagnostics ? (char*)diagnostics->getBufferPointer() : "");
     }
 
-    return nb::ref<SlangShader>(new SlangShader(nb::bytes(kernel->getBufferPointer(), kernel->getBufferSize()), reflection, std::move(dependencies)));
+    return nb::ref<SlangShader>(new SlangShader(nb::str("main"), nb::bytes(kernel->getBufferPointer(), kernel->getBufferSize()), reflection, std::move(dependencies)));
 }
 
-nb::ref<SlangShader> slang_compile_str(const nb::str& str, const nb::str& entry, const nb::str& filename) {
+nb::ref<SlangShader> slang_compile_str(const nb::str& str, const nb::str& entry, const nb::str& target, const nb::str& filename) {
     return slang_compile_any([&str, &filename] (slang::ISession* session, ISlangBlob** diagnostics) {
         return session->loadModuleFromSourceString(filename.c_str(), filename.c_str(), str.c_str(), diagnostics);
-    }, entry);
+    }, entry, target);
 }
 
-nb::ref<SlangShader> slang_compile(const nb::str& file, const nb::str& entry) {
+nb::ref<SlangShader> slang_compile(const nb::str& file, const nb::str& entry, const nb::str& target) {
     return slang_compile_any([&file] (slang::ISession* session, ISlangBlob** diagnostics) {
         return session->loadModule(file.c_str(), diagnostics);
-    }, entry);
+    }, entry, target);
 }
 
 void slang_create_bindings(nb::module_& mod_slang)
@@ -590,6 +603,7 @@ void slang_create_bindings(nb::module_& mod_slang)
 
     nb::class_<SlangShader>(mod_slang, "Shader",
         nb::intrusive_ptr<SlangShader>([](SlangShader *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_ro("entry", &SlangShader::entry)
         .def_ro("code", &SlangShader::code)
         .def_ro("reflection", &SlangShader::reflection)
         .def_ro("dependencies", &SlangShader::dependencies)
@@ -597,8 +611,8 @@ void slang_create_bindings(nb::module_& mod_slang)
         .def("__setstate__", SlangShader::__setstate__)
     ;
 
-    mod_slang.def("compile", slang_compile, nb::arg("path"), nb::arg("entry") = "main");
-    mod_slang.def("compile_str", slang_compile_str, nb::arg("source"), nb::arg("entry") = "main", nb::arg("filename") = "");
+    mod_slang.def("compile", slang_compile, nb::arg("path"), nb::arg("entry") = "main", nb::arg("target") = "spirv_1_3");
+    mod_slang.def("compile_str", slang_compile_str, nb::arg("source"), nb::arg("entry") = "main", nb::arg("target") = "spirv_1_3", nb::arg("filename") = "");
 
     nb::enum_<slang::TypeReflection::ScalarType>(mod_slang, "ScalarKind")
         .value("None", slang::TypeReflection::ScalarType::None)

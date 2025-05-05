@@ -110,7 +110,8 @@ struct DeviceFeatures {
 //- Context
 struct Context
 {
-    u32 version;
+    u32 instance_version;
+    u32 device_version;
     VkInstance instance;
     VkPhysicalDevice physical_device;
     VkDevice device;

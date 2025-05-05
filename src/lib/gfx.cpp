@@ -249,25 +249,19 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     }
 
     // Query vulkan version. If this is not available it's 1.0
-    u32 version = VK_API_VERSION_1_0;
+    u32 instance_version = VK_API_VERSION_1_0;
     if(vkEnumerateInstanceVersion) {
-        result = vkEnumerateInstanceVersion(&version);
+        result = vkEnumerateInstanceVersion(&instance_version);
         if (result != VK_SUCCESS) {
             logging::error("gfx", "vkEnumerateInstanceVersion failed: %d", result);
             return Result::API_OUT_OF_MEMORY;
         }
     }
 
-    u32 version_major = VK_API_VERSION_MAJOR(version);
-    u32 version_minor = VK_API_VERSION_MINOR(version);
-    u32 version_patch = VK_API_VERSION_PATCH(version);
-    logging::info("gfx/info", "Vulkan API version %u.%u.%u", version_major, version_minor, version_patch);
-
-    // Check if required version is met.
-    if (version < desc.minimum_api_version) {
-        logging::error("gfx", "Instance API version lower than requested");
-        return Result::INVALID_VERSION;
-    }
+    u32 instance_version_major = VK_API_VERSION_MAJOR(instance_version);
+    u32 instance_version_minor = VK_API_VERSION_MINOR(instance_version);
+    u32 instance_version_patch = VK_API_VERSION_PATCH(instance_version);
+    logging::info("gfx/info", "Vulkan instance API version %u.%u.%u", instance_version_major, instance_version_minor, instance_version_patch);
 
     // Enumerate layer properties.
     u32 layer_properties_count = 0;
@@ -468,13 +462,52 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     bool picked_queue_family_found = false;
     bool picked_copy_queue_family_found = false;
     bool picked_discrete = false;
+    u32 picked_device_api_version = 0;
     for (u32 i = 0; i < physical_device_count; i++) {
+        // Check device properties
+        VkPhysicalDeviceProperties properties = {};
+        vkGetPhysicalDeviceProperties(physical_devices[i], &properties);
+        if (properties.apiVersion < desc.minimum_api_version) {
+            continue;
+        }
+
+        // TODO: vkGetPhysicalDeviceProperties2, support more / vendor specific device information
+
+        // Check if all features we need are supported. To simplify the logic we skip this
+        // if we require vulkan 1.0 and assume the only feature you can request then is
+        // PRESENTATION.
+        bool all_features_supported = true;
+        if (instance_version >= VK_API_VERSION_1_1) {
+            VkPhysicalDeviceFeatures2 features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+            features.pNext = sup_chain.pNext;
+
+            vkGetPhysicalDeviceFeatures2(physical_devices[i], &features);
+
+            // TODO: would be nice to add tracing logs here for debugging this kind of stuff.
+#define CHECK_SUPPORTED(o) \
+            if (o##_sup_check) { \
+                all_features_supported = all_features_supported && CheckAllSupported(o, o##_sup); \
+            }
+
+            CHECK_SUPPORTED(dynamic_rendering_features);
+            CHECK_SUPPORTED(synchronization_2_features);
+            CHECK_SUPPORTED(scalar_block_layout_features);
+            CHECK_SUPPORTED(descriptor_indexing_features);
+            CHECK_SUPPORTED(buffer_device_address_features);
+            CHECK_SUPPORTED(acceleration_structure_features);
+            CHECK_SUPPORTED(ray_query_features);
+            CHECK_SUPPORTED(ray_tracing_pipeline_features);
+        }
+        if(!all_features_supported) {
+            continue;
+        }
+
+        // Check queues
         u32 queue_family_index = 0;
         u32 copy_queue_family_index = 0;
         bool queue_family_found = false;
         bool copy_queue_family_found = false;
 
-        // Check queues
         u32 queue_family_property_count = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_property_count, 0);
         Array<VkQueueFamilyProperties> queue_family_properties(queue_family_property_count);
@@ -514,50 +547,16 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                     }
                 }
             }
-
-
-            //@Incomplete vkGetQueueFamilyProperties* versions, support more / vendor specific queue family information
-            //printf("Queue: %x - %d\n", prop.queueFlags, prop.queueCount);
-
         }
-
-        // Check device properties
-        VkPhysicalDeviceProperties properties = {};
-        vkGetPhysicalDeviceProperties(physical_devices[i], &properties);
-
-        // TODO: vkGetPhysicalDeviceProperties2, support more / vendor specific device information
-
-        // Check if all features we need are supported. To simplify the logic we skip this
-        // if we require vulkan 1.0 and assume the only feature you can request then is
-        // PRESENTATION.
-        bool all_features_supported = true;
-        if (desc.minimum_api_version >= VK_API_VERSION_1_1) {
-            VkPhysicalDeviceFeatures2 features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-            features.pNext = sup_chain.pNext;
-
-            vkGetPhysicalDeviceFeatures2(physical_devices[i], &features);
-
-            // TODO: would be nice to add tracing logs here for debugging this kind of stuff.
-#define CHECK_SUPPORTED(o) \
-            if (o##_sup_check) { \
-                all_features_supported = all_features_supported && CheckAllSupported(o, o##_sup); \
-            }
-
-            CHECK_SUPPORTED(dynamic_rendering_features);
-            CHECK_SUPPORTED(synchronization_2_features);
-            CHECK_SUPPORTED(scalar_block_layout_features);
-            CHECK_SUPPORTED(descriptor_indexing_features);
-            CHECK_SUPPORTED(buffer_device_address_features);
-            CHECK_SUPPORTED(acceleration_structure_features);
-            CHECK_SUPPORTED(ray_query_features);
-            CHECK_SUPPORTED(ray_tracing_pipeline_features);
+        if(!queue_family_found) {
+            continue;
         }
 
         bool picked = false;
 
         // Pick the first discrete GPU that matches all the constraints
         bool discrete = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
-        if ((!physical_device || (discrete && !picked_discrete)) && queue_family_found && all_features_supported) {
+        if (!physical_device || (discrete && !picked_discrete)) {
             physical_device = physical_devices[i];
 
             picked_queue_family_index = queue_family_index;
@@ -569,6 +568,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             picked_copy_queue_family_found = copy_queue_family_found;
 
             picked_discrete = discrete;
+            picked_device_api_version = properties.apiVersion;
 
             picked = true;
         }
@@ -700,7 +700,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         return Result::API_OUT_OF_MEMORY;
     }
 
-    vk->version = version;
+    vk->instance_version = instance_version;
+    vk->device_version = picked_device_api_version;
     vk->instance = instance;
     vk->physical_device = physical_device;
     vk->device = device;
@@ -1490,7 +1491,7 @@ VkResult CreatePoolForBuffer(VmaPool* pool, const Context& vk, const PoolBufferD
     VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     // This creates a dummy buffer on vulkan < 1.3 or without maintenance4,
     // in that case size must be > 0 to avoid validation errors.
-    buffer_info.size = vk.version < VK_API_VERSION_1_3 ? 1 : 0;
+    buffer_info.size = vk.device_version < VK_API_VERSION_1_3 ? 1 : 0;
     buffer_info.usage = desc.usage;
     if (desc.external) {
         buffer_info.pNext = &external_memory_buffer_info;

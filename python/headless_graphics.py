@@ -30,15 +30,12 @@ V = np.array([
 v_buf = Buffer.from_data(ctx, V.tobytes(), BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED)
 
 # Shaders
-common_source = """
+source = """
 struct VSOutput
 {
     float4 position: SV_Position;
     float3 color: COLOR;
 };
-"""
-
-vert_source = common_source + """
 struct VSInput
 {
     [[vk::location(0)]]
@@ -49,26 +46,24 @@ struct VSInput
 };
 
 [shader("vertex")]
-VSOutput main(VSInput in)
+VSOutput vert_main(VSInput in)
 {
     VSOutput out;
     out.position = float4(in.position, 1.0);
     out.color = in.color;
     return out;
 }
-"""
 
-frag_source = common_source + """
 [shader("pixel")]
-float4 main(VSOutput in) : SV_Target0
+float4 frag_main(VSOutput in) : SV_Target0
 {
     return float4(in.color, 1.0);
 }
 """
 
 print("Compiling shaders...")
-vert = Shader(ctx, slang.compile_str(vert_source, "main", "vert.slang").code)
-frag = Shader(ctx, slang.compile_str(frag_source, "main", "frag.slang").code)
+vert = Shader(ctx, slang.compile_str(source, entry="vert_main", filename="vert.slang").code)
+frag = Shader(ctx, slang.compile_str(source, entry="frag_main", filename="frag.slang").code)
 
 pipeline = GraphicsPipeline(
     ctx,

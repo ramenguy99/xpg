@@ -1603,6 +1603,12 @@ void gfx_create_bindings(nb::module_& m)
         .def("wait_idle", [](Context& ctx) {
             gfx::WaitIdle(ctx.vk);
         })
+        .def_prop_ro("instance_version", [](Context& ctx) {
+            return nb::make_tuple(VK_API_VERSION_MAJOR(ctx.vk.instance_version), VK_API_VERSION_MINOR(ctx.vk.instance_version));
+        })
+        .def_prop_ro("version", [](Context& ctx) {
+            return nb::make_tuple(VK_API_VERSION_MAJOR(ctx.vk.device_version), VK_API_VERSION_MINOR(ctx.vk.device_version));
+        })
     ;
 
     nb::class_<SyncCommandsManager>(m, "SyncCommands")
@@ -2679,7 +2685,7 @@ void gfx_create_bindings(nb::module_& m)
             >(),
             nb::arg("ctx"),
             nb::arg("shader"),
-            nb::arg("name"),
+            nb::arg("entry") = "main",
             nb::arg("push_constants_ranges") = std::vector<PushConstantsRange>(),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>()
         )

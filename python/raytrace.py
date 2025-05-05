@@ -65,7 +65,6 @@ class RaytracePipeline(Pipeline):
         self.pipeline = ComputePipeline(
             ctx,
             shader=rt,
-            name="main",
             descriptor_sets = [ self.scene_descriptor_set, self.frame_descriptor_sets.get_current() ],
         )
 
