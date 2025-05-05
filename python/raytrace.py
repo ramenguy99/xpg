@@ -29,7 +29,6 @@ window = Window(ctx, "Raytrace", 1280, 720)
 gui = Gui(window)
 
 # Pipeline
-clear_cache()
 SHADERS = Path(__file__).parent.parent.joinpath("shaders")
 class RaytracePipeline(Pipeline):
     rt_prog = Path(SHADERS, "raytrace.comp.slang")
@@ -50,7 +49,7 @@ class RaytracePipeline(Pipeline):
         self.frame_descriptor_sets = PerFrameResource(DescriptorSet, window.num_frames, ctx,
             [DescriptorSetEntry(d.count, to_descriptor_type(d.resource.binding_type)) for d in self.desc_reflection.sets[1]]
         )
-        self.constants_dt = to_dtype(self.desc_reflection.descriptors["constants"].resource.type)
+        self.constants_dt = to_dtype(self.desc_reflection.descriptors["frame.constants"].resource.type)
 
         # Create a buffer to hold the constants with the required size.
         self.u_bufs = PerFrameResource(Buffer, window.num_frames, ctx, self.constants_dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)

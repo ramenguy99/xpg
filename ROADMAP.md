@@ -44,22 +44,6 @@ Python:
 - [x] Check if there is a better way to do imports that works more intuitively
       (likely by importing stuff in __init__.py of subpackage)
 - [x] Hook XPG logs into python logs
-    - Two problems with this:
-        - Logging is a global concept in XPG, we can use a global callback, but how do we ensure
-          this is freed properly? If it's just a module global, what is the best way to expose it?
-        - How do we ensure that the logging is freed after everything else? Ideally we would like
-          to see teardown logs (we currently don't see the Contxt teardown)
-        - Can we somehow bind the lifetime of this to the module? Does not seem to be exposed by
-          nanobind, but technically possible also with gc.
-        - GC on module does not seem to work
-        - atexit runs earlier than Context (unless nested in func)
-        - user fixes would be:
-           - user manually calls cleanup funcs if he wants to see cleanup -> suitable for viewer
-           - user manually wraps uses of the library outside global scope -> annoying for small scripts?
-             But maybe don't care about cleanup logs?
-        - Decided to use global object, if user instantiates it twice it throws, automatically cleaned up,
-           can potentially add methods (e.g. log level control). Can be cleaned up before other stuff, but not
-           critical.
 - [x] Investigate window hang if raise in draw, maybe related to with frame r with command buffer? Fixed, was pipeline cache thread not stopping
 - [ ] Finish gfx bindings
     - [x] Image descriptors
@@ -98,9 +82,12 @@ Python:
                 init vs create seems useful, even though they both need reflection, can just call it twice at start
             [ ] maybe add helpers that are commonly used in this kind of pipeline creation step
                 (keep in mind that often some inputs / logic comes from outside). Do this later with more apps / viewer.
-    - [ ] Slang not outputting binding decoration when using parameter block, but reflection seems to get it? Bug in slang?
-    - [ ] Fix reflection serialization / deserialization
-    - [ ] Expose spirv targets
+    - [x] Fix reflection serialization / deserialization
+    - [-] Slang not outputting binding decoration when using parameter block, but reflection seems to get it? Bug in slang?
+          -> opened issue on github, seems to be in general related to directly nesting Resources in ParameterBlock, works fine
+             with direct data and structs in between
+          [ ] Should fix the ParameterBlock with data directly to create implicit constant buffer for completeness.
+    - [ ] Expose spirv targets (does slang increase the target for us automatically if we just say spirv? maybe thats better?)
     - [ ] Pipeline cache with all important inputs
     - [ ] Cleaner handling of multiple entry points
         -> actually not a spirv feature, so can just get rid of this?

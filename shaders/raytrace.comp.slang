@@ -43,24 +43,26 @@ SamplerState sampler;
 RWTexture2D<float3> output;
 Texture2D<float4> textures[];
 
-[vk::binding(0, 1)]
-ConstantBuffer<Constants> constants;
+struct Frame {
+    ConstantBuffer<Constants> constants;
+};
+ParameterBlock<Frame> frame;
 
 
 inline void GenerateCameraRay(uint2 p, out float3 origin, out float3 direction)
 {
-    uint2 size = uint2(constants.width, constants.height);
+    uint2 size = uint2(frame.constants.width, frame.constants.height);
 
     float2 xy = p;
     float2 offset = xy / size.xy * 2.0 - 1.0;
 
-    float3 camera_forward = constants.camera.direction;
+    float3 camera_forward = frame.constants.camera.direction;
     float3 world_up = float3(0, 0, 1);
     float3 camera_right = normalize(cross(camera_forward, world_up));
     float3 camera_up = cross(camera_right, camera_forward);
-    float3 camera_p = constants.camera.position;
+    float3 camera_p = frame.constants.camera.position;
 
-    float film_dist = constants.camera.film_dist;
+    float film_dist = frame.constants.camera.film_dist;
     float2 film_size = float2(1.0, 1.0);
     film_size.y = (float)size.y / (float)size.x;
     float2 half_film = film_size * 0.5f;
@@ -77,7 +79,7 @@ inline void GenerateCameraRay(uint2 p, out float3 origin, out float3 direction)
 void main(uint3 thread_idx : SV_DispatchThreadID)
 {
     uint2 p = thread_idx.xy;
-    if(any(p >= uint2(constants.width, constants.height))) {
+    if(any(p >= uint2(frame.constants.width, frame.constants.height))) {
         return;
     }
 

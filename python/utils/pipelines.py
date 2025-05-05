@@ -18,7 +18,7 @@ CACHE_DIR = user_cache_path("pyxpg")
 def clear_cache():
     shutil.rmtree(CACHE_DIR, ignore_errors=True)
 
-def compile(file: Path, entry: str):
+def compile(file: Path, entry: str) -> slang.Shader:
     # TODO:
     # [ ] This cache does not currently consider
     #   [x] imported files / modules  -> highest importance
