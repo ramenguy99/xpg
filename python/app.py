@@ -4,7 +4,7 @@ import numpy as np
 from pathlib import Path
 
 from utils.pipelines import PipelineWatch, Pipeline
-from utils.reflection import to_dtype
+from utils.reflection import to_dtype, DescriptorSetsReflection
 
 ctx = Context(
     device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION, 
@@ -55,7 +55,8 @@ class ColorPipeline(Pipeline):
         # Get type reflection from vertex shader. We use this to create a
         # numpy dtype that represents the layout of the constant buffer.
         refl = vert_prog.reflection
-        dt = to_dtype(refl.resources[0].type)
+        desc_refl = DescriptorSetsReflection(refl)
+        dt = to_dtype(desc_refl.descriptors["u"].resource.type)
 
         # Create a buffer to hold the constants with the required size.
         u_buf = Buffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
