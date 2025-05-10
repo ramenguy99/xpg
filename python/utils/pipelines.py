@@ -114,7 +114,7 @@ class Pipeline:
                 if k in self.__compiled_shaders:
                     # We still have the old version of this shader. Report the error and use that instead.
 
-                    # TODO: maybe should bubble up all compilation here instead of printing here.
+                    # TODO: maybe should bubble up all compilation errors here instead of printing here.
                     print(f'Shader compilation eror: {v} | Entry point: "main"')
                     print(e)
 

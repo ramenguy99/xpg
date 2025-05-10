@@ -22,7 +22,11 @@ Build:
 - [x] Add scripts / clean imgui bindings gen
     - [x] lz4 is dynamic for some reason -> does not happen in CI, likely my issue with vcpkg lz4
     - [x] Statically link with C++ runtime
-- [ ] Fix / silence warnings 
+- [ ] Fix / silence warnings (first enable all useful ones)
+    - [ ] MSVC
+    - [ ] clang on windows
+    - [ ] gcc on linux
+    - [ ] clang on linux
 
 Maintenance:
 - [x] Update all deps (last: 22/04/2025)
@@ -39,6 +43,24 @@ C++:
     - maybe pickup a small utf8 library too for strings/paths?
 - [ ] Cleanup apps
     - [ ] Embed shaders somehow?
+    - [ ] Run with syncrhonization validation and GPU based validation
+        - [ ] Completely switch to syncrhonization 2 for submission? Probably need to fix barriers for submit and present at COLOR_ATTACHMENT_OUTPUT stage
+- [ ] Helpers for buffer upload with fallback, think about differnt allocation use cases
+    Preferred solutions:
+    - One time upload at start:
+        - if device mapped available use it
+        - if device mapped not available upload with sync queue
+    - Per frame upload:
+        - if device mapped available:
+            - if small use it
+            - if large frame queue + barriers (requires some helper funcs stuff to do the barrier if needed)
+        - if device mapped unavailable:
+            - if super small can use system memory and rely on caching
+            - if large use frame gfx queue
+    - What APIs do we expose to make the simple case easy?
+    - If the upload is performance critical we can have an helper that the user
+      can check if device mapped memory is available and then decide for himself.
+    - Maybe also think about helpers for copy queue at the same time
 
 Python:
 - [x] Check if there is a better way to do imports that works more intuitively
@@ -69,8 +91,24 @@ Python:
         - [ ] basic directional light and brdf
         - [ ] sample accumulation
         - [ ] debug views
-    - [ ] Sequence (?) -> showcases multithreaded loading
+    - [ ] Sequence
+        - [x] Sync loading
+        - [x] Async disk loading
+        - [ ] Buffered stream is actually flawed when doing GPU copies, buffers cannot be immediately replaced
+              when finished using them on the CPU. Also need to synchronize with the GPU. I think something like
+              an LRU cache of buffers actually makes a lot of sense then. Similar to what we used for bigimaage.
+              The idea is that we will grab buffers from the LRU in the uploader thread. This will block until
+              a free buffer is ready and will acquire it. The main thread will submit prefetch requests and
+              wait for the current frame to be ready. Once ready it will be transitioned to in use.
+              If the worker threads fall behind, the main thread will block due to the buffer not being ready.
+              This in turn will prevent submission of more work. E.g. there will be at most BUFFER_COUNT buffers
+              in flight at any point in time.
+              Let's think at the same time about frame pacing / async upload.
+        - [ ] Async upload with copy queue
+        - [ ] Keyboard input
+        - [ ] Buffered stram hangs if loader thread fails -> handle this gracefully (propagate exception)
     - [ ] Warp interop
+        - [ ] Requires instructions to build warp from our branch
 - [ ] Slang:
     - [x] Compile from string
     - [x] Reflection of resource arrays and maybe other types -> look for descriptor set helper ideas
@@ -133,6 +171,10 @@ Python:
 
 Build:
 - [ ] Mac support
+
+Python:
+- [ ] glslang bindings for compiling and reflection
+    - [ ] fix slang build when using this
 
 Viewer:
 - [ ] Primitives

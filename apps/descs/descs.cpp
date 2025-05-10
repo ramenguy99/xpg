@@ -9,16 +9,6 @@ using glm::mat4;
 
 using namespace xpg;
 
-// TODO:
-// - Cleanup:
-//   - remove imgui_impl asserts
-//   - add utilities for bindless descriptor management / generation checks
-// - Features:
-//   - start working on a c++ framegraph
-//   - slang integration / reflection / hot reloading
-//   - more python bindings
-//   - file formats
-
 struct App {
     gfx::Context* vk;
     gfx::Window* window;

@@ -388,7 +388,6 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             Chain(&sup_chain, &o##_sup); \
         }
     
-    // TODO: ensure we always use KHR version of these in gfx
     VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR};
     dynamic_rendering_features.dynamicRendering = VK_TRUE;
     CHAIN(dynamic_rendering_features, DeviceFeatures::DYNAMIC_RENDERING);
@@ -987,7 +986,32 @@ VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc) {
     return vkQueueSubmit(queue, 1, &submit_info, desc.fence);
 }
 
-VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags stage_mask) {
+VkResult Submit(const Frame& frame, const Context& vk, 
+// VkPipelineStageFlags2 stage_mask) {
+VkPipelineStageFlags stage_mask) {
+
+#if 0
+    VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+    wait_info.semaphore = frame.acquire_semaphore;
+    wait_info.stageMask = stage_mask;
+
+    VkSemaphoreSubmitInfo signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+    signal_info.semaphore = frame.release_semaphore;
+    signal_info.stageMask = stage_mask;
+
+    VkCommandBufferSubmitInfo command_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+    command_info.commandBuffer = frame.command_buffer;
+
+    VkSubmitInfo2 submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    submit_info.pCommandBufferInfos = &command_info;
+    submit_info.commandBufferInfoCount = 1;
+    submit_info.pWaitSemaphoreInfos = &wait_info;
+    submit_info.waitSemaphoreInfoCount = 1;
+    submit_info.pSignalSemaphoreInfos = &signal_info;
+    submit_info.signalSemaphoreInfoCount = 1;
+
+    return vkQueueSubmit2KHR(vk.queue, 1, &submit_info, frame.fence);
+#else
     return SubmitQueue(vk.queue, {
         .cmd = { frame.command_buffer },
         .wait_semaphores = { frame.acquire_semaphore },
@@ -995,6 +1019,7 @@ VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags stag
         .signal_semaphores = { frame.release_semaphore },
         .fence = frame.fence,
     });
+#endif
 }
 
 VkResult SubmitSync(const Context& vk) {
@@ -1263,7 +1288,8 @@ CmdImageBarrier(VkCommandBuffer cmd, const ImageBarrierDesc&& desc)
 
 void CmdBarriers(VkCommandBuffer cmd, const BarriersDesc &&desc)
 {
-    assert(desc.image.length <= 32 && desc.memory.length <= 32);
+    // TODO: fallback to malloc if too many
+    assert(desc.image.length <= 32 && desc.buffer.length <= 32 && desc.memory.length <= 32);
 
     VkMemoryBarrier2* memory_barriers = (VkMemoryBarrier2*)alloca(sizeof(VkMemoryBarrier2) * desc.memory.length);
     for (usize i = 0; i < desc.memory.length; i++) {
@@ -1273,6 +1299,21 @@ void CmdBarriers(VkCommandBuffer cmd, const BarriersDesc &&desc)
         barrier.dstAccessMask = desc.memory[i].dst_access;
         barrier.srcStageMask = desc.memory[i].src_stage;
         barrier.dstStageMask = desc.memory[i].dst_stage;
+    }
+
+    VkBufferMemoryBarrier2* buffer_barriers = (VkBufferMemoryBarrier2*)alloca(sizeof(VkBufferMemoryBarrier2) * desc.buffer.length);
+    for (usize i = 0; i < desc.memory.length; i++) {
+        VkBufferMemoryBarrier2& barrier = buffer_barriers[i];
+        barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        barrier.srcAccessMask = desc.buffer[i].src_access;
+        barrier.dstAccessMask = desc.buffer[i].dst_access;
+        barrier.srcStageMask = desc.buffer[i].src_stage;
+        barrier.dstStageMask = desc.buffer[i].dst_stage;
+        barrier.srcQueueFamilyIndex = desc.buffer[i].src_queue;
+        barrier.dstQueueFamilyIndex = desc.buffer[i].dst_queue;
+        barrier.buffer = desc.buffer[i].buffer;
+        barrier.offset = desc.buffer[i].offset;
+        barrier.size = desc.buffer[i].size;
     }
 
     VkImageMemoryBarrier2* image_barriers = (VkImageMemoryBarrier2*)alloca(sizeof(VkImageMemoryBarrier2) * desc.image.length);
@@ -1298,6 +1339,8 @@ void CmdBarriers(VkCommandBuffer cmd, const BarriersDesc &&desc)
     VkDependencyInfo info = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
     info.memoryBarrierCount= desc.memory.length;
     info.pMemoryBarriers = memory_barriers;
+    info.bufferMemoryBarrierCount = desc.buffer.length;
+    info.pBufferMemoryBarriers = buffer_barriers;
     info.imageMemoryBarrierCount = desc.image.length;
     info.pImageMemoryBarriers = image_barriers;
 
@@ -1349,6 +1392,15 @@ void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc)
 void CmdEndRendering(VkCommandBuffer cmd)
 {
     vkCmdEndRenderingKHR(cmd);
+}
+
+void CmdCopyBuffer(VkCommandBuffer cmd, const CopyBufferDesc&& desc)
+{
+    VkBufferCopy region = {};
+    region.srcOffset = desc.src_offset;
+    region.dstOffset = desc.dest_offset;
+    region.size = desc.size;
+    vkCmdCopyBuffer(cmd, desc.src, desc.dest, 1, &region);
 }
 
 void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageToBufferDesc&& desc)
@@ -1520,6 +1572,8 @@ VkResult CreatePoolForBuffer(VmaPool* pool, const Context& vk, const PoolBufferD
         // TODO: don't leak this, the usage of this by vma is delayed, thus the pointer must live as long as the pool.
         // Also need to be careful storing this in a struct because it would become self-referential, e.g. it will not
         // be safely copiable anymore. I think an allocation here is fine.
+        //
+        // We can fix this by wrapping VmaPool in our own Pool object that frees this when destroyed.
         VkExportMemoryAllocateInfo* export_mem_alloc_info = new VkExportMemoryAllocateInfo;
         *export_mem_alloc_info = { VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO };
         export_mem_alloc_info->handleTypes = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;

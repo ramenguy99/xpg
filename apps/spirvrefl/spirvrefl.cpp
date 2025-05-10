@@ -112,8 +112,6 @@ int main(int argc, const char** argv)
             exit(1);
         }
 
-        // TODO: includer for directories
-        
         glslang::TShader shader(EShLangVertex);
         const char* string = (const char*)src.data;
         int length = (int)src.length;
@@ -140,6 +138,7 @@ int main(int argc, const char** argv)
         // TODO: bunch of other options exist, see: https://github.com/KhronosGroup/glslang/blob/main/StandAlone/StandAlone.cpp
 
         // Parse shader
+        // TODO: includer for directories
         glslang::TShader::ForbidIncluder includer;
         if(!shader.parse(GetResources(), 460, false, EShMsgDefault, includer)) {
             printf("INFO: %s\n", shader.getInfoLog());
@@ -167,7 +166,6 @@ int main(int argc, const char** argv)
         printf("INFO DEBUG: %s\n", program.getInfoDebugLog());
 
         // Do reflection if needed. 
-        // TODO: check if this actually has all the info we need
         printf("REFLECTION\n");
         program.buildReflection(~0); // Dump everything
         // program.dumpReflection();

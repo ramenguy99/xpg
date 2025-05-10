@@ -8,38 +8,53 @@ from pyglm.glm import perspectiveZO, lookAt, vec3
 from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype, DescriptorSetsReflection
 from utils.render import PerFrameResource
+from utils.buffered_stream import BufferedStream
+from utils.utils import profile
 import io
 import struct
-import os
 
-def read_exact(file: io.FileIO, size: int):
-    out = bytearray(size)
-    view = memoryview(out)
+def read_exact_into(file: io.FileIO, view: memoryview):
     bread = 0
-    while bread < size:
+    while bread < len(view):
         n = file.readinto(view[bread:])
         if n == 0:
             raise EOFError()
         else:
             bread += n
+
+def read_exact(file: io.FileIO, size: int):
+    out = bytearray(size)
+    view = memoryview(out)
+    read_exact_into(file, view)
     return out
+
+def read_exact_at_offset_into(file: io.FileIO, offset: int, view: memoryview):
+    file.seek(offset, io.SEEK_SET)
+    return read_exact_into(file, view)
 
 def read_exact_at_offset(file: io.FileIO, offset: int, size: int):
     file.seek(offset, io.SEEK_SET)
     return read_exact(file, size)
 
-file = open("N:\\scenes\\smpl\\all_frames_20.bin", "rb", buffering=0)
+# TODO:
+# [x] Add buffer copy
+# [x] Add memory barrier
+# [ ] Sync issue still? Maybe wrong buffer in use?
+# [ ] Visualize buffered stream state -> ImGui bindings
+# [ ] Copy queue (synchronization likely similar to external buffer stuff?)
+# [ ] Add buffer barriers with cross queue sync
+# [ ] Advance buffer only if frame is new
+
+WORKERS = 4
+files = [open("N:\\scenes\\smpl\\all_frames_20.bin", "rb", buffering=0) for _ in range(WORKERS)]
+file = files[0]
 
 header = read_exact(file, 12)
 N = struct.unpack("<I", header[0: 4])[0]
 V = struct.unpack("<I", header[4: 8])[0]
 I = struct.unpack("<I", header[8:12])[0]
-print(N, V, I)
 
-# vertices = np.frombuffer(read_exact(file, V * 12), np.float32)
 indices = np.frombuffer(read_exact_at_offset(file, N * V * 12 + len(header), I * 4), np.uint32)
-# print(vertices)
-print(indices)
 
 ctx = Context(
     device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION, 
@@ -50,8 +65,11 @@ ctx = Context(
 window = Window(ctx, "Sequence", 1600, 900)
 gui = Gui(window)
 
-v_bufs = PerFrameResource(Buffer, window.num_frames, ctx, V * 12, BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED)
-# v_buf = Buffer.from_data(ctx, vertices.tobytes(), BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED)
+BUFFERS = 8
+cpu_v_bufs = [Buffer(ctx, V * 12, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST) for _ in range(BUFFERS)]
+gpu_v_bufs = PerFrameResource(Buffer, window.num_frames, ctx, V * 12, BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST, AllocType.DEVICE_MAPPED)
+# gpu_v_bufs = PerFrameResource(Buffer, window.num_frames, ctx, V * 12, BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED)
+
 i_buf = Buffer.from_data(ctx, indices.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
 
 sets = PerFrameResource(DescriptorSet, window.num_frames,
@@ -112,21 +130,38 @@ cache = PipelineWatch([
 
 depth: Image = None
 first_frame = True
+frame_index = 0
 last_timestamp = perf_counter()
 animation_time = 0
 animation_fps = 25
+animation_playing = False
+
+from threading import Lock
+lock = Lock()
+def load(thread_index: int, buffer_index: int, frame_index: int):
+    buf = cpu_v_bufs[buffer_index]
+    file = files[thread_index]
+
+    # with lock:
+    # print(f"Thread {thread_index} loading {buffer_index} ({buf}) with frame {frame_index}")
+
+    # with profile(f"Thread {thread_index} loading {buffer_index} ({buf}) with frame {frame_index}"):
+    #     read_exact_at_offset_into(file, 12 + frame_index * V * 12, buf.view.view())
+    read_exact_at_offset_into(file, 12 + frame_index * V * 12, buf.view.view())
+    return buf
+
+bufstream = BufferedStream(N, BUFFERS, WORKERS, load)
 
 def draw():
     global depth
-    global first_frame
-    global last_timestamp
-    global animation_time
+    global first_frame, frame_index, last_timestamp
+    global animation_time, animation_playing
 
     timestamp = perf_counter()
     dt = timestamp - last_timestamp
     last_timestamp = timestamp
 
-    frame_index = int(animation_time * animation_fps) % N
+    animation_frame_index = int(animation_time * animation_fps) % N
 
     cache.refresh(lambda: ctx.wait_idle())
 
@@ -145,7 +180,7 @@ def draw():
         images_just_created = True
 
     # Camera
-    camera_position = vec3(2, -8, 2) * 2.0
+    camera_position = vec3(2, -8, 2) * 1.0
     camera_target = vec3(0, 0, 0)
     fov = 45.0
     ar = window.fb_width / window.fb_height
@@ -153,10 +188,12 @@ def draw():
 
     descriptor_set = sets.get_current_and_advance()
     u_buf: Buffer = u_bufs.get_current_and_advance()
-    v_buf: Buffer = v_bufs.get_current_and_advance()
+    v_buf: Buffer = gpu_v_bufs.get_current_and_advance()
 
-    vertices = read_exact_at_offset(file, 12 + frame_index * V * 12, V * 12)
-    v_buf.view.data[:] = vertices[:]
+    cpu_v_buf: Buffer = bufstream.get_frame(animation_frame_index)
+
+    # with lock:
+    #     print(f"Drawing frame {frame_index}: {animation_frame_index} {cpu_v_buf} {v_buf}")
 
     constants: np.ndarray = np.zeros(1, dtype=constants_dt)
     constants["transform"] = transform
@@ -165,10 +202,17 @@ def draw():
 
     # GUI
     with gui.frame():
+        if imgui.begin("stats"):
+            imgui.text(f"indices: {I} ({I * 4 / 1024 / 1024:.2f}MB)")
+            imgui.text(f"vertices: {V} ({V * 12 / 1024 / 1024:.2f}MB)")
+            imgui.text(f"vertices gpu buffers: {v_buf.view.size / 1024 / 1024 * len(gpu_v_bufs.resources):.2f}MB")
+            imgui.text(f"vertices load buffers: {v_buf.view.size / 1024 / 1024 * len(cpu_v_bufs):.2f}MB")
+        imgui.end()
         if imgui.begin("wow"):
             imgui.text(f"dt: {dt * 1000:.3f}ms")
             imgui.text(f"animation time: {animation_time:.1f}s")
-            _, _ = imgui.slider_int("frame", frame_index, 0, N - 1)
+            _, _ = imgui.slider_int("animation frame", animation_frame_index, 0, N - 1)
+            _, animation_playing = imgui.checkbox("Playing", animation_playing)
         imgui.end()
 
     # Render
@@ -177,6 +221,10 @@ def draw():
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
             if images_just_created:
                 cmd.use_image(depth, ImageUsage.DEPTH_STENCIL_ATTACHMENT)
+            
+            # cmd.copy_buffer(cpu_v_buf, v_buf)
+            # cmd.memory_barrier(MemoryUsage.TRANSFER_WRITE, MemoryUsage.VERTEX_INPUT)
+            v_buf.view.data[:] = cpu_v_buf.view.data
 
             viewport = [0, 0, window.fb_width, window.fb_height]
             with cmd.rendering(viewport,
@@ -214,7 +262,9 @@ def draw():
 
             cmd.use_image(frame.image, ImageUsage.PRESENT)
 
-    animation_time += dt
+    frame_index += 1
+    if animation_playing:
+        animation_time += dt
 
 
 window.set_callbacks(draw)
@@ -228,3 +278,4 @@ while True:
     draw()
 
 cache.stop()
+bufstream.stop()

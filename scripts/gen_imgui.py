@@ -33,7 +33,7 @@ import sys
 # [x] optional str_id to char* (just .has_value() also fix bool and ret type)
 # [x] memoryview to bytes somehow (see if nanobind has something)
 #
-# [x] Skip fucking remove references still in dear_bindings, currently no arg for that, can add and PR? Or use my own fork
+# [x] Skip remove references still in dear_bindings, currently no arg for that, can add and PR? Or use my own fork
 # [ ] Generate structs (no fields at first, maybe some are useful, like IO)
 # [ ] Implement some structs with method (DrawList comes to mind, rest never used (yet))
 # [ ] ImVec2 to tuple conversion (or maybe just use imvec2 directly in signature and create helpers from python to it, to me makes more sense)

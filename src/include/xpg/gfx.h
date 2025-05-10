@@ -139,11 +139,11 @@ struct ContextDesc {
     u32 preferred_frames_in_flight = 2;
 
     // Validation
-    bool enable_validation_layer = false;
+    VkBool32 enable_validation_layer = false;
 
     // Validation features, they require the validation to be enabled
-    bool enable_gpu_based_validation = false;
-    bool enable_synchronization_validation = false;
+    VkBool32 enable_gpu_based_validation = false;
+    VkBool32 enable_synchronization_validation = false;
 };
 
 Result Init();
@@ -446,6 +446,7 @@ struct SubmitDesc {
 };
 
 VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc);
+// VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags2 submit_stage_mask);
 VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags submit_stage_mask);
 VkResult SubmitSync(const Context& vk);
 VkResult PresentFrame(Window* w, Frame* frame, const Context& vk);
@@ -495,6 +496,7 @@ void CmdImageBarrier(VkCommandBuffer cmd, const ImageBarrierDesc&& desc);
 
 struct BarriersDesc {
     Span<MemoryBarrierDesc> memory;
+    Span<BufferBarrierDesc> buffer;
     Span<ImageBarrierDesc> image;
 };
 
@@ -530,6 +532,16 @@ struct BeginRenderingDesc {
 void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc);
 void CmdEndRendering(VkCommandBuffer cmd);
 
+
+struct CopyBufferDesc {
+    VkBuffer src;
+    VkBuffer dest;
+    VkDeviceSize src_offset = 0;
+    VkDeviceSize dest_offset = 0;
+    VkDeviceSize size;
+};
+
+void CmdCopyBuffer(VkCommandBuffer cmd, const CopyBufferDesc&& size);
 
 struct CopyImageToBufferDesc {
     VkImage image;

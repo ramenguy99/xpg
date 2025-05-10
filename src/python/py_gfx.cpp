@@ -79,6 +79,7 @@ struct GfxObject: public nb::intrusive_base {
 struct Buffer: public GfxObject {
     Buffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type)
         : GfxObject(ctx, true)
+        , size(size)
     {
         VkResult vkr = gfx::CreateBuffer(&buffer, ctx->vk, size, {
             .usage = (VkBufferUsageFlags)usage_flags,
@@ -92,8 +93,9 @@ struct Buffer: public GfxObject {
         }
     }
 
-    Buffer(nb::ref<Context> ctx)
+    Buffer(nb::ref<Context> ctx, size_t size)
         : GfxObject(ctx, true)
+        , size(size)
     { }
 
     ~Buffer() {
@@ -107,7 +109,7 @@ struct Buffer: public GfxObject {
     }
 
     static nb::ref<Buffer> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type) {
-        std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx);
+        std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx, data.size());
 
         VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), {
             .usage = (VkBufferUsageFlags)usage_flags,
@@ -124,6 +126,7 @@ struct Buffer: public GfxObject {
     }
 
     gfx::Buffer buffer = {};
+    size_t size = 0;
     std::optional<VkDeviceAddress> device_address;
 };
 
@@ -175,7 +178,7 @@ struct ExternalSemaphore: public Semaphore {
 
 struct ExternalBuffer: public Buffer {
     ExternalBuffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type)
-        : Buffer(ctx)
+        : Buffer(ctx, size)
     {
         VkResult vkr;
         vkr = gfx::CreatePoolForBuffer(&pool, ctx->vk, {
@@ -237,6 +240,52 @@ bool has_any_write_access(VkAccessFlags2 flags) {
         | VK_ACCESS_2_OPTICAL_FLOW_WRITE_BIT_NV)) != 0;
 }
 
+enum class MemoryUsage {
+    None,
+    HostWrite,
+    VertexInput,
+    TransferWrite,
+
+    Count,
+};
+
+struct MemoryUsageState {
+    VkPipelineStageFlagBits2 first_stage;
+    VkPipelineStageFlagBits2 last_stage;
+    VkAccessFlags2 access;
+};
+
+namespace MemoryUsagePresets {
+    constexpr MemoryUsageState None {
+        .first_stage = VK_PIPELINE_STAGE_2_NONE,
+        .last_stage = VK_PIPELINE_STAGE_2_NONE,
+        .access = 0,
+    };
+    constexpr MemoryUsageState HostWrite {
+        .first_stage = VK_PIPELINE_STAGE_2_HOST_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_HOST_BIT,
+        .access = VK_ACCESS_2_HOST_WRITE_BIT,
+    };
+    constexpr MemoryUsageState VertexInput {
+        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
+        .access = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,
+    };
+    constexpr MemoryUsageState TransferWrite {
+        .first_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+    };
+
+    MemoryUsageState Types[] = {
+        None,
+        HostWrite,
+        VertexInput,
+        TransferWrite,
+    };
+    static_assert(ArrayCount(Types) == (size_t)MemoryUsage::Count, "MemoryUsage count does not match length of Types array");
+};
+
 enum class ImageUsage {
     None,
     Image,
@@ -256,10 +305,10 @@ enum class ImageUsage {
 };
 
 struct ImageUsageState {
-    VkPipelineStageFlags2 first_stage;  // For execution barriers, first stage that r/w to this resource
-    VkPipelineStageFlags2 last_stage;   // For execution barriers, last stage that r/w to this resource
-    VkAccessFlags2 access;              // For memory bariers, all accesses to this resource
-    VkImageLayout layout;               // Only used if underlying resource is an image
+    VkPipelineStageFlags2 first_stage;
+    VkPipelineStageFlags2 last_stage;
+    VkAccessFlags2 access;
+    VkImageLayout layout;
 };
 
 namespace ImageUsagePresets {
@@ -336,7 +385,7 @@ namespace ImageUsagePresets {
         .layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
     };
     constexpr ImageUsageState Present = {
-        .first_stage = VK_PIPELINE_STAGE_2_NONE,
+        .first_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_NONE,
         .access = 0,
         .layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
@@ -532,6 +581,21 @@ struct CommandBuffer: GfxObject {
         , buffer(buffer)
     {}
 
+    void memory_barrier(MemoryUsage src_usage, MemoryUsage dst_usage) {
+        assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
+        assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
+
+        MemoryUsageState src = MemoryUsagePresets::Types[(usize)src_usage];
+        MemoryUsageState dst = MemoryUsagePresets::Types[(usize)dst_usage];
+
+        gfx::CmdMemoryBarrier(buffer, {
+            .src_stage = src.last_stage,
+            .dst_stage = dst.first_stage,
+            .src_access = src.access,
+            .dst_access = dst.access,
+        });
+    }
+
     void use_image(Image& image, ImageUsage usage) {
         assert((usize)usage < ArrayCount(ImageUsagePresets::Types));
         ImageUsageState new_state = ImageUsagePresets::Types[(usize)usage];
@@ -544,6 +608,7 @@ struct CommandBuffer: GfxObject {
         bool memory_barrier = has_any_write_access(image.current_state.access | new_state.access);
         if (layout_transition || memory_barrier) {
             // TODO: use a memory barrier if no layout transition?
+            // maybe unify with above?
             gfx::CmdImageBarrier(buffer, {
                 .image = image.image.image,
                 .src_stage = image.current_state.last_stage,
@@ -701,6 +766,18 @@ struct CommandBuffer: GfxObject {
         u32 first_instance
     ) {
         vkCmdDrawIndexed(buffer, num_indices, num_instances, first_index, vertex_offset, first_instance);
+    }
+
+    void copy_buffer(const Buffer& src, const Buffer& dest) {
+        if (src.size != dest.size) {
+            nb::raise("Buffer size mismatch. Source: %zu. Dest: %zu", src.size, dest.size);
+        }
+
+        gfx::CmdCopyBuffer(buffer, {
+            .src = src.buffer.buffer,
+            .dest = dest.buffer.buffer,
+            .size = src.size,
+        });
     }
 
     void copy_image_to_buffer(Image& image, Buffer& buf) {
@@ -892,11 +969,13 @@ struct Window: public nb::intrusive_base {
 
     void end_frame(Frame& frame, const std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>>& additional_wait_semaphores, const std::vector<nb::ref<Semaphore>>& additional_signal_semaphores)
     {
-        VkResult vkr;
-
         // TODO: make this throw if not called after begin in the same frame
+
+        VkResult vkr;
         if(additional_wait_semaphores.empty() && additional_signal_semaphores.empty()) {
             vkr = gfx::Submit(frame.frame, ctx->vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+            // vkr = gfx::Submit(frame.frame, ctx->vk, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
+            // vkr = gfx::Submit(frame.frame, ctx->vk, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
         } else {
             Array<VkSemaphore> wait_semaphores(additional_wait_semaphores.size() + 1);
             Array<VkPipelineStageFlags> wait_stages(additional_wait_semaphores.size() + 1);
@@ -1010,6 +1089,7 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
     , frame(frame)
 {
     image = new Image(window->ctx, frame.current_image, frame.current_image_view, window->window.fb_width, window->window.fb_height);
+    image->current_state.last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     command_buffer = new CommandBuffer(window->ctx, frame.command_pool, frame.command_buffer, false);
 }
 
@@ -1990,6 +2070,13 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("handle", [] (ExternalSemaphore& semaphore) { return (u64)semaphore.handle; });
     ;
 
+    nb::enum_<MemoryUsage>(m, "MemoryUsage")
+        .value("NONE", MemoryUsage::None)
+        .value("HOST_WRITE", MemoryUsage::HostWrite)
+        .value("VERTEX_INPUT", MemoryUsage::VertexInput)
+        .value("TRANSFER_WRITE", MemoryUsage::TransferWrite)
+    ;
+
     nb::enum_<ImageUsage>(m, "ImageUsage")
         .value("NONE", ImageUsage::None)
         .value("IMAGE", ImageUsage::Image)
@@ -2074,6 +2161,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("__exit__", &CommandBuffer::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
         .def("begin", &CommandBuffer::begin)
         .def("end", &CommandBuffer::end)
+        .def("memory_barrier", &CommandBuffer::memory_barrier, nb::arg("src"), nb::arg("dest"))
         .def("use_image", &CommandBuffer::use_image, nb::arg("image"), nb::arg("usage"))
         .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth").none() = nb::none())
         .def("end_rendering", &CommandBuffer::end_rendering)
@@ -2109,6 +2197,10 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("first_index") = 0,
             nb::arg("vertex_offset") = 0,
             nb::arg("first_instance") = 0
+        )
+        .def("copy_buffer", &CommandBuffer::copy_buffer,
+            nb::arg("src"),
+            nb::arg("dest")
         )
         .def("copy_image_to_buffer", &CommandBuffer::copy_image_to_buffer,
             nb::arg("image"),

@@ -60,8 +60,8 @@ class DescriptorSetsReflection:
         for s in self.sets.values():
             for r in s:
                 self.descriptors[r.name] = r
-        for k, v in self.descriptors.items():
-            print(f"{k}: {v} {to_descriptor_type(v.resource.binding_type)}")
+        # for k, v in self.descriptors.items():
+        #     print(f"{k}: {v} {to_descriptor_type(v.resource.binding_type)}")
 
 scalar_to_np = {
     slang.ScalarKind.Bool: bool,
