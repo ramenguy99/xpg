@@ -16,11 +16,11 @@ VIOLET = ColorInfo(face_color="#E1D5E7", border_color="#9673A6")
 BLUE = ColorInfo(face_color="#DAE8FC", border_color="#6C8EBF")
 ORANGE = ColorInfo(face_color="#FFE6CC", border_color="#D79B00")
 
-W = 1600
+W = 2000
 H = 900
 
 
-fig = plt.figure(figsize=(16, 9))
+fig = plt.figure(figsize=(20, 9))
 ax = fig.gca()
 
 def rect(text, x, y, w, h, color: ColorInfo):
@@ -39,10 +39,6 @@ def arrow(x0, y0, x1, y1, linestyle="-"):
     a = patches.FancyArrowPatch((x0, y0), (x1, y1), arrowstyle='->', linestyle=linestyle, mutation_scale=15, color='black')
     ax.add_patch(a)
 
-# rect("Hello", 10, 10, 40, 20, "blue")
-# rect("Hi", 10, 30, 40, 20, "red")
-# arrow(10, 50, 10, 70)
-
 THREAD_HEIGHT = 100
 THREAD_OFFSET_X = 50
 THREAD_OFFSET_Y = 50
@@ -59,16 +55,20 @@ class Resource:
     producer_thread_idx: Optional[int] = None
 
 @dataclass
+class Output:
+    task: "Task"
+    resource_name: str
+    ratio: Tuple[int, int]
+    counter: int
+
+@dataclass
 class Task:
     name: str
     duration: int
     color: str
 
-    resources: Queue = field(default_factory=Queue)
-    outputs: List["Task"] = field(default_factory=list)
-
-    # resources: Dict[str, Queue] = field(default_factory=Queue)
-    # outputs: List[("Task", str)] = field(default_factory=list)
+    resources: Dict[str, Queue] = field(default_factory=dict)
+    outputs: List[Output] = field(default_factory=list)
 
 @dataclass
 class Thread:
@@ -85,62 +85,154 @@ class Pipeline:
         for t in thread.tasks:
             if t.name == task_name:
                 return t
-        assert False, t.name
+        assert False, task_name
 
-    def add(self, thread_name: str, task_name: str, count=1):
+    def add(self, thread_name: str, task_name: str, resource_name: str, count=1):
         task = self._task(thread_name, task_name)
         for _ in range(count):
-            task.resources.put(Resource(0))
+            task.resources.setdefault(resource_name, Queue()).put(Resource(0))
 
-    def edge(self, frm: Tuple[str, str], to: Tuple[str, str]):
+    def produces(self, frm: Tuple[str, str], to: Tuple[str, str], resource_name: str, ratio=(1, 1)):
         frm_task = self._task(*frm)
         to_task = self._task(*to)
-        frm_task.outputs.append(to_task) 
+        frm_task.outputs.append(Output(to_task, resource_name, ratio, ratio[1] - 1)) 
+        to_task.resources.setdefault(resource_name, Queue())
 
-threads = {
-    "load": Thread("CPU - LOAD", [Task("Load", 1, ORANGE)]),
-    "cpu": Thread("CPU - MAIN", [Task("Commands", 3, YELLOW)]),
-    # Thread("GPU - DRAW", [Task("Draw", 2, GREEN)]),
-    "gpu": Thread("GPU - DRAW", [Task("Draw", 3, GREEN), Task("Present", 1.5, VIOLET)]),
-    # Thread("GPU - COPY", [Task("Upload", 4, BLUE)]),
-}
+if False:
+    # Double buffered async CPU load
+    threads = {
+        "load": Thread("CPU - LOAD", [Task("Load", 1, ORANGE)]),
+        "cpu": Thread("CPU - MAIN", [Task("Commands", 3, YELLOW)]),
+        "gpu": Thread("GPU - DRAW", [Task("Draw", 3, GREEN), Task("Present", 1.5, VIOLET)]),
+    }
+    p = Pipeline(threads)
 
-p = Pipeline(threads)
-p.add("load", "Load", count=2)
+    N = 2
+    p.add("load", "Load", "cpubuf", count=N)
+    p.add("cpu", "Commands", "cmd", count=N)
+    p.produces(("load", "Load"), ("cpu", "Commands"), "cpubuf")
+    p.produces(("cpu", "Commands"), ("load", "Load"), "cpubuf")
+    p.produces(("cpu", "Commands"), ("gpu", "Draw"), "cmd")
+    p.produces(("gpu", "Draw"), ("gpu", "Present"), "img")
+    p.produces(("gpu", "Present"), ("cpu", "Commands"), "cmd")
 
-p.edge(("load", "Load"), ("cpu", "Commands"))
-p.edge(("cpu", "Commands"), ("load", "Load"))
-p.edge(("cpu", "Commands"), ("gpu", "Draw"))
-p.edge(("gpu", "Draw"), ("gpu", "Present"))
-# p.edge(("gpu", "Present"), ("cpu", "Commands"))
+if False:
+    # Double buffered async GPU upload
+    threads = {
+        "load": Thread("CPU - LOAD", [Task("Load", 2, ORANGE)]),
+        "cpu": Thread("CPU - MAIN", [Task("Commands", 2, YELLOW)]),
+        "gpu": Thread("GPU - DRAW", [Task("Draw", 2.75, GREEN), Task("Present", 1.25, VIOLET)]),
+        "copy": Thread("GPU - COPY", [Task("Upload", 2, BLUE)]),
+    }
+    p = Pipeline(threads)
 
+    N = 2
+    p.add("load", "Load", "cpubuf", count=N)
+    p.add("cpu", "Commands", "cmd", count=N)
+    p.add("copy", "Upload", "gpubuf", count=N)
+
+    p.produces(("load", "Load"), ("copy", "Upload"), "cpubuf")
+    p.produces(("gpu", "Draw"), ("copy", "Upload"), "gpubuf")
+    p.produces(("copy", "Upload"), ("gpu", "Draw"), "gpubuf")
+    p.produces(("cpu", "Commands"), ("gpu", "Draw"), "cmd")
+    p.produces(("gpu", "Draw"), ("gpu", "Present"), "img")
+    p.produces(("gpu", "Draw"), ("load", "Load"), "cpubuf")
+    p.produces(("gpu", "Present"), ("cpu", "Commands"), "cmd")
+
+if False:
+    # 
+    threads = {
+        "load": Thread("CPU - LOAD", [Task("Load", 4, ORANGE)]),
+        "cpu": Thread("CPU - MAIN", [Task("CopyCmd", 1, ORANGE), Task("Cmd", 1, YELLOW)]),
+        "gpu": Thread("GPU - DRAW", [Task("Draw", 3, GREEN), Task("Present", 1, VIOLET)]),
+        "copy": Thread("GPU - COPY", [Task("Upload", 5, BLUE)]),
+    }
+    p = Pipeline(threads)
+
+    p.add("load", "Load", "cpubuf", count=3)
+    p.add("cpu", "CopyCmd", "cmd", count=2)
+    p.add("copy", "Upload", "gpubuf", count=2)
+
+    p.produces(("load", "Load"), ("cpu", "CopyCmd"), "copybuf")
+    p.produces(("cpu", "CopyCmd"), ("copy", "Upload"), "copybuf")
+    p.produces(("cpu", "CopyCmd"), ("cpu", "Cmd"), "exec")
+    p.produces(("gpu", "Present"), ("cpu", "CopyCmd"), "cmd")
+    p.produces(("copy", "Upload"), ("gpu", "Draw"), "copybuf")
+    p.produces(("gpu", "Draw"), ("gpu", "Present"), "img")
+    p.produces(("gpu", "Draw"), ("copy", "Upload"), "gpubuf")
+    p.produces(("cpu", "Cmd"), ("gpu", "Draw"), "cmd")
+    p.produces(("gpu", "Present"), ("load", "Load"), "cpubuf")
+
+if True:
+    # 
+    threads = {
+        "load": Thread("CPU - LOAD", [Task("Load", 4, ORANGE)]),
+        "cpu": Thread("CPU - MAIN", [Task("Copy", 0.1, YELLOW), Task("Cmd", 0.1, YELLOW)]),
+        "gpu": Thread("GPU - DRAW", [Task("Draw", 3, GREEN), Task("Present", 1, VIOLET)]),
+        "copy": Thread("GPU - COPY", [Task("Upload", 5, BLUE)]),
+    }
+    p = Pipeline(threads)
+
+    N = 2
+    F = 2
+    p.add("load", "Load", "cpubuf", count=N)
+    p.add("cpu", "Copy", "cmd", count=N)
+    # p.add("copy", "Upload", "gpubuf", count=N)
+
+    p.produces(("load", "Load"), ("cpu", "Copy"), "copybuf", (F, 1))
+    p.produces(("cpu", "Copy"), ("copy", "Upload"), "copybuf", (1, F))
+    p.produces(("cpu", "Copy"), ("cpu", "Cmd"), "exec")
+    p.produces(("gpu", "Present"), ("cpu", "Copy"), "cmd")
+    p.produces(("copy", "Upload"), ("gpu", "Draw"), "copybuf", (F, 1))
+    p.produces(("gpu", "Draw"), ("gpu", "Present"), "img")
+    # p.produces(("gpu", "Draw"), ("copy", "Upload"), "gpubuf", (1, F))
+    p.produces(("cpu", "Cmd"), ("gpu", "Draw"), "cmd")
+    p.produces(("gpu", "Present"), ("load", "Load"), "cpubuf", (1, F))
 
 for i, t in enumerate(threads.values()):
     text(t.name, THREAD_OFFSET_X, THREAD_HEIGHT * i + THREAD_OFFSET_Y)
 
-max_iters = 5
+max_iters = 10
 for i in range(max_iters):
     progress = False
 
     for thread_idx, thread in enumerate(threads.values()):
         for task in thread.tasks:
-            if task.resources.empty():
+            ready = True
+            for q in task.resources.values():
+                if q.empty():
+                    ready = False
+            if not ready:
                 continue
+
             progress = True
 
-            r: Resource = task.resources.get()
-            start = max(r.start, thread.pos)
-            rect(task.name, TASK_OFFSET_X + start * WIDTH_PER_SECOND, TASK_OFFSET_Y + thread_idx * THREAD_HEIGHT, task.duration * WIDTH_PER_SECOND, TASK_HEIGHT, task.color)
-            if r.producer_thread_idx is not None:
-                if r.producer_thread_idx < thread_idx:
-                    arrow(TASK_OFFSET_X +  r.start * WIDTH_PER_SECOND, TASK_OFFSET_Y + r.producer_thread_idx * THREAD_HEIGHT + TASK_HEIGHT, TASK_OFFSET_X + start * WIDTH_PER_SECOND, thread_idx * THREAD_HEIGHT + TASK_OFFSET_Y)
-                elif r.producer_thread_idx > thread_idx:
-                    arrow(TASK_OFFSET_X +  r.start * WIDTH_PER_SECOND, TASK_OFFSET_Y + r.producer_thread_idx * THREAD_HEIGHT, TASK_OFFSET_X + start * WIDTH_PER_SECOND, thread_idx * THREAD_HEIGHT + TASK_OFFSET_Y + TASK_HEIGHT, linestyle="--")
+            start = thread.pos
 
+            print(thread.name, task.name, start, "START")
+            res = []
+            for k, q in task.resources.items():
+                r: Resource = q.get()
+
+                print(thread.name, task.name, r.start, f"R({k}): {len(res)}")
+
+                start = max(r.start, start)
+                res.append(r)
+
+            rect(task.name, TASK_OFFSET_X + start * WIDTH_PER_SECOND, TASK_OFFSET_Y + thread_idx * THREAD_HEIGHT, task.duration * WIDTH_PER_SECOND, TASK_HEIGHT, task.color)
+
+            for r in res:
+                if r.producer_thread_idx is not None:
+                    if r.producer_thread_idx < thread_idx:
+                        arrow(TASK_OFFSET_X +  r.start * WIDTH_PER_SECOND, TASK_OFFSET_Y + r.producer_thread_idx * THREAD_HEIGHT + TASK_HEIGHT, TASK_OFFSET_X + start * WIDTH_PER_SECOND, thread_idx * THREAD_HEIGHT + TASK_OFFSET_Y)
+                    elif r.producer_thread_idx > thread_idx:
+                        arrow(TASK_OFFSET_X +  r.start * WIDTH_PER_SECOND, TASK_OFFSET_Y + r.producer_thread_idx * THREAD_HEIGHT, TASK_OFFSET_X + start * WIDTH_PER_SECOND, thread_idx * THREAD_HEIGHT + TASK_OFFSET_Y + TASK_HEIGHT, linestyle="--")
 
             thread.pos = start + task.duration
             for out in task.outputs:
-                out.resources.put(Resource(start + task.duration, thread_idx))
+                for i in range(0, (out.ratio[0] + out.counter % out.ratio[1]) // out.ratio[1]):
+                    out.task.resources[out.resource_name].put(Resource(start + task.duration, thread_idx))
+                out.counter += 1
 
     if not progress:
         break
