@@ -210,10 +210,23 @@ if(XPG_BUILD_PYTHON)
         DESTINATION
         "pyxpg")
 
+    # ImGui
+    nanobind_add_stub(pyxpg_imgui_stub
+        MODULE _pyxpg.imgui
+        OUTPUT pyxpg/imgui/__init__.pyi
+        MARKER_FILE pyxpg/imgui/py.typed
+        PYTHON_PATH $<TARGET_FILE_DIR:_pyxpg>
+        DEPENDS _pyxpg
+    )
+
+    install(FILES 
+        ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/imgui/__init__.pyi
+        ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/imgui/py.typed
+        DESTINATION
+        "pyxpg/imgui")
+
     install(FILES 
         ${CMAKE_SOURCE_DIR}/src/python/pyxpg/imgui/__init__.py
-        ${CMAKE_SOURCE_DIR}/src/python/pyxpg/imgui/__init__.pyi
-        ${CMAKE_SOURCE_DIR}/src/python/pyxpg/imgui/py.typed
         DESTINATION
         "pyxpg/imgui")
     
