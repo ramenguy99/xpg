@@ -44,12 +44,14 @@ DEFINES = {
     # "IMGUI_DISABLE_OBSOLETE_KEYIO",
 }
 
+OUT_PYTHON = False
 OUT = True
 
 data = json.load(open(sys.argv[1], "r"))
 
-if OUT:
+if OUT_PYTHON:
     out_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "pyxpg", "imgui", "__init__.pyi"), "w")
+if OUT:
     out_cpp_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "generated_imgui.inc"), "w")
 
 pascal_re = re.compile(r'(?<!^)(?=[A-Z])')
@@ -65,7 +67,7 @@ def pascal_to_snake_case(name: str):
     return pascal_re.sub('_', name).lower()
 
 def out(*args, **kwargs):
-    if OUT:
+    if OUT_PYTHON:
         print(*args, **kwargs, file=out_file)
 
 cpp_contents = io.StringIO()
@@ -78,8 +80,6 @@ out("from enum import IntEnum, IntFlag")
 out("from typing import Tuple, Optional")
 out("")
 out("class ID: ...")
-out("class Vec2: ...")
-out("class Vec4: ...")
 out("class Color: ...")
 out("class Viewport: ...")
 out("class DrawList: ...")
@@ -270,7 +270,13 @@ def read_type(typ: dict) -> TypeInfo:
                 "ImGuiPlatformIO",
                 "ImGuiStyle",
                 "ImGuiMultiSelectIO",
-            }, inner
+                # "ImDrawListSplitter",
+                # "ImGuiIO",
+                # "ImGuiInputTextCallbackData",
+                # "ImVector_ImGuiTextFilter_ImGuiTextRange",
+                # "ImGuiTextFilter",
+                # "ImGuiTextBuffer",
+            }, (inner, typ)
             name = inner["name"]
             flags |= TypeFlag.IS_USER_TYPE
         else:
@@ -297,6 +303,9 @@ def read_type(typ: dict) -> TypeInfo:
 all_funcs = set()
 overloads = []
 
+drawlist_started = False
+drawlist_ended = False
+
 # Functions
 for f in data["functions"]:
     func_name: str = f["name"]
@@ -312,9 +321,6 @@ for f in data["functions"]:
     if f["is_default_argument_helper"]:
         continue
 
-    # Skip methods
-    if "original_class" in f:
-        continue
 
     # Skip specific functions we dont need
     if func_name in {
@@ -405,7 +411,13 @@ for f in data["functions"]:
     else:
         all_funcs.add(cpp_name)
 
-    assert func_name.startswith("ImGui_"), func_name
+    if not func_name.startswith("ImGui_"):
+        # Handle class methods, currently only ImDrawList is supported
+        if func_name.startswith("ImDrawList_"):
+            pass
+        else:
+            continue
+
     py_func_name = pascal_to_snake_case(func_name[6:])
 
     out(f"def {py_func_name}(", end="")
@@ -525,11 +537,30 @@ for f in data["functions"]:
                 else:
                     return f"std::optional<{typ.cpp_name}>"
             else:
-                return typ.cpp_name
+                if typ.cpp_name == "ImDrawList*" or typ.cpp_name == "const ImDrawList*":
+                    return f"nb::ref<{typ.name}>"
+                else:
+                    return typ.cpp_name
         else:
             return type_str_to_cpp(typ.name)
 
-    out_cpp(f"mod_imgui.def(\"{py_func_name}\",")
+    if py_func_name.startswith("list__"):
+        if drawlist_started == False:
+            drawlist_started = True
+            out_cpp(f""" nb::class_<DrawList>(mod_imgui, "DrawList",
+    nb::intrusive_ptr<DrawList>([](DrawList *o, PyObject *po) noexcept {{ o->set_self_py(po); }}))
+""")
+        # Skip protected member functions
+        if py_func_name.startswith("list___"):
+            continue
+        
+        out_cpp(" " * 4 + f".def(\"{py_func_name[6:]}\",")
+    else:
+        if drawlist_started and drawlist_ended == False:
+            drawlist_ended = True
+            out_cpp(";")
+        out_cpp(f"mod_imgui.def(\"{py_func_name}\",")
+
     out_cpp(" " * 4 + "[] (", end="")
     cpp_args_str: List[str] = []
     nb_args_str: List[str] = []
@@ -551,6 +582,8 @@ for f in data["functions"]:
 
             nb_str += f" = {default_value}"
         nb_args_str.append(nb_str)
+    if py_func_name.startswith("list__"):
+        nb_args_str= nb_args_str[1:]
     out_cpp(", ".join(cpp_args_str), end="")
 
     if has_ret:
@@ -578,6 +611,13 @@ for f in data["functions"]:
     #  yes |  no:  return call;
     #   no |  no:  call;
     def out_call():
+        global args
+        if py_func_name.startswith("list__"):
+            args = args[1:]
+            func_call = "self->list->" + f["original_fully_qualified_name"]
+        else:
+            func_call = f["original_fully_qualified_name"]
+
         arg_call_names = []
         for arg in args:
             if arg.type.array is not None:
@@ -603,10 +643,11 @@ for f in data["functions"]:
             else:
                 name = arg.name
             arg_call_names.append(name)
-        out_cpp(f["original_fully_qualified_name"] + "(" + ", ".join(arg_call_names) + ")", end="")
+        out_cpp(func_call + "(" + ", ".join(arg_call_names) + ")", end="")
 
     def out_add_ret():
         out_cpp(f"{additional_ret_name}", end="")
+
 
     if not has_ret:
         out_cpp(" " * 8, end="")
@@ -628,14 +669,23 @@ for f in data["functions"]:
             out_cpp(" " * 8 + "return nb::make_tuple(_call, _ret);")
         else:
             out_cpp(" " * 8 + "return ", end="")
-            out_call()
+            # if ret_type.flags & TypeFlag.IS_USER_TYPE and ret_type.flags & TypeFlag.IS_PTR:
+            if ret_type.cpp_name == "ImDrawList*":
+                out_cpp(f"new {ret_type.name}(", end="")
+                out_call()
+                out_cpp(f")", end="")
+            else:
+                out_call()
             out_cpp(";")
 
     out_cpp(" " * 4 + f"}}", end="")
     if nb_args_str:
         out_cpp(", ", end="")
     out_cpp(", ".join(nb_args_str), end="")
-    out_cpp(f");\n")
+    if  py_func_name.startswith("list__"):
+        out_cpp(")")
+    else:
+        out_cpp(f");\n")
 
 
 if False:

@@ -104,6 +104,11 @@ Python:
               This in turn will prevent submission of more work. E.g. there will be at most BUFFER_COUNT buffers
               in flight at any point in time.
               Let's think at the same time about frame pacing / async upload.
+              See docs for pipelining samples.
+              Most promising solution seems to be:
+              - fully asynchronous data loading, only bound by number of buffers free, with prefetch logic
+              - synchronous upload on copy queue if available, wait for CPU buffer, submit on other queue, otherwise on any other async queue (async compute, other separate graphics queue)
+              - release buffers synchronously when done with frame -> after waiting for fence and knowing what we will neeed this frame and in future
         - [ ] Async upload with copy queue
         - [ ] Keyboard input
         - [ ] Buffered stram hangs if loader thread fails -> handle this gracefully (propagate exception)
@@ -157,6 +162,7 @@ Python:
             -> Using platform specific SetConsoleCtrlHandler works fine
         [ ] check on linux
 - [ ] ImGui:
+    - [ ] Fix begin returns tuple, many examples expect bool
     - [ ] Fix imgui with waitevents on linux, likely need some form of animation frame flag / counter to render at least one additional frame
         - [ ] Also happening on first frame on windows
     - [ ] vec2 / vec4
