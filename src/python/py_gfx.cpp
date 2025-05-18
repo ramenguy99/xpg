@@ -22,6 +22,43 @@
 namespace nb = nanobind;
 using namespace xpg;
 
+// Wrapper around VkPhysicalDeviceLimits
+struct DeviceSparseProperties: public nb::intrusive_base {
+    DeviceSparseProperties(const VkPhysicalDeviceSparseProperties& sparse_properties): sparse_properties(sparse_properties) {}
+    VkPhysicalDeviceSparseProperties sparse_properties;
+};
+
+struct DeviceLimits: public nb::intrusive_base {
+    DeviceLimits(const VkPhysicalDeviceLimits& limits): limits(limits) {}
+    VkPhysicalDeviceLimits limits;
+};
+
+// Wrapper around VkPhysicalDeviceProperties
+struct DeviceProperties: public nb::intrusive_base {
+    DeviceProperties(const VkPhysicalDeviceProperties& properties)
+        : api_version(properties.apiVersion)
+        , driver_version(properties.driverVersion)
+        , vendor_id(properties.vendorID)
+        , device_id(properties.deviceID)
+        , device_type(properties.deviceType)
+    {
+        memcpy(device_name, properties.deviceName, sizeof(device_name));
+        memcpy(pipeline_cache_uuid, properties.pipelineCacheUUID, sizeof(pipeline_cache_uuid));
+        limits = new DeviceLimits(properties.limits);
+        sparse_properties = new DeviceSparseProperties(properties.sparseProperties);
+    }
+
+    uint32_t api_version;
+    uint32_t driver_version;
+    uint32_t vendor_id;
+    uint32_t device_id;
+    VkPhysicalDeviceType device_type;
+    char device_name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE];
+    uint8_t pipeline_cache_uuid[VK_UUID_SIZE];
+    nb::ref<DeviceLimits> limits;
+    nb::ref<DeviceSparseProperties> sparse_properties;
+};
+
 struct Context: public nb::intrusive_base {
     Context(
         std::tuple<u32, u32> version,
@@ -49,6 +86,10 @@ struct Context: public nb::intrusive_base {
         if (result != gfx::Result::SUCCESS) {
             throw std::runtime_error("Failed to initialize vulkan");
         }
+
+        VkPhysicalDeviceProperties properties;
+        vkGetPhysicalDeviceProperties(vk.physical_device, &properties);
+        device_properties = new DeviceProperties(properties);
     }
 
     ~Context() {
@@ -58,6 +99,7 @@ struct Context: public nb::intrusive_base {
     }
 
     gfx::Context vk;
+    nb::ref<DeviceProperties> device_properties;
 };
 
 struct GfxObject: public nb::intrusive_base {
@@ -780,7 +822,7 @@ struct CommandBuffer: GfxObject {
         });
     }
 
-    void copy_image_to_buffer(Image& image, Buffer& buf) {
+    void copy_image_to_buffer(Image& image, Buffer& buf, u64 buffer_offset) {
         // TODO: add error checking that image fits into buffer
 
         gfx::CmdCopyImageToBuffer(buffer, {
@@ -789,6 +831,20 @@ struct CommandBuffer: GfxObject {
             .image_width = image.width,
             .image_height = image.height,
             .buffer = buf.buffer.buffer,
+            .buffer_offset = buffer_offset,
+        });
+    }
+
+    void copy_buffer_to_image(Buffer& buf, Image& image, u64 buffer_offset) {
+        // TODO: add error checking that image fits into buffer
+
+        gfx::CmdCopyBufferToImage(buffer, {
+            .image = image.image.image,
+            .image_layout = image.current_state.layout,
+            .image_width = image.width,
+            .image_height = image.height,
+            .buffer = buf.buffer.buffer,
+            .buffer_offset = buffer_offset,
         });
     }
 
@@ -1660,6 +1716,152 @@ void gfx_create_bindings(nb::module_& m)
         .value("RAY_PIPELINE",        gfx::DeviceFeatures::RAY_PIPELINE)
         .value("EXTERNAL_RESOURCES",  gfx::DeviceFeatures::EXTERNAL_RESOURCES)
     ;
+
+    nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")
+        .value("OTHER",          VK_PHYSICAL_DEVICE_TYPE_OTHER)
+        .value("INTEGRATED_GPU", VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+        .value("DISCRETE_GPU",   VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+        .value("VIRTUAL_GPU",    VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU)
+        .value("CPU",            VK_PHYSICAL_DEVICE_TYPE_CPU)
+    ;
+
+    nb::class_<DeviceSparseProperties>(m, "DeviceSparseProperties",
+        nb::intrusive_ptr<DeviceSparseProperties>([](DeviceSparseProperties *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_prop_ro("residency_standard_2d_block_shape"             , [](DeviceSparseProperties& sparse_properties) { return (bool)sparse_properties.sparse_properties.residencyStandard2DBlockShape; })
+        .def_prop_ro("residency_standard_2d_multisample_block_shape" , [](DeviceSparseProperties& sparse_properties) { return (bool)sparse_properties.sparse_properties.residencyStandard2DMultisampleBlockShape; })
+        .def_prop_ro("residency_standard_3d_block_shape"             , [](DeviceSparseProperties& sparse_properties) { return (bool)sparse_properties.sparse_properties.residencyStandard3DBlockShape; })
+        .def_prop_ro("residency_aligned_mip_size"                    , [](DeviceSparseProperties& sparse_properties) { return (bool)sparse_properties.sparse_properties.residencyAlignedMipSize; })
+        .def_prop_ro("residency_non_resident_strict"                 , [](DeviceSparseProperties& sparse_properties) { return (bool)sparse_properties.sparse_properties.residencyNonResidentStrict; })
+    ;
+
+    nb::class_<DeviceLimits>(m, "DeviceLimits",
+        nb::intrusive_ptr<DeviceLimits>([](DeviceLimits *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_prop_ro("max_image_dimension_1d"                               , [](DeviceLimits& limits) { return limits.limits.maxImageDimension1D; })
+        .def_prop_ro("max_image_dimension_2d"                               , [](DeviceLimits& limits) { return limits.limits.maxImageDimension2D; })
+        .def_prop_ro("max_image_dimension_3d"                               , [](DeviceLimits& limits) { return limits.limits.maxImageDimension3D; })
+        .def_prop_ro("max_image_dimension_cube"                             , [](DeviceLimits& limits) { return limits.limits.maxImageDimensionCube; })
+        .def_prop_ro("max_image_array_layers"                               , [](DeviceLimits& limits) { return limits.limits.maxImageArrayLayers; })
+        .def_prop_ro("max_texel_buffer_elements"                            , [](DeviceLimits& limits) { return limits.limits.maxTexelBufferElements; })
+        .def_prop_ro("max_uniform_buffer_range"                             , [](DeviceLimits& limits) { return limits.limits.maxUniformBufferRange; })
+        .def_prop_ro("max_storage_buffer_range"                             , [](DeviceLimits& limits) { return limits.limits.maxStorageBufferRange; })
+        .def_prop_ro("max_push_constants_size"                              , [](DeviceLimits& limits) { return limits.limits.maxPushConstantsSize; })
+        .def_prop_ro("max_memory_allocation_count"                          , [](DeviceLimits& limits) { return limits.limits.maxMemoryAllocationCount; })
+        .def_prop_ro("max_sampler_allocation_count"                         , [](DeviceLimits& limits) { return limits.limits.maxSamplerAllocationCount; })
+        .def_prop_ro("buffer_image_granularity"                             , [](DeviceLimits& limits) { return limits.limits.bufferImageGranularity; })
+        .def_prop_ro("sparse_address_space_size"                            , [](DeviceLimits& limits) { return limits.limits.sparseAddressSpaceSize; })
+        .def_prop_ro("max_bound_descriptor_sets"                            , [](DeviceLimits& limits) { return limits.limits.maxBoundDescriptorSets; })
+        .def_prop_ro("max_per_stage_descriptor_samplers"                    , [](DeviceLimits& limits) { return limits.limits.maxPerStageDescriptorSamplers; })
+        .def_prop_ro("max_per_stage_descriptor_uniform_buffers"             , [](DeviceLimits& limits) { return limits.limits.maxPerStageDescriptorUniformBuffers; })
+        .def_prop_ro("max_per_stage_descriptor_storage_buffers"             , [](DeviceLimits& limits) { return limits.limits.maxPerStageDescriptorStorageBuffers; })
+        .def_prop_ro("max_per_stage_descriptor_sampled_images"              , [](DeviceLimits& limits) { return limits.limits.maxPerStageDescriptorSampledImages; })
+        .def_prop_ro("max_per_stage_descriptor_storage_images"              , [](DeviceLimits& limits) { return limits.limits.maxPerStageDescriptorStorageImages; })
+        .def_prop_ro("max_per_stage_descriptor_input_attachments"           , [](DeviceLimits& limits) { return limits.limits.maxPerStageDescriptorInputAttachments; })
+        .def_prop_ro("max_per_stage_resources"                              , [](DeviceLimits& limits) { return limits.limits.maxPerStageResources; })
+        .def_prop_ro("max_descriptor_set_samplers"                          , [](DeviceLimits& limits) { return limits.limits.maxDescriptorSetSamplers; })
+        .def_prop_ro("max_descriptor_set_uniform_buffers"                   , [](DeviceLimits& limits) { return limits.limits.maxDescriptorSetUniformBuffers; })
+        .def_prop_ro("max_descriptor_set_uniform_buffers_dynamic"           , [](DeviceLimits& limits) { return limits.limits.maxDescriptorSetUniformBuffersDynamic; })
+        .def_prop_ro("max_descriptor_set_storage_buffers"                   , [](DeviceLimits& limits) { return limits.limits.maxDescriptorSetStorageBuffers; })
+        .def_prop_ro("max_descriptor_set_storage_buffers_dynamic"           , [](DeviceLimits& limits) { return limits.limits.maxDescriptorSetStorageBuffersDynamic; })
+        .def_prop_ro("max_descriptor_set_sampled_images"                    , [](DeviceLimits& limits) { return limits.limits.maxDescriptorSetSampledImages; })
+        .def_prop_ro("max_descriptor_set_storage_images"                    , [](DeviceLimits& limits) { return limits.limits.maxDescriptorSetStorageImages; })
+        .def_prop_ro("max_descriptor_set_input_attachments"                 , [](DeviceLimits& limits) { return limits.limits.maxDescriptorSetInputAttachments; })
+        .def_prop_ro("max_vertex_input_attributes"                          , [](DeviceLimits& limits) { return limits.limits.maxVertexInputAttributes; })
+        .def_prop_ro("max_vertex_input_bindings"                            , [](DeviceLimits& limits) { return limits.limits.maxVertexInputBindings; })
+        .def_prop_ro("max_vertex_input_attribute_offset"                    , [](DeviceLimits& limits) { return limits.limits.maxVertexInputAttributeOffset; })
+        .def_prop_ro("max_vertex_input_binding_stride"                      , [](DeviceLimits& limits) { return limits.limits.maxVertexInputBindingStride; })
+        .def_prop_ro("max_vertex_output_components"                         , [](DeviceLimits& limits) { return limits.limits.maxVertexOutputComponents; })
+        .def_prop_ro("max_tessellation_generation_level"                    , [](DeviceLimits& limits) { return limits.limits.maxTessellationGenerationLevel; })
+        .def_prop_ro("max_tessellation_patch_size"                          , [](DeviceLimits& limits) { return limits.limits.maxTessellationPatchSize; })
+        .def_prop_ro("max_tessellation_control_per_vertex_input_components" , [](DeviceLimits& limits) { return limits.limits.maxTessellationControlPerVertexInputComponents; })
+        .def_prop_ro("max_tessellation_control_per_vertex_output_components", [](DeviceLimits& limits) { return limits.limits.maxTessellationControlPerVertexOutputComponents; })
+        .def_prop_ro("max_tessellation_control_per_patch_output_components" , [](DeviceLimits& limits) { return limits.limits.maxTessellationControlPerPatchOutputComponents; })
+        .def_prop_ro("max_tessellation_control_total_output_components"     , [](DeviceLimits& limits) { return limits.limits.maxTessellationControlTotalOutputComponents; })
+        .def_prop_ro("max_tessellation_evaluation_input_components"         , [](DeviceLimits& limits) { return limits.limits.maxTessellationEvaluationInputComponents; })
+        .def_prop_ro("max_tessellation_evaluation_output_components"        , [](DeviceLimits& limits) { return limits.limits.maxTessellationEvaluationOutputComponents; })
+        .def_prop_ro("max_geometry_shader_invocations"                      , [](DeviceLimits& limits) { return limits.limits.maxGeometryShaderInvocations; })
+        .def_prop_ro("max_geometry_input_components"                        , [](DeviceLimits& limits) { return limits.limits.maxGeometryInputComponents; })
+        .def_prop_ro("max_geometry_output_components"                       , [](DeviceLimits& limits) { return limits.limits.maxGeometryOutputComponents; })
+        .def_prop_ro("max_geometry_output_vertices"                         , [](DeviceLimits& limits) { return limits.limits.maxGeometryOutputVertices; })
+        .def_prop_ro("max_geometry_total_output_components"                 , [](DeviceLimits& limits) { return limits.limits.maxGeometryTotalOutputComponents; })
+        .def_prop_ro("max_fragment_input_components"                        , [](DeviceLimits& limits) { return limits.limits.maxFragmentInputComponents; })
+        .def_prop_ro("max_fragment_output_attachments"                      , [](DeviceLimits& limits) { return limits.limits.maxFragmentOutputAttachments; })
+        .def_prop_ro("max_fragment_dual_src_attachments"                    , [](DeviceLimits& limits) { return limits.limits.maxFragmentDualSrcAttachments; })
+        .def_prop_ro("max_fragment_combined_output_resources"               , [](DeviceLimits& limits) { return limits.limits.maxFragmentCombinedOutputResources; })
+        .def_prop_ro("max_compute_shared_memory_size"                       , [](DeviceLimits& limits) { return limits.limits.maxComputeSharedMemorySize; })
+        .def_prop_ro("max_compute_work_group_count"                         , [](DeviceLimits& limits) { return nb::make_tuple(limits.limits.maxComputeWorkGroupCount[0], limits.limits.maxComputeWorkGroupCount[1], limits.limits.maxComputeWorkGroupCount[2]); })
+        .def_prop_ro("max_compute_work_group_invocations"                   , [](DeviceLimits& limits) { return limits.limits.maxComputeWorkGroupInvocations; })
+        .def_prop_ro("max_compute_work_group_size"                          , [](DeviceLimits& limits) { return nb::make_tuple(limits.limits.maxComputeWorkGroupSize[0], limits.limits.maxComputeWorkGroupSize[1], limits.limits.maxComputeWorkGroupSize[2]); })
+        .def_prop_ro("sub_pixel_precision_bits"                             , [](DeviceLimits& limits) { return limits.limits.subPixelPrecisionBits; })
+        .def_prop_ro("sub_texel_precision_bits"                             , [](DeviceLimits& limits) { return limits.limits.subTexelPrecisionBits; })
+        .def_prop_ro("mipmap_precision_bits"                                , [](DeviceLimits& limits) { return limits.limits.mipmapPrecisionBits; })
+        .def_prop_ro("max_draw_indexed_index_value"                         , [](DeviceLimits& limits) { return limits.limits.maxDrawIndexedIndexValue; })
+        .def_prop_ro("max_draw_indirect_count"                              , [](DeviceLimits& limits) { return limits.limits.maxDrawIndirectCount; })
+        .def_prop_ro("max_sampler_lod_bias"                                 , [](DeviceLimits& limits) { return limits.limits.maxSamplerLodBias; })
+        .def_prop_ro("max_sampler_anisotropy"                               , [](DeviceLimits& limits) { return limits.limits.maxSamplerAnisotropy; })
+        .def_prop_ro("max_viewports"                                        , [](DeviceLimits& limits) { return limits.limits.maxViewports; })
+        .def_prop_ro("max_viewport_dimensions"                              , [](DeviceLimits& limits) { return nb::make_tuple(limits.limits.maxViewportDimensions[0], limits.limits.maxViewportDimensions[1]); })
+        .def_prop_ro("viewport_bounds_range"                                , [](DeviceLimits& limits) { return nb::make_tuple(limits.limits.viewportBoundsRange[0], limits.limits.viewportBoundsRange[1]); })
+        .def_prop_ro("viewport_sub_pixel_bits"                              , [](DeviceLimits& limits) { return limits.limits.viewportSubPixelBits; })
+        .def_prop_ro("min_memory_map_alignment"                             , [](DeviceLimits& limits) { return limits.limits.minMemoryMapAlignment; })
+        .def_prop_ro("min_texel_buffer_offset_alignment"                    , [](DeviceLimits& limits) { return limits.limits.minTexelBufferOffsetAlignment; })
+        .def_prop_ro("min_uniform_buffer_offset_alignment"                  , [](DeviceLimits& limits) { return limits.limits.minUniformBufferOffsetAlignment; })
+        .def_prop_ro("min_storage_buffer_offset_alignment"                  , [](DeviceLimits& limits) { return limits.limits.minStorageBufferOffsetAlignment; })
+        .def_prop_ro("min_texel_offset"                                     , [](DeviceLimits& limits) { return limits.limits.minTexelOffset; })
+        .def_prop_ro("max_texel_offset"                                     , [](DeviceLimits& limits) { return limits.limits.maxTexelOffset; })
+        .def_prop_ro("min_texel_gather_offset"                              , [](DeviceLimits& limits) { return limits.limits.minTexelGatherOffset; })
+        .def_prop_ro("max_texel_gather_offset"                              , [](DeviceLimits& limits) { return limits.limits.maxTexelGatherOffset; })
+        .def_prop_ro("min_interpolation_offset"                             , [](DeviceLimits& limits) { return limits.limits.minInterpolationOffset; })
+        .def_prop_ro("max_interpolation_offset"                             , [](DeviceLimits& limits) { return limits.limits.maxInterpolationOffset; })
+        .def_prop_ro("sub_pixel_interpolation_offset_bits"                  , [](DeviceLimits& limits) { return limits.limits.subPixelInterpolationOffsetBits; })
+        .def_prop_ro("max_framebuffer_width"                                , [](DeviceLimits& limits) { return limits.limits.maxFramebufferWidth; })
+        .def_prop_ro("max_framebuffer_height"                               , [](DeviceLimits& limits) { return limits.limits.maxFramebufferHeight; })
+        .def_prop_ro("max_framebuffer_layers"                               , [](DeviceLimits& limits) { return limits.limits.maxFramebufferLayers; })
+        .def_prop_ro("framebuffer_color_sample_counts"                      , [](DeviceLimits& limits) { return limits.limits.framebufferColorSampleCounts; })
+        .def_prop_ro("framebuffer_depth_sample_counts"                      , [](DeviceLimits& limits) { return limits.limits.framebufferDepthSampleCounts; })
+        .def_prop_ro("framebuffer_stencil_sample_counts"                    , [](DeviceLimits& limits) { return limits.limits.framebufferStencilSampleCounts; })
+        .def_prop_ro("framebuffer_no_attachments_sample_counts"             , [](DeviceLimits& limits) { return limits.limits.framebufferNoAttachmentsSampleCounts; })
+        .def_prop_ro("max_color_attachments"                                , [](DeviceLimits& limits) { return limits.limits.maxColorAttachments; })
+        .def_prop_ro("sampled_image_color_sample_counts"                    , [](DeviceLimits& limits) { return limits.limits.sampledImageColorSampleCounts; })
+        .def_prop_ro("sampled_image_integer_sample_counts"                  , [](DeviceLimits& limits) { return limits.limits.sampledImageIntegerSampleCounts; })
+        .def_prop_ro("sampled_image_depth_sample_counts"                    , [](DeviceLimits& limits) { return limits.limits.sampledImageDepthSampleCounts; })
+        .def_prop_ro("sampled_image_stencil_sample_counts"                  , [](DeviceLimits& limits) { return limits.limits.sampledImageStencilSampleCounts; })
+        .def_prop_ro("storage_image_sample_counts"                          , [](DeviceLimits& limits) { return limits.limits.storageImageSampleCounts; })
+        .def_prop_ro("max_sample_mask_words"                                , [](DeviceLimits& limits) { return limits.limits.maxSampleMaskWords; })
+        .def_prop_ro("timestamp_compute_and_graphics"                       , [](DeviceLimits& limits) { return limits.limits.timestampComputeAndGraphics; })
+        .def_prop_ro("timestamp_period"                                     , [](DeviceLimits& limits) { return limits.limits.timestampPeriod; })
+        .def_prop_ro("max_clip_distances"                                   , [](DeviceLimits& limits) { return limits.limits.maxClipDistances; })
+        .def_prop_ro("max_cull_distances"                                   , [](DeviceLimits& limits) { return limits.limits.maxCullDistances; })
+        .def_prop_ro("max_combined_clip_and_cull_distances"                 , [](DeviceLimits& limits) { return limits.limits.maxCombinedClipAndCullDistances; })
+        .def_prop_ro("discrete_queue_priorities"                            , [](DeviceLimits& limits) { return limits.limits.discreteQueuePriorities; })
+        .def_prop_ro("point_size_range"                                     , [](DeviceLimits& limits) { return nb::make_tuple(limits.limits.pointSizeRange[0], limits.limits.pointSizeRange[1]); })
+        .def_prop_ro("line_width_range"                                     , [](DeviceLimits& limits) { return nb::make_tuple(limits.limits.lineWidthRange[0], limits.limits.lineWidthRange[1]); })
+        .def_prop_ro("point_size_granularity"                               , [](DeviceLimits& limits) { return limits.limits.pointSizeGranularity; })
+        .def_prop_ro("line_width_granularity"                               , [](DeviceLimits& limits) { return limits.limits.lineWidthGranularity; })
+        .def_prop_ro("strict_lines"                                         , [](DeviceLimits& limits) { return limits.limits.strictLines; })
+        .def_prop_ro("standard_sample_locations"                            , [](DeviceLimits& limits) { return limits.limits.standardSampleLocations; })
+        .def_prop_ro("optimal_buffer_copy_offset_alignment"                 , [](DeviceLimits& limits) { return limits.limits.optimalBufferCopyOffsetAlignment; })
+        .def_prop_ro("optimal_buffer_copy_row_pitch_alignment"              , [](DeviceLimits& limits) { return limits.limits.optimalBufferCopyRowPitchAlignment; })
+        .def_prop_ro("non_coherent_atom_size"                               , [](DeviceLimits& limits) { return limits.limits.nonCoherentAtomSize; })
+    ;
+
+    nb::class_<DeviceProperties>(m, "DeviceProperties",
+        nb::intrusive_ptr<DeviceProperties>([](DeviceProperties *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_prop_ro("limits", [](DeviceProperties& properties) {
+            return properties.limits;
+        })
+        .def_prop_ro("sparse_properties", [](DeviceProperties& properties) {
+            return properties.sparse_properties;
+        })
+        .def_ro("api_version", &DeviceProperties::api_version)
+        .def_ro("driver_version", &DeviceProperties::driver_version)
+        .def_ro("vendor_id", &DeviceProperties::vendor_id)
+        .def_ro("device_id", &DeviceProperties::device_id)
+        .def_ro("device_type", &DeviceProperties::device_type)
+        .def_ro("device_name", &DeviceProperties::device_name)
+        .def_prop_ro("pipeline_cache_uuid", [](DeviceProperties& properties) {
+            return nb::bytes(properties.pipeline_cache_uuid, VK_UUID_SIZE);
+        })
+    ;
         
     nb::class_<Context>(m, "Context",
         nb::intrusive_ptr<Context>([](Context *o, PyObject *po) noexcept { o->set_self_py(po); }))
@@ -1689,6 +1891,9 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("version", [](Context& ctx) {
             return nb::make_tuple(VK_API_VERSION_MAJOR(ctx.vk.device_version), VK_API_VERSION_MINOR(ctx.vk.device_version));
         })
+        .def_prop_ro("device_properties", [](Context& ctx) {
+            return ctx.device_properties;
+        });
     ;
 
     nb::class_<SyncCommandsManager>(m, "SyncCommands")
@@ -2204,7 +2409,13 @@ void gfx_create_bindings(nb::module_& m)
         )
         .def("copy_image_to_buffer", &CommandBuffer::copy_image_to_buffer,
             nb::arg("image"),
-            nb::arg("buffer")
+            nb::arg("buffer"),
+            nb::arg("buffer_offset")
+        )
+        .def("copy_buffer_to_image", &CommandBuffer::copy_buffer_to_image,
+            nb::arg("buffer"),
+            nb::arg("image"),
+            nb::arg("buffer_offset") = 0
         )
         .def("blit_image", &CommandBuffer::blit_image,
             nb::arg("src"),

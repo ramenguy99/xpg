@@ -518,7 +518,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             if(prop.queueCount > 0) {
                 if(prop.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                     if(!queue_family_found) {
-                        // NOTE: Doing this properly acquire requires a surface, to support this we would need to delay queue choice after creating a window.
+                        // NOTE: Doing this properly requires a surface, to support this we would need to delay queue choice after creating a window.
                         // Order of dependencies is then: instance -> window -> physical device + queue family -> device -> everthing else
                         // There is actually a platform specific version of this that does not require a window:
                         //     vkGetPhysicalDeviceWin32PresentationSupportKHR
@@ -1403,7 +1403,7 @@ void CmdCopyBuffer(VkCommandBuffer cmd, const CopyBufferDesc&& desc)
     vkCmdCopyBuffer(cmd, desc.src, desc.dest, 1, &region);
 }
 
-void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageToBufferDesc&& desc)
+void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc)
 {
     VkBufferImageCopy region = {};
     region.bufferOffset = desc.buffer_offset;
@@ -1420,6 +1420,25 @@ void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageToBufferDesc&& des
     region.imageExtent.height = desc.image_height;
     region.imageExtent.depth = desc.image_depth;
     vkCmdCopyImageToBuffer(cmd, desc.image, desc.image_layout, desc.buffer, 1, &region);
+}
+
+void CmdCopyBufferToImage(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc)
+{
+    VkBufferImageCopy region = {};
+    region.bufferOffset = desc.buffer_offset;
+    region.bufferRowLength = desc.buffer_row_stride;
+    region.bufferImageHeight = desc.buffer_image_height;
+    region.imageSubresource.aspectMask = desc.image_aspect;
+    region.imageSubresource.mipLevel = desc.image_mip;
+    region.imageSubresource.baseArrayLayer = desc.image_base_layer;
+    region.imageSubresource.layerCount = desc.image_layer_count;
+    region.imageOffset.x = desc.image_x;
+    region.imageOffset.y = desc.image_y;
+    region.imageOffset.z = desc.image_z;
+    region.imageExtent.width = desc.image_width;
+    region.imageExtent.height = desc.image_height;
+    region.imageExtent.depth = desc.image_depth;
+    vkCmdCopyBufferToImage(cmd, desc.buffer, desc.image, desc.image_layout, 1, &region);
 }
 
 #ifdef _WIN32

@@ -74,7 +74,10 @@ def parse_scene(path: Path) -> Scene:
     
     def consume_vec(dtype: type, elems: int):
         size = consume_u64()
-        return np.frombuffer(consume(size), dtype=dtype).reshape((-1, elems))
+        if elems > 1:
+            return np.frombuffer(consume(size), dtype=dtype).copy().reshape((-1, elems))
+        else:
+            return np.frombuffer(consume(size), dtype=dtype).copy()
 
     def consume_vec2():
         return vec2.from_bytes(bytes(consume(8)))

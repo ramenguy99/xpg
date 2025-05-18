@@ -543,7 +543,7 @@ struct CopyBufferDesc {
 
 void CmdCopyBuffer(VkCommandBuffer cmd, const CopyBufferDesc&& size);
 
-struct CopyImageToBufferDesc {
+struct CopyImageBufferDesc {
     VkImage image;
     VkImageLayout image_layout;
     u32 image_x = 0;
@@ -562,7 +562,8 @@ struct CopyImageToBufferDesc {
     u32 buffer_row_stride = 0; // 0 means rows are tightly packed
     u32 buffer_image_height = 0; // 0 means planes are tightly packed (for 3D images)
 };
-void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageToBufferDesc&& desc);
+void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc);
+void CmdCopyBufferToImage(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc);
 
 
 // - Shaders
