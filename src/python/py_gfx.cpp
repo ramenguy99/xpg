@@ -1120,7 +1120,7 @@ struct Window: public nb::intrusive_base {
         nb::handle mouse_move_event   = nb::find(w->mouse_move_event);
         nb::handle mouse_button_event = nb::find(w->mouse_button_event);
         nb::handle mouse_scroll_event = nb::find(w->mouse_scroll_event);
-        nb::handle key_event          = nb::find(w->mouse_scroll_event);
+        nb::handle key_event          = nb::find(w->key_event);
 
         // Inform the Python GC about the instance (if non-NULL)
         Py_VISIT(ctx.ptr());
