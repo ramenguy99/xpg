@@ -49,10 +49,10 @@ def read_exact_at_offset(file: io.FileIO, offset: int, size: int):
 # [x] Add buffer copy
 # [x] Add memory barrier
 # [x] Sync issue still? Maybe wrong buffer in use?
-# [ ] Visualize buffered stream state -> ImGui bindings
-# [ ] Copy queue (synchronization likely similar to external buffer stuff?)
-# [ ] Add buffer barriers with cross queue sync
-# [ ] Advance buffer only if frame is new
+# [x] Visualize buffered stream state -> ImGui bindings
+# [x] Copy queue (synchronization likely similar to external buffer stuff?)
+# [x] Add buffer barriers with cross queue sync
+# [x] Advance buffer only if frame is new
 
 WORKERS = 4
 files = [open("N:\\scenes\\smpl\\all_frames_20.bin", "rb", buffering=0) for _ in range(WORKERS)]
@@ -166,11 +166,15 @@ cpu_bufs_storage = [CpuBuffer(V * 12) for _ in range(BUFS)]
 cpu_bufs_lru: OrderedDict[CpuBuffer, Optional[int]] = OrderedDict()
 for b in cpu_bufs_storage:
     cpu_bufs_lru[b] = None
-cpu_bufs_frame_lookup: OrderedDict[int, CpuBuffer] = OrderedDict()
+cpu_bufs_frame_lookup: OrderedDict[int, Tuple[CpuBuffer, bool]] = OrderedDict()
 cpu_bufs_in_flight: List[Optional[Tuple[CpuBuffer, int]]] = [None] * window.num_frames
+cpu_bufs_prefetching: Dict[CpuBuffer, int] = {}
 
+lock = Lock()
 
-def load(thread_index: int, buf: CpuBuffer, i: int):
+def load(thread_index: int, buf: CpuBuffer, i: int, pre: bool):
+    # with lock:
+    #     print(f"Loading {i} ({pre})")
     file = files[thread_index]
     read_exact_at_offset_into(file, 12 + i * V * 12, buf.buf.view.view())
     buf.event.set()
@@ -229,23 +233,24 @@ gpu_bufs_in_flight: List[Optional[Tuple[GpuBuffer, RefCount, int]]] = [None] * w
 #
 # TODO:
 # [x] Implement copy on transfer queue
-# [ ] Try to implement prefetching on top of this
+# [x] Try to implement prefetching on top of this
 #   -> keep in mind RR prefetching as a goal, ideally pre-fetch policy is external / switchable
 # [ ] Take out this LRU implementation and make it somehow extendable? Lambdas?
-# [ ] Profile
+# [ ] Add optional names to resources, use in __repr__
+# [ ] ImGui Profiler?
 
 def draw():
     global depth
     global first_frame, frame_index, last_timestamp
     global animation_time, animation_playing
 
-    global cpu_bufs_in_flight, cpu_bufs_lru, cpu_bufs_frame_lookup
+    global cpu_bufs_in_flight, cpu_bufs_lru, cpu_bufs_frame_lookup, cpu_prefetching
     global gpu_bufs_in_flight, gpu_bufs_lru, gpu_bufs_frame_lookup
 
     timestamp = perf_counter()
     dt = timestamp - last_timestamp
     last_timestamp = timestamp
-    print(f"dt: {dt * 1000:.3f}ms")
+    # print(f"dt: {dt * 1000:.3f}ms"
 
     animation_frame_index = int(animation_time * animation_fps) % N
 
@@ -303,9 +308,10 @@ def draw():
                 dl.add_rect(cursor, (cursor.x + 6, cursor.y + 20), 0xFFFFFFFF)
                 dl.add_rect((cursor.x, cursor.y + 22), (cursor.x + 6, cursor.y + 42), 0xFFFFFFFF)
 
-            for i in cpu_bufs_frame_lookup.keys():
-                cursor = imgui.Vec2(start.x + 5 * i, start.y)
-                dl.add_rect_filled((cursor.x + 1, cursor.y + 1), (cursor.x + 5, cursor.y + 19), 0xFF00FF00)
+            for k, v in cpu_bufs_frame_lookup.items():
+                cursor = imgui.Vec2(start.x + 5 * k, start.y)
+                color = 0xFF00FF00 if not v[1] else 0xFF00FFFF
+                dl.add_rect_filled((cursor.x + 1, cursor.y + 1), (cursor.x + 5, cursor.y + 19), color)
 
             for i in gpu_bufs_frame_lookup.keys():
                 cursor = imgui.Vec2(start.x + 5 * i, start.y)
@@ -394,10 +400,10 @@ def draw():
         # Check if already uploaded
         cached = gpu_bufs_frame_lookup.get(animation_frame_index)
         if cached is None:
-            cpu_buf = cpu_bufs_frame_lookup.get(animation_frame_index)
+            cpu_cached = cpu_bufs_frame_lookup.get(animation_frame_index)
 
             # Check if already loaded
-            if cpu_buf is None:
+            if cpu_cached is None:
                 # Grab a free buffer
                 cpu_buf, key = cpu_bufs_lru.popitem(last=False)
                 if key is not None:
@@ -406,13 +412,26 @@ def draw():
 
                 # Submit and wait for the load to complete
                 with profile("Load"):
-                    cpu_buf.event.clear()
-                    pool.submit(load, cpu_buf, animation_frame_index)
+                # if True:
+                    pool.submit(load, cpu_buf, animation_frame_index, False)
                     cpu_buf.event.wait()
+                    cpu_buf.event.clear()
 
                 # Register buffer as loaded for future use
-                cpu_bufs_frame_lookup[animation_frame_index] = cpu_buf
+                cpu_bufs_frame_lookup[animation_frame_index] = (cpu_buf, False)
             else:
+                # If this was a prefetched buffer wait for it to be loaded
+                cpu_buf, prefetching = cpu_cached
+                if prefetching:
+                    with profile("Wait"):
+                    # if True:
+                        cpu_buf.event.wait()
+                    cpu_buf.event.clear()
+                    cpu_bufs_prefetching.pop(cpu_buf)
+
+                    # Mark as ready
+                    cpu_bufs_frame_lookup[animation_frame_index] = (cpu_buf, False)
+
                 # If the buffer is in the LRU remove it to mark it as in use
                 try:
                     cpu_bufs_lru.pop(cpu_buf)
@@ -471,6 +490,57 @@ def draw():
         # Mark GPU buffer as used by this frame
         rc.inc()
         gpu_bufs_in_flight[frame_index] = (gpu_buf, rc, animation_frame_index)
+
+        ####################################################################
+        
+        # prefetch
+        if True:
+            prefetch_start = animation_frame_index + 1
+            prefetch_end = prefetch_start + PREFETCH_SIZE - len(cpu_bufs_prefetching)
+            for buf, key in list(cpu_bufs_prefetching.items()):
+                if buf.event.is_set():
+                    buf.event.clear()
+                    cpu_bufs_lru[buf] = key
+
+                    # Check if the buffer is still in the window
+                    if key < prefetch_start or key >= prefetch_end:
+                        # Move to end of LRU to ensure this buffer is reused soon
+                        cpu_bufs_lru.move_to_end(buf, last=False)
+                    
+                    del cpu_bufs_prefetching[buf]
+                    cpu_bufs_frame_lookup[key] = (buf, False)
+                
+                # TODO: we could also cancel prefetch work here, if possible
+
+            prefetch_end = prefetch_start + PREFETCH_SIZE - len(cpu_bufs_prefetching)
+            bump = []
+            for i in range(prefetch_start, prefetch_end):
+                idx = i % N
+                cpu_cached = cpu_bufs_frame_lookup.get(idx)
+                if cpu_cached is None:
+                    # Grab a free buffer
+                    cpu_buf, key = cpu_bufs_lru.popitem(last=False)
+                    if key is not None:
+                        # Remove the bufer from the lookup
+                        cpu_bufs_frame_lookup.pop(key)
+
+                    # Submit for load
+                    assert not cpu_buf.event.is_set()
+                    pool.submit(load, cpu_buf, idx, True)
+
+                    # Register buffer as loading for future use
+                    cpu_bufs_frame_lookup[idx] = (cpu_buf, True)
+                    cpu_bufs_prefetching[cpu_buf] = idx
+                else:
+                    # If already loaded just bump in front of LRU
+                    cpu_buf, _ = cpu_cached
+                    bump.append(cpu_buf)
+            for b in reversed(bump):
+                try:
+                    # Refresh entry in LRU cache
+                    cpu_bufs_lru.move_to_end(b)
+                except KeyError:
+                    pass
 
         ####################################################################
 
