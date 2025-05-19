@@ -416,3 +416,52 @@ Shaders:
         - Decided to use global object, if user instantiates it twice it throws, automatically cleaned up,
            can potentially add methods (e.g. log level control). Can be cleaned up before other stuff, but not
            critical.
+
+
+Sequence and aysnc upload:
+    NOTE:
+    - Want to separate Application logic, CPU loading and GPU loading
+    - Prefetch logix:
+    - Enqueue loads based on what data we think will be useful soon
+    - Cancel loads that we know we will not need anymore (optional optimization)
+    - Can be called directly from the main thread every frame
+    - Should prioritize getting the next frame on screen, then the next and so on
+    - examples policies:
+        - next few frames in a sequence
+        - closest by chunks in a 2D / 3D scene
+    - CPU threadpool:
+    - Responsible for loading data to vulkan mapped CPU buffers -> this can also do pre-processing / conversions
+    - Handles keeping track of which buffer are in use 
+    - API:
+        - Enqueue load
+        - Cancel load
+        - Get buffer
+        - Callback when buffer loaded -> this can be used to wake an existing thread
+    - GPU upload thread:
+    - Lives on top of a vulkan queue (ideally transfer, but potentially async compute or graphics)
+    - Responsible for submitting upload commands to the queue and signal a GPU semaphore when done
+    - Notifyies rendering thread when the submission started and with what semaphore, rendering thread will use this to wait until it can submit a command and 
+    - Notifies CPU threadpool when the copy is done to release source buffers
+    - API:
+        - enqueue upload
+        - get buffer -> waits and returns semaphore
+        - callback when buffer uploaded
+
+    Plan:
+    - start with sequence example
+    - just do globals and functions
+    - compress into reusable pieces
+
+    Eviction and prefetch policies:
+    
+    Eviction:
+    LRU -> requires keeping track of usage, can do this whenever we ask for a frame
+    Queue -> evicts 
+    
+    Prefetch:
+    Sequence, Spatial
+    
+    Maybe threadpool API should be agnostic of this, only knows about free buffers and load requests
+    Then usecase specific abstractions on top keep track of which buffers are used for what.
+    And implement prefetch / eviction policies
+

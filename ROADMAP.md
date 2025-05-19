@@ -89,7 +89,6 @@ Python:
     - [-] Raytrace
         - [x] Fix requires spirv1.4
         - [x] Efficient image upload with preallocated batch -> can probably do this from python with sync queue
-            - [ ] Double buffered batched upload?
         - [ ] camera controls
         - [ ] basic directional light and brdf
         - [ ] sample accumulation

@@ -638,6 +638,24 @@ struct CommandBuffer: GfxObject {
         });
     }
 
+    void buffer_barrier(nb::ref<Buffer> buf, MemoryUsage src_usage, MemoryUsage dst_usage, u32 src_queue_family_index, u32 dst_queue_family_index) {
+        assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
+        assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
+
+        MemoryUsageState src = MemoryUsagePresets::Types[(usize)src_usage];
+        MemoryUsageState dst = MemoryUsagePresets::Types[(usize)dst_usage];
+
+        gfx::CmdBufferBarrier(buffer, {
+            .buffer = buf->buffer.buffer,
+            .src_stage = src.last_stage,
+            .dst_stage = dst.first_stage,
+            .src_access = src.access,
+            .dst_access = dst.access,
+            .src_queue = src_queue_family_index,
+            .dst_queue = dst_queue_family_index,
+        });
+    }
+
     void use_image(Image& image, ImageUsage usage) {
         assert((usize)usage < ArrayCount(ImageUsagePresets::Types));
         ImageUsageState new_state = ImageUsagePresets::Types[(usize)usage];
@@ -878,14 +896,14 @@ struct CommandBuffer: GfxObject {
     VkCommandBuffer buffer;
 };
 
-struct Queue: GfxObject {
-    Queue(nb::ref<Context> ctx, VkQueue queue)
-        : GfxObject(ctx, false)
-        , queue(queue)
-    {}
-
-    VkQueue queue;
-};
+// struct Queue: GfxObject {
+//     Queue(nb::ref<Context> ctx, VkQueue queue)
+//         : GfxObject(ctx, false)
+//         , queue(queue)
+//     {}
+// 
+//     VkQueue queue;
+// };
 
 struct Frame: public nb::intrusive_base {
     Frame(nb::ref<Window> window, gfx::Frame& frame);
@@ -897,7 +915,7 @@ struct Frame: public nb::intrusive_base {
 };
 
 struct Window: public nb::intrusive_base {
-    struct FrameManager {
+    struct FrameManager: public nb::intrusive_base {
         FrameManager(nb::ref<Window> window,
                      std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores,
                      std::vector<nb::ref<Semaphore>> additional_signal_semaphores)
@@ -922,8 +940,8 @@ struct Window: public nb::intrusive_base {
         std::vector<nb::ref<Semaphore>> additional_signal_semaphores;
     };
 
-    FrameManager frame(std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores, std::vector<nb::ref<Semaphore>> additional_signal_semaphores) {
-        return FrameManager(this, std::move(additional_wait_semaphores), std::move(additional_signal_semaphores));
+    nb::ref<FrameManager> frame(std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores, std::vector<nb::ref<Semaphore>> additional_signal_semaphores) {
+        return new FrameManager(this, std::move(additional_wait_semaphores), std::move(additional_signal_semaphores));
     }
 
     Window(nb::ref<Context> ctx, const std::string& name, u32 width, u32 height)
@@ -1026,7 +1044,6 @@ struct Window: public nb::intrusive_base {
     void end_frame(Frame& frame, const std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>>& additional_wait_semaphores, const std::vector<nb::ref<Semaphore>>& additional_signal_semaphores)
     {
         // TODO: make this throw if not called after begin in the same frame
-
         VkResult vkr;
         if(additional_wait_semaphores.empty() && additional_signal_semaphores.empty()) {
             vkr = gfx::Submit(frame.frame, ctx->vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
@@ -1139,6 +1156,56 @@ static PyType_Slot window_tp_slots[] = {
     { Py_tp_clear, (void*)Window::tp_clear },
     { 0, nullptr }
 };
+
+struct TransferQueueCommandsManager: public nb::intrusive_base {
+    TransferQueueCommandsManager(nb::ref<Frame> frame,
+                                 std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores,
+                                 std::vector<nb::ref<Semaphore>> signal_semaphores)
+        : frame(frame)
+        , wait_semaphores(std::move(wait_semaphores))
+        , signal_semaphores(std::move(signal_semaphores))
+    {
+        // TODO: check that the copy queue is actually available and throw otherwise
+        cmd =  new CommandBuffer(frame->window->ctx, frame->frame.copy_command_pool, frame->frame.copy_command_buffer, false);
+    }
+
+    nb::ref<CommandBuffer> enter() {
+        cmd->begin();
+        return cmd;
+    }
+
+    void exit(nb::object, nb::object, nb::object) {
+        cmd->end();
+
+        Array<VkSemaphore> vk_wait_semaphores(wait_semaphores.size());
+        Array<VkPipelineStageFlags> vk_wait_stages(wait_semaphores.size());
+        for(usize i = 0; i < wait_semaphores.size(); i++) {
+            vk_wait_semaphores[i] = std::get<0>(wait_semaphores[i])->semaphore;
+            vk_wait_stages[i] = std::get<1>(wait_semaphores[i]);
+        }
+        Array<VkSemaphore> vk_signal_semaphores(signal_semaphores.size());
+        for(usize i = 0; i < signal_semaphores.size(); i++) {
+            vk_signal_semaphores[i] = signal_semaphores[i]->semaphore;
+        }
+
+        VkResult vkr = gfx::SubmitQueue(frame->window->ctx->vk.copy_queue, {
+            .cmd = { cmd->buffer },
+            .wait_semaphores = Span(vk_wait_semaphores),
+            .wait_stages = Span(vk_wait_stages),
+            .signal_semaphores = Span(vk_signal_semaphores),
+        });
+
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to submit transfer queue commands");
+        }
+    }
+
+    nb::ref<Frame> frame;
+    nb::ref<CommandBuffer> cmd;
+    std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores;
+    std::vector<nb::ref<Semaphore>> signal_semaphores;
+};
+
 
 Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
     : window(window)
@@ -1893,7 +1960,16 @@ void gfx_create_bindings(nb::module_& m)
         })
         .def_prop_ro("device_properties", [](Context& ctx) {
             return ctx.device_properties;
-        });
+        })
+        .def_prop_ro("has_transfer_queue", [](Context& ctx) {
+            return ctx.vk.copy_queue != VK_NULL_HANDLE;
+        })
+        .def_prop_ro("graphics_queue_family_index", [](Context& ctx) {
+            return ctx.vk.queue_family_index;
+        })
+        .def_prop_ro("transfer_queue_family_index", [](Context& ctx) {
+            return ctx.vk.copy_queue_family_index;
+        })
     ;
 
     nb::class_<SyncCommandsManager>(m, "SyncCommands")
@@ -1901,10 +1977,19 @@ void gfx_create_bindings(nb::module_& m)
         .def("__exit__", &SyncCommandsManager::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
     ;
 
+    nb::class_<TransferQueueCommandsManager>(m, "TransferQueueCommands",
+        nb::intrusive_ptr<TransferQueueCommandsManager>([](TransferQueueCommandsManager *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def("__enter__", &TransferQueueCommandsManager::enter)
+        .def("__exit__", &TransferQueueCommandsManager::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
+    ;
+
     nb::class_<Frame>(m, "Frame",
         nb::intrusive_ptr<Frame>([](Frame *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def_ro("command_buffer", &Frame::command_buffer)
         .def_ro("image", &Frame::image)
+        .def("transfer_queue_commands", [](nb::ref<Frame> frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<nb::ref<Semaphore>> signal_semaphores) -> nb::ref<TransferQueueCommandsManager> {
+            return new TransferQueueCommandsManager(frame, wait_semaphores, signal_semaphores);
+        }, nb::arg("wait_semaphores"), nb::arg("signal_semaphores"))
     ;
 
     nb::class_<Window>(m, "Window",
@@ -1943,7 +2028,8 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("num_frames", [](Window& w) -> usize { return w.window.frames.length; })
     ;
 
-    nb::class_<Window::FrameManager>(m, "WindowFrame")
+    nb::class_<Window::FrameManager>(m, "WindowFrame",
+        nb::intrusive_ptr<Window::FrameManager>([](Window::FrameManager *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def("__enter__", &Window::FrameManager::enter)
         .def("__exit__", &Window::FrameManager::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
     ;
@@ -2367,6 +2453,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("begin", &CommandBuffer::begin)
         .def("end", &CommandBuffer::end)
         .def("memory_barrier", &CommandBuffer::memory_barrier, nb::arg("src"), nb::arg("dest"))
+        .def("buffer_barrier", &CommandBuffer::buffer_barrier, nb::arg("buffer"), nb::arg("src"), nb::arg("dest"), nb::arg("src_queue_family_index"), nb::arg("dest_queue_family_index"))
         .def("use_image", &CommandBuffer::use_image, nb::arg("image"), nb::arg("usage"))
         .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth").none() = nb::none())
         .def("end_rendering", &CommandBuffer::end_rendering)
