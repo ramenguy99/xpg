@@ -460,6 +460,11 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     u32 picked_copy_queue_family_index = 0;
     bool picked_queue_family_found = false;
     bool picked_copy_queue_family_found = false;
+    
+    float picked_timestamp_period = false;
+    bool picked_queue_timestamp_queries = false;
+    bool picked_copy_queue_timestamp_queries = false;
+
     bool picked_discrete = false;
     u32 picked_device_api_version = 0;
     for (u32 i = 0; i < physical_device_count; i++) {
@@ -501,6 +506,11 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             continue;
         }
 
+        // Timetsamp support
+        float timestamp_period = properties.limits.timestampPeriod;
+        bool queue_timestamp_queries = false;
+        bool copy_queue_timestamp_queries = false;
+
         // Check queues
         u32 queue_family_index = 0;
         u32 copy_queue_family_index = 0;
@@ -535,6 +545,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                         if (presentation_ok) {
                             queue_family_index = j;
                             queue_family_found = true;
+                            queue_timestamp_queries = timestamp_period > 0 && properties.limits.timestampComputeAndGraphics && prop.timestampValidBits > 0;
                         }
                     }
                 } else if(prop.queueFlags & VK_QUEUE_COMPUTE_BIT) {
@@ -543,6 +554,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                     if(!copy_queue_family_found) {
                         copy_queue_family_index = j;
                         copy_queue_family_found = true;
+                        copy_queue_timestamp_queries = timestamp_period > 0 && prop.timestampValidBits > 0;
                     }
                 }
             }
@@ -565,6 +577,10 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         #endif
             picked_queue_family_found = queue_family_found;
             picked_copy_queue_family_found = copy_queue_family_found;
+
+            picked_timestamp_period = timestamp_period;
+            picked_queue_timestamp_queries = queue_timestamp_queries;
+            picked_copy_queue_timestamp_queries = copy_queue_timestamp_queries;
 
             picked_discrete = discrete;
             picked_device_api_version = properties.apiVersion;
@@ -705,9 +721,12 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     vk->physical_device = physical_device;
     vk->device = device;
     vk->queue = queue;
+    vk->timestamp_period_ns = picked_timestamp_period;
     vk->queue_family_index = picked_queue_family_index;
+    vk->queue_timestamp_queries = picked_queue_timestamp_queries;
     vk->copy_queue = copy_queue;
     vk->copy_queue_family_index = picked_copy_queue_family_index;
+    vk->copy_queue_timestamp_queries = picked_copy_queue_timestamp_queries;
     vk->preferred_frames_in_flight = desc.preferred_frames_in_flight;
     vk->debug_callback = debug_callback;
     vk->vma = vma;
@@ -969,6 +988,18 @@ BeginCommands(VkCommandPool pool, VkCommandBuffer buffer, const Context& vk) {
 VkResult
 EndCommands(VkCommandBuffer buffer) {
     return vkEndCommandBuffer(buffer);
+}
+
+VkResult CreateQueryPool(VkQueryPool* pool, const Context& vk, const QueryPoolDesc&& desc) {
+    VkQueryPoolCreateInfo query_pool_info = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+    query_pool_info.queryType = desc.type;
+    query_pool_info.queryCount = desc.count;
+    return vkCreateQueryPool(vk.device, &query_pool_info, NULL, pool);
+}
+
+void DestroyQueryPool(VkQueryPool* pool, const Context& vk) {
+    vkDestroyQueryPool(vk.device, *pool, NULL);
+    *pool = VK_NULL_HANDLE;
 }
 
 VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc) {

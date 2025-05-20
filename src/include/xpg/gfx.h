@@ -116,9 +116,12 @@ struct Context
     VkPhysicalDevice physical_device;
     VkDevice device;
     VkQueue queue;
+    float timestamp_period_ns;
     u32 queue_family_index;
+    bool queue_timestamp_queries;
     VkQueue copy_queue;
     u32 copy_queue_family_index;
+    bool copy_queue_timestamp_queries;
     VmaAllocator vma;
     u32 preferred_frames_in_flight;
 
@@ -435,6 +438,14 @@ void Callback_CursorPos(GLFWwindow* window, double x, double y);
 void SetWindowCallbacks(Window* window, WindowCallbacks&& callbacks);
 void ProcessEvents(bool block);
 bool ShouldClose(const Window& window);
+
+//- Queries
+struct QueryPoolDesc {
+    VkQueryType type;
+    u32 count;
+};
+VkResult CreateQueryPool(VkQueryPool* pool, const Context& context, const QueryPoolDesc&& desc);
+void DestroyQueryPool(VkQueryPool* pool, const Context& vk);
 
 //- Queue
 struct SubmitDesc {

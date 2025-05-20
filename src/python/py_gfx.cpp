@@ -620,6 +620,51 @@ struct DepthAttachment {
     {}
 };
 
+struct QueryPool: public GfxObject {
+    QueryPool(nb::ref<Context> ctx, VkQueryType type, u32 count)
+        : GfxObject(ctx, true)
+        , count(count)
+        , type(type)
+    {
+        VkResult vkr = gfx::CreateQueryPool(&pool, ctx->vk, {
+            .type = type,
+            .count = count,
+        });
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create query pool");
+        }
+    }
+
+    ~QueryPool() {
+        destroy();
+    }
+
+    void destroy() {
+        if(owned) {
+            gfx::DestroyQueryPool(&pool, ctx->vk);
+        }
+    }
+
+    std::vector<u64> wait_results(u32 first, u32 count) {
+        if ((u64)first + count > (u64)this->count) {
+            nb::raise("Query range out of bounds");
+        }
+
+        std::vector<u64> data(count);
+        VkResult vkr = vkGetQueryPoolResults(ctx->vk.device, pool, first, count, sizeof(u64) * count, data.data(), sizeof(u64),
+                                             VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to get query pool results");
+        }
+        
+        return data;
+    }
+
+    VkQueryPool pool;
+    VkQueryType type;
+    u32 count;
+};
+
 struct CommandBuffer: GfxObject {
     CommandBuffer(nb::ref<Context> ctx, VkCommandPool pool, VkCommandBuffer buffer, bool owned)
         : GfxObject(ctx, owned)
@@ -887,6 +932,14 @@ struct CommandBuffer: GfxObject {
         region.dstOffsets[1].y = dst.height;
         region.dstOffsets[1].z = 1;
         vkCmdBlitImage(buffer, src.image.image, src.current_state.layout, dst.image.image, dst.current_state.layout, 1, &region, VK_FILTER_NEAREST);
+    }
+
+    void reset_query_pool(const QueryPool& pool) {
+        vkCmdResetQueryPool(buffer, pool.pool, 0, pool.count);
+    }
+
+    void write_timestamp(const QueryPool& pool, u32 index, VkPipelineStageFlags2 stage) {
+        vkCmdWriteTimestamp2KHR(buffer, stage, pool.pool, index);
     }
 
     ~CommandBuffer() {
@@ -1974,6 +2027,9 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("transfer_queue_family_index", [](Context& ctx) {
             return ctx.vk.copy_queue_family_index;
         })
+        .def_prop_ro("timestamp_period_ns", [](Context& ctx) {
+            return ctx.vk.timestamp_period_ns;
+        })
     ;
 
     nb::class_<SyncCommandsManager>(m, "SyncCommands")
@@ -2278,6 +2334,31 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<GfxObject>([](GfxObject *o, PyObject *po) noexcept { o->set_self_py(po); }))
     ;
 
+    nb::enum_<VkQueryType>(m, "QueryType")
+        .value("OCCLUSION"                                                  , VK_QUERY_TYPE_OCCLUSION)
+        .value("PIPELINE_STATISTICS"                                        , VK_QUERY_TYPE_PIPELINE_STATISTICS)
+        .value("TIMESTAMP"                                                  , VK_QUERY_TYPE_TIMESTAMP)
+        .value("RESULT_STATUS_ONLY"                                         , VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR)
+        .value("TRANSFORM_FEEDBACK_STREAM"                                  , VK_QUERY_TYPE_TRANSFORM_FEEDBACK_STREAM_EXT)
+        .value("PERFORMANCE_QUERY"                                          , VK_QUERY_TYPE_PERFORMANCE_QUERY_KHR)
+        .value("ACCELERATION_STRUCTURE_COMPACTED_SIZE"                      , VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR)
+        .value("ACCELERATION_STRUCTURE_SERIALIZATION_SIZE"                  , VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR)
+        .value("VIDEO_ENCODE_FEEDBACK"                                      , VK_QUERY_TYPE_VIDEO_ENCODE_FEEDBACK_KHR)
+        .value("MESH_PRIMITIVES_GENERATED"                                  , VK_QUERY_TYPE_MESH_PRIMITIVES_GENERATED_EXT)
+        .value("PRIMITIVES_GENERATED"                                       , VK_QUERY_TYPE_PRIMITIVES_GENERATED_EXT)
+        .value("ACCELERATION_STRUCTURE_SERIALIZATION_BOTTOM_LEVEL_POINTERS" , VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_BOTTOM_LEVEL_POINTERS_KHR)
+        .value("ACCELERATION_STRUCTURE_SIZE"                                , VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SIZE_KHR)
+        .value("MICROMAP_SERIALIZATION_SIZE"                                , VK_QUERY_TYPE_MICROMAP_SERIALIZATION_SIZE_EXT)
+        .value("MICROMAP_COMPACTED_SIZE"                                    , VK_QUERY_TYPE_MICROMAP_COMPACTED_SIZE_EXT)
+    ;
+
+    nb::class_<QueryPool, GfxObject>(m, "QueryPool")
+        .def(nb::init<nb::ref<Context>, VkQueryType, u32>(), nb::arg("ctx"), nb::arg("type"), nb::arg("count"))
+        .def_ro("type", &QueryPool::type)
+        .def_ro("count", &QueryPool::count)
+        .def("wait_results", &QueryPool::wait_results, nb::arg("first"), nb::arg("count"))
+    ;
+
     nb::class_<Buffer, GfxObject>(m, "Buffer")
         .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
         .def("destroy", &Buffer::destroy)
@@ -2525,6 +2606,14 @@ void gfx_create_bindings(nb::module_& m)
         .def("blit_image", &CommandBuffer::blit_image,
             nb::arg("src"),
             nb::arg("dst")
+        )
+        .def("reset_query_pool", &CommandBuffer::reset_query_pool,
+            nb::arg("pool")
+        )
+        .def("write_timestamp", &CommandBuffer::write_timestamp,
+            nb::arg("pool"),
+            nb::arg("index"),
+            nb::arg("stage")
         )
     ;
 
