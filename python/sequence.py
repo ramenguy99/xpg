@@ -3,7 +3,7 @@ from pyxpg import *
 import io
 import struct
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from time import perf_counter
 from threading import Event, Lock
 
@@ -14,9 +14,11 @@ from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype, DescriptorSetsReflection
 from utils.render import PerFrameResource
 from utils.threadpool import ThreadPool
-from utils.profiler import Profiler
+from utils.profiler import Profiler, Result
 from utils.loaders import LRUPool
 from utils.utils import profile
+
+from hashlib import md5
 
 def read_exact_into(file: io.FileIO, view: memoryview):
     bread = 0
@@ -52,7 +54,7 @@ I = struct.unpack("<I", header[8:12])[0]
 indices = np.frombuffer(read_exact_at_offset(file, N * V * 12 + len(header), I * 4), np.uint32)
 
 ctx = Context(
-    device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION | DeviceFeatures.HOST_QUERY_RESET, 
+    device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.CALIBRATED_TIMESTAMPS, 
     enable_validation_layer=True,
     enable_synchronization_validation=True,
     preferred_frames_in_flight=2,
@@ -175,6 +177,8 @@ gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX, USE_TRANSFER_QUEU
 # [ ] ImGui Profiler?
 
 profiler = Profiler(ctx, window.num_frames + 1)
+profiler_max_frames = 20
+profiler_results: List[Result] = []
     
 def draw():
     global depth
@@ -227,6 +231,8 @@ def draw():
     additional_signal_semaphores = []
     with frame.command_buffer as cmd:
         prof = profiler.frame(cmd)
+        if prof and len(profiler_results) < profiler_max_frames:
+            profiler_results.append(prof)
 
         with profiler.zone("frame"):
             with profiler.gpu_zone("frame"):
@@ -295,7 +301,7 @@ def draw():
                             drawpool("GPU", gpu)
                         imgui.end()
 
-                        if imgui.begin("Profiler")[0]:
+                        if imgui.begin("Profiler - list")[0]:
                             to_ms = ctx.timestamp_period_ns * 1e-6
                             imgui.separator_text("CPU")
                             if prof:
@@ -309,6 +315,47 @@ def draw():
                             if prof:
                                 for z in prof.gpu_transfer_zones:
                                     imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
+                        imgui.end()
+
+                        if imgui.begin("Profiler - graph")[0]:
+                            if profiler_results:
+                                expected_width = 1000 // 5
+                                expected_length = 20
+
+                                dl = imgui.get_window_draw_list()
+                                HEIGHT = 50
+
+                                start_ts = profiler_results[0].frame_start_ts
+                                start_gpu_ts = profiler_results[0].frame_start_gpu_ts
+
+
+                                for i, name in enumerate(["CPU", "GPU", "GPU Transfer"]):
+                                    imgui.separator_text(name)
+                                    start = imgui.get_cursor_screen_pos()
+                                    for prof in profiler_results:
+                                        zones = [prof.zones, prof.gpu_zones, prof.gpu_transfer_zones][i]
+                                        if i == 0:
+                                            norm = 1e-6 / expected_length * expected_width
+                                            min_ts = start_ts
+                                        else:
+                                            norm = 1e-6 / expected_length * expected_width * ctx.timestamp_period_ns
+                                            min_ts = start_gpu_ts
+
+                                        if zones:
+                                            c = imgui.Vec2(start.x, start.y)
+
+                                            # max_ts = min([z.end_time for z in prof.zones])
+
+                                            for z in zones:
+                                                # Replace with something reasonable
+                                                col = struct.unpack("<I", md5(z.name.encode(), usedforsecurity=False).digest()[:4])[0] | 0xFF00_0000
+
+                                                s = (z.start_time - min_ts) * norm
+                                                e = (z.end_time - min_ts) * norm
+                                                dl.add_rect_filled((c.x + s, c.y + HEIGHT * z.depth), (c.x + e, c.y + (z.depth + 1) * HEIGHT), col & 0xFFFFFFFF)
+                                    imgui.set_cursor_screen_pos((c.x, c.y + HEIGHT * 3.5))
+
+
                         imgui.end()
                     
 
@@ -343,7 +390,7 @@ def draw():
                     cpu_buf = cpu.get(k, cpu_load, cpu_ensure_fetched)
 
                     # Upload from CPU
-                    if True:
+                    if False:
                         with profiler.zone("upload"):
                             # If using mapped buffer
                             gpu_buf.buf.view.data[:] = cpu_buf.buf.view.data
@@ -443,7 +490,7 @@ def draw():
         animation_time += dt
 
 def on_key(k: Key, a: Action, m: Modifiers):
-    global animation_time, animation_playing
+    global animation_time, animation_playing, profiler_results
     if a == Action.PRESS:
         if k == Key.SPACE:
             animation_playing = not animation_playing
@@ -452,6 +499,8 @@ def on_key(k: Key, a: Action, m: Modifiers):
             animation_time += 1 / animation_fps
         if k == Key.COMMA:
             animation_time -= 1 / animation_fps
+        if k == Key.P:
+            profiler_results = []
 
 window.set_callbacks(
     draw,

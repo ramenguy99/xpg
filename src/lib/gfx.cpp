@@ -611,16 +611,16 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
     // Device extensions
     Array<const char*> device_extensions;
-    if (desc.device_features & DeviceFeatures::PRESENTATION)        device_extensions.add("VK_KHR_swapchain");
+    if (desc.device_features & DeviceFeatures::PRESENTATION)         device_extensions.add("VK_KHR_swapchain");
     if (desc.device_features & DeviceFeatures::DYNAMIC_RENDERING) {
         device_extensions.add("VK_KHR_create_renderpass2");
         device_extensions.add("VK_KHR_depth_stencil_resolve");
         device_extensions.add("VK_KHR_dynamic_rendering");
     }
-    if (desc.device_features & DeviceFeatures::SYNCHRONIZATION_2)   device_extensions.add("VK_KHR_synchronization2");
+    if (desc.device_features & DeviceFeatures::SYNCHRONIZATION_2)    device_extensions.add("VK_KHR_synchronization2");
     if (desc.device_features & (DeviceFeatures::DESCRIPTOR_INDEXING | DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_PIPELINE))
         device_extensions.add("VK_EXT_descriptor_indexing");
-    if (desc.device_features & DeviceFeatures::SCALAR_BLOCK_LAYOUT) device_extensions.add("VK_EXT_scalar_block_layout");
+    if (desc.device_features & DeviceFeatures::SCALAR_BLOCK_LAYOUT)  device_extensions.add("VK_EXT_scalar_block_layout");
     if (desc.device_features & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_PIPELINE)) {
         device_extensions.add("VK_KHR_deferred_host_operations");
         device_extensions.add("VK_KHR_buffer_device_address");
@@ -628,8 +628,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         device_extensions.add("VK_KHR_spirv_1_4");
         device_extensions.add("VK_KHR_shader_float_controls");
     }
-    if (desc.device_features & DeviceFeatures::RAY_QUERY)           device_extensions.add("VK_KHR_ray_query");
-    if (desc.device_features & DeviceFeatures::RAY_PIPELINE)        device_extensions.add("VK_KHR_ray_tracing_pipeline");
+    if (desc.device_features & DeviceFeatures::RAY_QUERY)            device_extensions.add("VK_KHR_ray_query");
+    if (desc.device_features & DeviceFeatures::RAY_PIPELINE)         device_extensions.add("VK_KHR_ray_tracing_pipeline");
     if (desc.device_features & DeviceFeatures::EXTERNAL_RESOURCES) {
 #ifdef _WIN32
         device_extensions.add("VK_KHR_external_memory_win32");
@@ -639,7 +639,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         device_extensions.add("VK_KHR_external_semaphore_fd");
 #endif
     }
-    if (desc.device_features & DeviceFeatures::HOST_QUERY_RESET)     device_extensions.add("VK_EXT_host_query_reset");
+    if (desc.device_features & DeviceFeatures::HOST_QUERY_RESET)      device_extensions.add("VK_EXT_host_query_reset");
+    if (desc.device_features & DeviceFeatures::CALIBRATED_TIMESTAMPS) device_extensions.add("VK_KHR_calibrated_timestamps");
 
     // Create a physical device.
     VkDevice device = 0;

@@ -14,10 +14,13 @@ class Zone:
     end_idx: int = None
     start_time: int = None
     end_time: int = None
+    depth: int = 0
 
 @dataclass
 class Result:
     frame: int
+    frame_start_ts: int
+    frame_start_gpu_ts: int
     zones: List[Zone]
     gpu_zones: List[Zone]
     gpu_transfer_zones: List[Zone]
@@ -36,6 +39,10 @@ class Profiler:
 
         self.current_cmd = None
         self.current_transfer_cmd = None
+        self.current_query = 0
+        self.current_cpu_zone = 0
+        self.current_cpu_depth = 0
+        self.current_cpu_depth = 0
 
         self.zones = []
         self.gpu_zones = []
@@ -68,12 +75,19 @@ class Profiler:
         self.zones = []
         self.gpu_zones = []
         self.gpu_transfer_zones = []
-        self.results.put(Result(self.frame_index, self.zones, self.gpu_zones, self.gpu_transfer_zones))
+
+        host_ts, device_ts = self.ctx.get_calibrated_timestamps()
+        self.results.put(Result(self.frame_index, host_ts, device_ts, self.zones, self.gpu_zones, self.gpu_transfer_zones))
 
         self.current_query = 0
         self.current_cpu_zone = 0
         self.current_cmd = cmd
         self.current_cmd.reset_query_pool(self.pools[self.frame_index])
+
+        self.current_cpu_depth = 0
+        self.current_gpu_depth = 0
+        self.current_gpu_transfer_depth = 0
+
 
         return res
         
@@ -87,16 +101,18 @@ class Profiler:
             self.ctx.reset_query_pool(self.transfer_pools[self.frame_index])
     
     @contextmanager
-    def zone(self, name, cmd: CommandBuffer = None):
+    def zone(self, name):
         start = self.current_cpu_zone
         self.current_cpu_zone += 1
 
-        zone = Zone(name, start, start_time=perf_counter_ns())
+        zone = Zone(name, start, start_time=perf_counter_ns(), depth=self.current_cpu_depth)
         self.zones.append(zone)
 
+        self.current_cpu_depth += 1
         try:
             yield
         finally:
+            self.current_cpu_depth -= 1
             end = self.current_cpu_zone
             self.current_cpu_zone += 1
 
@@ -104,27 +120,28 @@ class Profiler:
             zone.end_time = perf_counter_ns()
 
     @contextmanager
-    def gpu_zone(self, name, cmd: CommandBuffer = None):
+    def gpu_zone(self, name):
         if len(self.gpu_zones) > self.max_gpu_zones:
             return
 
         start = self.current_query
         self.current_query += 1
 
-        zone = Zone(name, start)
+        zone = Zone(name, start, depth=self.current_gpu_depth)
         self.gpu_zones.append(zone)
 
-        cmd = cmd if cmd else self.current_cmd
-        cmd.write_timestamp(self.pools[self.frame_index], start, PipelineStageFlags.TOP_OF_PIPE)
+        self.current_cmd.write_timestamp(self.pools[self.frame_index], start, PipelineStageFlags.TOP_OF_PIPE)
+        self.current_gpu_depth += 1
         try:
             yield
         finally:
+            self.current_gpu_depth -= 1
             end = self.current_query
             self.current_query += 1
 
             zone.end_idx = end
 
-            cmd.write_timestamp(self.pools[self.frame_index], end, PipelineStageFlags.BOTTOM_OF_PIPE)
+            self.current_cmd.write_timestamp(self.pools[self.frame_index], end, PipelineStageFlags.BOTTOM_OF_PIPE)
 
     @contextmanager
     def gpu_transfer_zone(self, name):
@@ -134,13 +151,15 @@ class Profiler:
         start = self.current_transfer_query
         self.current_transfer_query += 1
 
-        zone = Zone(name, start)
+        zone = Zone(name, start, depth=self.current_gpu_transfer_depth)
         self.gpu_transfer_zones.append(zone)
 
         self.current_transfer_cmd.write_timestamp(self.transfer_pools[self.frame_index], start, PipelineStageFlags.TOP_OF_PIPE)
+        self.current_gpu_transfer_depth += 1
         try:
             yield
         finally:
+            self.current_gpu_transfer_depth -= 1
             end = self.current_transfer_query
             self.current_transfer_query += 1
 

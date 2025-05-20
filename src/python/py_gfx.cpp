@@ -1825,6 +1825,17 @@ BOOL WINAPI ctrlc_handler(DWORD) {
 }
 #endif
 
+u64 mul_div(u64 ticks, u64 mul, u64 div)
+{
+    // (ticks * mul) / div == (ticks / div) * mul + (ticks % div) * mul / div
+    u64 intpart, remaining;
+    intpart = ticks / div;
+    ticks %= div;
+    remaining = ticks * mul;
+    remaining /= div;
+    return intpart * mul + remaining;
+}
+
 void gfx_create_bindings(nb::module_& m)
 {
 #ifdef _WIN32
@@ -1832,16 +1843,17 @@ void gfx_create_bindings(nb::module_& m)
 #endif
 
     nb::enum_<gfx::DeviceFeatures::DeviceFeaturesFlags>(m, "DeviceFeatures", nb::is_flag(), nb::is_arithmetic())
-        .value("NONE",                gfx::DeviceFeatures::NONE)
-        .value("PRESENTATION",        gfx::DeviceFeatures::PRESENTATION)
-        .value("DYNAMIC_RENDERING",   gfx::DeviceFeatures::DYNAMIC_RENDERING)
-        .value("SYNCHRONIZATION_2",   gfx::DeviceFeatures::SYNCHRONIZATION_2)
-        .value("DESCRIPTOR_INDEXING", gfx::DeviceFeatures::DESCRIPTOR_INDEXING)
-        .value("SCALAR_BLOCK_LAYOUT", gfx::DeviceFeatures::SCALAR_BLOCK_LAYOUT)
-        .value("RAY_QUERY",           gfx::DeviceFeatures::RAY_QUERY)
-        .value("RAY_PIPELINE",        gfx::DeviceFeatures::RAY_PIPELINE)
-        .value("EXTERNAL_RESOURCES",  gfx::DeviceFeatures::EXTERNAL_RESOURCES)
-        .value("HOST_QUERY_RESET",    gfx::DeviceFeatures::HOST_QUERY_RESET)
+        .value("NONE",                  gfx::DeviceFeatures::NONE)
+        .value("PRESENTATION",          gfx::DeviceFeatures::PRESENTATION)
+        .value("DYNAMIC_RENDERING",     gfx::DeviceFeatures::DYNAMIC_RENDERING)
+        .value("SYNCHRONIZATION_2",     gfx::DeviceFeatures::SYNCHRONIZATION_2)
+        .value("DESCRIPTOR_INDEXING",   gfx::DeviceFeatures::DESCRIPTOR_INDEXING)
+        .value("SCALAR_BLOCK_LAYOUT",   gfx::DeviceFeatures::SCALAR_BLOCK_LAYOUT)
+        .value("RAY_QUERY",             gfx::DeviceFeatures::RAY_QUERY)
+        .value("RAY_PIPELINE",          gfx::DeviceFeatures::RAY_PIPELINE)
+        .value("EXTERNAL_RESOURCES",    gfx::DeviceFeatures::EXTERNAL_RESOURCES)
+        .value("HOST_QUERY_RESET",      gfx::DeviceFeatures::HOST_QUERY_RESET)
+        .value("CALIBRATED_TIMESTAMPS", gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")
@@ -2035,7 +2047,42 @@ void gfx_create_bindings(nb::module_& m)
             return ctx.vk.timestamp_period_ns;
         })
         .def("reset_query_pool", [](Context& ctx, const QueryPool& pool) {
+            if (!(ctx.features & gfx::DeviceFeatures::HOST_QUERY_RESET)) {
+                throw std::runtime_error("Device feature HOST_QUERY_RESET must be set to use Context.reset_query_pool");
+            }
             vkResetQueryPoolEXT(ctx.vk.device, pool.pool, 0, pool.count);
+        })
+        .def("get_calibrated_timestamps", [](Context& ctx) -> std::tuple<u64, u64> {
+            if (!(ctx.features & gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)) {
+                throw std::runtime_error("Device feature HOST_QUERY_RESET must be set to use Context.get_calibrated_timestamps");
+            }
+
+            VkCalibratedTimestampInfoKHR timestamp_infos[2] = {};
+            timestamp_infos[0].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR;
+#ifdef _WIN32
+            timestamp_infos[0].timeDomain = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR;
+#else
+            timestamp_infos[0].timeDomain = VK_TIME_DOMAIN_CLOCK_MONOTONIC_KHR;
+#endif
+            timestamp_infos[1].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR;
+            timestamp_infos[1].timeDomain = VK_TIME_DOMAIN_DEVICE_KHR;
+
+            u64 timestamps[2];
+            u64 deviations[2];
+            vkGetCalibratedTimestampsKHR(ctx.vk.device, 2, timestamp_infos, timestamps, deviations);
+
+#ifdef _WIN32
+            // Convert performance counter ticks to ns. This matches what time.perf_counter_ns does.
+            static LARGE_INTEGER frequency = {};
+            if (!frequency.QuadPart) {
+                QueryPerformanceFrequency(&frequency);
+            }
+            timestamps[0] = mul_div(timestamps[0], 1000000000, frequency.QuadPart);
+#else
+            // On linux timestamp is already in nanoseconds. Same as time.perf_counter_ns.
+#endif
+
+            return std::make_tuple(timestamps[0], timestamps[1]);
         })
     ;
 

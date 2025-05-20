@@ -80,6 +80,7 @@ struct DeviceFeatures {
         RAY_PIPELINE          = 1 << 6,
         EXTERNAL_RESOURCES    = 1 << 7,
         HOST_QUERY_RESET      = 1 << 8,
+        CALIBRATED_TIMESTAMPS = 1 << 8,
     };
 
     DeviceFeatures(DeviceFeaturesFlags flags): flags(flags) {}
