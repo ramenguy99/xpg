@@ -423,6 +423,10 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
     CHAIN(descriptor_indexing_features, DeviceFeatures::DESCRIPTOR_INDEXING);
 
+    VkPhysicalDeviceHostQueryResetFeaturesEXT host_query_reset_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES_EXT };
+    host_query_reset_features.hostQueryReset = VK_TRUE;
+    CHAIN(host_query_reset_features, DeviceFeatures::HOST_QUERY_RESET);
+
     VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR};
     buffer_device_address_features.bufferDeviceAddress = VK_TRUE;
     CHAIN(buffer_device_address_features, DeviceFeatures::RAY_PIPELINE | DeviceFeatures::RAY_QUERY);
@@ -635,6 +639,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         device_extensions.add("VK_KHR_external_semaphore_fd");
 #endif
     }
+    if (desc.device_features & DeviceFeatures::HOST_QUERY_RESET)     device_extensions.add("VK_EXT_host_query_reset");
 
     // Create a physical device.
     VkDevice device = 0;

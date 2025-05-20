@@ -14,7 +14,7 @@ from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype, DescriptorSetsReflection
 from utils.render import PerFrameResource
 from utils.threadpool import ThreadPool
-from utils.profiler import GpuProfiler
+from utils.profiler import Profiler
 from utils.loaders import LRUPool
 from utils.utils import profile
 
@@ -52,7 +52,7 @@ I = struct.unpack("<I", header[8:12])[0]
 indices = np.frombuffer(read_exact_at_offset(file, N * V * 12 + len(header), I * 4), np.uint32)
 
 ctx = Context(
-    device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION, 
+    device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION | DeviceFeatures.HOST_QUERY_RESET, 
     enable_validation_layer=True,
     enable_synchronization_validation=True,
     preferred_frames_in_flight=2,
@@ -69,6 +69,7 @@ sets = PerFrameResource(DescriptorSet, window.num_frames,
         DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
     ],
 )
+
 
 SHADERS = Path(__file__).parent.joinpath("shaders")
 class SequencePipeline(Pipeline):
@@ -128,8 +129,7 @@ animation_time = 0
 animation_fps = 25
 animation_playing = False
 
-NUM_WORKERS = 4
-pool = ThreadPool(NUM_WORKERS)
+pool = ThreadPool(WORKERS)
 
 class CpuBuffer:
     def __init__(self, size: int, name: Optional[str] = None):
@@ -174,7 +174,7 @@ gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX, USE_TRANSFER_QUEU
 # [x] Add optional names to resources, use in __repr__
 # [ ] ImGui Profiler?
 
-gpu_profiler = GpuProfiler(ctx, window.num_frames + 1)
+profiler = Profiler(ctx, window.num_frames + 1)
     
 def draw():
     global depth
@@ -226,208 +226,215 @@ def draw():
     additional_wait_semaphores = []
     additional_signal_semaphores = []
     with frame.command_buffer as cmd:
-        prof = gpu_profiler.frame(cmd)
+        prof = profiler.frame(cmd)
 
-        with gpu_profiler.zone("frame"):
-            # GUI
-            with gui.frame():
-                if imgui.begin("stats")[0]:
-                    imgui.text(f"indices: {I} ({I * 4 / 1024 / 1024:.2f}MB)")
-                    imgui.text(f"vertices: {V} ({V * 12 / 1024 / 1024:.2f}MB)")
-                    imgui.text(f"vertices gpu buffers: {V * 12 / 1024 / 1024 * GPU_BUFFERS:.2f}MB")
-                    imgui.text(f"vertices load buffers: {V * 12 / 1024 / 1024 * BUFS:.2f}MB")
-                imgui.end()
-                if imgui.begin("playback")[0]:
-                    imgui.text(f"dt: {dt * 1000:.3f}ms")
-                    imgui.text(f"animation time: {animation_time:.1f}s")
-                    changed, idx = imgui.slider_int("animation frame", animation_frame_index, 0, N - 1)
-                    if changed:
-                        animation_frame_index = idx
-                        animation_time = idx / animation_fps
-                    _, animation_playing = imgui.checkbox("Playing", animation_playing)
+        with profiler.zone("frame"):
+            with profiler.gpu_zone("frame"):
+                # GUI
+
+                with profiler.zone("gui"):
+                    with gui.frame():
+                        if imgui.begin("stats")[0]:
+                            imgui.text(f"indices: {I} ({I * 4 / 1024 / 1024:.2f}MB)")
+                            imgui.text(f"vertices: {V} ({V * 12 / 1024 / 1024:.2f}MB)")
+                            imgui.text(f"vertices gpu buffers: {V * 12 / 1024 / 1024 * GPU_BUFFERS:.2f}MB")
+                            imgui.text(f"vertices load buffers: {V * 12 / 1024 / 1024 * BUFS:.2f}MB")
+                        imgui.end()
+                        if imgui.begin("playback")[0]:
+                            imgui.text(f"dt: {dt * 1000:.3f}ms")
+                            imgui.text(f"animation time: {animation_time:.1f}s")
+                            changed, idx = imgui.slider_int("animation frame", animation_frame_index, 0, N - 1)
+                            if changed:
+                                animation_frame_index = idx
+                                animation_time = idx / animation_fps
+                            _, animation_playing = imgui.checkbox("Playing", animation_playing)
+                            
+                            start = imgui.get_cursor_screen_pos()
+                            dl = imgui.get_window_draw_list()
+                            for i in range(N):
+                                cursor = imgui.Vec2(start.x + 5 * i, start.y)
+                                dl.add_rect(cursor, (cursor.x + 6, cursor.y + 20), 0xFFFFFFFF)
+                                dl.add_rect((cursor.x, cursor.y + 22), (cursor.x + 6, cursor.y + 42), 0xFFFFFFFF)
+
+                            for k, v in cpu.lookup.items():
+                                cursor = imgui.Vec2(start.x + 5 * k, start.y)
+                                color = 0xFF00FF00 if not v.prefetching else 0xFF00FFFF
+                                dl.add_rect_filled((cursor.x + 1, cursor.y + 1), (cursor.x + 5, cursor.y + 19), color)
+
+                            for i in gpu.lookup.keys():
+                                cursor = imgui.Vec2(start.x + 5 * i, start.y)
+                                dl.add_rect_filled((cursor.x + 1, cursor.y +23), (cursor.x + 5, cursor.y + 41), 0xFF00FF00)
+
+                        imgui.end()
+                        if imgui.begin("cache")[0]:
+                            def drawpool(name: str, pool: LRUPool):
+                                imgui.separator_text(name)
+                                imgui.text(f"Map")
+                                imgui.indent()
+                                for k, v in pool.lookup.items():
+                                    imgui.text(f"{k:03d} {v}")
+                                imgui.unindent()
+
+                                imgui.text(f"LRU")
+                                imgui.indent()
+                                i = 0
+                                for k, v in pool.lru.items():
+                                    imgui.text(f"{k} {v}")
+                                    i += 1
+                                for _ in range(i, BUFS):
+                                    imgui.text(f"<EMPTY>")
+                                imgui.unindent()
+
+                                imgui.text(f"In Flight")
+                                imgui.indent()
+                                for v in pool.in_flight:
+                                    imgui.text(f"{v}")
+                                imgui.unindent()
+
+                            drawpool("CPU", cpu)
+                            drawpool("GPU", gpu)
+                        imgui.end()
+
+                        if imgui.begin("Profiler")[0]:
+                            to_ms = ctx.timestamp_period_ns * 1e-6
+                            imgui.separator_text("CPU")
+                            if prof:
+                                for z in prof.zones:
+                                    imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
+                            imgui.separator_text("GFX")
+                            if prof:
+                                for z in prof.gpu_zones:
+                                    imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
+                            imgui.separator_text("Transfer")
+                            if prof:
+                                for z in prof.gpu_transfer_zones:
+                                    imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
+                        imgui.end()
                     
-                    start = imgui.get_cursor_screen_pos()
-                    dl = imgui.get_window_draw_list()
-                    for i in range(N):
-                        cursor = imgui.Vec2(start.x + 5 * i, start.y)
-                        dl.add_rect(cursor, (cursor.x + 6, cursor.y + 20), 0xFFFFFFFF)
-                        dl.add_rect((cursor.x, cursor.y + 22), (cursor.x + 6, cursor.y + 42), 0xFFFFFFFF)
 
-                    for k, v in cpu.lookup.items():
-                        cursor = imgui.Vec2(start.x + 5 * k, start.y)
-                        color = 0xFF00FF00 if not v.prefetching else 0xFF00FFFF
-                        dl.add_rect_filled((cursor.x + 1, cursor.y + 1), (cursor.x + 5, cursor.y + 19), color)
+                ####################################################################
+                # Init
 
-                    for i in gpu.lookup.keys():
-                        cursor = imgui.Vec2(start.x + 5 * i, start.y)
-                        dl.add_rect_filled((cursor.x + 1, cursor.y +23), (cursor.x + 5, cursor.y + 41), 0xFF00FF00)
+                cpu.new_frame(frame_index)
+                gpu.new_frame(frame_index)
 
-                imgui.end()
-                if imgui.begin("cache")[0]:
-                    def drawpool(name: str, pool: LRUPool):
-                        imgui.separator_text(name)
-                        imgui.text(f"Map")
-                        imgui.indent()
-                        for k, v in pool.lookup.items():
-                            imgui.text(f"{k:03d} {v}")
-                        imgui.unindent()
+                ####################################################################
+                # Get
 
-                        imgui.text(f"LRU")
-                        imgui.indent()
-                        i = 0
-                        for k, v in pool.lru.items():
-                            imgui.text(f"{k} {v}")
-                            i += 1
-                        for _ in range(i, BUFS):
-                            imgui.text(f"<EMPTY>")
-                        imgui.unindent()
-
-                        imgui.text(f"In Flight")
-                        imgui.indent()
-                        for v in pool.in_flight:
-                            imgui.text(f"{v}")
-                        imgui.unindent()
-
-                    drawpool("CPU", cpu)
-                    drawpool("GPU", gpu)
-                imgui.end()
-
-                if imgui.begin("Profiler")[0]:
-                    to_ms = ctx.timestamp_period_ns * 1e-6
-                    imgui.separator_text("GFX")
-                    if prof:
-                        for z in prof.zones:
-                            imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
-                    imgui.separator_text("Transfer")
-                    if prof:
-                        for z in prof.transfer_zones:
-                            imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
-                imgui.end()
-            
-
-            ####################################################################
-            # Init
-
-            cpu.new_frame(frame_index)
-            gpu.new_frame(frame_index)
-
-            ####################################################################
-            # Get
-
-            # Check if already uploaded
-            def cpu_ensure_fetched(buf: CpuBuffer):
-                # with profile("Wait"):
-                if True:
-                    buf.event.wait()
-                buf.event.clear()
-
-            def cpu_load(k: int, buf: CpuBuffer):
-                # with profile("Load"):
-                if True:
-                    pool.submit(load, k, buf)
-                    buf.event.wait()
-                buf.event.clear()
-
-            did_copy = False
-
-            def gpu_load(k: int, gpu_buf: GpuBuffer):
-                nonlocal did_copy
-
-                cpu_buf = cpu.get(k, cpu_load, cpu_ensure_fetched)
-
-                # Upload from CPU
-                if False:
-                    # If using mapped buffer
-                    gpu_buf.buf.view.data[:] = cpu_buf.buf.view.data
-                    
-                    # Buffer is immediately not in use anymore. Add back to the LRU.
-                    # This moves back the buffer to the front of the LRU queue.
-                    cpu.give_back(k, cpu_buf)
-                else:
-                    cpu.use(frame_index, k)
-                    if not USE_TRANSFER_QUEUE:
-                        # Upload on gfx queue
-                        with gpu_profiler.zone("copy"):
-                            did_copy = True
-                            cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
-                            cmd.memory_barrier(MemoryUsage.TRANSFER_WRITE, MemoryUsage.VERTEX_INPUT)
-                    else:
-                        # Upload on copy queue
-                        with frame.transfer_queue_commands(
-                            wait_semaphores = [(gpu_buf.use_done, PipelineStageFlags.TRANSFER)] if gpu_buf.used else [],
-                            signal_semaphores = [gpu_buf.upload_done],
-                        ) as copy_cmd:
-                            gpu_profiler.transfer(copy_cmd)
-                            with gpu_profiler.transfer_zone("copy"):
-                            # with gpu_profiler.zone("copy", cmd=copy_cmd):
-                                did_copy = True
-                                copy_cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
-                                copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_WRITE, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
-                        cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.NONE, MemoryUsage.VERTEX_INPUT, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
-
-                        # Add semaphores for graphics queue
-                        additional_wait_semaphores.append((gpu_buf.upload_done, PipelineStageFlags.VERTEX_INPUT))
-                        additional_signal_semaphores.append(gpu_buf.use_done)
-                        gpu_buf.used = True
-            gpu_buf = gpu.get(animation_frame_index, gpu_load)
-            gpu.use(frame_index, animation_frame_index)
-
-            ####################################################################
-            # Prefetch
-            
-            prefetch_start = animation_frame_index + 1
-            prefetch_end = prefetch_start + PREFETCH_SIZE
-            def prefetch_check_loaded(buf: CpuBuffer):
-                if buf.event.is_set():
+                # Check if already uploaded
+                def cpu_ensure_fetched(buf: CpuBuffer):
+                    # with profile("Wait"):
+                    if True:
+                        buf.event.wait()
                     buf.event.clear()
-                    return True
-                return False
-            cpu.prefetch([i % N for i in range(prefetch_start, prefetch_end)], prefetch_check_loaded, lambda k, buf: pool.submit(load, k, buf))
 
-            ####################################################################
+                def cpu_load(k: int, buf: CpuBuffer):
+                    # with profile("Load"):
+                    if True:
+                        pool.submit(load, k, buf)
+                        buf.event.wait()
+                    buf.event.clear()
 
-            
-            cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
-            if images_just_created:
-                cmd.use_image(depth, ImageUsage.DEPTH_STENCIL_ATTACHMENT)
-            
-            viewport = [0, 0, window.fb_width, window.fb_height]
-            with gpu_profiler.zone("draw"):
-                with cmd.rendering(viewport,
-                    color_attachments=[
-                        RenderingAttachment(
-                            frame.image,
-                            load_op=LoadOp.CLEAR,
-                            store_op=StoreOp.STORE,
-                            clear=[0.1, 0.2, 0.4, 1],
-                        ),
-                    ],
-                    depth=DepthAttachment(depth, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=1.0)
-                ):
-                    # Bind the pipeline
-                    cmd.bind_graphics_pipeline(
-                        pipeline=pipeline.pipeline,
-                        descriptor_sets=[ descriptor_set ],
-                        vertex_buffers=[ gpu_buf.buf ],
-                        index_buffer=i_buf,
-                        viewport=viewport,
-                        scissors=viewport,
-                    )
+                did_copy = False
 
-                    # Issue a draw
-                    cmd.draw_indexed(I)
+                def gpu_load(k: int, gpu_buf: GpuBuffer):
+                    nonlocal did_copy
 
-            # Render gui
-            with gpu_profiler.zone("gui"):
-                with cmd.rendering(viewport,
-                    color_attachments=[
-                        RenderingAttachment(frame.image, load_op=LoadOp.LOAD, store_op=StoreOp.STORE),
-                    ],
-                ):
-                    # Render gui
-                    gui.render(cmd)
+                    cpu_buf = cpu.get(k, cpu_load, cpu_ensure_fetched)
 
-            cmd.use_image(frame.image, ImageUsage.PRESENT)
+                    # Upload from CPU
+                    if True:
+                        with profiler.zone("upload"):
+                            # If using mapped buffer
+                            gpu_buf.buf.view.data[:] = cpu_buf.buf.view.data
+                            
+                            # Buffer is immediately not in use anymore. Add back to the LRU.
+                            # This moves back the buffer to the front of the LRU queue.
+                            cpu.give_back(k, cpu_buf)
+                    else:
+                        cpu.use(frame_index, k)
+                        if not USE_TRANSFER_QUEUE:
+                            # Upload on gfx queue
+                            with profiler.gpu_zone("copy"):
+                                did_copy = True
+                                cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
+                                cmd.memory_barrier(MemoryUsage.TRANSFER_WRITE, MemoryUsage.VERTEX_INPUT)
+                        else:
+                            # Upload on copy queue
+                            with frame.transfer_queue_commands(
+                                wait_semaphores = [(gpu_buf.use_done, PipelineStageFlags.TRANSFER)] if gpu_buf.used else [],
+                                signal_semaphores = [gpu_buf.upload_done],
+                            ) as copy_cmd:
+                                profiler.transfer_frame(copy_cmd)
+                                with profiler.gpu_transfer_zone("copy"):
+                                    did_copy = True
+                                    copy_cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
+                                    copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_WRITE, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
+                            cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.NONE, MemoryUsage.VERTEX_INPUT, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
+
+                            # Add semaphores for graphics queue
+                            additional_wait_semaphores.append((gpu_buf.upload_done, PipelineStageFlags.VERTEX_INPUT))
+                            additional_signal_semaphores.append(gpu_buf.use_done)
+                            gpu_buf.used = True
+                gpu_buf = gpu.get(animation_frame_index, gpu_load)
+                gpu.use(frame_index, animation_frame_index)
+
+                ####################################################################
+                # Prefetch
+                
+                prefetch_start = animation_frame_index + 1
+                prefetch_end = prefetch_start + PREFETCH_SIZE
+                def prefetch_check_loaded(buf: CpuBuffer):
+                    if buf.event.is_set():
+                        buf.event.clear()
+                        return True
+                    return False
+                cpu.prefetch([i % N for i in range(prefetch_start, prefetch_end)], prefetch_check_loaded, lambda k, buf: pool.submit(load, k, buf))
+
+                ####################################################################
+
+                
+                cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
+                if images_just_created:
+                    cmd.use_image(depth, ImageUsage.DEPTH_STENCIL_ATTACHMENT)
+                
+                viewport = [0, 0, window.fb_width, window.fb_height]
+                with profiler.gpu_zone("draw"):
+                    with cmd.rendering(viewport,
+                        color_attachments=[
+                            RenderingAttachment(
+                                frame.image,
+                                load_op=LoadOp.CLEAR,
+                                store_op=StoreOp.STORE,
+                                clear=[0.1, 0.2, 0.4, 1],
+                            ),
+                        ],
+                        depth=DepthAttachment(depth, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=1.0)
+                    ):
+                        # Bind the pipeline
+                        cmd.bind_graphics_pipeline(
+                            pipeline=pipeline.pipeline,
+                            descriptor_sets=[ descriptor_set ],
+                            vertex_buffers=[ gpu_buf.buf ],
+                            index_buffer=i_buf,
+                            viewport=viewport,
+                            scissors=viewport,
+                        )
+
+                        # Issue a draw
+                        cmd.draw_indexed(I)
+
+                # Render gui
+                with profiler.gpu_zone("gui"):
+                    with cmd.rendering(viewport,
+                        color_attachments=[
+                            RenderingAttachment(frame.image, load_op=LoadOp.LOAD, store_op=StoreOp.STORE),
+                        ],
+                    ):
+                        # Render gui
+                        gui.render(cmd)
+
+                cmd.use_image(frame.image, ImageUsage.PRESENT)
     window.end_frame(frame, additional_wait_semaphores, additional_signal_semaphores)
 
     frame_index = (frame_index + 1) % window.num_frames

@@ -67,7 +67,8 @@ struct Context: public nb::intrusive_base {
         bool enable_validation_layer,
         bool enable_gpu_based_validation,
         bool enable_synchronization_validation
-    ) {
+    ) : features(device_features)
+    {
         gfx::Result result;
         result = gfx::Init();
         if (result != gfx::Result::SUCCESS) {
@@ -100,6 +101,7 @@ struct Context: public nb::intrusive_base {
 
     gfx::Context vk;
     nb::ref<DeviceProperties> device_properties;
+    gfx::DeviceFeatures::DeviceFeaturesFlags features;
 };
 
 struct GfxObject: public nb::intrusive_base {
@@ -1839,6 +1841,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("RAY_QUERY",           gfx::DeviceFeatures::RAY_QUERY)
         .value("RAY_PIPELINE",        gfx::DeviceFeatures::RAY_PIPELINE)
         .value("EXTERNAL_RESOURCES",  gfx::DeviceFeatures::EXTERNAL_RESOURCES)
+        .value("HOST_QUERY_RESET",    gfx::DeviceFeatures::HOST_QUERY_RESET)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")
@@ -2015,6 +2018,7 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("version", [](Context& ctx) {
             return nb::make_tuple(VK_API_VERSION_MAJOR(ctx.vk.device_version), VK_API_VERSION_MINOR(ctx.vk.device_version));
         })
+        .def_ro("device_features", &Context::features)
         .def_prop_ro("device_properties", [](Context& ctx) {
             return ctx.device_properties;
         })
@@ -2029,6 +2033,9 @@ void gfx_create_bindings(nb::module_& m)
         })
         .def_prop_ro("timestamp_period_ns", [](Context& ctx) {
             return ctx.vk.timestamp_period_ns;
+        })
+        .def("reset_query_pool", [](Context& ctx, const QueryPool& pool) {
+            vkResetQueryPoolEXT(ctx.vk.device, pool.pool, 0, pool.count);
         })
     ;
 

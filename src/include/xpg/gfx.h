@@ -79,6 +79,7 @@ struct DeviceFeatures {
         RAY_QUERY             = 1 << 5,
         RAY_PIPELINE          = 1 << 6,
         EXTERNAL_RESOURCES    = 1 << 7,
+        HOST_QUERY_RESET      = 1 << 8,
     };
 
     DeviceFeatures(DeviceFeaturesFlags flags): flags(flags) {}
