@@ -14,6 +14,7 @@ import io
 import struct
 from utils.loaders import LRUPool
 from utils.utils import profile
+from typing import Optional
 
 def read_exact_into(file: io.FileIO, view: memoryview):
     bread = 0
@@ -128,13 +129,16 @@ NUM_WORKERS = 4
 pool = ThreadPool(NUM_WORKERS)
 
 class CpuBuffer:
-    def __init__(self, size: int):
-        self.buf = Buffer(ctx, size, BufferUsageFlags.TRANSFER_SRC, alloc_type=AllocType.HOST)
+    def __init__(self, size: int, name: Optional[str] = None):
+        self.buf = Buffer(ctx, size, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST, name)
         self.event = Event()
+    
+    def __repr__(self):
+        return self.buf.__repr__()
 
 PREFETCH_SIZE = 2
 BUFS = window.num_frames + PREFETCH_SIZE
-cpu = LRUPool([CpuBuffer(V * 12) for _ in range(BUFS)], window.num_frames, PREFETCH_SIZE)
+cpu = LRUPool([CpuBuffer(V * 12, name=f"cpubuf{i}") for i in range(BUFS)], window.num_frames, PREFETCH_SIZE)
 
 lock = Lock()
 def load(thread_index: int, i: int, buf: CpuBuffer):
@@ -145,23 +149,26 @@ def load(thread_index: int, i: int, buf: CpuBuffer):
 
 GPU_BUFFERS = window.num_frames
 class GpuBuffer:
-    def __init__(self, ctx: Context, size: int, usage_flags: BufferUsageFlags, use_transfer_queue: bool):
-        self.buf = Buffer(ctx, size, usage_flags | BufferUsageFlags.TRANSFER_DST, AllocType.DEVICE_MAPPED)
+    def __init__(self, ctx: Context, size: int, usage_flags: BufferUsageFlags, use_transfer_queue: bool, name: Optional[str] = None):
+        self.buf = Buffer(ctx, size, usage_flags | BufferUsageFlags.TRANSFER_DST, AllocType.DEVICE_MAPPED, name=name)
 
         if use_transfer_queue:
             self.used = False
             self.use_done = Semaphore(ctx)
             self.upload_done = Semaphore(ctx)
+        
+    def __repr__(self):
+        return self.buf.__repr__()
 
 USE_TRANSFER_QUEUE = ctx.has_transfer_queue
-gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX, USE_TRANSFER_QUEUE) for _ in range(GPU_BUFFERS)], window.num_frames)
+gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX, USE_TRANSFER_QUEUE, name=f"gpubuf{i}") for i in range(GPU_BUFFERS)], window.num_frames)
 
 # TODO:
 # [x] Implement copy on transfer queue
 # [x] Try to implement prefetching on top of this
 #   -> keep in mind RR prefetching as a goal, ideally pre-fetch policy is external / switchable
 # [x] Take out this LRU implementation and make it somehow extendable? Lambdas?
-# [ ] Add optional names to resources, use in __repr__
+# [x] Add optional names to resources, use in __repr__
 # [ ] ImGui Profiler?
 
 def draw():
@@ -244,50 +251,32 @@ def draw():
 
         imgui.end()
         if imgui.begin("cache"):
-            imgui.text(f"CPU buffers")
-            imgui.indent()
-            for k, v in cpu.lookup.items():
-                imgui.text(f"{k} {v}")
-            imgui.unindent()
+            def drawpool(name: str, pool: LRUPool):
+                imgui.separator_text(name)
+                imgui.text(f"Map")
+                imgui.indent()
+                for k, v in pool.lookup.items():
+                    imgui.text(f"{k:03d} {v}")
+                imgui.unindent()
 
-            imgui.text(f"CPU LRU")
-            imgui.indent()
-            i = 0
-            for k, v in cpu.lru.items():
-                imgui.text(f"{k} {v}")
-                i += 1
-            for _ in range(i, BUFS):
-                imgui.text(f"<EMPTY>")
-            imgui.unindent()
+                imgui.text(f"LRU")
+                imgui.indent()
+                i = 0
+                for k, v in pool.lru.items():
+                    imgui.text(f"{k} {v}")
+                    i += 1
+                for _ in range(i, BUFS):
+                    imgui.text(f"<EMPTY>")
+                imgui.unindent()
 
-            imgui.text(f"CPU IN FLIGHT")
-            imgui.indent()
-            for v in cpu.in_flight:
-                imgui.text(f"{v}")
-            imgui.unindent()
+                imgui.text(f"In Flight")
+                imgui.indent()
+                for v in pool.in_flight:
+                    imgui.text(f"{v}")
+                imgui.unindent()
 
-            imgui.separator()
-
-            imgui.text(f"GPU buffers")
-            imgui.indent()
-            for k, v in gpu.lookup.items():
-                imgui.text(f"{k} {v.obj} ({v.refcount.count})")
-            imgui.unindent()
-            imgui.text(f"GPU LRU")
-            imgui.indent()
-            i = 0
-            for k, v in gpu.lru.items():
-                imgui.text(f"{k} {v}")
-                i += 1
-            for _ in range(i, GPU_BUFFERS):
-                imgui.text(f"<EMPTY>")
-            imgui.unindent()
-
-            imgui.text(f"GPU IN FLIGHT")
-            imgui.indent()
-            for v in gpu.in_flight:
-                imgui.text(f"{v}")
-            imgui.unindent()
+            drawpool("CPU", cpu)
+            drawpool("GPU", gpu)
         imgui.end()
     
     # Upload
@@ -299,6 +288,7 @@ def draw():
     with frame.command_buffer as cmd:
         ####################################################################
         # Init
+
         cpu.new_frame(frame_index)
         gpu.new_frame(frame_index)
 

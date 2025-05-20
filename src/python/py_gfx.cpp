@@ -104,9 +104,10 @@ struct Context: public nb::intrusive_base {
 
 struct GfxObject: public nb::intrusive_base {
     GfxObject() {}
-    GfxObject(nb::ref<Context> ctx, bool owned)
+    GfxObject(nb::ref<Context> ctx, bool owned, std::optional<nb::str> name = std::nullopt)
         : ctx(ctx)
         , owned(owned)
+        , name(std::move(name))
     {}
 
     // Reference to main context
@@ -116,11 +117,14 @@ struct GfxObject: public nb::intrusive_base {
     // User created objects normally have this set to true,
     // context/swapchain owned objects have this set to false.
     bool owned = true;
+
+    // Debug name, used in __repr__ and set for vkSetDebugUtilsObjectNameEXT
+    std::optional<nb::str> name;
 };
 
 struct Buffer: public GfxObject {
-    Buffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type)
-        : GfxObject(ctx, true)
+    Buffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, std::optional<nb::str> name)
+        : GfxObject(ctx, true, std::move(name))
         , size(size)
     {
         VkResult vkr = gfx::CreateBuffer(&buffer, ctx->vk, size, {
@@ -453,8 +457,8 @@ namespace ImageUsagePresets {
 }
 
 struct Image: public GfxObject {
-    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples = 1)
-        : GfxObject(ctx, true)
+    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples = 1, std::optional<nb::str> name = std::nullopt)
+        : GfxObject(ctx, true, name)
         , width(width)
         , height(height)
     {
@@ -2275,7 +2279,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Buffer, GfxObject>(m, "Buffer")
-        .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
         .def("destroy", &Buffer::destroy)
         .def_static("from_data", &Buffer::from_data, nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
         .def_prop_ro("view", [] (Buffer& buffer) {
@@ -2287,6 +2291,13 @@ void gfx_create_bindings(nb::module_& m)
             }
             return buffer.device_address.value();
         })
+        .def("__repr__", [](Buffer& buf) { 
+            if (buf.name.has_value()) {
+                return nb::str("Buffer(name: {}, size: {})").format(buf.name.value(), buf.size); 
+            } else {
+                return nb::str("Buffer(size: {})").format(buf.size); 
+            }
+        })
     ;
 
     nb::class_<ExternalBuffer, Buffer>(m, "ExternalBuffer")
@@ -2296,7 +2307,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Image, GfxObject>(m, "Image")
-        .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, int>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("samples") = 1)
+        .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, int, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("samples") = 1, nb::arg("name") = nb::none())
         .def("destroy", &Image::destroy)
         .def_static("from_data", &Image::from_data,
             nb::arg("ctx"),
@@ -2309,6 +2320,13 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("alloc_type"),
             nb::arg("samples") = 1
         )
+        .def("__repr__", [](Image& image) { 
+            if (image.name.has_value()) {
+                return nb::str("Image(name: {}, width: {}, height: {})").format(image.name.value(), image.width, image.height); 
+            } else {
+                return nb::str("Image(width: {}, height: {})").format(image.width, image.height); 
+            }
+        })
     ;
 
     nb::class_<Sampler, GfxObject>(m, "Sampler")
