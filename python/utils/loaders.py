@@ -12,6 +12,9 @@ class RefCount:
     def dec(self) -> bool:
         self.count -= 1
         return self.count == 0
+    
+    def __repr__(self):
+        return f"RC({self.count})"
 
 K = TypeVar("K")
 O = TypeVar("O")
@@ -24,7 +27,6 @@ class Entry:
 
 class LRUPool:
     def __init__(self, objs: List[O], num_frames: int, max_prefetch: int = 0):
-        self.objs = objs
         self.lru: OrderedDict[O, Optional[K]] = OrderedDict()
         for b in objs:
             self.lru[b] = None
@@ -89,12 +91,12 @@ class LRUPool:
     def give_back(self, k: K, obj: O):
         self.lru[obj] = k
     
-    def prefetch(self, useful_range: Collection, is_loaded: Callable[[O], bool], submit_load: Callable[[K, O], None]):
+    def prefetch(self, useful_range: Collection, check_loaded: Callable[[O], bool], submit_load: Callable[[K, O], None]):
         if self.max_prefetch <= 0:
             return
 
         for obj, key in list(self.prefetching.items()):
-            if is_loaded(obj):
+            if check_loaded(obj):
                 self.lru[obj] = key
 
                 # Check if the buffer is still in the window
