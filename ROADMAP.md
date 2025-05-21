@@ -56,10 +56,10 @@ Python:
     - [x] Image descriptors
     - [x] Sync commands
     - [x] Compute
-    - [ ] Queues + queue sync
+    - [x] Queues + queue sync
     - [ ] Barriers
         - [x] Memory barrier for buffers?
-        - [ ] Queue transfer barriers?
+        - [x] Queue transfer barriers
         - [ ] Low level combined barrier API?
     - [ ] Helpers for buffer upload with fallback, think about differnt allocation use cases
         Preferred solutions:
@@ -77,6 +77,7 @@ Python:
         - If the upload is performance critical we can have an helper that the user
         can check if device mapped memory is available and then decide for himself.
         - Maybe also think about helpers for copy queue at the same time
+    - [ ] Cleanup command buffers, queues, sync commands and frame API. See what is the shared functionality and if we can improve this a bit.
 - [ ] Clean examples
     - [x] Headless graphics and compute
     - [x] Minimal
@@ -96,7 +97,7 @@ Python:
     - [ ] Sequence
         - [x] Sync loading
         - [x] Async disk loading
-        - [ ] Buffered stream is actually flawed when doing GPU copies, buffers cannot be immediately replaced
+        - [x] Buffered stream is actually flawed when doing GPU copies, buffers cannot be immediately replaced
               when finished using them on the CPU. Also need to synchronize with the GPU. I think something like
               an LRU cache of buffers actually makes a lot of sense then. Similar to what we used for bigimaage.
               The idea is that we will grab buffers from the LRU in the uploader thread. This will block until
@@ -111,12 +112,12 @@ Python:
               - fully asynchronous data loading, only bound by number of buffers free, with prefetch logic
               - synchronous upload on copy queue if available, wait for CPU buffer, submit on other queue, otherwise on any other async queue (async compute, other separate graphics queue)
               - release buffers synchronously when done with frame -> after waiting for fence and knowing what we will neeed this frame and in future
-        - [ ] Async upload with copy queue
-        - [ ] Keyboard input
-        - [ ] Buffered stram hangs if loader thread fails -> handle this gracefully (propagate exception)
+        - [x] Async upload with copy queue
+        - [x] Keyboard input
+        - [ ] Handle throws in threadpool jobs
     - [ ] Warp interop
         - [ ] Requires instructions to build warp from our branch
-- [ ] Slang:
+- [x] Slang:
     - [x] Compile from string
     - [x] Reflection of resource arrays and maybe other types -> look for descriptor set helper ideas
         - [x] Handling of unbounded descriptors
@@ -152,17 +153,18 @@ Python:
     - [ ] Synchronization 2 is not actually optional!
         - Remove this as a device feature, enable if the device supports it, otherwise use the fallback mechanism
           ported / included as the layer mechanism
+    - [ ] Would be nice to have optional features and check if they are supported later. Not clear what's easiest way to do this.
 - [ ] If blocked in process_events -> ctrl+c not working
     - [x] Check if should release GIL
     - [ ] Check if can get interrupt somehow and unblock the loop (e.g. with glfwPostEmptyEvent)
-        [x] on windows glfw waits on WaitMessage -> an easy workaraound would be to wait with some timoeout
+        - [x] on windows glfw waits on WaitMessage -> an easy workaraound would be to wait with some timoeout
             and check the signals with PyErr_CheckSignals
             - actually glfw does not seem to tell us if any event was received or the timeout expired, which
                means that we then force a redraw at this timeout which does not seem super ok.
                 - can potentially
             - not sure if we can actually install the signal handler here
             -> Using platform specific SetConsoleCtrlHandler works fine
-        [ ] check on linux
+        - [ ] check on linux
 - [ ] ImGui:
     - [x] vec2 / vec4
     - [x] Drawlist
@@ -182,9 +184,13 @@ Python:
 Build:
 - [ ] Mac support
 
+Docs:
+- [ ] Doc comments and documentation website
+
 Python:
 - [ ] glslang bindings for compiling and reflection
     - [ ] fix slang build when using this
+- [ ] Tracy module built-in into xpg. Repackage their bindings for CPU stuff, expose vulkan API tracing, and add compat bindings with our GPU stuff.
 
 Viewer:
 - [ ] Primitives

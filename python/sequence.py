@@ -14,7 +14,7 @@ from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype, DescriptorSetsReflection
 from utils.render import PerFrameResource
 from utils.threadpool import ThreadPool
-from utils.profiler import Profiler, ProfilerFrame
+from utils.profiler import Profiler, ProfilerFrame, gui_profiler_graph, gui_profiler_list
 from utils.loaders import LRUPool
 from utils.utils import profile
 
@@ -62,7 +62,7 @@ ctx = Context(
     vsync=VSYNC,
 )
 
-window = Window(ctx, "Sequence", 1920, 1080)
+window = Window(ctx, "Sequence", 1600, 900)
 gui = Gui(window)
 
 i_buf = Buffer.from_data(ctx, indices.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
@@ -181,7 +181,6 @@ gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX, USE_TRANSFER_QUEU
 profiler = Profiler(ctx, window.num_frames + 1)
 profiler_max_frames = 20 if VSYNC else 60
 profiler_results: List[ProfilerFrame] = []
-profiler_hovered_frame = -1
     
 def draw():
     global depth
@@ -189,7 +188,7 @@ def draw():
     global animation_time, animation_playing
 
     global cpu, gpu
-    global profiler, profiler_results, profiler_hovered_frame
+    global profiler, profiler_results
 
     timestamp = perf_counter()
     dt = timestamp - last_timestamp
@@ -243,8 +242,6 @@ def draw():
                 # GUI
             with profiler.zone("gui"):
                 with gui.frame():
-                    pos = imgui.get_mouse_pos()
-
                     if imgui.begin("stats")[0]:
                         imgui.text(f"indices: {I} ({I * 4 / 1024 / 1024:.2f}MB)")
                         imgui.text(f"vertices: {V} ({V * 12 / 1024 / 1024:.2f}MB)")
@@ -305,93 +302,8 @@ def draw():
                         drawpool("GPU", gpu)
                     imgui.end()
 
-                    if imgui.begin("Profiler - list")[0]:
-                        imgui.text(f"dt: {dt * 1000:.3f}ms")
-                        to_ms = ctx.timestamp_period_ns * 1e-6
-                        imgui.separator_text("CPU")
-                        if prof:
-                            for z in prof.zones:
-                                imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
-                        imgui.separator_text("GFX")
-                        if prof:
-                            for z in prof.gpu_zones:
-                                imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
-                        imgui.separator_text("Transfer")
-                        if prof:
-                            for z in prof.gpu_transfer_zones:
-                                imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
-                    imgui.end()
-
-                    if imgui.begin("Profiler - graph")[0]:
-                        if profiler_results:
-                            expected_width = 1000 // 5
-                            expected_length = 20
-
-                            dl = imgui.get_window_draw_list()
-                            HEIGHT = 30
-
-                            start_ts = profiler_results[0].frame_start_ts
-                            start_gpu_ts = profiler_results[0].frame_start_gpu_ts
-
-
-                            hovered_something = False
-                            for i, name in enumerate(["CPU", "GPU", "GPU Transfer"]):
-                                imgui.separator_text(name)
-                                start = imgui.get_cursor_screen_pos()
-                                for prof in profiler_results:
-                                    zones = [prof.zones, prof.gpu_zones, prof.gpu_transfer_zones][i]
-                                    if i == 0:
-                                        norm = 1e-6 / expected_length * expected_width
-                                        min_ts = start_ts
-                                    else:
-                                        norm = 1e-6 / expected_length * expected_width * ctx.timestamp_period_ns
-                                        min_ts = start_gpu_ts
-
-                                    if zones:
-                                        c = imgui.Vec2(start.x, start.y)
-
-                                        # max_ts = min([z.end_time for z in prof.zones])
-
-                                        for z in zones:
-                                            # Replace with something reasonable
-                                            r, g, b = md5(z.name.encode(), usedforsecurity=False).digest()[:3]
-
-                                            s = (z.start_time - min_ts) * norm
-                                            e = (z.end_time - min_ts) * norm
-                                            e = max(e, s+1)
-
-
-                                            x0 = c.x + s
-                                            x1 = c.x + e
-                                            y0 = c.y + HEIGHT * z.depth
-                                            y1 = c.y + HEIGHT * (z.depth + 1)
-
-                                            outline_color = 0xFFCCCCCC
-                                            if pos.x >= x0 and pos.x < x1 and pos.y >= y0 and pos.y < y1:
-                                                profiler_hovered_frame = prof.frame
-                                                hovered_something = True
-                                                imgui.begin_tooltip()
-                                                imgui.text(f"Frame: {prof.frame}")
-                                                imgui.text(f"{z.name}")
-                                                imgui.text(f"Duration: {(z.end_time - z.start_time) * 1e-6:.3f}ms")
-                                                imgui.end_tooltip()
-                                                outline_color = 0xFFFFFFFF
-                                            
-                                            # e = max(e, s+20)
-                                            if prof.frame == profiler_hovered_frame:
-                                                dl.add_rect((x0-1, y0-1), (x1+1, y1+1), outline_color, thickness=2)
-                                                r = min(r + 40, 255)
-                                                g = min(g + 40, 255)
-                                                b = min(b + 40, 255)
-
-                                            dl.add_rect_filled((x0, y0), (x1, y1), 0xFF000000 | (b << 16) | (g << 8) | r )
-
-                                imgui.set_cursor_screen_pos((c.x, c.y + HEIGHT * 3.5))
-                            if not hovered_something:
-                                profiler_hovered_frame = -1
-
-
-                    imgui.end()
+                    gui_profiler_list(prof, dt, ctx.timestamp_period_ns)
+                    gui_profiler_graph(profiler_results, ctx.timestamp_period_ns)
                 
 
             with profiler.gpu_zone("frame"):
