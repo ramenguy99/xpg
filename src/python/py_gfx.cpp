@@ -180,6 +180,39 @@ struct Buffer: public GfxObject {
     std::optional<VkDeviceAddress> device_address;
 };
 
+struct Fence: public GfxObject {
+    Fence(nb::ref<Context> ctx)
+        : GfxObject(ctx, true)
+    {
+        VkFenceCreateInfo fence_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        VkResult vkr = vkCreateFence(ctx->vk.device, &fence_info, 0, &fence);
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create fence");
+        }
+    }
+    
+    bool is_signaled() {
+        VkResult vkr = vkGetFenceStatus(ctx->vk.device, fence);
+        if (vkr == VK_ERROR_DEVICE_LOST) {
+            throw std::runtime_error("Device lost while checking fence status");
+        }
+        return vkr == VK_SUCCESS;
+    }
+
+    void destroy() {
+        if (owned) {
+            vkDestroyFence(ctx->vk.device, fence, 0);
+            fence = VK_NULL_HANDLE;
+        }
+    }
+
+    ~Fence() {
+        destroy();
+    }
+
+    VkFence fence;
+};
+
 struct Semaphore: public GfxObject {
     Semaphore(nb::ref<Context> ctx, bool external)
         : GfxObject(ctx, true)
@@ -670,8 +703,31 @@ struct QueryPool: public GfxObject {
 };
 
 struct CommandBuffer: GfxObject {
-    CommandBuffer(nb::ref<Context> ctx, VkCommandPool pool, VkCommandBuffer buffer, bool owned)
-        : GfxObject(ctx, owned)
+    CommandBuffer(nb::ref<Context> ctx, std::optional<u32> queue_family_index)
+        : GfxObject(ctx, true)
+    {
+        VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+        pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+        pool_info.queueFamilyIndex = queue_family_index.value_or(ctx->vk.queue_family_index);
+
+        VkResult vkr = vkCreateCommandPool(ctx->vk.device, &pool_info, 0, &pool);
+        if (vkr != VK_SUCCESS) {
+            nb::raise("Failed to create command pool");
+        }
+
+        VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+        allocate_info.commandPool = pool;
+        allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocate_info.commandBufferCount = 1;
+
+        vkr = vkAllocateCommandBuffers(ctx->vk.device, &allocate_info, &buffer);
+        if (vkr != VK_SUCCESS) {
+            nb::raise("Failed to create command buffer");
+        }
+    }
+
+    CommandBuffer(nb::ref<Context> ctx, VkCommandPool pool, VkCommandBuffer buffer)
+        : GfxObject(ctx, false)
         , pool(pool)
         , buffer(buffer)
     {}
@@ -946,25 +1002,63 @@ struct CommandBuffer: GfxObject {
         vkCmdWriteTimestamp2KHR(buffer, stage, pool.pool, index);
     }
 
-    ~CommandBuffer() {
+    void destroy() {
         if (owned) {
             vkFreeCommandBuffers(ctx->vk.device, pool, 1, &buffer);
             vkDestroyCommandPool(ctx->vk.device, pool, 0);
         }
     }
 
+    ~CommandBuffer() {
+        destroy();
+    }
+
     VkCommandPool pool;
     VkCommandBuffer buffer;
 };
 
-// struct Queue: GfxObject {
-//     Queue(nb::ref<Context> ctx, VkQueue queue)
-//         : GfxObject(ctx, false)
-//         , queue(queue)
-//     {}
-// 
-//     VkQueue queue;
-// };
+struct Queue: GfxObject {
+    Queue(nb::ref<Context> ctx, VkQueue queue)
+        : GfxObject(ctx, false)
+        , queue(queue)
+    {}
+
+    void submit(nb::ref<CommandBuffer> cmd, 
+        std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores,
+        std::vector<nb::ref<Semaphore>> signal_semaphores,
+        std::optional<nb::ref<Fence>> fence) {
+
+        Array<VkSemaphore> vk_wait_semaphores(wait_semaphores.size());
+        Array<VkPipelineStageFlags> vk_wait_stages(wait_semaphores.size());
+        for(usize i = 0; i < wait_semaphores.size(); i++) {
+            vk_wait_semaphores[i] = std::get<0>(wait_semaphores[i])->semaphore;
+            vk_wait_stages[i] = std::get<1>(wait_semaphores[i]);
+        }
+        Array<VkSemaphore> vk_signal_semaphores(signal_semaphores.size());
+        for(usize i = 0; i < signal_semaphores.size(); i++) {
+            vk_signal_semaphores[i] = signal_semaphores[i]->semaphore;
+        }
+
+        VkFence vk_fence = VK_NULL_HANDLE;
+        if (fence.has_value()) {
+            vk_fence = fence.value()->fence;
+            vkResetFences(ctx->vk.device, 1, &vk_fence);
+        }
+        VkResult vkr = gfx::SubmitQueue(queue, {
+            .cmd = { cmd->buffer },
+            .wait_semaphores = Span(vk_wait_semaphores),
+            .wait_stages = Span(vk_wait_stages),
+            .signal_semaphores = Span(vk_signal_semaphores),
+            .fence = vk_fence,
+        });
+
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to submit transfer queue commands");
+        }
+    }
+
+    VkQueue queue;
+};
 
 struct Frame: public nb::intrusive_base {
     Frame(nb::ref<Window> window, gfx::Frame& frame);
@@ -1227,7 +1321,7 @@ struct TransferQueueCommandsManager: public nb::intrusive_base {
         , signal_semaphores(std::move(signal_semaphores))
     {
         // TODO: check that the copy queue is actually available and throw otherwise
-        cmd =  new CommandBuffer(frame->window->ctx, frame->frame.copy_command_pool, frame->frame.copy_command_buffer, false);
+        cmd =  new CommandBuffer(frame->window->ctx, frame->frame.copy_command_pool, frame->frame.copy_command_buffer);
     }
 
     nb::ref<CommandBuffer> enter() {
@@ -1274,7 +1368,7 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
 {
     image = new Image(window->ctx, frame.current_image, frame.current_image_view, window->window.fb_width, window->window.fb_height);
     image->current_state.last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    command_buffer = new CommandBuffer(window->ctx, frame.command_pool, frame.command_buffer, false);
+    command_buffer = new CommandBuffer(window->ctx, frame.command_pool, frame.command_buffer);
 }
 
 struct Gui: public nb::intrusive_base {
@@ -1799,7 +1893,7 @@ struct SyncCommandsManager {
     SyncCommandsManager(nb::ref<Context> ctx)
         : ctx(ctx)
     {
-        cmd = new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer, false);
+        cmd = new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer);
     }
 
     nb::ref<CommandBuffer> enter() {
@@ -2019,7 +2113,7 @@ void gfx_create_bindings(nb::module_& m)
             return sync_commands(std::move(ctx));
         })
         .def("get_sync_command_buffer", [] (nb::ref<Context> ctx) {
-            return new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer, false);
+            return new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer);
         })
         .def("submit_sync", [](const Context& ctx) {
             gfx::SubmitSync(ctx.vk);
@@ -2087,6 +2181,8 @@ void gfx_create_bindings(nb::module_& m)
 
             return std::make_tuple(timestamps[0], timestamps[1]);
         })
+        .def_prop_ro("queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { return new Queue(ctx, ctx->vk.queue); })
+        .def_prop_ro("transfer_queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { return new Queue(ctx, ctx->vk.copy_queue); })
     ;
 
     nb::class_<SyncCommandsManager>(m, "SyncCommands")
@@ -2106,7 +2202,7 @@ void gfx_create_bindings(nb::module_& m)
         .def_ro("image", &Frame::image)
         .def("transfer_queue_commands", [](nb::ref<Frame> frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<nb::ref<Semaphore>> signal_semaphores) -> nb::ref<TransferQueueCommandsManager> {
             return new TransferQueueCommandsManager(frame, wait_semaphores, signal_semaphores);
-        }, nb::arg("wait_semaphores"), nb::arg("signal_semaphores"))
+        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("signal_semaphores") = nb::list())
     ;
 
     nb::class_<Window>(m, "Window",
@@ -2391,6 +2487,10 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<GfxObject>([](GfxObject *o, PyObject *po) noexcept { o->set_self_py(po); }))
     ;
 
+    nb::class_<Queue, GfxObject>(m, "Queue")
+        .def("submit", &Queue::submit, nb::arg("command_buffer"), nb::arg("wait_semaphores") = nb::list(), nb::arg("signal_semaphores") = nb::list(), nb::arg("fence").none() = nb::none())
+    ;
+
     nb::enum_<VkQueryType>(m, "QueryType")
         .value("OCCLUSION"                                                  , VK_QUERY_TYPE_OCCLUSION)
         .value("PIPELINE_STATISTICS"                                        , VK_QUERY_TYPE_PIPELINE_STATISTICS)
@@ -2506,6 +2606,12 @@ void gfx_create_bindings(nb::module_& m)
         .def("destroy", &AccelerationStructure::destroy)
     ;
 
+    nb::class_<Fence, GfxObject>(m, "Fence")
+        .def(nb::init<nb::ref<Context>>(), nb::arg("ctx"))
+        .def("destroy", &Fence::destroy)
+        .def("is_signaled", &Fence::is_signaled)
+    ;
+
     nb::class_<Semaphore, GfxObject>(m, "Semaphore")
         .def(nb::init<nb::ref<Context>>(), nb::arg("ctx"))
         .def("destroy", &Semaphore::destroy)
@@ -2604,6 +2710,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<CommandBuffer, GfxObject>(m, "CommandBuffer")
+        .def(nb::init<nb::ref<Context>, std::optional<u32>>(), nb::arg("ctx"), nb::arg("queue_family_index").none() = nb::none())
         .def("__enter__", &CommandBuffer::enter)
         .def("__exit__", &CommandBuffer::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
         .def("begin", &CommandBuffer::begin)

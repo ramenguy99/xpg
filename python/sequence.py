@@ -102,8 +102,8 @@ first_frame = True
 frame_index = 0
 total_frame_index = 0
 last_timestamp = perf_counter()
-animation_time = 0
 animation_fps = 25
+animation_time = 1 / animation_fps * 0.5
 animation_playing = False
 
 pool = ThreadPool(WORKERS)
@@ -116,8 +116,9 @@ class CpuBuffer:
     def __repr__(self):
         return self.buf.__repr__()
 
+GPU_PREFETCH_SIZE = 1
 PREFETCH_SIZE = 2
-BUFS = window.num_frames + PREFETCH_SIZE
+BUFS = window.num_frames + PREFETCH_SIZE + GPU_PREFETCH_SIZE
 cpu = LRUPool([CpuBuffer(V * 12, name=f"cpubuf{i}") for i in range(BUFS)], window.num_frames, PREFETCH_SIZE)
 
 lock = Lock()
@@ -127,21 +128,31 @@ def load(thread_index: int, i: int, buf: CpuBuffer):
     buf.event.set()
     return buf
 
-GPU_BUFFERS = window.num_frames
 class GpuBuffer:
     def __init__(self, ctx: Context, size: int, usage_flags: BufferUsageFlags, use_transfer_queue: bool, name: Optional[str] = None):
         self.buf = Buffer(ctx, size, usage_flags | BufferUsageFlags.TRANSFER_DST, AllocType.DEVICE_MAPPED, name=name)
 
         if use_transfer_queue:
             self.used = False
-            self.use_done = Semaphore(ctx)
-            self.upload_done = Semaphore(ctx)
+            self.ownership_transfered = False
+            self.semaphore = Semaphore(ctx)
+
+            self.ownership_transfer_started = False
+            self.extra_semaphore = Semaphore(ctx)
         
     def __repr__(self):
         return self.buf.__repr__()
 
 USE_TRANSFER_QUEUE = ctx.has_transfer_queue
-gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX, USE_TRANSFER_QUEUE, name=f"gpubuf{i}") for i in range(GPU_BUFFERS)], window.num_frames)
+GPU_BUFFERS = window.num_frames + GPU_PREFETCH_SIZE
+gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX, USE_TRANSFER_QUEUE, name=f"gpubuf{i}") for i in range(GPU_BUFFERS + 1)], window.num_frames, GPU_PREFETCH_SIZE)
+
+# Async upload queue
+async_commands = CommandBuffer(ctx, queue_family_index=ctx.transfer_queue_family_index)
+async_fence = Fence(ctx)
+first_async_frame = True
+async_semaphore = Semaphore(ctx)
+transfer_queue = ctx.transfer_queue
 
 # TODO:
 # [x] Implement copy on transfer queue
@@ -151,6 +162,8 @@ gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX, USE_TRANSFER_QUEU
 # [x] Add optional names to resources, use in __repr__
 # [x] ImGui Profiler?
 # [ ] Try async GPU upload?
+#     [ ] Figure out how to avoid incomplete queue ownership transfer
+#     [ ] Generalize this to multiple sequences with different frae rates and counts
 
 profiler = Profiler(ctx, window.num_frames + 1)
 profiler_max_frames = 20 if VSYNC else 60
@@ -161,13 +174,14 @@ def draw():
     global first_frame, frame_index, last_timestamp, total_frame_index
     global animation_time, animation_playing
 
+    global first_async_frame
+
     global cpu, gpu
     global profiler, profiler_results
 
     timestamp = perf_counter()
     dt = timestamp - last_timestamp
     last_timestamp = timestamp
-    # print(f"dt: {dt * 1000:.3f}ms")
 
     animation_frame_index = int(animation_time * animation_fps) % N
 
@@ -212,8 +226,8 @@ def draw():
         if prof and len(profiler_results) < profiler_max_frames:
             profiler_results.append(prof)
         
-        with profiler.zone("frame"):
-                # GUI
+        with profiler.zone(f"frame {animation_frame_index}"):
+            # GUI
             with profiler.zone("gui"):
                 with gui.frame():
                     if imgui.begin("stats")[0]:
@@ -272,6 +286,12 @@ def draw():
                                 imgui.text(f"{v}")
                             imgui.unindent()
 
+                            imgui.text(f"Prefetching")
+                            imgui.indent()
+                            for k, v in pool.prefetching.items():
+                                imgui.text(f"{k} {v}")
+                            imgui.unindent()
+
                         drawpool("CPU", cpu)
                         drawpool("GPU", gpu)
                     imgui.end()
@@ -280,7 +300,7 @@ def draw():
                     gui_profiler_graph(profiler_results, ctx.timestamp_period_ns)
                 
 
-            with profiler.gpu_zone("frame"):
+            with profiler.gpu_zone(f"frame {animation_frame_index}"):
                 ####################################################################
                 # Init
                 cpu.new_frame(frame_index)
@@ -290,7 +310,7 @@ def draw():
                 # Get
 
                 # Check if already uploaded
-                def cpu_ensure_fetched(buf: CpuBuffer):
+                def cpu_ensure_fetched(k: int, buf: CpuBuffer):
                     with profiler.zone("Wait"):
                         buf.event.wait()
                     buf.event.clear()
@@ -301,11 +321,7 @@ def draw():
                         buf.event.wait()
                     buf.event.clear()
 
-                did_copy = False
-
                 def gpu_load(k: int, gpu_buf: GpuBuffer):
-                    nonlocal did_copy
-
                     cpu_buf = cpu.get(k, cpu_load, cpu_ensure_fetched)
 
                     if False:
@@ -322,35 +338,42 @@ def draw():
                         if not USE_TRANSFER_QUEUE:
                             # Upload on gfx queue
                             with profiler.gpu_zone("copy"):
-                                did_copy = True
                                 cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
                                 cmd.memory_barrier(MemoryUsage.TRANSFER_WRITE, MemoryUsage.VERTEX_INPUT)
                         else:
                             # Upload on copy queue
                             with frame.transfer_queue_commands(
-                                wait_semaphores = [(gpu_buf.use_done, PipelineStageFlags.TRANSFER)] if gpu_buf.used else [],
-                                signal_semaphores = [gpu_buf.upload_done],
+                                wait_semaphores = [(gpu_buf.semaphore, PipelineStageFlags.TRANSFER)] if gpu_buf.used else [],
+                                signal_semaphores = [gpu_buf.semaphore],
                             ) as copy_cmd:
                                 profiler.transfer_frame(copy_cmd)
                                 with profiler.gpu_transfer_zone("copy"):
-                                    did_copy = True
                                     copy_cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
                                     copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_WRITE, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
-                            cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.NONE, MemoryUsage.VERTEX_INPUT, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
+                            gpu_buf.ownership_transfered = False
 
-                            # Add semaphores for graphics queue
-                            additional_wait_semaphores.append((gpu_buf.upload_done, PipelineStageFlags.VERTEX_INPUT))
-                            additional_signal_semaphores.append(gpu_buf.use_done)
-                            gpu_buf.used = True
-                gpu_buf = gpu.get(animation_frame_index, gpu_load)
+                def gpu_ensure_loaded(k: int, gpu_buf: GpuBuffer):
+                    # Promote CPU buffer from manually-managed to frame-managed
+                    cpu.use(frame_index, k)
+                    cpu.use_done_manual(k)
+
+                gpu_buf = gpu.get(animation_frame_index, gpu_load, gpu_ensure_loaded)
                 gpu.use(frame_index, animation_frame_index)
+
+                if not gpu_buf.ownership_transfered:
+                    # Add semaphores for graphics queue
+                    cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.NONE, MemoryUsage.VERTEX_INPUT, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
+                    additional_wait_semaphores.append((gpu_buf.semaphore, PipelineStageFlags.VERTEX_INPUT))
+                    additional_signal_semaphores.append(gpu_buf.semaphore)
+                    gpu_buf.ownership_transfered = True
+                    gpu_buf.used = True
 
                 ####################################################################
                 # Prefetch
                 
                 prefetch_start = animation_frame_index + 1
                 prefetch_end = prefetch_start + PREFETCH_SIZE
-                def prefetch_check_loaded(buf: CpuBuffer):
+                def prefetch_check_loaded(k: int, buf: CpuBuffer):
                     if buf.event.is_set():
                         buf.event.clear()
                         return True
@@ -358,6 +381,37 @@ def draw():
                 def prefetch(k: int, buf: CpuBuffer):
                     pool.submit(load, k, buf)
                 cpu.prefetch([i % N for i in range(prefetch_start, prefetch_end)], prefetch_check_loaded, prefetch)
+
+                if USE_TRANSFER_QUEUE and GPU_PREFETCH_SIZE > 0:
+                    i = prefetch_start % N
+                    if cpu.is_available(i) and (first_async_frame or async_fence.is_signaled()):
+                        first_async_frame = False
+                        def gpu_prefetch_check_loaded(k: int, gpu_buf: GpuBuffer):
+                            if async_fence.is_signaled():
+                                cpu.use_done_manual(k)
+                                return True
+                            return False
+
+                        def gpu_prefetch(k: int, gpu_buf: GpuBuffer):
+                            cpu_next: CpuBuffer = cpu.get(k, lambda x, y: None)
+                            cpu.use_manual(k)
+                            with async_commands:
+                                async_commands.copy_buffer(cpu_next.buf, gpu_buf.buf)
+                                # TODO: This barrier can potentially be unmatched if we go from prefetch -> upload without ever using this buffer.
+                                # This trigggers a validation warning.
+                                # Can we defer this barrier to the first usage of this barrier? If so, can we do it on the per-frame copy queue?
+                                async_commands.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_WRITE, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
+
+                            transfer_queue.submit(
+                                async_commands,
+                                wait_semaphores = [(gpu_buf.semaphore, PipelineStageFlags.TRANSFER)] if gpu_buf.used else [],
+                                signal_semaphores = [gpu_buf.semaphore],
+                                fence=async_fence,
+                            )
+                            gpu_buf.ownership_transfered = False
+                            gpu_buf.used = True
+
+                        gpu.prefetch([i], gpu_prefetch_check_loaded, gpu_prefetch)
 
                 ####################################################################
 

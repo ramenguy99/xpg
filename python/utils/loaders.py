@@ -68,7 +68,7 @@ class LRUPool:
             obj = cached.obj
             if cached.prefetching:
                 # Realize prefetch
-                ensure_fetched(obj)
+                ensure_fetched(key, obj)
 
                 # Remove from prefetching dict
                 self.prefetching.pop(obj)
@@ -82,11 +82,27 @@ class LRUPool:
             except KeyError:
                 pass
         return obj
+    
+    def is_available(self, key: K) -> bool:
+        cached = self.lookup.get(key)
+        return cached and not cached.prefetching
         
     def use(self, frame_index: int, key: K):
         entry = self.lookup[key]
         entry.refcount.inc()
         self.in_flight[frame_index] = (key, entry)
+
+    def use_manual(self, key: K):
+        entry = self.lookup[key]
+        entry.refcount.inc()
+
+    def use_done_manual(self, key: K):
+        entry = self.lookup[key]
+
+        # Decrement refcount
+        if entry.refcount.dec():
+            # If refcount is 0 add buffer back to LRU
+            self.lru[entry.obj] = key
     
     def give_back(self, k: K, obj: O):
         self.lru[obj] = k
@@ -96,7 +112,7 @@ class LRUPool:
             return
 
         for obj, key in list(self.prefetching.items()):
-            if check_loaded(obj):
+            if check_loaded(key, obj):
                 self.lru[obj] = key
 
                 # Check if the buffer is still in the window
