@@ -734,6 +734,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     vk->copy_queue_family_index = picked_copy_queue_family_index;
     vk->copy_queue_timestamp_queries = picked_copy_queue_timestamp_queries;
     vk->preferred_frames_in_flight = desc.preferred_frames_in_flight;
+    vk->vsync = desc.vsync;
     vk->debug_callback = debug_callback;
     vk->vma = vma;
     vk->sync_command_pool = sync_pool;
@@ -795,7 +796,7 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     // See:
     // - Raph levien blog: https://raphlinus.github.io/rust/gui/2019/06/21/smooth-resize-test.html
     // - Winit discussion: https://github.com/rust-windowing/winit/issues/786
-    swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    swapchain_info.presentMode = vk.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_MAILBOX_KHR;
     // swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
     // swapchain_info.presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
     // swapchain_info.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;

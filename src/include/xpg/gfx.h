@@ -126,6 +126,7 @@ struct Context
     bool copy_queue_timestamp_queries;
     VmaAllocator vma;
     u32 preferred_frames_in_flight;
+    bool vsync;
 
     // Sync command submission
     VkCommandPool sync_command_pool;
@@ -142,6 +143,7 @@ struct ContextDesc {
 
     // Only used if presentation is requested
     u32 preferred_frames_in_flight = 2;
+    bool vsync = true;
 
     // Validation
     VkBool32 enable_validation_layer = false;

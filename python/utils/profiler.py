@@ -17,7 +17,7 @@ class Zone:
     depth: int = 0
 
 @dataclass
-class Result:
+class ProfilerFrame:
     frame: int
     frame_start_ts: int
     frame_start_gpu_ts: int
@@ -53,13 +53,13 @@ class Profiler:
         self.results = Queue()
 
     
-    def frame(self, cmd: CommandBuffer) -> Optional[Result]:
+    def frame(self, cmd: CommandBuffer) -> Optional[ProfilerFrame]:
         self.frame_index = (self.frame_index + 1) % len(self.pools)
         self.total_frame_index += 1
 
         res = None
         if self.total_frame_index >= self.num_frames:
-            res: Result = self.results.get()
+            res: ProfilerFrame = self.results.get()
             if res.gpu_zones:
                 timestamps = self.pools[self.frame_index].wait_results(0, len(res.gpu_zones * 2))
                 for z in res.gpu_zones:
@@ -77,7 +77,7 @@ class Profiler:
         self.gpu_transfer_zones = []
 
         host_ts, device_ts = self.ctx.get_calibrated_timestamps()
-        self.results.put(Result(self.frame_index, host_ts, device_ts, self.zones, self.gpu_zones, self.gpu_transfer_zones))
+        self.results.put(ProfilerFrame(self.total_frame_index, host_ts, device_ts, self.zones, self.gpu_zones, self.gpu_transfer_zones))
 
         self.current_query = 0
         self.current_cpu_zone = 0
@@ -165,5 +165,5 @@ class Profiler:
 
             zone.end_idx = end
 
-            self.current_cmd.write_timestamp(self.transfer_pools[self.frame_index], end, PipelineStageFlags.BOTTOM_OF_PIPE)
+            self.current_transfer_cmd.write_timestamp(self.transfer_pools[self.frame_index], end, PipelineStageFlags.BOTTOM_OF_PIPE)
     

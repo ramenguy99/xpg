@@ -64,6 +64,7 @@ struct Context: public nb::intrusive_base {
         std::tuple<u32, u32> version,
         gfx::DeviceFeatures::DeviceFeaturesFlags device_features,
         u32 preferred_frames_in_flight,
+        bool vsync,
         bool enable_validation_layer,
         bool enable_gpu_based_validation,
         bool enable_synchronization_validation
@@ -79,6 +80,7 @@ struct Context: public nb::intrusive_base {
             .minimum_api_version = VK_MAKE_API_VERSION(0, std::get<0>(version), std::get<1>(version), 0),
             .device_features = device_features,
             .preferred_frames_in_flight = preferred_frames_in_flight,
+            .vsync = vsync,
             .enable_validation_layer = enable_validation_layer,
             .enable_gpu_based_validation = enable_gpu_based_validation,
             .enable_synchronization_validation = enable_synchronization_validation,
@@ -2004,10 +2006,11 @@ void gfx_create_bindings(nb::module_& m)
         
     nb::class_<Context>(m, "Context",
         nb::intrusive_ptr<Context>([](Context *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<std::tuple<u32, u32>, gfx::DeviceFeatures::DeviceFeaturesFlags, u32, bool, bool, bool>(),
+        .def(nb::init<std::tuple<u32, u32>, gfx::DeviceFeatures::DeviceFeaturesFlags, u32, bool, bool, bool, bool>(),
             nb::arg("version") = std::make_tuple(1, 1),
             nb::arg("device_features") = gfx::DeviceFeatures::DeviceFeaturesFlags(gfx::DeviceFeatures::PRESENTATION | gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::SYNCHRONIZATION_2),
             nb::arg("preferred_frames_in_flight") = 2,
+            nb::arg("vsync") = true,
             nb::arg("enable_validation_layer") = false,
             nb::arg("enable_gpu_based_validation") = false,
             nb::arg("enable_synchronization_validation") = false

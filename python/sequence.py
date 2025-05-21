@@ -14,7 +14,7 @@ from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype, DescriptorSetsReflection
 from utils.render import PerFrameResource
 from utils.threadpool import ThreadPool
-from utils.profiler import Profiler, Result
+from utils.profiler import Profiler, ProfilerFrame
 from utils.loaders import LRUPool
 from utils.utils import profile
 
@@ -43,6 +43,7 @@ def read_exact_at_offset(file: io.FileIO, offset: int, size: int):
     file.seek(offset, io.SEEK_SET)
     return read_exact(file, size)
 
+VSYNC = True
 WORKERS = 4
 files = [open("N:\\scenes\\smpl\\all_frames_20.bin", "rb", buffering=0) for _ in range(WORKERS)]
 file = files[0]
@@ -58,9 +59,10 @@ ctx = Context(
     enable_validation_layer=True,
     enable_synchronization_validation=True,
     preferred_frames_in_flight=2,
+    vsync=VSYNC,
 )
 
-window = Window(ctx, "Sequence", 1600, 900)
+window = Window(ctx, "Sequence", 1920, 1080)
 gui = Gui(window)
 
 i_buf = Buffer.from_data(ctx, indices.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
@@ -177,8 +179,9 @@ gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX, USE_TRANSFER_QUEU
 # [ ] ImGui Profiler?
 
 profiler = Profiler(ctx, window.num_frames + 1)
-profiler_max_frames = 20
-profiler_results: List[Result] = []
+profiler_max_frames = 20 if VSYNC else 60
+profiler_results: List[ProfilerFrame] = []
+profiler_hovered_frame = -1
     
 def draw():
     global depth
@@ -186,6 +189,7 @@ def draw():
     global animation_time, animation_playing
 
     global cpu, gpu
+    global profiler, profiler_results, profiler_hovered_frame
 
     timestamp = perf_counter()
     dt = timestamp - last_timestamp
@@ -231,137 +235,168 @@ def draw():
     additional_signal_semaphores = []
     with frame.command_buffer as cmd:
         prof = profiler.frame(cmd)
+
         if prof and len(profiler_results) < profiler_max_frames:
             profiler_results.append(prof)
-
+        
         with profiler.zone("frame"):
-            with profiler.gpu_zone("frame"):
                 # GUI
+            with profiler.zone("gui"):
+                with gui.frame():
+                    pos = imgui.get_mouse_pos()
 
-                with profiler.zone("gui"):
-                    with gui.frame():
-                        if imgui.begin("stats")[0]:
-                            imgui.text(f"indices: {I} ({I * 4 / 1024 / 1024:.2f}MB)")
-                            imgui.text(f"vertices: {V} ({V * 12 / 1024 / 1024:.2f}MB)")
-                            imgui.text(f"vertices gpu buffers: {V * 12 / 1024 / 1024 * GPU_BUFFERS:.2f}MB")
-                            imgui.text(f"vertices load buffers: {V * 12 / 1024 / 1024 * BUFS:.2f}MB")
-                        imgui.end()
-                        if imgui.begin("playback")[0]:
-                            imgui.text(f"dt: {dt * 1000:.3f}ms")
-                            imgui.text(f"animation time: {animation_time:.1f}s")
-                            changed, idx = imgui.slider_int("animation frame", animation_frame_index, 0, N - 1)
-                            if changed:
-                                animation_frame_index = idx
-                                animation_time = idx / animation_fps
-                            _, animation_playing = imgui.checkbox("Playing", animation_playing)
-                            
-                            start = imgui.get_cursor_screen_pos()
+                    if imgui.begin("stats")[0]:
+                        imgui.text(f"indices: {I} ({I * 4 / 1024 / 1024:.2f}MB)")
+                        imgui.text(f"vertices: {V} ({V * 12 / 1024 / 1024:.2f}MB)")
+                        imgui.text(f"vertices gpu buffers: {V * 12 / 1024 / 1024 * GPU_BUFFERS:.2f}MB")
+                        imgui.text(f"vertices load buffers: {V * 12 / 1024 / 1024 * BUFS:.2f}MB")
+                    imgui.end()
+                    if imgui.begin("playback")[0]:
+                        imgui.text(f"animation time: {animation_time:.1f}s")
+                        changed, idx = imgui.slider_int("animation frame", animation_frame_index, 0, N - 1)
+                        if changed:
+                            animation_frame_index = idx
+                            animation_time = idx / animation_fps
+                        _, animation_playing = imgui.checkbox("Playing", animation_playing)
+                        
+                        start = imgui.get_cursor_screen_pos()
+                        dl = imgui.get_window_draw_list()
+                        for i in range(N):
+                            cursor = imgui.Vec2(start.x + 5 * i, start.y)
+                            dl.add_rect(cursor, (cursor.x + 6, cursor.y + 20), 0xFFFFFFFF)
+                            dl.add_rect((cursor.x, cursor.y + 22), (cursor.x + 6, cursor.y + 42), 0xFFFFFFFF)
+
+                        for k, v in cpu.lookup.items():
+                            cursor = imgui.Vec2(start.x + 5 * k, start.y)
+                            color = 0xFF00FF00 if not v.prefetching else 0xFF00FFFF
+                            dl.add_rect_filled((cursor.x + 1, cursor.y + 1), (cursor.x + 5, cursor.y + 19), color)
+
+                        for i in gpu.lookup.keys():
+                            cursor = imgui.Vec2(start.x + 5 * i, start.y)
+                            dl.add_rect_filled((cursor.x + 1, cursor.y +23), (cursor.x + 5, cursor.y + 41), 0xFF00FF00)
+
+                    imgui.end()
+                    if imgui.begin("cache")[0]:
+                        def drawpool(name: str, pool: LRUPool):
+                            imgui.separator_text(name)
+                            imgui.text(f"Map")
+                            imgui.indent()
+                            for k, v in pool.lookup.items():
+                                imgui.text(f"{k:03d} {v}")
+                            imgui.unindent()
+
+                            imgui.text(f"LRU")
+                            imgui.indent()
+                            i = 0
+                            for k, v in pool.lru.items():
+                                imgui.text(f"{k} {v}")
+                                i += 1
+                            for _ in range(i, BUFS):
+                                imgui.text(f"<EMPTY>")
+                            imgui.unindent()
+
+                            imgui.text(f"In Flight")
+                            imgui.indent()
+                            for v in pool.in_flight:
+                                imgui.text(f"{v}")
+                            imgui.unindent()
+
+                        drawpool("CPU", cpu)
+                        drawpool("GPU", gpu)
+                    imgui.end()
+
+                    if imgui.begin("Profiler - list")[0]:
+                        imgui.text(f"dt: {dt * 1000:.3f}ms")
+                        to_ms = ctx.timestamp_period_ns * 1e-6
+                        imgui.separator_text("CPU")
+                        if prof:
+                            for z in prof.zones:
+                                imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
+                        imgui.separator_text("GFX")
+                        if prof:
+                            for z in prof.gpu_zones:
+                                imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
+                        imgui.separator_text("Transfer")
+                        if prof:
+                            for z in prof.gpu_transfer_zones:
+                                imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
+                    imgui.end()
+
+                    if imgui.begin("Profiler - graph")[0]:
+                        if profiler_results:
+                            expected_width = 1000 // 5
+                            expected_length = 20
+
                             dl = imgui.get_window_draw_list()
-                            for i in range(N):
-                                cursor = imgui.Vec2(start.x + 5 * i, start.y)
-                                dl.add_rect(cursor, (cursor.x + 6, cursor.y + 20), 0xFFFFFFFF)
-                                dl.add_rect((cursor.x, cursor.y + 22), (cursor.x + 6, cursor.y + 42), 0xFFFFFFFF)
+                            HEIGHT = 30
 
-                            for k, v in cpu.lookup.items():
-                                cursor = imgui.Vec2(start.x + 5 * k, start.y)
-                                color = 0xFF00FF00 if not v.prefetching else 0xFF00FFFF
-                                dl.add_rect_filled((cursor.x + 1, cursor.y + 1), (cursor.x + 5, cursor.y + 19), color)
+                            start_ts = profiler_results[0].frame_start_ts
+                            start_gpu_ts = profiler_results[0].frame_start_gpu_ts
 
-                            for i in gpu.lookup.keys():
-                                cursor = imgui.Vec2(start.x + 5 * i, start.y)
-                                dl.add_rect_filled((cursor.x + 1, cursor.y +23), (cursor.x + 5, cursor.y + 41), 0xFF00FF00)
 
-                        imgui.end()
-                        if imgui.begin("cache")[0]:
-                            def drawpool(name: str, pool: LRUPool):
+                            hovered_something = False
+                            for i, name in enumerate(["CPU", "GPU", "GPU Transfer"]):
                                 imgui.separator_text(name)
-                                imgui.text(f"Map")
-                                imgui.indent()
-                                for k, v in pool.lookup.items():
-                                    imgui.text(f"{k:03d} {v}")
-                                imgui.unindent()
+                                start = imgui.get_cursor_screen_pos()
+                                for prof in profiler_results:
+                                    zones = [prof.zones, prof.gpu_zones, prof.gpu_transfer_zones][i]
+                                    if i == 0:
+                                        norm = 1e-6 / expected_length * expected_width
+                                        min_ts = start_ts
+                                    else:
+                                        norm = 1e-6 / expected_length * expected_width * ctx.timestamp_period_ns
+                                        min_ts = start_gpu_ts
 
-                                imgui.text(f"LRU")
-                                imgui.indent()
-                                i = 0
-                                for k, v in pool.lru.items():
-                                    imgui.text(f"{k} {v}")
-                                    i += 1
-                                for _ in range(i, BUFS):
-                                    imgui.text(f"<EMPTY>")
-                                imgui.unindent()
+                                    if zones:
+                                        c = imgui.Vec2(start.x, start.y)
 
-                                imgui.text(f"In Flight")
-                                imgui.indent()
-                                for v in pool.in_flight:
-                                    imgui.text(f"{v}")
-                                imgui.unindent()
+                                        # max_ts = min([z.end_time for z in prof.zones])
 
-                            drawpool("CPU", cpu)
-                            drawpool("GPU", gpu)
-                        imgui.end()
+                                        for z in zones:
+                                            # Replace with something reasonable
+                                            r, g, b = md5(z.name.encode(), usedforsecurity=False).digest()[:3]
 
-                        if imgui.begin("Profiler - list")[0]:
-                            to_ms = ctx.timestamp_period_ns * 1e-6
-                            imgui.separator_text("CPU")
-                            if prof:
-                                for z in prof.zones:
-                                    imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
-                            imgui.separator_text("GFX")
-                            if prof:
-                                for z in prof.gpu_zones:
-                                    imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
-                            imgui.separator_text("Transfer")
-                            if prof:
-                                for z in prof.gpu_transfer_zones:
-                                    imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
-                        imgui.end()
-
-                        if imgui.begin("Profiler - graph")[0]:
-                            if profiler_results:
-                                expected_width = 1000 // 5
-                                expected_length = 20
-
-                                dl = imgui.get_window_draw_list()
-                                HEIGHT = 50
-
-                                start_ts = profiler_results[0].frame_start_ts
-                                start_gpu_ts = profiler_results[0].frame_start_gpu_ts
+                                            s = (z.start_time - min_ts) * norm
+                                            e = (z.end_time - min_ts) * norm
+                                            e = max(e, s+1)
 
 
-                                for i, name in enumerate(["CPU", "GPU", "GPU Transfer"]):
-                                    imgui.separator_text(name)
-                                    start = imgui.get_cursor_screen_pos()
-                                    for prof in profiler_results:
-                                        zones = [prof.zones, prof.gpu_zones, prof.gpu_transfer_zones][i]
-                                        if i == 0:
-                                            norm = 1e-6 / expected_length * expected_width
-                                            min_ts = start_ts
-                                        else:
-                                            norm = 1e-6 / expected_length * expected_width * ctx.timestamp_period_ns
-                                            min_ts = start_gpu_ts
+                                            x0 = c.x + s
+                                            x1 = c.x + e
+                                            y0 = c.y + HEIGHT * z.depth
+                                            y1 = c.y + HEIGHT * (z.depth + 1)
 
-                                        if zones:
-                                            c = imgui.Vec2(start.x, start.y)
+                                            outline_color = 0xFFCCCCCC
+                                            if pos.x >= x0 and pos.x < x1 and pos.y >= y0 and pos.y < y1:
+                                                profiler_hovered_frame = prof.frame
+                                                hovered_something = True
+                                                imgui.begin_tooltip()
+                                                imgui.text(f"Frame: {prof.frame}")
+                                                imgui.text(f"{z.name}")
+                                                imgui.text(f"Duration: {(z.end_time - z.start_time) * 1e-6:.3f}ms")
+                                                imgui.end_tooltip()
+                                                outline_color = 0xFFFFFFFF
+                                            
+                                            # e = max(e, s+20)
+                                            if prof.frame == profiler_hovered_frame:
+                                                dl.add_rect((x0-1, y0-1), (x1+1, y1+1), outline_color, thickness=2)
+                                                r = min(r + 40, 255)
+                                                g = min(g + 40, 255)
+                                                b = min(b + 40, 255)
 
-                                            # max_ts = min([z.end_time for z in prof.zones])
+                                            dl.add_rect_filled((x0, y0), (x1, y1), 0xFF000000 | (b << 16) | (g << 8) | r )
 
-                                            for z in zones:
-                                                # Replace with something reasonable
-                                                col = struct.unpack("<I", md5(z.name.encode(), usedforsecurity=False).digest()[:4])[0] | 0xFF00_0000
-
-                                                s = (z.start_time - min_ts) * norm
-                                                e = (z.end_time - min_ts) * norm
-                                                dl.add_rect_filled((c.x + s, c.y + HEIGHT * z.depth), (c.x + e, c.y + (z.depth + 1) * HEIGHT), col & 0xFFFFFFFF)
-                                    imgui.set_cursor_screen_pos((c.x, c.y + HEIGHT * 3.5))
+                                imgui.set_cursor_screen_pos((c.x, c.y + HEIGHT * 3.5))
+                            if not hovered_something:
+                                profiler_hovered_frame = -1
 
 
-                        imgui.end()
-                    
+                    imgui.end()
+                
 
+            with profiler.gpu_zone("frame"):
                 ####################################################################
                 # Init
-
                 cpu.new_frame(frame_index)
                 gpu.new_frame(frame_index)
 
@@ -370,14 +405,12 @@ def draw():
 
                 # Check if already uploaded
                 def cpu_ensure_fetched(buf: CpuBuffer):
-                    # with profile("Wait"):
-                    if True:
+                    with profiler.zone("Wait"):
                         buf.event.wait()
                     buf.event.clear()
 
                 def cpu_load(k: int, buf: CpuBuffer):
-                    # with profile("Load"):
-                    if True:
+                    with profiler.zone("Load"):
                         pool.submit(load, k, buf)
                         buf.event.wait()
                     buf.event.clear()
@@ -436,7 +469,9 @@ def draw():
                         buf.event.clear()
                         return True
                     return False
-                cpu.prefetch([i % N for i in range(prefetch_start, prefetch_end)], prefetch_check_loaded, lambda k, buf: pool.submit(load, k, buf))
+                def prefetch(k: int, buf: CpuBuffer):
+                    pool.submit(load, k, buf)
+                cpu.prefetch([i % N for i in range(prefetch_start, prefetch_end)], prefetch_check_loaded, prefetch)
 
                 ####################################################################
 
