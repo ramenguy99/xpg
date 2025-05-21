@@ -1,6 +1,5 @@
 from pyxpg import *
 
-import io
 import struct
 from pathlib import Path
 from typing import Optional, List
@@ -16,32 +15,7 @@ from utils.render import PerFrameResource
 from utils.threadpool import ThreadPool
 from utils.profiler import Profiler, ProfilerFrame, gui_profiler_graph, gui_profiler_list
 from utils.loaders import LRUPool
-from utils.utils import profile
-
-from hashlib import md5
-
-def read_exact_into(file: io.FileIO, view: memoryview):
-    bread = 0
-    while bread < len(view):
-        n = file.readinto(view[bread:])
-        if n == 0:
-            raise EOFError()
-        else:
-            bread += n
-
-def read_exact(file: io.FileIO, size: int):
-    out = bytearray(size)
-    view = memoryview(out)
-    read_exact_into(file, view)
-    return out
-
-def read_exact_at_offset_into(file: io.FileIO, offset: int, view: memoryview):
-    file.seek(offset, io.SEEK_SET)
-    return read_exact_into(file, view)
-
-def read_exact_at_offset(file: io.FileIO, offset: int, size: int):
-    file.seek(offset, io.SEEK_SET)
-    return read_exact(file, size)
+from utils.utils import profile, read_exact, read_exact_at_offset, read_exact_at_offset_into
 
 VSYNC = True
 WORKERS = 4
@@ -73,7 +47,6 @@ sets = PerFrameResource(DescriptorSet, window.num_frames,
         DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
     ],
 )
-
 
 SHADERS = Path(__file__).parent.joinpath("shaders")
 class SequencePipeline(Pipeline):
@@ -176,7 +149,8 @@ gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX, USE_TRANSFER_QUEU
 #   -> keep in mind RR prefetching as a goal, ideally pre-fetch policy is external / switchable
 # [x] Take out this LRU implementation and make it somehow extendable? Lambdas?
 # [x] Add optional names to resources, use in __repr__
-# [ ] ImGui Profiler?
+# [x] ImGui Profiler?
+# [ ] Try async GPU upload?
 
 profiler = Profiler(ctx, window.num_frames + 1)
 profiler_max_frames = 20 if VSYNC else 60
@@ -334,8 +308,8 @@ def draw():
 
                     cpu_buf = cpu.get(k, cpu_load, cpu_ensure_fetched)
 
-                    # Upload from CPU
                     if False:
+                        # Upload on CPU through PCIe BAR
                         with profiler.zone("upload"):
                             # If using mapped buffer
                             gpu_buf.buf.view.data[:] = cpu_buf.buf.view.data
