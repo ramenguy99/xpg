@@ -32,8 +32,9 @@ class LRUPool:
             self.lru[b] = None
         self.lookup: OrderedDict[K, Entry] = OrderedDict()
         self.in_flight: List[Optional[Tuple[K, Entry]]] = [None] * num_frames
+
         self.max_prefetch: int = max_prefetch
-        self.prefetching: Dict[O, K] = {}
+        self.prefetch_store: Dict[O, K] = {}
 
     def new_frame(self, frame_index: int):   
         if old := self.in_flight[frame_index]:
@@ -62,18 +63,16 @@ class LRUPool:
             load(key, obj)
 
             # Register buffer as loaded for future use
-            self.lookup[key] = Entry(obj, RefCount(), False)
+            self.lookup[key] = Entry(obj, RefCount(), prefetching=False)
         else:
             # If this was a prefetched buffer wait for it to be loaded
             obj = cached.obj
             if cached.prefetching:
                 # Realize prefetch
                 ensure_fetched(key, obj)
-
-                # Remove from prefetching dict
-                self.prefetching.pop(obj)
-
-                # Mark as ready
+                
+                # Item is still in the prefetching list here.
+                # It will be removed by the next prefetch cleanup
                 cached.prefetching = False
 
             # If the buffer is in the LRU remove it to mark it as in use
@@ -107,29 +106,31 @@ class LRUPool:
     def give_back(self, k: K, obj: O):
         self.lru[obj] = k
     
-    def prefetch(self, useful_range: Collection, check_loaded: Callable[[O], bool], submit_load: Callable[[K, O], None]):
+    def prefetch(self, useful_range: Collection, cleanup: Callable[[O], bool], submit_load: Callable[[K, O], None]):
         if self.max_prefetch <= 0:
             return
 
-        for obj, key in list(self.prefetching.items()):
-            if check_loaded(key, obj):
-                self.lru[obj] = key
+        for obj, key in list(self.prefetch_store.items()):
+            if cleanup(key, obj):
+                # Insert back in the LRU if not yet claimed
+                if self.lookup[key].prefetching:
+                    self.lru[obj] = key
 
-                # Check if the buffer is still in the window
-                if key not in useful_range:
-                    # Move to end of LRU to ensure this buffer is reused soon
-                    self.lru.move_to_end(obj, last=False)
+                    # Check if the buffer is still in the window
+                    if key not in useful_range:
+                        # Move to end of LRU to ensure this buffer is reused soon
+                        self.lru.move_to_end(obj, last=False)
+
+                    # Mark as ready
+                    self.lookup[key].prefetching = False
                 
                 # Remove from prefetching dict
-                del self.prefetching[obj]
-
-                # Mark as ready
-                self.lookup[key].prefetching = False
+                del self.prefetch_store[obj]
             
             # TODO: we could also cancel prefetch work here, if possible
 
         bump = []
-        prefetch_count = self.max_prefetch - len(self.prefetching)
+        prefetch_count = self.max_prefetch - len(self.prefetch_store)
         for key in useful_range[:prefetch_count]:
             cached = self.lookup.get(key)
             if cached is None:
@@ -143,8 +144,8 @@ class LRUPool:
                 submit_load(key, obj)
 
                 # Register buffer as loading for future use
-                self.lookup[key] = Entry(obj, RefCount(), True)
-                self.prefetching[obj] = key
+                self.lookup[key] = Entry(obj, RefCount(), prefetching=True)
+                self.prefetch_store[obj] = key
             else:
                 # If already loaded just bump in front of LRU
                 bump.append(cached.obj)
