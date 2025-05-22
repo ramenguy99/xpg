@@ -181,10 +181,13 @@ struct Buffer: public GfxObject {
 };
 
 struct Fence: public GfxObject {
-    Fence(nb::ref<Context> ctx)
+    Fence(nb::ref<Context> ctx, bool signaled)
         : GfxObject(ctx, true)
     {
         VkFenceCreateInfo fence_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        if (signaled) {
+            fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        }
         VkResult vkr = vkCreateFence(ctx->vk.device, &fence_info, 0, &fence);
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create fence");
@@ -2607,7 +2610,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Fence, GfxObject>(m, "Fence")
-        .def(nb::init<nb::ref<Context>>(), nb::arg("ctx"))
+        .def(nb::init<nb::ref<Context>, bool>(), nb::arg("ctx"), nb::arg("signaled") = false)
         .def("destroy", &Fence::destroy)
         .def("is_signaled", &Fence::is_signaled)
     ;

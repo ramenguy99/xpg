@@ -129,7 +129,8 @@ class LRUPool:
             # TODO: we could also cancel prefetch work here, if possible
 
         bump = []
-        for key in useful_range[:self.max_prefetch - len(self.prefetching)]:
+        prefetch_count = self.max_prefetch - len(self.prefetching)
+        for key in useful_range[:prefetch_count]:
             cached = self.lookup.get(key)
             if cached is None:
                 # Grab a free buffer

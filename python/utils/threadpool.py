@@ -17,7 +17,7 @@ class ThreadPool:
                 break
             
             # Handle exceptions in callback somehow
-            elem[0](thread_index, *elem[1], **elem[2])
+            elem[0](*elem[1], **elem[2], thread_index=thread_index)
     
     def submit(self, func, *args, **kwargs):
         self.queue.put((func, args, kwargs))
