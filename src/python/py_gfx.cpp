@@ -2206,6 +2206,9 @@ void gfx_create_bindings(nb::module_& m)
         .def("transfer_queue_commands", [](nb::ref<Frame> frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<nb::ref<Semaphore>> signal_semaphores) -> nb::ref<TransferQueueCommandsManager> {
             return new TransferQueueCommandsManager(frame, wait_semaphores, signal_semaphores);
         }, nb::arg("wait_semaphores") = nb::list(), nb::arg("signal_semaphores") = nb::list())
+        .def_prop_ro("transfer_command_buffer", [](Frame& frame) {
+            return new CommandBuffer(frame.window->ctx, frame.frame.copy_command_pool, frame.frame.copy_command_buffer);
+        });
     ;
 
     nb::class_<Window>(m, "Window",

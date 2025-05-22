@@ -19,8 +19,10 @@ from utils.profiler import Profiler, ProfilerFrame, gui_profiler_graph, gui_prof
 from utils.loaders import LRUPool
 from utils.utils import profile, read_exact, read_exact_at_offset, read_exact_at_offset_into
 
-VSYNC = True
+VSYNC = False
 WORKERS = 4
+GPU_PREFETCH_SIZE = 2
+PREFETCH_SIZE = 2
 
 ctx = Context(
     device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.CALIBRATED_TIMESTAMPS, 
@@ -101,8 +103,6 @@ animation_playing = False
 pool = ThreadPool(WORKERS)
 
 USE_TRANSFER_QUEUE = ctx.has_transfer_queue
-GPU_PREFETCH_SIZE = 2
-PREFETCH_SIZE = 2
 BUFS = window.num_frames + PREFETCH_SIZE + GPU_PREFETCH_SIZE
 GPU_BUFFERS = window.num_frames + GPU_PREFETCH_SIZE
 
@@ -336,80 +336,83 @@ def draw():
                 ####################################################################
                 # Get
 
-                # Check if already uploaded
-                def cpu_ensure_fetched(k: int, buf: CpuBuffer):
-                    with profiler.zone("Wait"):
-                        buf.event.wait()
+                copy_wait_semaphores = []
+                copy_signal_semaphores = []
+                with frame.transfer_command_buffer as copy_cmd:
+                    profiler.transfer_frame(copy_cmd)
+                    # Check if already uploaded
+                    def cpu_ensure_fetched(k: int, buf: CpuBuffer):
+                        with profiler.zone("Wait"):
+                            buf.event.wait()
 
-                def cpu_load(k: int, buf: CpuBuffer):
-                    with profiler.zone("Load"):
-                        pool.submit(seq._load, k, buf)
-                        buf.event.wait()
-                    buf.event.clear()
+                    def cpu_load(k: int, buf: CpuBuffer):
+                        with profiler.zone("Load"):
+                            pool.submit(seq._load, k, buf)
+                            buf.event.wait()
+                        buf.event.clear()
 
-                def gpu_load(k: int, gpu_buf: GpuBuffer):
-                    cpu_buf = seq.cpu.get(k, cpu_load, cpu_ensure_fetched)
+                    def gpu_load(k: int, gpu_buf: GpuBuffer):
+                        cpu_buf = seq.cpu.get(k, cpu_load, cpu_ensure_fetched)
 
-                    if False:
-                        # Upload on CPU through PCIe BAR
-                        with profiler.zone("upload"):
-                            # If using mapped buffer
-                            gpu_buf.buf.view.data[:] = cpu_buf.buf.view.data
-                            
-                            # Buffer is immediately not in use anymore. Add back to the LRU.
-                            # This moves back the buffer to the front of the LRU queue.
-                            cpu.give_back(k, cpu_buf)
-                    else:
-                        seq.cpu.use(frame_index, k)
-                        if not USE_TRANSFER_QUEUE:
-                            # Upload on gfx queue
-                            with profiler.gpu_zone("copy"):
-                                cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
-                                cmd.memory_barrier(MemoryUsage.TRANSFER_WRITE, MemoryUsage.VERTEX_INPUT)
+                        if False:
+                            # Upload on CPU through PCIe BAR
+                            with profiler.zone("upload"):
+                                # If using mapped buffer
+                                gpu_buf.buf.view.data[:] = cpu_buf.buf.view.data
+                                
+                                # Buffer is immediately not in use anymore. Add back to the LRU.
+                                # This moves back the buffer to the front of the LRU queue.
+                                cpu.give_back(k, cpu_buf)
                         else:
-                            # Upload on copy queue
-                            if gpu_buf.state == GpuBufferState.EMPTY:
-                                wait_semaphores = []
-                            elif gpu_buf.state == GpuBufferState.RENDERING:
-                                wait_semaphores = [ (gpu_buf.render_done, PipelineStageFlags.TRANSFER) ]
-                            elif gpu_buf.state == GpuBufferState.FENCE_SIGNALED:
-                                wait_semaphores = [ (gpu_buf.prefetch_done_semaphore, PipelineStageFlags.TRANSFER) ]
+                            seq.cpu.use(frame_index, k)
+                            if not USE_TRANSFER_QUEUE:
+                                # Upload on gfx queue
+                                with profiler.gpu_zone("copy"):
+                                    cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
+                                    cmd.memory_barrier(MemoryUsage.TRANSFER_WRITE, MemoryUsage.VERTEX_INPUT)
                             else:
-                                assert False, gpu_buf.state
+                                # Upload on copy queue
+                                if gpu_buf.state == GpuBufferState.EMPTY:
+                                    pass
+                                elif gpu_buf.state == GpuBufferState.RENDERING:
+                                    copy_wait_semaphores.append((gpu_buf.render_done, PipelineStageFlags.TRANSFER))
+                                elif gpu_buf.state == GpuBufferState.FENCE_SIGNALED:
+                                    copy_wait_semaphores.append((gpu_buf.prefetch_done_semaphore, PipelineStageFlags.TRANSFER))
+                                else:
+                                    assert False, gpu_buf.state
+                                copy_signal_semaphores.append(gpu_buf.load_done)
 
-                            with frame.transfer_queue_commands(
-                                wait_semaphores = wait_semaphores,
-                                signal_semaphores = [gpu_buf.load_done],
-                            ) as copy_cmd:
-                                profiler.transfer_frame(copy_cmd)
                                 with profiler.gpu_transfer_zone("copy"):
                                     copy_cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
                                     copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_WRITE, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
 
-                            gpu_buf.state = GpuBufferState.SYNC_LOAD
+                                gpu_buf.state = GpuBufferState.SYNC_LOAD
 
-                def gpu_ensure_loaded(k: int, gpu_buf: GpuBuffer):
-                    assert gpu_buf.state == GpuBufferState.PREFETCH, gpu_buf.state
-                    # Promote CPU buffer from manually-managed to frame-managed
-                    seq.cpu.use(frame_index, k)
-                    seq.cpu.use_done_manual(k)
+                    def gpu_ensure_loaded(k: int, gpu_buf: GpuBuffer):
+                        assert gpu_buf.state == GpuBufferState.PREFETCH, gpu_buf.state
+                        # Promote CPU buffer from manually-managed to frame-managed
+                        seq.cpu.use(frame_index, k)
+                        seq.cpu.use_done_manual(k)
 
-                gpu_buf = seq.gpu.get(animation_frame_index, gpu_load, gpu_ensure_loaded)
-                seq.gpu.use(frame_index, animation_frame_index)
+                    gpu_buf = seq.gpu.get(animation_frame_index, gpu_load, gpu_ensure_loaded)
+                    seq.gpu.use(frame_index, animation_frame_index)
 
-                if gpu_buf.state == GpuBufferState.SYNC_LOAD or gpu_buf.state == GpuBufferState.PREFETCH or gpu_buf.state == GpuBufferState.FENCE_SIGNALED:
-                    if gpu_buf.state == GpuBufferState.PREFETCH or gpu_buf.state == GpuBufferState.FENCE_SIGNALED:
-                        with frame.transfer_queue_commands(
-                            wait_semaphores = [(gpu_buf.prefetch_done_semaphore, PipelineStageFlags.TOP_OF_PIPE)],
-                            signal_semaphores = [gpu_buf.load_done],
-                        ) as copy_cmd:
+                    if gpu_buf.state == GpuBufferState.SYNC_LOAD or gpu_buf.state == GpuBufferState.PREFETCH or gpu_buf.state == GpuBufferState.FENCE_SIGNALED:
+                        if gpu_buf.state == GpuBufferState.PREFETCH or gpu_buf.state == GpuBufferState.FENCE_SIGNALED:
+                            with profiler.gpu_transfer_zone("prefetch barrier"):
+                                copy_wait_semaphores.append((gpu_buf.prefetch_done_semaphore, PipelineStageFlags.TOP_OF_PIPE))
+                                copy_signal_semaphores.append(gpu_buf.load_done)
                             copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_WRITE, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
-                    cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.NONE, MemoryUsage.VERTEX_INPUT, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
-                    additional_wait_semaphores.append((gpu_buf.load_done, PipelineStageFlags.VERTEX_INPUT))
-                    additional_signal_semaphores.append(gpu_buf.render_done)
-                    gpu_buf.state = GpuBufferState.RENDERING
+                        
+                        cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.NONE, MemoryUsage.VERTEX_INPUT, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
+                        additional_wait_semaphores.append((gpu_buf.load_done, PipelineStageFlags.VERTEX_INPUT))
+                        additional_signal_semaphores.append(gpu_buf.render_done)
+                        gpu_buf.state = GpuBufferState.RENDERING
+                    
+                    assert gpu_buf.state == GpuBufferState.RENDERING, gpu_buf.state
                 
-                assert gpu_buf.state == GpuBufferState.RENDERING, gpu_buf.state
+                if copy_signal_semaphores:
+                    ctx.transfer_queue.submit(copy_cmd, copy_wait_semaphores, copy_signal_semaphores)
 
                 ####################################################################
                 # Prefetch
