@@ -23,6 +23,8 @@ VSYNC = True
 WORKERS = 4
 GPU_PREFETCH_SIZE = 2
 PREFETCH_SIZE = 2
+BAR = False
+USE_TRANSFER_QUEUE = True
 
 ctx = Context(
     device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.CALIBRATED_TIMESTAMPS, 
@@ -100,7 +102,7 @@ animation_playing = False
 
 pool = ThreadPool(WORKERS)
 
-USE_TRANSFER_QUEUE = ctx.has_transfer_queue
+USE_TRANSFER_QUEUE = USE_TRANSFER_QUEUE and ctx.has_transfer_queue
 BUFS = window.num_frames + PREFETCH_SIZE + GPU_PREFETCH_SIZE
 GPU_BUFFERS = window.num_frames + GPU_PREFETCH_SIZE
 
@@ -122,9 +124,9 @@ class GpuBufferState(Enum):
 class GpuBuffer:
     def __init__(self, ctx: Context, size: int, usage_flags: BufferUsageFlags, use_transfer_queue: bool, name: Optional[str] = None):
         self.buf = Buffer(ctx, size, usage_flags | BufferUsageFlags.TRANSFER_DST, AllocType.DEVICE_MAPPED, name=name)
+        self.state = GpuBufferState.EMPTY
 
         if use_transfer_queue:
-            self.state = GpuBufferState.EMPTY
             self.prefetch_done_semaphore = Semaphore(ctx)
             self.render_done = Semaphore(ctx)
             self.load_done = Semaphore(ctx)
@@ -204,7 +206,7 @@ class Sequence:
         def gpu_load(k: int, gpu_buf: GpuBuffer):
             cpu_buf = self.cpu.get(k, cpu_load, cpu_ensure_fetched)
 
-            if False:
+            if BAR:
                 # Upload on CPU through PCIe BAR
                 with profiler.zone("upload"):
                     # If using mapped buffer
@@ -212,7 +214,8 @@ class Sequence:
                     
                     # Buffer is immediately not in use anymore. Add back to the LRU.
                     # This moves back the buffer to the front of the LRU queue.
-                    cpu.give_back(k, cpu_buf)
+                    self.cpu.give_back(k, cpu_buf)
+                gpu_buf.state = GpuBufferState.RENDERING
             else:
                 self.cpu.use(frame_index, k)
                 if not USE_TRANSFER_QUEUE:
@@ -220,6 +223,7 @@ class Sequence:
                     with profiler.gpu_zone("copy"):
                         cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
                         cmd.memory_barrier(MemoryUsage.TRANSFER_WRITE, MemoryUsage.VERTEX_INPUT)
+                    gpu_buf.state = GpuBufferState.RENDERING
                 else:
                     # Upload on copy queue
                     if gpu_buf.state == GpuBufferState.EMPTY:
@@ -276,7 +280,7 @@ class Sequence:
         prefetch_end = prefetch_start + PREFETCH_SIZE
         self.cpu.prefetch([i % self.N for i in range(prefetch_start, prefetch_end)], prefetch_cleanup, prefetch)
 
-        if USE_TRANSFER_QUEUE:
+        if not BAR and USE_TRANSFER_QUEUE:
             def gpu_prefetch_cleanup(k: int, gpu_buf: GpuBuffer):
                 state = self.prefetch_states_lookup[gpu_buf]
                 if state.fence.is_signaled():
