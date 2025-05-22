@@ -167,8 +167,8 @@ transfer_queue = ctx.transfer_queue
 # [x] Take out this LRU implementation and make it somehow extendable? Lambdas?
 # [x] Add optional names to resources, use in __repr__
 # [x] ImGui Profiler?
-# [ ] Try async GPU upload?
-#     [ ] Figure out how to avoid incomplete queue ownership transfer
+# [x] Try async GPU upload?
+#     [x] Figure out how to avoid incomplete queue ownership transfer
 #     [ ] Generalize this to multiple sequences with different frae rates and counts
 
 profiler = Profiler(ctx, window.num_frames + 1)
@@ -369,8 +369,8 @@ def draw():
                             gpu_buf.state = GpuBufferState.SYNC_LOAD
 
                 def gpu_ensure_loaded(k: int, gpu_buf: GpuBuffer):
-                    # Promote CPU buffer from manually-managed to frame-managed
                     assert gpu_buf.state == GpuBufferState.PREFETCH, gpu_buf.state
+                    # Promote CPU buffer from manually-managed to frame-managed
                     cpu.use(frame_index, k)
                     cpu.use_done_manual(k)
 
@@ -378,8 +378,14 @@ def draw():
                 gpu.use(frame_index, animation_frame_index)
 
                 if gpu_buf.state == GpuBufferState.SYNC_LOAD or gpu_buf.state == GpuBufferState.PREFETCH or gpu_buf.state == GpuBufferState.FENCE_SIGNALED:
+                    if gpu_buf.state == GpuBufferState.PREFETCH or gpu_buf.state == GpuBufferState.FENCE_SIGNALED:
+                        with frame.transfer_queue_commands(
+                            wait_semaphores = [(gpu_buf.prefetch_done_semaphore, PipelineStageFlags.TOP_OF_PIPE)],
+                            signal_semaphores = [gpu_buf.load_done],
+                        ) as copy_cmd:
+                            copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_WRITE, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
                     cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.NONE, MemoryUsage.VERTEX_INPUT, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
-                    additional_wait_semaphores.append((gpu_buf.load_done if gpu_buf.state == GpuBufferState.SYNC_LOAD else gpu_buf.prefetch_done_semaphore, PipelineStageFlags.VERTEX_INPUT))
+                    additional_wait_semaphores.append((gpu_buf.load_done, PipelineStageFlags.VERTEX_INPUT))
                     additional_signal_semaphores.append(gpu_buf.render_done)
                     gpu_buf.state = GpuBufferState.RENDERING
                 
@@ -417,7 +423,6 @@ def draw():
 
                             with async_commands:
                                 async_commands.copy_buffer(cpu_next.buf, gpu_buf.buf)
-                                async_commands.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_WRITE, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
 
                             if gpu_buf.state == GpuBufferState.EMPTY:
                                 wait_semaphores = []
