@@ -1068,6 +1068,7 @@ struct Frame: public nb::intrusive_base {
 
     gfx::Frame& frame;
     nb::ref<CommandBuffer> command_buffer;
+    std::optional<nb::ref<CommandBuffer>> transfer_command_buffer;
     nb::ref<Window> window;
     nb::ref<Image> image;
 };
@@ -1315,16 +1316,20 @@ static PyType_Slot window_tp_slots[] = {
     { 0, nullptr }
 };
 
-struct TransferQueueCommandsManager: public nb::intrusive_base {
-    TransferQueueCommandsManager(nb::ref<Frame> frame,
-                                 std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores,
-                                 std::vector<nb::ref<Semaphore>> signal_semaphores)
-        : frame(frame)
+struct CommandsManager: public nb::intrusive_base {
+    CommandsManager(nb::ref<CommandBuffer> cmd,
+                    VkQueue queue,
+                    std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores,
+                    std::vector<nb::ref<Semaphore>> signal_semaphores,
+                    VkFence fence,
+                    bool wait_and_reset_fence)
+        : cmd(cmd)
+        , queue(queue)
         , wait_semaphores(std::move(wait_semaphores))
         , signal_semaphores(std::move(signal_semaphores))
+        , fence(fence)
+        , wait_and_reset_fence(wait_and_reset_fence)
     {
-        // TODO: check that the copy queue is actually available and throw otherwise
-        cmd =  new CommandBuffer(frame->window->ctx, frame->frame.copy_command_pool, frame->frame.copy_command_buffer);
     }
 
     nb::ref<CommandBuffer> enter() {
@@ -1346,24 +1351,35 @@ struct TransferQueueCommandsManager: public nb::intrusive_base {
             vk_signal_semaphores[i] = signal_semaphores[i]->semaphore;
         }
 
-        VkResult vkr = gfx::SubmitQueue(frame->window->ctx->vk.copy_queue, {
+        VkResult vkr = gfx::SubmitQueue(queue, {
             .cmd = { cmd->buffer },
             .wait_semaphores = Span(vk_wait_semaphores),
             .wait_stages = Span(vk_wait_stages),
             .signal_semaphores = Span(vk_signal_semaphores),
+            .fence = fence,
         });
 
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to submit transfer queue commands");
         }
+
+        if (wait_and_reset_fence) {
+            if (!fence) {
+                throw std::runtime_error("Fence must not be None if wait_and_reset_fence is True");
+            }
+
+            vkWaitForFences(cmd->ctx->vk.device, 1, &fence, VK_TRUE, ~0);
+            vkResetFences(cmd->ctx->vk.device, 1, &fence);
+        }
     }
 
-    nb::ref<Frame> frame;
     nb::ref<CommandBuffer> cmd;
+    VkQueue queue;
     std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores;
     std::vector<nb::ref<Semaphore>> signal_semaphores;
+    VkFence fence;
+    bool wait_and_reset_fence;
 };
-
 
 Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
     : window(window)
@@ -1372,6 +1388,9 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
     image = new Image(window->ctx, frame.current_image, frame.current_image_view, window->window.fb_width, window->window.fb_height);
     image->current_state.last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     command_buffer = new CommandBuffer(window->ctx, frame.command_pool, frame.command_buffer);
+    if (window->ctx->vk.copy_queue) {
+        transfer_command_buffer = new CommandBuffer(window->ctx, frame.copy_command_pool, frame.copy_command_buffer);
+    }
 }
 
 struct Gui: public nb::intrusive_base {
@@ -1892,31 +1911,6 @@ void CommandBuffer::bind_graphics_pipeline(
     vkCmdSetScissor(buffer, 0, 1, &scissor);
 }
 
-struct SyncCommandsManager {
-    SyncCommandsManager(nb::ref<Context> ctx)
-        : ctx(ctx)
-    {
-        cmd = new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer);
-    }
-
-    nb::ref<CommandBuffer> enter() {
-        cmd->begin();
-        return cmd;
-    }
-
-    void exit(nb::object, nb::object, nb::object) {
-        cmd->end();
-        gfx::SubmitSync(ctx->vk);
-    }
-
-    nb::ref<Context> ctx;
-    nb::ref<CommandBuffer> cmd;
-};
-
-nb::ref<SyncCommandsManager> sync_commands(nb::ref<Context> ctx) {
-    return new SyncCommandsManager(std::move(ctx));
-}
-
 #ifdef _WIN32
 BOOL WINAPI ctrlc_handler(DWORD) {
     glfwPostEmptyEvent();
@@ -2113,9 +2107,9 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("enable_synchronization_validation") = false
         )
         .def("sync_commands", [] (nb::ref<Context> ctx) {
-            return sync_commands(std::move(ctx));
+            return new CommandsManager(new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer), ctx->vk.queue, {}, {}, ctx->vk.sync_fence, true);
         })
-        .def("get_sync_command_buffer", [] (nb::ref<Context> ctx) {
+        .def_prop_ro("sync_command_buffer", [] (nb::ref<Context> ctx) {
             return new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer);
         })
         .def("submit_sync", [](const Context& ctx) {
@@ -2188,27 +2182,23 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("transfer_queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { return new Queue(ctx, ctx->vk.copy_queue); })
     ;
 
-    nb::class_<SyncCommandsManager>(m, "SyncCommands")
-        .def("__enter__", &SyncCommandsManager::enter)
-        .def("__exit__", &SyncCommandsManager::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
-    ;
-
-    nb::class_<TransferQueueCommandsManager>(m, "TransferQueueCommands",
-        nb::intrusive_ptr<TransferQueueCommandsManager>([](TransferQueueCommandsManager *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def("__enter__", &TransferQueueCommandsManager::enter)
-        .def("__exit__", &TransferQueueCommandsManager::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
+    nb::class_<CommandsManager>(m, "CommandsManager",
+        nb::intrusive_ptr<CommandsManager>([](CommandsManager *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def("__enter__", &CommandsManager::enter)
+        .def("__exit__", &CommandsManager::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
     ;
 
     nb::class_<Frame>(m, "Frame",
         nb::intrusive_ptr<Frame>([](Frame *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def_ro("command_buffer", &Frame::command_buffer)
         .def_ro("image", &Frame::image)
-        .def("transfer_queue_commands", [](nb::ref<Frame> frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<nb::ref<Semaphore>> signal_semaphores) -> nb::ref<TransferQueueCommandsManager> {
-            return new TransferQueueCommandsManager(frame, wait_semaphores, signal_semaphores);
+        .def("transfer_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<nb::ref<Semaphore>> signal_semaphores) {
+            if (!frame.transfer_command_buffer.has_value()) {
+                nb::raise("Device does not support transfer queue. Check Context.has_transfer_queue to know if it's supported.");
+            }
+            return new CommandsManager(frame.transfer_command_buffer.value(), frame.window->ctx->vk.copy_queue, wait_semaphores, signal_semaphores, VK_NULL_HANDLE, false);
         }, nb::arg("wait_semaphores") = nb::list(), nb::arg("signal_semaphores") = nb::list())
-        .def_prop_ro("transfer_command_buffer", [](Frame& frame) {
-            return new CommandBuffer(frame.window->ctx, frame.frame.copy_command_pool, frame.frame.copy_command_buffer);
-        });
+        .def_ro("transfer_command_buffer", &Frame::transfer_command_buffer)
     ;
 
     nb::class_<Window>(m, "Window",
@@ -2766,7 +2756,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("copy_image_to_buffer", &CommandBuffer::copy_image_to_buffer,
             nb::arg("image"),
             nb::arg("buffer"),
-            nb::arg("buffer_offset")
+            nb::arg("buffer_offset") = 0
         )
         .def("copy_buffer_to_image", &CommandBuffer::copy_buffer_to_image,
             nb::arg("buffer"),
