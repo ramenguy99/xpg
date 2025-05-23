@@ -36,18 +36,6 @@ class LRUPool:
         self.max_prefetch: int = max_prefetch
         self.prefetch_store: Dict[O, K] = {}
 
-    def new_frame(self, frame_index: int):   
-        if old := self.in_flight[frame_index]:
-            key, entry = old
-
-            # Decrement refcount
-            if entry.refcount.dec():
-                # If refcount is 0 add buffer back to LRU
-                self.lru[entry.obj] = key
-
-            # Mark nothing in flight yet for this frame.
-            self.in_flight[frame_index] = None
-    
     def get(self, key: K, load: Callable[[K, O], None], ensure_fetched: Optional[Callable[[O], None]] = None) -> O:
         cached = self.lookup.get(key)
 
@@ -86,7 +74,7 @@ class LRUPool:
         cached = self.lookup.get(key)
         return cached and not cached.prefetching
         
-    def use(self, frame_index: int, key: K):
+    def use_frame(self, frame_index: int, key: K):
         entry = self.lookup[key]
         entry.refcount.inc()
         self.in_flight[frame_index] = (key, entry)
@@ -95,13 +83,25 @@ class LRUPool:
         entry = self.lookup[key]
         entry.refcount.inc()
 
-    def use_done_manual(self, key: K):
+    def release_manual(self, key: K):
         entry = self.lookup[key]
 
         # Decrement refcount
         if entry.refcount.dec():
             # If refcount is 0 add buffer back to LRU
             self.lru[entry.obj] = key
+    
+    def release_frame(self, frame_index: int):   
+        if old := self.in_flight[frame_index]:
+            key, entry = old
+
+            # Decrement refcount
+            if entry.refcount.dec():
+                # If refcount is 0 add buffer back to LRU
+                self.lru[entry.obj] = key
+
+            # Mark nothing in flight yet for this frame.
+            self.in_flight[frame_index] = None
     
     def give_back(self, k: K, obj: O):
         self.lru[obj] = k
