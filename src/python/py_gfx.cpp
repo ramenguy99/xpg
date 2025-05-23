@@ -202,6 +202,18 @@ struct Fence: public GfxObject {
         return vkr == VK_SUCCESS;
     }
 
+    void wait() {
+        vkWaitForFences(ctx->vk.device, 1, &fence, VK_TRUE, ~0);
+    }
+    void reset() {
+        vkResetFences(ctx->vk.device, 1, &fence);
+    }
+
+    void wait_and_reset() {
+        wait();
+        reset();
+    }
+
     void destroy() {
         if (owned) {
             vkDestroyFence(ctx->vk.device, fence, 0);
@@ -2606,6 +2618,9 @@ void gfx_create_bindings(nb::module_& m)
         .def(nb::init<nb::ref<Context>, bool>(), nb::arg("ctx"), nb::arg("signaled") = false)
         .def("destroy", &Fence::destroy)
         .def("is_signaled", &Fence::is_signaled)
+        .def("wait", &Fence::wait)
+        .def("resest", &Fence::reset)
+        .def("wait_and_reset", &Fence::wait_and_reset)
     ;
 
     nb::class_<Semaphore, GfxObject>(m, "Semaphore")

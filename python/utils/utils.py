@@ -1,14 +1,14 @@
-from time import perf_counter
+from time import perf_counter_ns
 from contextlib import contextmanager
 import io
 
 @contextmanager
 def profile(name: str):
-    begin = perf_counter()
+    begin = perf_counter_ns()
     yield
-    end = perf_counter()
+    end = perf_counter_ns()
     delta = end - begin
-    print(f"{name}: {delta * 1000:.3f}ms")
+    print(f"{name}: {delta * 1e-6:.3f}ms")
 
 def read_exact_into(file: io.FileIO, view: memoryview):
     bread = 0
