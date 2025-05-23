@@ -14,7 +14,7 @@ import numpy as np
 from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype, DescriptorSetsReflection
 from utils.render import PerFrameResource
-from utils.threadpool import ThreadPool
+from utils.threadpool import ThreadPool, Promise
 from utils.profiler import Profiler, ProfilerFrame, gui_profiler_graph, gui_profiler_list
 from utils.loaders import LRUPool
 from utils.utils import profile, read_exact, read_exact_at_offset, read_exact_at_offset_into
@@ -100,7 +100,7 @@ GPU_BUFFERS = window.num_frames + GPU_PREFETCH_SIZE
 class CpuBuffer:
     def __init__(self, size: int, name: Optional[str] = None):
         self.buf = Buffer(ctx, size, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST, name)
-        self.event = Event()
+        self.promise = Promise()
     
     def __repr__(self):
         return self.buf.__repr__()
@@ -170,8 +170,6 @@ class Sequence:
     def _load(self, i: int, buf: CpuBuffer, thread_index: int):
         file = self.files[thread_index]
         read_exact_at_offset_into(file, 12 + i * self.V * 12, buf.buf.view.view())
-        buf.event.set()
-        return buf
     
     def update(self, frame_index: int, cmd: CommandBuffer, copy_cmd: CommandBuffer,
         copy_wait_semaphores: List,
@@ -188,13 +186,12 @@ class Sequence:
 
         def cpu_ensure_fetched(k: int, buf: CpuBuffer):
             with profiler.zone(f"Wait - {self.name}"):
-                buf.event.wait()
+                buf.promise.get()
 
         def cpu_load(k: int, buf: CpuBuffer):
             with profiler.zone(f"Load - {self.name}"):
-                self.pool.submit(self._load, k, buf)
-                buf.event.wait()
-            buf.event.clear()
+                self.pool.submit(buf.promise, self._load, k, buf)
+                buf.promise.get()
 
         def gpu_load(k: int, gpu_buf: GpuBuffer):
             cpu_buf = self.cpu.get(k, cpu_load, cpu_ensure_fetched)
@@ -259,13 +256,12 @@ class Sequence:
     
     def prefetch(self):
         def prefetch_cleanup(k: int, buf: CpuBuffer) -> bool:
-            if buf.event.is_set():
-                buf.event.clear()
+            if buf.promise.is_set():
                 return True
             return False
 
         def prefetch(k: int, buf: CpuBuffer):
-            self.pool.submit(self._load, k, buf)
+            self.pool.submit(buf.promise, self._load, k, buf)
         prefetch_start = self.animation_frame_index + 1
         prefetch_end = prefetch_start + PREFETCH_SIZE
         self.cpu.prefetch([i % self.N for i in range(prefetch_start, prefetch_end)], prefetch_cleanup, prefetch)
