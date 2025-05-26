@@ -76,10 +76,12 @@ Python:
         - If the upload is performance critical we can have an helper that the user
         can check if device mapped memory is available and then decide for himself.
         - Maybe also think about helpers for copy queue at the same time
+        - Plan:
+            [ ] Make with_data use DEVICE_MAPPED with fallback and alloc staging buffer + sync copy transfer if needed
+            [ ] Keep API as it is, create helpers for common use cases
+                [ ] Small data upload (constants) -> device mapped or fallback to upload.
+                [ ] Large upload (streaming) -> If integrated, device mapped or host mapped. If device + staging buffer with upload.
     - [x] Cleanup command buffers, queues, sync commands and frame API. See what is the shared functionality and if we can improve this a bit.
-    - [ ] Expose host image copy and timeline semaphores? Seems like this stuff is mostly supported on desktop
-        -> timeline semaphores should be doable however. Ideally subclass / parameter of Semaphore and transparent to queue waits but with extra APIs
-        -> No host image copy on AMD though
 - [ ] Clean examples
     - [x] Headless graphics and compute
     - [x] Minimal
@@ -194,6 +196,9 @@ Python:
 - [ ] glslang bindings for compiling and reflection
     - [ ] fix slang build when using this
 - [ ] Tracy module built-in into xpg. Repackage their bindings for CPU stuff, expose vulkan API tracing, and add compat bindings with our GPU stuff.
+- [ ] Expose host image copy and timeline semaphores?
+    -> timeline semaphores should be avilable everywhere. Ideally subclass / parameter of Semaphore and transparent to queue waits but with extra APIs on the object.
+    -> Host image copy can be used automatically for Image.with_data() to or manually with exposed host operations. Not available on AMD
 
 Viewer:
 - [ ] Primitives
