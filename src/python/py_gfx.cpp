@@ -2668,6 +2668,9 @@ void gfx_create_bindings(nb::module_& m)
         .def_static("from_data", &Buffer::from_data_bytes, nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
         // .def_static("from_data", &Buffer::from_data_view, nb::arg("ctx"), nb::arg("view"), nb::arg("usage_flags"), nb::arg("alloc_type"))
         .def_prop_ro("view", [] (Buffer& buffer) {
+            if (!buffer.buffer.map.data) {
+                throw std::runtime_error("Buffer is not mapped");
+            }
             return nb::ndarray<u8, nb::numpy, nb::shape<-1>>(buffer.buffer.map.data, {buffer.buffer.map.length}, buffer.self_py());
         }, nb::rv_policy::reference_internal, nb::sig("def view(self) -> numpy.ndarray"))
         .def_prop_ro("is_mapped", [](Buffer& buf) {
