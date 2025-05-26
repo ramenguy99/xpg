@@ -317,7 +317,7 @@ nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
             return parse_type(type->getElementTypeLayout());
         } break;
         default:
-            nb::raise("Unhandled type kind while parsing shader reflection: %d", type->getKind());
+            nb::raise("Unhandled type kind while parsing shader reflection: %d", (int)type->getKind());
     }
 }
 

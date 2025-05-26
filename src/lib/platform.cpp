@@ -162,7 +162,7 @@ Result GetLocalTime(SystemTime* s) {
 
     time_t tim = ts.tv_sec;
     tm tm = {};
-    if (localtime_r(&tim, &tm)) {
+    if (localtime_r(&tim, &tm) == NULL) {
         return Result::OSError;
     }
 
