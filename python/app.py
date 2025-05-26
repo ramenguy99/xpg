@@ -3,6 +3,7 @@ from pyxpg import *
 import numpy as np
 from pathlib import Path
 
+from utils.buffers import UploadableBuffer
 from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype, DescriptorSetsReflection
 
@@ -52,6 +53,8 @@ class ColorPipeline(Pipeline):
     frag_prog = Path(SHADERS, "color.frag.slang")
 
     def create(self, vert_prog: slang.Shader, frag_prog: slang.Shader):
+        global buf, u_buf
+
         # Get type reflection from vertex shader. We use this to create a
         # numpy dtype that represents the layout of the constant buffer.
         refl = vert_prog.reflection
@@ -59,15 +62,20 @@ class ColorPipeline(Pipeline):
         dt = to_dtype(desc_refl.descriptors["u"].resource.type)
 
         # Create a buffer to hold the constants with the required size.
-        u_buf = Buffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
+        #
+        # TODO: this should be per frame, think about if we want a uniform
+        # buffer helper for this kind of thing, something like a ringbuffer
+        # allocator that takes advantage of dynamic uniform buffer offsets.
+        # Implementations must support at least 8 of these.
+        u_buf = UploadableBuffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM)
         set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         # Write initial values into the buffer by creating a view over it
         # with the dtype generated from the reflection.
-        global buf
-        buf = u_buf.view.view(dt)
+        buf = np.zeros(1, dt)
         buf["transform"] = rot
         buf["nest1"]["val2"] = color_value
+        u_buf.upload_sync(buf.view(np.uint8).data)
 
         # Turn SPIR-V code into vulkan shader modules
         vert = Shader(ctx, vert_prog.code)
@@ -119,6 +127,7 @@ def draw():
         pass
 
     # GUI
+    updated = False
     with gui.frame():
         if imgui.begin("wow"):
             imgui.text("Hello")
@@ -134,6 +143,9 @@ def draw():
     # Render
     with window.frame() as frame:
         with frame.command_buffer as cmd:
+            if updated:
+                u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM_READ, buf.view(np.uint8).data)
+
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
 
             viewport = [0, 0, window.fb_width, window.fb_height]

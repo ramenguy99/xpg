@@ -408,7 +408,11 @@ enum class MemoryUsage {
     HostWrite,
     VertexInput,
     TransferWrite,
-
+    VertexShaderUniformRead,
+    GeometryShaderUniformRead,
+    FragmentShaderUniformRead,
+    ComputeShaderUniformRead,
+    AnyShaderUniformRead,
     Count,
 };
 
@@ -439,12 +443,43 @@ namespace MemoryUsagePresets {
         .last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         .access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
     };
+    constexpr MemoryUsageState VertexShaderUniformRead {
+        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+        .access = VK_ACCESS_2_UNIFORM_READ_BIT,
+    };
+    constexpr MemoryUsageState GeometryShaderUniformRead {
+        .first_stage = VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
+        .access = VK_ACCESS_2_UNIFORM_READ_BIT,
+    };
+    constexpr MemoryUsageState FragmentShaderUniformRead {
+        .first_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .access = VK_ACCESS_2_UNIFORM_READ_BIT,
+    };
+    constexpr MemoryUsageState ComputeShaderUniformRead {
+        .first_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .access = VK_ACCESS_2_UNIFORM_READ_BIT,
+    };
+    constexpr MemoryUsageState AnyShaderUniformRead {
+        .first_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .access = VK_ACCESS_2_UNIFORM_READ_BIT,
+    };
+
 
     MemoryUsageState Types[] = {
         None,
         HostWrite,
         VertexInput,
         TransferWrite,
+        VertexShaderUniformRead,
+        GeometryShaderUniformRead,
+        FragmentShaderUniformRead,
+        ComputeShaderUniformRead,
+        AnyShaderUniformRead,
     };
     static_assert(ArrayCount(Types) == (size_t)MemoryUsage::Count, "MemoryUsage count does not match length of Types array");
 };
@@ -1035,6 +1070,23 @@ struct CommandBuffer: GfxObject {
         gfx::CmdCopyBuffer(buffer, {
             .src = src.buffer.buffer,
             .dest = dest.buffer.buffer,
+            .size = src.size,
+        });
+    }
+
+    void copy_buffer_range(const Buffer& src, const Buffer& dest, VkDeviceSize size, VkDeviceSize src_offset, VkDeviceSize dest_offset) {
+        if (src_offset + size > src.size) {
+            nb::raise("Source buffer too small. Source size: %zu. Source offset: %zu. Size: %zu", src.size, src_offset, size);
+        }
+        if (dest_offset + size > dest.size) {
+            nb::raise("Dest buffer too small. Dest size: %zu. Dest offset: %zu. Size: %zu", dest.size, dest_offset, size);
+        }
+
+        gfx::CmdCopyBuffer(buffer, {
+            .src = src.buffer.buffer,
+            .dest = dest.buffer.buffer,
+            .src_offset = src_offset,
+            .dest_offset = dest_offset,
             .size = src.size,
         });
     }
@@ -2620,6 +2672,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<GfxObject>(m, "GfxObject",
         nb::intrusive_ptr<GfxObject>([](GfxObject *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_ro("ctx", &GfxObject::ctx)
     ;
 
     nb::class_<Queue, GfxObject>(m, "Queue")
@@ -2786,6 +2839,11 @@ void gfx_create_bindings(nb::module_& m)
         .value("HOST_WRITE", MemoryUsage::HostWrite)
         .value("VERTEX_INPUT", MemoryUsage::VertexInput)
         .value("TRANSFER_WRITE", MemoryUsage::TransferWrite)
+        .value("VERTEX_SHADER_UNIFORM_READ", MemoryUsage::VertexShaderUniformRead)
+        .value("GEOMETRY_SHADER_UNIFORM_READ", MemoryUsage::GeometryShaderUniformRead)
+        .value("FRAGMENT_SHADER_UNIFORM_READ", MemoryUsage::FragmentShaderUniformRead)
+        .value("COMPUTE_SHADER_UNIFORM_READ", MemoryUsage::ComputeShaderUniformRead)
+        .value("ANY_SHADER_UNIFORM_READ", MemoryUsage::AnyShaderUniformRead)
     ;
 
     nb::enum_<ImageUsage>(m, "ImageUsage")
@@ -2914,6 +2972,13 @@ void gfx_create_bindings(nb::module_& m)
         .def("copy_buffer", &CommandBuffer::copy_buffer,
             nb::arg("src"),
             nb::arg("dest")
+        )
+        .def("copy_buffer_range", &CommandBuffer::copy_buffer_range,
+            nb::arg("src"),
+            nb::arg("dest"),
+            nb::arg("size"),
+            nb::arg("src_offset") = 0,
+            nb::arg("dest_offset") = 0
         )
         .def("copy_image_to_buffer", &CommandBuffer::copy_image_to_buffer,
             nb::arg("image"),
