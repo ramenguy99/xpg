@@ -2266,6 +2266,9 @@ void gfx_create_bindings(nb::module_& m)
             return ctx.vk.queue_family_index;
         })
         .def_prop_ro("transfer_queue_family_index", [](Context& ctx) {
+            if (ctx.vk.copy_queue == VK_NULL_HANDLE) {
+                throw std::runtime_error("Transfer queue not supported by device");
+            }
             return ctx.vk.copy_queue_family_index;
         })
         .def_prop_ro("timestamp_period_ns", [](Context& ctx) {
@@ -2310,7 +2313,12 @@ void gfx_create_bindings(nb::module_& m)
             return std::make_tuple(timestamps[0], timestamps[1]);
         })
         .def_prop_ro("queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { return new Queue(ctx, ctx->vk.queue); })
-        .def_prop_ro("transfer_queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { return new Queue(ctx, ctx->vk.copy_queue); })
+        .def_prop_ro("transfer_queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { 
+            if (ctx->vk.copy_queue == VK_NULL_HANDLE) {
+                throw std::runtime_error("Transfer queue not supported by device");
+            }
+            return new Queue(ctx, ctx->vk.copy_queue); 
+        })
     ;
 
     nb::class_<CommandsManager>(m, "CommandsManager",

@@ -35,6 +35,11 @@ ctx = Context(
 #    - Host Memory:    9 GB/s (when out of cache)
 #    - Bar Memory:     9 GB/s (no caching)
 #    - Gfx and transfer are best >=32 MB/s and <= 512 MB (12-18 GB/s), slows down at 1GiB+ (11 GB/s)
+# Intel 11th gen UHD Graphics
+#    - Host visible memory is (8-9 GB/s)
+#    - Host visible write combining is slightly faster (9-10 GB/s) -> always prefer this
+#    - Device memory + uplaod is slower (2-3 GB/s)
+#    - No transfer queue
 #
 # Best perf:
 #  if unified memory:
@@ -50,11 +55,13 @@ ctx = Context(
 #
 # Memory types exposed:
 # - HOST
+# - HOST_WRITE_COMBINING
 # - DEVICE
+# - DEVICE_MAPPED_WITH_FALLBACK
 # - DEVICE_DEDICATED
-# - DEVICE_PREFER_MAPPED
 #
 # Uses:
+# - with_data() -> use device visible memory for single alloc, fallback to copy (must add TRANSFER_DEST to prepare for fallback)
 # - Staging / Readback buffers (HOST) -> could be skipped on unified?
 # - Buffer creation with_data (DEVICE + bestperf heuristic)
 # - Image creation with_data (DEVICE + sync upload always)
