@@ -22,6 +22,37 @@
 namespace nb = nanobind;
 using namespace xpg;
 
+struct MemoryHeap: public nb::intrusive_base {
+    MemoryHeap(const VkMemoryHeap& heap)
+        : size(heap.size)
+        , flags((VkMemoryHeapFlagBits)heap.flags)
+    { }
+    VkDeviceSize         size;
+    VkMemoryHeapFlagBits    flags;
+};
+
+struct MemoryType: public nb::intrusive_base {
+    MemoryType(const VkMemoryType& type)
+        : property_flags((VkMemoryPropertyFlagBits)type.propertyFlags)
+        , heap_index(type.heapIndex)
+    { }
+    VkMemoryPropertyFlagBits    property_flags;
+    uint32_t                 heap_index;
+};
+
+struct MemoryProperties: public nb::intrusive_base {
+    MemoryProperties(const VkPhysicalDeviceMemoryProperties& memory_properties) {
+        for(usize i = 0; i < memory_properties.memoryHeapCount; i++) {
+            memory_heaps.push_back(new MemoryHeap(memory_properties.memoryHeaps[i]));
+        }
+        for(usize i = 0; i < memory_properties.memoryTypeCount; i++) {
+            memory_types.push_back(new MemoryType(memory_properties.memoryTypes[i]));
+        }
+    };
+    std::vector<nb::ref<MemoryType>> memory_types;
+    std::vector<nb::ref<MemoryHeap>> memory_heaps;
+};
+
 // Wrapper around VkPhysicalDeviceLimits
 struct DeviceSparseProperties: public nb::intrusive_base {
     DeviceSparseProperties(const VkPhysicalDeviceSparseProperties& sparse_properties): sparse_properties(sparse_properties) {}
@@ -93,6 +124,10 @@ struct Context: public nb::intrusive_base {
         VkPhysicalDeviceProperties properties;
         vkGetPhysicalDeviceProperties(vk.physical_device, &properties);
         device_properties = new DeviceProperties(properties);
+
+        VkPhysicalDeviceMemoryProperties vk_memory_properties;
+        vkGetPhysicalDeviceMemoryProperties(vk.physical_device, &vk_memory_properties);
+        memory_properties = new MemoryProperties(vk_memory_properties);
     }
 
     ~Context() {
@@ -103,6 +138,7 @@ struct Context: public nb::intrusive_base {
 
     gfx::Context vk;
     nb::ref<DeviceProperties> device_properties;
+    nb::ref<MemoryProperties> memory_properties;
     gfx::DeviceFeatures::DeviceFeaturesFlags features;
 };
 
@@ -126,6 +162,20 @@ struct GfxObject: public nb::intrusive_base {
     std::optional<nb::str> name;
 };
 
+struct AllocInfo: nb::intrusive_base {
+    AllocInfo(const VmaAllocationInfo2& info) 
+        : memory_type(info.allocationInfo.memoryType)
+        , offset(info.allocationInfo.offset)
+        , size(info.allocationInfo.size)
+        , is_dedicated(info.dedicatedMemory)
+    { }
+
+    u32 memory_type;
+    VkDeviceSize offset;
+    VkDeviceSize size;
+    bool is_dedicated;
+};
+
 struct Buffer: public GfxObject {
     Buffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, std::optional<nb::str> name)
         : GfxObject(ctx, true, std::move(name))
@@ -138,6 +188,11 @@ struct Buffer: public GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create buffer");
         }
+
+        VmaAllocationInfo2 alloc_info = {};
+        vmaGetAllocationInfo2(ctx->vk.vma, buffer.allocation, &alloc_info);
+        alloc = new AllocInfo(alloc_info);
+
         if (usage_flags & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
             device_address = gfx::GetBufferAddress(buffer.buffer, ctx->vk.device);
         }
@@ -158,7 +213,11 @@ struct Buffer: public GfxObject {
         }
     }
 
-    static nb::ref<Buffer> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type) {
+    static nb::ref<Buffer> from_data_view(nb::ref<Context> ctx, nb::memoryview view, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type) {
+        return 0;
+    }
+
+    static nb::ref<Buffer> from_data_bytes(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type) {
         std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx, data.size());
 
         VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), {
@@ -168,6 +227,11 @@ struct Buffer: public GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create buffer");
         }
+
+        VmaAllocationInfo2 alloc_info = {};
+        vmaGetAllocationInfo2(ctx->vk.vma, self->buffer.allocation, &alloc_info);
+        self->alloc = new AllocInfo(alloc_info);
+
         if (usage_flags & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
             self->device_address = gfx::GetBufferAddress(self->buffer.buffer, ctx->vk.device);
         }
@@ -178,6 +242,7 @@ struct Buffer: public GfxObject {
     gfx::Buffer buffer = {};
     size_t size = 0;
     std::optional<VkDeviceAddress> device_address;
+    nb::ref<AllocInfo> alloc;
 };
 
 struct Fence: public GfxObject {
@@ -525,6 +590,10 @@ struct Image: public GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create image");
         }
+
+        VmaAllocationInfo2 alloc_info = {};
+        vmaGetAllocationInfo2(ctx->vk.vma, image.allocation, &alloc_info);
+        alloc = new AllocInfo(alloc_info);
     }
 
     Image(nb::ref<Context> ctx, VkImage image, VkImageView view, u32 width, u32 height)
@@ -569,6 +638,11 @@ struct Image: public GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create image");
         }
+
+        VmaAllocationInfo2 alloc_info = {};
+        vmaGetAllocationInfo2(ctx->vk.vma, self->image.allocation, &alloc_info);
+        self->alloc = new AllocInfo(alloc_info);
+
         self->current_state.layout = state.layout;
 
         return self.release();
@@ -578,6 +652,7 @@ struct Image: public GfxObject {
     u32 width;
     u32 height;
     ImageUsageState current_state = ImageUsagePresets::Types[(usize)ImageUsage::None];
+    nb::ref<AllocInfo> alloc;
 };
 
 
@@ -1946,6 +2021,49 @@ void gfx_create_bindings(nb::module_& m)
 #ifdef _WIN32
     SetConsoleCtrlHandler(ctrlc_handler, TRUE);
 #endif
+    nb::enum_<VkMemoryHeapFlagBits>(m, "MemoryHeapFlags", nb::is_flag())
+        .value("VK_MEMORY_HEAP_DEVICE_LOCAL"  , VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+        .value("VK_MEMORY_HEAP_MULTI_INSTANCE", VK_MEMORY_HEAP_MULTI_INSTANCE_BIT)
+    ;
+
+    nb::enum_<VkMemoryPropertyFlagBits>(m, "MemoryPropertyFlags", nb::is_flag())
+        .value("DEVICE_LOCAL"     , VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+        .value("HOST_VISIBLE"     , VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+        .value("HOST_COHERENT"    , VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+        .value("HOST_CACHED"      , VK_MEMORY_PROPERTY_HOST_CACHED_BIT)
+        .value("LAZILY_ALLOCATED" , VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT)
+        .value("PROTECTED"        , VK_MEMORY_PROPERTY_PROTECTED_BIT)
+        .value("DEVICE_COHERENT"  , VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD)
+        .value("DEVICE_UNCACHED"  , VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD)
+        .value("RDMA_CAPABLE"     , VK_MEMORY_PROPERTY_RDMA_CAPABLE_BIT_NV)
+    ;
+
+    nb::class_<MemoryHeap>(m, "MemoryHeap",
+        nb::intrusive_ptr<MemoryHeap>([](MemoryHeap *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_ro("size", &MemoryHeap::size)
+        .def_ro("flags", &MemoryHeap::flags)
+        .def("__repr__", [](MemoryHeap& h) { 
+            return nb::str("MemoryHeap(size: {}, flags: {})").format(h.size, h.flags);
+        })
+    ;
+
+    nb::class_<MemoryType>(m, "MemoryType",
+        nb::intrusive_ptr<MemoryType>([](MemoryType *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_ro("heap_index", &MemoryType::heap_index)
+        .def_ro("property_flags", &MemoryType::property_flags)
+        .def("__repr__", [](MemoryType& t) { 
+            return nb::str("MemoryType(heap_index: {}, property_flags: {})").format(t.heap_index, t.property_flags); 
+        })
+    ;
+
+    nb::class_<MemoryProperties>(m, "MemoryProperties",
+        nb::intrusive_ptr<MemoryProperties>([](MemoryProperties *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_ro("memory_heaps", &MemoryProperties::memory_heaps)
+        .def_ro("memory_types", &MemoryProperties::memory_types)
+        .def("__repr__", [](MemoryProperties& memory_properties) { 
+            return nb::str("MemoryProperties(memory_heaps: {}, memory_types: {})").format(memory_properties.memory_heaps, memory_properties.memory_types); 
+        })
+    ;
 
     nb::enum_<gfx::DeviceFeatures::DeviceFeaturesFlags>(m, "DeviceFeatures", nb::is_flag(), nb::is_arithmetic())
         .value("NONE",                  gfx::DeviceFeatures::NONE)
@@ -2140,6 +2258,7 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("device_properties", [](Context& ctx) {
             return ctx.device_properties;
         })
+        .def_ro("memory_properties", &Context::memory_properties)
         .def_prop_ro("has_transfer_queue", [](Context& ctx) {
             return ctx.vk.copy_queue != VK_NULL_HANDLE;
         })
@@ -2524,13 +2643,28 @@ void gfx_create_bindings(nb::module_& m)
         .def("wait_results", &QueryPool::wait_results, nb::arg("first"), nb::arg("count"))
     ;
 
+    nb::class_<AllocInfo>(m, "AllocInfo",
+        nb::intrusive_ptr<AllocInfo>([](AllocInfo *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_ro("memory_type", &AllocInfo::memory_type)
+        .def_ro("offset", &AllocInfo::offset)
+        .def_ro("size", &AllocInfo::size)
+        .def_ro("is_dedicated", &AllocInfo::is_dedicated)
+        .def("__repr__", [](AllocInfo& info) { 
+            return nb::str("AllocationInfo(memory_type: {}, offset: {}, size: {}, is_dedicated: {})").format(info.memory_type, info.offset, info.size, info.is_dedicated); 
+        })
+    ;
+
     nb::class_<Buffer, GfxObject>(m, "Buffer")
         .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
         .def("destroy", &Buffer::destroy)
-        .def_static("from_data", &Buffer::from_data, nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def_static("from_data", &Buffer::from_data_bytes, nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def_static("from_data", &Buffer::from_data_view, nb::arg("ctx"), nb::arg("view"), nb::arg("usage_flags"), nb::arg("alloc_type"))
         .def_prop_ro("view", [] (Buffer& buffer) {
             return nb::ndarray<u8, nb::numpy, nb::shape<-1>>(buffer.buffer.map.data, {buffer.buffer.map.length}, buffer.self_py());
         }, nb::rv_policy::reference_internal, nb::sig("def view(self) -> numpy.ndarray"))
+        .def_prop_ro("is_mapped", [](Buffer& buf) {
+            return buf.buffer.map.data != 0;
+        })
         .def_prop_ro("address", [](Buffer& buffer) {
             if (!buffer.device_address.has_value()) {
                 throw std::runtime_error("Buffer address can only be accessed if BufferUsageFlags.SHADER_DEVICE_ADDRESS was set when creating the buffer");
@@ -2544,6 +2678,7 @@ void gfx_create_bindings(nb::module_& m)
                 return nb::str("Buffer(size: {})").format(buf.size); 
             }
         })
+        .def_ro("alloc", &Buffer::alloc)
     ;
 
     nb::class_<ExternalBuffer, Buffer>(m, "ExternalBuffer")
@@ -2573,6 +2708,7 @@ void gfx_create_bindings(nb::module_& m)
                 return nb::str("Image(width: {}, height: {})").format(image.width, image.height); 
             }
         })
+        .def_ro("alloc", &Image::alloc)
     ;
 
     nb::class_<Sampler, GfxObject>(m, "Sampler")
