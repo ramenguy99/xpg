@@ -909,6 +909,7 @@ struct CommandBuffer: GfxObject {
                 .dst_stage = new_state.first_stage,
                 .src_access = image.current_state.access,
                 .dst_access = new_state.access,
+                .old_layout= image.current_state.layout,
                 .new_layout = new_state.layout,
                 .aspect_mask =
                     (VkImageAspectFlags)((

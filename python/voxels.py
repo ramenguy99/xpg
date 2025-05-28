@@ -70,7 +70,8 @@ class VoxelPipeline(Pipeline):
         global u_bufs
 
         refl = vert_prog.reflection
-        dt = reflection.to_dtype(refl.resources[0].type)
+        descs = reflection.DescriptorSetsReflection(refl)
+        dt = reflection.to_dtype(descs.descriptors["u"].resource.type)
 
         u_bufs = render.PerFrameResource(Buffer, window.num_frames, ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
         vert = Shader(ctx, vert_prog.code)
@@ -154,7 +155,6 @@ def draw():
         u_buf_view["view"] = camera.view()
         u_buf_view["camera_pos"] = camera.position
         u_buf_view["size"] = S
-        print(camera.position)
 
         set: DescriptorSet = descriptor_sets.get_current_and_advance()
         set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)

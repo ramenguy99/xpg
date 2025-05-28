@@ -1387,6 +1387,7 @@ void CmdBarriers(VkCommandBuffer cmd, const BarriersDesc &&desc)
 
 void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc)
 {
+    // TODO: better handling of passing more than preallocated amount.
     ArrayFixed<VkRenderingAttachmentInfo, 8> attachment_info(desc.color.length);
     for(usize i = 0; i < desc.color.length; i++) {
         attachment_info[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
