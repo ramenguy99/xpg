@@ -72,6 +72,8 @@ class Profiler:
                 for z in res.gpu_transfer_zones:
                     z.start_time = transfer_timestamps[z.start_idx]
                     z.end_time = transfer_timestamps[z.end_idx]
+            if res.frame_start_gpu_ts == 0 and len(res.gpu_zones) > 0:
+                res.frame_start_gpu_ts = res.gpu_zones[0].start_time
 
         self.zones = []
         self.gpu_zones = []
@@ -177,7 +179,7 @@ def gui_profiler_list(prof: ProfilerFrame, dt: float, timestamp_period_ns: float
         imgui.separator_text("CPU")
         if prof:
             for z in prof.zones:
-                imgui.text(f"{z.name}: {(z.end_time - z.start_time) * to_ms:.3f}ms")
+                imgui.text(f"{z.name}: {(z.end_time - z.start_time) * 1e-6:.3f}ms")
         imgui.separator_text("GFX")
         if prof:
             for z in prof.gpu_zones:
@@ -212,11 +214,12 @@ def gui_profiler_graph(profiler_results: List[ProfilerFrame], timestamp_period_n
             for prof in profiler_results:
                 zones = [prof.zones, prof.gpu_zones, prof.gpu_transfer_zones][i]
                 if i == 0:
-                    norm = 1e-6 / expected_length * expected_width
+                    to_ms = 1e-6
                     min_ts = start_ts
                 else:
-                    norm = 1e-6 / expected_length * expected_width * timestamp_period_ns
+                    to_ms = 1e-6 * timestamp_period_ns
                     min_ts = start_gpu_ts
+                norm = to_ms / expected_length * expected_width
 
                 if zones:
                     c = imgui.Vec2(start.x, start.y)
@@ -244,7 +247,7 @@ def gui_profiler_graph(profiler_results: List[ProfilerFrame], timestamp_period_n
                             imgui.begin_tooltip()
                             imgui.text(f"Frame: {prof.frame}")
                             imgui.text(f"{z.name}")
-                            imgui.text(f"Duration: {(z.end_time - z.start_time) * 1e-6:.3f}ms")
+                            imgui.text(f"Duration: {(z.end_time - z.start_time) * to_ms:.3f}ms")
                             imgui.end_tooltip()
                             outline_color = 0xFFFFFFFF
                         

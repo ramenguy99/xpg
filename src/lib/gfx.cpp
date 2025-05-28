@@ -640,7 +640,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 #endif
     }
     if (desc.device_features & DeviceFeatures::HOST_QUERY_RESET)      device_extensions.add("VK_EXT_host_query_reset");
-    if (desc.device_features & DeviceFeatures::CALIBRATED_TIMESTAMPS) device_extensions.add("VK_KHR_calibrated_timestamps");
+    if (desc.device_features & DeviceFeatures::CALIBRATED_TIMESTAMPS) device_extensions.add("VK_EXT_calibrated_timestamps");
 
     // Create a physical device.
     VkDevice device = 0;

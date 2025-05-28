@@ -2339,18 +2339,18 @@ void gfx_create_bindings(nb::module_& m)
             }
 
             VkCalibratedTimestampInfoKHR timestamp_infos[2] = {};
-            timestamp_infos[0].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR;
+            timestamp_infos[0].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
 #ifdef _WIN32
-            timestamp_infos[0].timeDomain = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR;
+            timestamp_infos[0].timeDomain = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
 #else
             timestamp_infos[0].timeDomain = VK_TIME_DOMAIN_CLOCK_MONOTONIC_KHR;
 #endif
-            timestamp_infos[1].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR;
+            timestamp_infos[1].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
             timestamp_infos[1].timeDomain = VK_TIME_DOMAIN_DEVICE_KHR;
 
             u64 timestamps[2];
             u64 deviations[2];
-            vkGetCalibratedTimestampsKHR(ctx.vk.device, 2, timestamp_infos, timestamps, deviations);
+            vkGetCalibratedTimestampsEXT(ctx.vk.device, 2, timestamp_infos, timestamps, deviations);
 
 #ifdef _WIN32
             // Convert performance counter ticks to ns. This matches what time.perf_counter_ns does.

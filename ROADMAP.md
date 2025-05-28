@@ -45,6 +45,7 @@ C++:
     - [ ] Embed shaders somehow?
     - [ ] Run with syncrhonization validation and GPU based validation
         - [ ] Completely switch to syncrhonization 2 for submission? Probably need to fix barriers for submit and present at COLOR_ATTACHMENT_OUTPUT stage
+- [ ] Check support for present modes
 
 Python:
 - [x] Check if there is a better way to do imports that works more intuitively
@@ -119,6 +120,8 @@ Python:
         - [x] Async upload with copy queue
         - [x] Keyboard input
         - [x] Handle throws in threadpool jobs
+        - [ ] Integrated GPU does not have transfer queue, therefore prefers using CPU buffers directly. Use physical device type to switch strategy.
+        - [ ] Stop pre-fetching if we detect skipping for most frames? Keep skip statistics?
     - [ ] Warp interop
         - [ ] Requires instructions to build warp from our branch
 - [x] Slang:
@@ -159,6 +162,7 @@ Python:
           ported / included as the layer mechanism
     - [ ] Would be nice to have optional features and check if they are supported later. Not clear what's easiest way to do this.
           And how to handle priorities / scores.
+        - [ ] Make use of this to use some fallback when vk_khr_timestamp_calibration is not available
 - [ ] If blocked in process_events -> ctrl+c not working
     - [x] Check if should release GIL
     - [ ] Check if can get interrupt somehow and unblock the loop (e.g. with glfwPostEmptyEvent)
@@ -183,6 +187,7 @@ Python:
     - [ ] Can we turn error handling / runtime assertions into exceptions?
 - [x] Input callbacks:
     - [x] Add more keys
+- [ ] None converts to a nullptr nb::ref, makes a lot of our code potentially segfault
 
 ## Future
 
