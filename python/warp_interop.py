@@ -25,7 +25,7 @@ I = np.array([
 ], np.uint32)
 rot = np.eye(4, dtype=np.float32)
 push_constants = np.array([ 1.0, 0.0, 0.0], np.float32)
-i_buf = Buffer.from_data(ctx, I.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
+i_buf = Buffer.from_data(ctx, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
 set = DescriptorSet(
     ctx,
     [

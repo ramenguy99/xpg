@@ -27,7 +27,7 @@ V = np.array([
     [ 0.0,  0.5, 0], [ 0.0,  1.0, 0.0],
     [ 0.5, -0.5, 0], [ 0.0,  0.0, 1.0],
 ], np.float32)
-v_buf = Buffer.from_data(ctx, V.tobytes(), BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED)
+v_buf = Buffer.from_data(ctx, V, BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 
 # Shaders
 source = """

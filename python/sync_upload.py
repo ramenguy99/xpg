@@ -102,16 +102,15 @@ for method in [
 
     for i in range(10, 32):
         N = 1 << i
-        data = np.ones(N, np.uint8)
-        byt = data.tobytes()
+        arr = np.ones(N, np.uint8)
 
         alloc_type = AllocType.HOST
         if method == Method.BAR or method == Method.HOST:
-            buf = Buffer.from_data(ctx, byt, BufferUsageFlags.STORAGE, AllocType.HOST if method == Method.HOST else AllocType.DEVICE_MAPPED)
+            buf = Buffer.from_data(ctx, arr, BufferUsageFlags.STORAGE, AllocType.HOST if method == Method.HOST else AllocType.DEVICE_MAPPED)
             # print(f"{buf.alloc}")
         else:
-            staging = Buffer.from_data(ctx, byt, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST)
-            gpu = Buffer(ctx, len(byt), BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.STORAGE, AllocType.DEVICE)
+            staging = Buffer.from_data(ctx, arr, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST)
+            gpu = Buffer(ctx, len(arr), BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.STORAGE, AllocType.DEVICE)
             with ctx.sync_commands() as cmd:
                 cmd.copy_buffer(staging, gpu)
 
@@ -121,7 +120,7 @@ for method in [
         ITERS = min(TARGET_SIZE // N, 1000)
         for _ in range(ITERS):
             if method == Method.BAR or method == Method.HOST:
-                buf.data[:] = byt[:]
+                buf.data[:] = arr.data
             elif method == Method.GFX_COPY:
                     with ctx.sync_commands() as cmd:
                         cmd.copy_buffer(staging, gpu)

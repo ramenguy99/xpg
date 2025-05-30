@@ -78,7 +78,7 @@ else:
 
         images.append(
             Image.from_data(
-                ctx, image.data.tobytes(), ImageUsage.SHADER_READ_ONLY, 
+                ctx, image.data, ImageUsage.SHADER_READ_ONLY, 
                 image.width, image.height, format,
                 ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE
             )

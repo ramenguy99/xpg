@@ -43,8 +43,8 @@ ctx = Context()
 window = Window(ctx, "Voxels", 1280, 720)
 gui = Gui(window)
 
-index_buf = Buffer.from_data(ctx, I.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
-voxels_buf = Buffer.from_data(ctx, voxels.tobytes(), BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
+index_buf = Buffer.from_data(ctx, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+voxels_buf = Buffer.from_data(ctx, voxels, BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 
 descriptor_sets = render.PerFrameResource(DescriptorSet, window.num_frames,
     ctx,

@@ -213,17 +213,24 @@ struct Buffer: public GfxObject {
         }
     }
 
-    // static nb::ref<Buffer> from_data_view(nb::ref<Context> ctx, nb::memoryview view, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type) {
-    //     return 0;
-    // }
+    static nb::ref<Buffer> from_data(nb::ref<Context> ctx, nb::object data, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type) {
+        Py_buffer view;
+        if (PyObject_GetBuffer(data.ptr(), &view, PyBUF_SIMPLE) != 0) {
+            throw nb::python_error();
+        }
 
-    static nb::ref<Buffer> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type) {
-        std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx, data.size());
+        if (!PyBuffer_IsContiguous(&view, 'C')) {
+            PyBuffer_Release(&view);
+            throw std::runtime_error("Data buffer must be contiguous");
+        }
 
-        VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), {
+        std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx, view.len);
+        VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)view.buf, view.len), {
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
         });
+        PyBuffer_Release(&view);
+        
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create buffer");
         }
@@ -709,14 +716,24 @@ struct Image: public GfxObject {
         }
     }
 
-    static nb::ref<Image> from_data(nb::ref<Context> ctx, const nb::bytes& data, ImageUsage usage,
+    static nb::ref<Image> from_data(nb::ref<Context> ctx, nb::object data, ImageUsage usage,
         u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples = 1)
     {
         assert((usize)usage < ArrayCount(ImageUsagePresets::Types));
         ImageUsageState state = ImageUsagePresets::Types[(usize)usage];
 
+        Py_buffer view;
+        if (PyObject_GetBuffer(data.ptr(), &view, PyBUF_SIMPLE) != 0) {
+            throw nb::python_error();
+        }
+
+        if (!PyBuffer_IsContiguous(&view, 'C')) {
+            PyBuffer_Release(&view);
+            throw std::runtime_error("Data buffer must be contiguous");
+        }
+
         std::unique_ptr<Image> self = std::make_unique<Image>(ctx);
-        VkResult vkr = gfx::CreateAndUploadImage(&self->image, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), state.layout, {
+        VkResult vkr = gfx::CreateAndUploadImage(&self->image, ctx->vk, ArrayView<u8>((u8*)view.buf, view.len), state.layout, {
             .width = width,
             .height = height,
             .format = format,
@@ -724,6 +741,8 @@ struct Image: public GfxObject {
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
         });
+        PyBuffer_Release(&view);
+
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create image");
         }

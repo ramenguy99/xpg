@@ -162,7 +162,7 @@ class Sequence:
         I = struct.unpack("<I", header[8:12])[0]
 
         indices = np.frombuffer(read_exact_at_offset(file, N * V * 12 + len(header), I * 4), np.uint32)
-        self.i_buf = Buffer.from_data(ctx, indices.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
+        self.i_buf = Buffer.from_data(ctx, indices, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 
         if upload_method == UploadMethod.CPU_BUF:
             self.cpu = LRUPool([CpuBuffer(V * 12, BufferUsageFlags.VERTEX, name=f"cpubuf{i}") for i in range(BUFS)], num_frames, PREFETCH_SIZE)

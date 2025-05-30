@@ -30,8 +30,8 @@ I = np.array([
 
 rot = np.eye(4, dtype=np.float32)
 color_value = np.array([ 1.0, 0.0, 0.0], np.float32)
-v_buf = Buffer.from_data(ctx, V.tobytes(), BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED)
-i_buf = Buffer.from_data(ctx, I.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
+v_buf = Buffer.from_data(ctx, V, BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+i_buf = Buffer.from_data(ctx, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 
 set = DescriptorSet(
     ctx,

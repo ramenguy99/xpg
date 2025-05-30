@@ -80,11 +80,11 @@ tangents = np.vstack([m.tangents for m in scene.meshes])
 uvs = np.vstack([m.uvs for m in scene.meshes])
 indices = np.vstack([m.indices.reshape((-1, 1)) for m in scene.meshes])
 
-positions_buf = Buffer.from_data(ctx, positions.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS, AllocType.DEVICE_MAPPED)
-normals_buf = Buffer.from_data(ctx, normals.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
-tangents_buf = Buffer.from_data(ctx, tangents.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
-uvs_buf = Buffer.from_data(ctx, uvs.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
-indices_buf = Buffer.from_data(ctx, indices.tobytes(), BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
+positions_buf = Buffer.from_data(ctx, positions, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+normals_buf = Buffer.from_data(ctx, normals, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+tangents_buf = Buffer.from_data(ctx, tangents, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+uvs_buf = Buffer.from_data(ctx, uvs, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+indices_buf = Buffer.from_data(ctx, indices, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 
 # Get mesh instance type from reflection
 as_meshes: List[AccelerationStructureMesh] = []
@@ -202,12 +202,12 @@ else:
 
         images.append(
             Image.from_data(
-                ctx, image.data.tobytes(), ImageUsage.SHADER_READ_ONLY, 
+                ctx, image.data, ImageUsage.SHADER_READ_ONLY, 
                 image.width, image.height, format,
                 ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE
             )
         )
-mesh_instances_buf = Buffer.from_data(ctx, mesh_instances.tobytes(), BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
+mesh_instances_buf = Buffer.from_data(ctx, mesh_instances, BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 print(f" Took {perf_counter() - begin:.3f}s")
 
 # Acceleration structure
