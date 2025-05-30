@@ -19,13 +19,11 @@ from utils.profiler import Profiler, ProfilerFrame, gui_profiler_graph, gui_prof
 from utils.loaders import LRUPool
 from utils.utils import profile, read_exact, read_exact_at_offset, read_exact_at_offset_into
 
+# Config
 VSYNC = True
 WORKERS = 4
 GPU_PREFETCH_SIZE = 2
 PREFETCH_SIZE = 2
-USE_CPU_BUF = False
-BAR_UPLOAD = True
-USE_TRANSFER_QUEUE = False
 
 ctx = Context(
     device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.CALIBRATED_TIMESTAMPS, 
@@ -35,8 +33,27 @@ ctx = Context(
     vsync=VSYNC,
 )
 
+class UploadMethod(Enum):
+    CPU_BUF = auto()
+    BAR = auto()
+    GFX = auto()
+    TRANSFER_QUEUE = auto()
+
+upload_method = UploadMethod.GFX
+if ctx.device_properties.device_type == PhysicalDeviceType.INTEGRATED_GPU or ctx.device_properties.device_type == PhysicalDeviceType.CPU:
+    upload_method = UploadMethod.CPU_BUF
+    GPU_PREFETCH_SIZE = 0
+elif False:
+    upload_method = UploadMethod.BAR
+    GPU_PREFETCH_SIZE = 0
+elif ctx.has_transfer_queue:
+    upload_method = UploadMethod.TRANSFER_QUEUE
+print(f"Upload method: {upload_method}")
+
+# Choose preferred upload mode (prioritizes first that is True in this order):
 window = Window(ctx, "Sequence", 1600, 900)
 gui = Gui(window)
+
 
 sets = PerFrameResource(DescriptorSet, window.num_frames,
     ctx,
@@ -94,13 +111,12 @@ cache = PipelineWatch([
     pipeline,
 ], window=window)
 
-USE_TRANSFER_QUEUE = USE_TRANSFER_QUEUE and ctx.has_transfer_queue
 BUFS = window.num_frames + PREFETCH_SIZE + GPU_PREFETCH_SIZE
 GPU_BUFFERS = window.num_frames + GPU_PREFETCH_SIZE
 
 class CpuBuffer:
     def __init__(self, size: int, usage_flags: BufferUsageFlags, name: Optional[str] = None):
-        self.buf = Buffer(ctx, size, usage_flags, AllocType.DEVICE_MAPPED if USE_CPU_BUF else AllocType.HOST, name)
+        self.buf = Buffer(ctx, size, usage_flags, AllocType.DEVICE_MAPPED if upload_method == UploadMethod.CPU_BUF else AllocType.HOST, name)
         self.promise = Promise()
     
     def __repr__(self):
@@ -147,14 +163,14 @@ class Sequence:
         indices = np.frombuffer(read_exact_at_offset(file, N * V * 12 + len(header), I * 4), np.uint32)
         self.i_buf = Buffer.from_data(ctx, indices.tobytes(), BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
 
-        if USE_CPU_BUF:
+        if upload_method == UploadMethod.CPU_BUF:
             self.cpu = LRUPool([CpuBuffer(V * 12, BufferUsageFlags.VERTEX, name=f"cpubuf{i}") for i in range(BUFS)], num_frames, PREFETCH_SIZE)
             self.gpu = None
         else:
             self.cpu = LRUPool([CpuBuffer(V * 12, BufferUsageFlags.TRANSFER_SRC, name=f"cpubuf{i}") for i in range(BUFS)], num_frames, PREFETCH_SIZE)
-            self.gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST, USE_TRANSFER_QUEUE, name=f"gpubuf{i}") for i in range(GPU_BUFFERS)], num_frames, GPU_PREFETCH_SIZE)
+            self.gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST, upload_method == UploadMethod.TRANSFER_QUEUE, name=f"gpubuf{i}") for i in range(GPU_BUFFERS)], num_frames, GPU_PREFETCH_SIZE)
 
-            # Prefetching stuff
+            # GPU prefetching state
             if ctx.has_transfer_queue:
                 self.prefetch_states = [
                     PrefetchState(
@@ -199,7 +215,7 @@ class Sequence:
                 self.pool.submit(buf.promise, self._load, k, buf)
                 buf.promise.get()
 
-        if USE_CPU_BUF:
+        if upload_method == UploadMethod.CPU_BUF:
             cpu_buf = self.cpu.get(self.animation_frame_index, cpu_load, cpu_ensure_fetched)
             self.cpu.use_frame(frame_index, self.animation_frame_index)
 
@@ -208,7 +224,7 @@ class Sequence:
             def gpu_load(k: int, gpu_buf: GpuBuffer):
                 cpu_buf = self.cpu.get(k, cpu_load, cpu_ensure_fetched)
 
-                if BAR_UPLOAD:
+                if upload_method == UploadMethod.BAR:
                     # Upload on CPU through PCIe BAR
                     with profiler.zone("upload"):
                         # If using mapped buffer
@@ -220,13 +236,15 @@ class Sequence:
                     gpu_buf.state = GpuBufferState.RENDER
                 else:
                     self.cpu.use_frame(frame_index, k)
-                    if not USE_TRANSFER_QUEUE:
+                    if upload_method == UploadMethod.GFX:
                         # Upload on gfx queue
                         with profiler.gpu_zone("copy"):
                             cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
                             cmd.memory_barrier(MemoryUsage.TRANSFER_WRITE, MemoryUsage.VERTEX_INPUT)
                         gpu_buf.state = GpuBufferState.RENDER
                     else:
+                        assert upload_method == UploadMethod.TRANSFER_QUEUE
+
                         # Upload on copy queue
                         if gpu_buf.state == GpuBufferState.EMPTY:
                             pass
@@ -279,7 +297,7 @@ class Sequence:
         prefetch_end = prefetch_start + PREFETCH_SIZE
         self.cpu.prefetch([i % self.N for i in range(prefetch_start, prefetch_end)], prefetch_cleanup, prefetch)
 
-        if not USE_CPU_BUF and not BAR_UPLOAD and USE_TRANSFER_QUEUE:
+        if upload_method == UploadMethod.TRANSFER_QUEUE:
             def gpu_prefetch_cleanup(k: int, gpu_buf: GpuBuffer):
                 state = self.prefetch_states_lookup[gpu_buf]
                 if state.fence.is_signaled():
@@ -508,7 +526,7 @@ def draw():
                 copy_wait_semaphores = []
                 copy_signal_semaphores = []
 
-                if USE_TRANSFER_QUEUE:
+                if upload_method == UploadMethod.TRANSFER_QUEUE:
                     with frame.transfer_command_buffer as copy_cmd:
                         profiler.transfer_frame(copy_cmd)
                         for seq in seqs:

@@ -38,6 +38,7 @@ C++:
     - [x] hashmap
     - [x] result
     - [x] framegraph
+- [x] Check support for present modes
 - [ ] Cleanup platform stuff (file IO and threading)
     - maybe pickup a small filesystem library?
     - maybe pickup a small utf8 library too for strings/paths?
@@ -45,7 +46,6 @@ C++:
     - [ ] Embed shaders somehow?
     - [ ] Run with syncrhonization validation and GPU based validation
         - [ ] Completely switch to syncrhonization 2 for submission? Probably need to fix barriers for submit and present at COLOR_ATTACHMENT_OUTPUT stage
-- [ ] Check support for present modes
 
 Python:
 - [x] Check if there is a better way to do imports that works more intuitively
@@ -61,7 +61,7 @@ Python:
         - [x] Memory barrier for buffers?
         - [x] Queue transfer barriers
         - [ ] Low level combined barrier API?
-    - [ ] Helpers for buffer upload with fallback, think about differnt allocation use cases
+    - [x] Helpers for buffer upload with fallback, think about differnt allocation use cases
         Preferred solutions:
         - One time upload at start:
             - if device mapped available use it
@@ -78,19 +78,19 @@ Python:
         can check if device mapped memory is available and then decide for himself.
         - Maybe also think about helpers for copy queue at the same time
         - Plan:
-            [ ] Make with_data use DEVICE_MAPPED with fallback and alloc staging buffer + sync copy transfer if needed
-            [ ] Keep API as it is, create helpers for common use cases
-                [ ] Small data upload (constants) -> device mapped or fallback to upload.
-                [ ] Large upload (streaming) -> If integrated, device mapped or host mapped. If device + staging buffer with upload.
+            [x] Make from_data use DEVICE_MAPPED with fallback and alloc staging buffer + sync copy transfer if needed
+            [x] Keep API as it is, create helpers for common use cases
+                [x] Small data upload (constants) -> device mapped or fallback to upload.
+                [x] Large upload (streaming) -> If integrated, device mapped or host mapped. If device + staging buffer with upload.
     - [x] Cleanup command buffers, queues, sync commands and frame API. See what is the shared functionality and if we can improve this a bit.
 - [ ] Clean examples
     - [x] Headless graphics and compute
     - [x] Minimal
     - [x] Basic app
     - [-] Voxels
-        - Per frame resources
-        - Depth buffer
-        - Mouse interaction
+        - [x] Per frame resources
+        - [x] Depth buffer
+        - [x] Mouse interaction
         - [ ] transform not working properly, z is flipped, likely vulkan viewport? Debug this with proper x,y,z axis drawn
     - [-] Raytrace
         - [x] Fix requires spirv1.4
@@ -165,7 +165,7 @@ Python:
         - [ ] Make use of this to use some fallback when vk_khr_timestamp_calibration is not available
 - [ ] If blocked in process_events -> ctrl+c not working
     - [x] Check if should release GIL
-    - [ ] Check if can get interrupt somehow and unblock the loop (e.g. with glfwPostEmptyEvent)
+    - [x] Check if can get interrupt somehow and unblock the loop (e.g. with glfwPostEmptyEvent)
         - [x] on windows glfw waits on WaitMessage -> an easy workaraound would be to wait with some timoeout
             and check the signals with PyErr_CheckSignals
             - actually glfw does not seem to tell us if any event was received or the timeout expired, which
@@ -173,7 +173,7 @@ Python:
                 - can potentially
             - not sure if we can actually install the signal handler here
             -> Using platform specific SetConsoleCtrlHandler works fine
-        - [ ] check on linux
+        - [x] check on linux -> already works
 - [ ] ImGui:
     - [x] vec2 / vec4
     - [x] Drawlist
@@ -188,6 +188,9 @@ Python:
 - [x] Input callbacks:
     - [x] Add more keys
 - [ ] None converts to a nullptr nb::ref, makes a lot of our code potentially segfault
+    - Opened discussion in nanobind repo
+    - Only applies to containers, can check those manually and throw for now probably
+    -> we have some potentially difficult to debug segfaults but can live with this for now
 
 ## Future
 
