@@ -10,9 +10,9 @@ class UploadableBuffer(Buffer):
 
     def upload(self, cmd: CommandBuffer, usage: MemoryUsage, data: memoryview, offset: int = 0):
         if self.is_mapped:
-            self.view[offset:offset+len(data)] = data
+            self.data[offset:offset+len(data)] = data
         else:
-            self._staging.view[offset:offset+len(data)] = data
+            self._staging.data[offset:offset+len(data)] = data
             cmd.copy_buffer_range(self._staging, self, len(data), src_offset=offset, dest_offset=offset)
             if usage != MemoryUsage.NONE:
                 cmd.memory_barrier(MemoryUsage.TRANSFER_WRITE, usage)

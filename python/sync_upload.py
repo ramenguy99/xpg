@@ -121,7 +121,7 @@ for method in [
         ITERS = min(TARGET_SIZE // N, 1000)
         for _ in range(ITERS):
             if method == Method.BAR or method == Method.HOST:
-                buf.view.data[:] = byt[:]
+                buf.data[:] = byt[:]
             elif method == Method.GFX_COPY:
                     with ctx.sync_commands() as cmd:
                         cmd.copy_buffer(staging, gpu)

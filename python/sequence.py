@@ -18,6 +18,7 @@ from utils.threadpool import ThreadPool, Promise
 from utils.profiler import Profiler, ProfilerFrame, gui_profiler_graph, gui_profiler_list
 from utils.loaders import LRUPool
 from utils.utils import profile, read_exact, read_exact_at_offset, read_exact_at_offset_into
+from utils.buffers import UploadableBuffer
 
 # Config
 VSYNC = True
@@ -76,7 +77,7 @@ class SequencePipeline(Pipeline):
         constants_dt = to_dtype(desc_refl.descriptors["constants"].resource.type)
 
         # Create uniform buffers and write descriptors
-        u_bufs = PerFrameResource(Buffer, window.num_frames, ctx, constants_dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
+        u_bufs = PerFrameResource(UploadableBuffer, window.num_frames, ctx, constants_dt.itemsize, BufferUsageFlags.UNIFORM)
         for set, u_buf in zip(sets.resources, u_bufs.resources):
             set: DescriptorSet
             set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
@@ -192,7 +193,7 @@ class Sequence:
 
     def _load(self, i: int, buf: CpuBuffer, thread_index: int):
         file = self.files[thread_index]
-        read_exact_at_offset_into(file, 12 + i * self.V * 12, buf.buf.view.view())
+        read_exact_at_offset_into(file, 12 + i * self.V * 12, buf.buf.data)
     
     def update(self, frame_index: int, cmd: CommandBuffer, copy_cmd: CommandBuffer,
         copy_wait_semaphores: List,
@@ -228,7 +229,7 @@ class Sequence:
                     # Upload on CPU through PCIe BAR
                     with profiler.zone("upload"):
                         # If using mapped buffer
-                        gpu_buf.buf.view.data[:] = cpu_buf.buf.view.data
+                        gpu_buf.buf.data[:] = cpu_buf.buf.data[:]
                         
                         # Buffer is immediately not in use anymore. Add back to the LRU.
                         # This moves back the buffer to the front of the LRU queue.
@@ -412,18 +413,18 @@ def draw():
     transform = perspectiveZO(fov, ar, 0.01, 100.0) * lookAt(camera_position, camera_target, vec3(0, 1, 0))
 
     descriptor_set = sets.get_current_and_advance()
-    u_buf: Buffer = u_bufs.get_current_and_advance()
+    u_buf: UploadableBuffer = u_bufs.get_current_and_advance()
 
     constants: np.ndarray = np.zeros(1, dtype=constants_dt)
     constants["transform"] = transform
-
-    u_buf.view.data[:] = constants.view(np.uint8).data
 
     # Render
     frame = window.begin_frame()
     additional_wait_semaphores = []
     additional_signal_semaphores = []
     with frame.command_buffer as cmd:
+        u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM_READ, constants.view(np.uint8).data)
+
         prof = profiler.frame(cmd)
 
         if prof and len(profiler_results) < profiler_max_frames:

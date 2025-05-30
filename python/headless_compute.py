@@ -75,7 +75,7 @@ with ctx.sync_commands() as cmd:
 
 # Interpret buffer as image and save it to a file
 print("Reading back...")
-img = PIL.Image.frombuffer("RGBA", [W, H], buf.view, "raw", "RGBA", 0, -1).convert("RGB")
+img = PIL.Image.frombuffer("RGBA", [W, H], buf.data, "raw", "RGBA", 0, -1).convert("RGB")
 
 print("Saving to disk...")
 img.save("headless_compute.png")

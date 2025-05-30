@@ -62,11 +62,6 @@ class ColorPipeline(Pipeline):
         dt = to_dtype(desc_refl.descriptors["u"].resource.type)
 
         # Create a buffer to hold the constants with the required size.
-        #
-        # TODO: this should be per frame, think about if we want a uniform
-        # buffer helper for this kind of thing, something like a ringbuffer
-        # allocator that takes advantage of dynamic uniform buffer offsets.
-        # Implementations must support at least 8 of these.
         u_buf = UploadableBuffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM)
         set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 

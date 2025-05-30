@@ -4,13 +4,13 @@ from typing import List
 
 from pyxpg import *
 from pyglm.glm import vec3, vec4, mat4, mat4x3, rotate, normalize
-import tqdm
 from time import perf_counter
 
 from utils.pipelines import PipelineWatch, Pipeline, clear_cache
 from utils.reflection import to_dtype, DescriptorSetsReflection, to_descriptor_type
 from utils.render import PerFrameResource
 from utils.scene import parse_scene, MaterialParameter, MaterialParameterKind, ImageFormat
+from utils.buffers import UploadableBuffer
 
 scene = parse_scene(Path("res", "bistro.bin"))
 
@@ -52,7 +52,7 @@ class RaytracePipeline(Pipeline):
         self.constants_dt = to_dtype(self.desc_reflection.descriptors["frame.constants"].resource.type)
 
         # Create a buffer to hold the constants with the required size.
-        self.u_bufs = PerFrameResource(Buffer, window.num_frames, ctx, self.constants_dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
+        self.u_bufs = PerFrameResource(UploadableBuffer, window.num_frames, ctx, self.constants_dt.itemsize, BufferUsageFlags.UNIFORM)
         for set_1, u_buf in zip(self.frame_descriptor_sets.resources, self.u_bufs.resources):
             set_1: DescriptorSet
             set_1.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
@@ -143,6 +143,8 @@ assert index_offset == indices.shape[0]
 # Images
 images: List[Image] = []
 
+print("Uploading images... ", end="")
+begin = perf_counter()
 BATCHED_UPLOAD = True
 if BATCHED_UPLOAD:
     largest = 0
@@ -159,41 +161,37 @@ if BATCHED_UPLOAD:
     
     staging = Buffer(ctx, upload_size, BufferUsageFlags.TRANSFER_SRC, alloc_type=AllocType.HOST_WRITE_COMBINING)
     i = 0
-    with tqdm.tqdm(desc="Uploading Images", total=len(scene.images)) as pbar:
-        while i < len(scene.images):
-            # Batched upload
-            batch = 0
-            offset = 0
-            with ctx.sync_commands() as cmd:
-                while i < len(scene.images) and offset + scene.images[i].data.size <= staging.view.size:
-                    image = scene.images[i]
-                    format = 0
-                    if image.format == ImageFormat.RGBA8: format = Format.R8G8B8A8_UNORM
-                    elif image.format == ImageFormat.SRGBA8: format = Format.R8G8B8A8_SRGB
-                    elif image.format == ImageFormat.RGBA8_BC7: format = Format.BC7_UNORM_BLOCK
-                    elif image.format == ImageFormat.SRGBA8_BC7: format = Format.BC7_SRGB_BLOCK
-                    else:
-                        raise ValueError(f"Unhandled image format: {image.format}")
+    while i < len(scene.images):
+        # Batched upload
+        offset = 0
+        with ctx.sync_commands() as cmd:
+            while i < len(scene.images) and offset + scene.images[i].data.size <= staging.size:
+                image = scene.images[i]
+                format = 0
+                if image.format == ImageFormat.RGBA8: format = Format.R8G8B8A8_UNORM
+                elif image.format == ImageFormat.SRGBA8: format = Format.R8G8B8A8_SRGB
+                elif image.format == ImageFormat.RGBA8_BC7: format = Format.BC7_UNORM_BLOCK
+                elif image.format == ImageFormat.SRGBA8_BC7: format = Format.BC7_SRGB_BLOCK
+                else:
+                    raise ValueError(f"Unhandled image format: {image.format}")
 
-                    # Create target image
-                    gpu_img = Image(ctx, image.width, image.height, format, ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE)
-                    images.append(gpu_img)
-                    
-                    # Copy image data to staging buffer
-                    staging.view.data[offset:offset + len(image.data)] = image.data.data[:]
+                # Create target image
+                gpu_img = Image(ctx, image.width, image.height, format, ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE)
+                images.append(gpu_img)
+                
+                # Copy image data to staging buffer
+                staging.data[offset:offset + len(image.data)] = image.data.data[:]
 
-                    # Upload
-                    cmd.use_image(gpu_img, ImageUsage.TRANSFER_DST)
-                    cmd.copy_buffer_to_image(staging, gpu_img, buffer_offset=offset)
-                    cmd.use_image(gpu_img, ImageUsage.SHADER_READ_ONLY)
+                # Upload
+                cmd.use_image(gpu_img, ImageUsage.TRANSFER_DST)
+                cmd.copy_buffer_to_image(staging, gpu_img, buffer_offset=offset)
+                cmd.use_image(gpu_img, ImageUsage.SHADER_READ_ONLY)
 
-                    # Advance image and buffer offset
-                    offset += align_up(image.data.size, alignment)
-                    i += 1
-                    batch += 1
-            pbar.update(batch)
+                # Advance image and buffer offset
+                offset += align_up(image.data.size, alignment)
+                i += 1
 else:
-    for image in tqdm.tqdm(scene.images, "Uploading images"):
+    for image in scene.images:
         format = 0
         if image.format == ImageFormat.RGBA8: format = Format.R8G8B8A8_UNORM
         elif image.format == ImageFormat.SRGBA8: format = Format.R8G8B8A8_SRGB
@@ -210,6 +208,7 @@ else:
             )
         )
 mesh_instances_buf = Buffer.from_data(ctx, mesh_instances.tobytes(), BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED)
+print(f" Took {perf_counter() - begin:.3f}s")
 
 # Acceleration structure
 print("Creating acceleration structures... ", end="")
@@ -269,10 +268,10 @@ def draw():
         constants["camera"]["film_dist"] = 0.7
 
         # Upload constants in a single copy
-        u_buf: Buffer = rt.u_bufs.get_current_and_advance()
-        u_buf.view.data[:] = constants.view(np.uint8).data
+        u_buf: UploadableBuffer = rt.u_bufs.get_current_and_advance()
 
         with frame.command_buffer as cmd:
+            u_buf.upload(cmd, MemoryUsage.COMPUTE_SHADER_UNIFORM_READ, constants.view(np.uint8).data)
             cmd.use_image(output, ImageUsage.IMAGE)
 
             viewport = [0, 0, window.fb_width, window.fb_height]

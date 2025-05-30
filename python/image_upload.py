@@ -39,7 +39,7 @@ if True:
         # Batched upload
         with ctx.sync_commands() as cmd:
             offset = 0
-            while i < len(scene.images) and offset + scene.images[i].data.size <= staging.view.size:
+            while i < len(scene.images) and offset + scene.images[i].data.size <= staging.size:
                 image = scene.images[i]
                 format = 0
                 if image.format == ImageFormat.RGBA8: format = Format.R8G8B8A8_UNORM
@@ -54,7 +54,7 @@ if True:
                 images.append(gpu_img)
                 
                 # Copy image data to staging buffer
-                staging.view.data[offset:offset + len(image.data)] = image.data.data[:]
+                staging.data[offset:offset + len(image.data)] = image.data.data[:]
 
                 # Upload
                 cmd.use_image(gpu_img, ImageUsage.TRANSFER_DST)

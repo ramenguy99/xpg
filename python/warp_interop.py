@@ -160,6 +160,8 @@ def draw():
         with frame.command_buffer as cmd:
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
 
+            # TODO: we technically need a buffer barrier here from external queue family type.
+
             viewport = [0, 0, window.fb_width, window.fb_height]
             with cmd.rendering(viewport,
                 color_attachments=[

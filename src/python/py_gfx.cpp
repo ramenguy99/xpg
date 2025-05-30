@@ -239,10 +239,64 @@ struct Buffer: public GfxObject {
         return self.release();
     }
 
+    static int bf_getbuffer(PyObject *exporter, Py_buffer *view, int flags) {
+        Buffer* self = nb::inst_ptr<Buffer>(exporter);
+
+        if (!self->buffer.map.data) {
+            PyErr_SetString(PyExc_BufferError, "Buffer allocated in non-mappable memory");
+            return -1;
+        }
+
+        // request-independent fields
+        *view = {};
+        view->obj = exporter;
+        view->buf = self->buffer.map.data;
+        view->len = self->buffer.map.length;
+        view->itemsize = 1;
+        view->ndim = 1;
+
+        // readonly, format
+        view->readonly = 0;
+        if(flags & PyBUF_FORMAT) {
+            view->format = (char*)"B";
+        }
+
+        // shape, strides, suboffsets
+        if(flags & PyBUF_ND) {
+            Py_ssize_t* shape = (Py_ssize_t*)PyMem_Malloc(sizeof(Py_ssize_t));
+            *shape = self->buffer.map.length;
+            view->shape = shape;
+        }
+        if(flags & PyBUF_STRIDES) {
+            Py_ssize_t* strides = (Py_ssize_t*)PyMem_Malloc(sizeof(Py_ssize_t));
+            *strides = 1;
+            view->strides = strides;
+        }
+        view->suboffsets = NULL;
+        view->internal = NULL;
+
+        // Increse refcount of this object
+        self->inc_ref();
+        return 0;
+    }
+
+    static void bf_releasebuffer(PyObject *exporter, Py_buffer *view) {
+        PyMem_Free(view->shape);
+        PyMem_Free(view->strides);
+    }
+
     gfx::Buffer buffer = {};
     size_t size = 0;
     std::optional<VkDeviceAddress> device_address;
     nb::ref<AllocInfo> alloc;
+};
+
+PyType_Slot buffer_slots[] = {
+#if PY_VERSION_HEX >= 0x03090000
+    { Py_bf_getbuffer, (void *) Buffer::bf_getbuffer },
+    { Py_bf_releasebuffer, (void *) Buffer::bf_releasebuffer },
+#endif
+    { 0, nullptr }
 };
 
 struct Fence: public GfxObject {
@@ -2716,17 +2770,14 @@ void gfx_create_bindings(nb::module_& m)
         })
     ;
 
-    nb::class_<Buffer, GfxObject>(m, "Buffer")
+    nb::class_<Buffer, GfxObject> buffer_type(m, "Buffer", nb::type_slots(buffer_slots));
+    buffer_type
         .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
         .def("destroy", &Buffer::destroy)
         .def_static("from_data", &Buffer::from_data, nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
-        // .def_static("from_data", &Buffer::from_data_view, nb::arg("ctx"), nb::arg("view"), nb::arg("usage_flags"), nb::arg("alloc_type"))
-        .def_prop_ro("view", [] (Buffer& buffer) {
-            if (!buffer.buffer.map.data) {
-                throw std::runtime_error("Buffer is not mapped");
-            }
-            return nb::ndarray<u8, nb::numpy, nb::shape<-1>>(buffer.buffer.map.data, {buffer.buffer.map.length}, buffer.self_py());
-        }, nb::rv_policy::reference_internal, nb::sig("def view(self) -> numpy.ndarray"))
+        .def_prop_ro("data", [] (Buffer& buffer) {
+            return nb::steal(PyMemoryView_FromObject(buffer.self_py()));
+        }, nb::sig("def data(self) -> memoryview"))
         .def_prop_ro("is_mapped", [](Buffer& buf) {
             return buf.buffer.map.data != 0;
         })
@@ -2743,8 +2794,17 @@ void gfx_create_bindings(nb::module_& m)
                 return nb::str("Buffer(size: {})").format(buf.size); 
             }
         })
+        .def_ro("size", &Buffer::size)
         .def_ro("alloc", &Buffer::alloc)
     ;
+
+#if PY_VERSION_HEX < 0x03090000
+    {
+        PyTypeObject* tp = (PyTypeObject*)buffer_type.ptr();
+        tp->tp_as_buffer->bf_getbuffer = Buffer::bf_getbuffer;
+        tp->tp_as_buffer->bf_releasebuffer = Buffer::bf_releasebuffer;
+    }
+#endif
 
     nb::class_<ExternalBuffer, Buffer>(m, "ExternalBuffer")
         .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"))

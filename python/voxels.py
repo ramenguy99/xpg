@@ -11,6 +11,7 @@ from utils.pipelines import PipelineWatch, Pipeline
 from utils import reflection
 from utils import render
 from utils.camera import Camera
+from utils.buffers import UploadableBuffer
 
 def grid3d(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
     x, y, z = np.meshgrid(x, y, z)
@@ -73,7 +74,11 @@ class VoxelPipeline(Pipeline):
         descs = reflection.DescriptorSetsReflection(refl)
         dt = reflection.to_dtype(descs.descriptors["u"].resource.type)
 
-        u_bufs = render.PerFrameResource(Buffer, window.num_frames, ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
+        u_bufs = render.PerFrameResource(UploadableBuffer, window.num_frames, ctx, dt.itemsize, BufferUsageFlags.UNIFORM)
+        for set, u_buf in zip(descriptor_sets.resources, u_bufs.resources):
+            set: DescriptorSet
+            set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
+
         vert = Shader(ctx, vert_prog.code)
         frag = Shader(ctx, frag_prog.code)
 
@@ -149,18 +154,18 @@ def draw():
     # Render
     with window.frame() as frame:
         # Per frame uploads
-        u_buf: Buffer = u_bufs.get_current_and_advance()
-        u_buf_view = u_buf.view.view(dt)
-        u_buf_view["projection"] = camera.projection()
-        u_buf_view["view"] = camera.view()
-        u_buf_view["camera_pos"] = camera.position
-        u_buf_view["size"] = S
+        constants = np.zeros(1, dt)
+        constants["projection"] = camera.projection()
+        constants["view"] = camera.view()
+        constants["camera_pos"] = camera.position
+        constants["size"] = S
 
+        u_buf: UploadableBuffer = u_bufs.get_current_and_advance()
         set: DescriptorSet = descriptor_sets.get_current_and_advance()
-        set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         # Commands
         with frame.command_buffer as cmd:
+            u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM_READ, constants.view(np.uint8).data)
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
 
             if images_just_created:
