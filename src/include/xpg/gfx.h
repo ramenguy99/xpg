@@ -399,6 +399,7 @@ struct Window
     GLFWwindow* window;
     VkSurfaceKHR surface;
     VkFormat swapchain_format;
+    VkPresentModeKHR present_mode;
     WindowCallbacks callbacks;
 
     // Swapchain

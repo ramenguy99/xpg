@@ -403,6 +403,15 @@ struct Array {
         return ArrayView(*this).slice(index, count);
     }
 
+    bool contains(const T &value) {
+        for (usize i = 0; i < length; i++) {
+            if (data[i] == value) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     T& operator[](usize index) {
 #if BOUNDS_CHECKING_ENABLED
         if(index >= length) {

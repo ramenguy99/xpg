@@ -765,7 +765,7 @@ void WaitIdle(Context& vk) {
 }
 
 Result
-CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize frames, VkSwapchainKHR old_swapchain)
+CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize frames, VkPresentModeKHR present_mode, VkSwapchainKHR old_swapchain)
 {
     // Create swapchain.
     u32 queue_family_indices[] = { vk.queue_family_index };
@@ -796,10 +796,8 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     // See:
     // - Raph levien blog: https://raphlinus.github.io/rust/gui/2019/06/21/smooth-resize-test.html
     // - Winit discussion: https://github.com/rust-windowing/winit/issues/786
-    swapchain_info.presentMode = vk.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_MAILBOX_KHR;
-    // swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
-    // swapchain_info.presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
-    // swapchain_info.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+    // swapchain_info.presentMode = vk.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_MAILBOX_KHR;
+    swapchain_info.presentMode = present_mode;
     swapchain_info.oldSwapchain = old_swapchain;
 
     VkSwapchainKHR swapchain;
@@ -848,6 +846,7 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     w->image_views = move(image_views);
     w->fb_width = fb_width;
     w->fb_height = fb_height;
+    w->present_mode = present_mode;
 
     return Result::SUCCESS;
 }
@@ -886,7 +885,7 @@ SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
     logging::trace("gfx/swapchain", "Added stale swapchain. Total: %llu", w->stale_swapchains.length);
 #endif
 
-    Result result = CreateSwapchain(w, vk, w->surface, w->swapchain_format, new_width, new_height, w->images.length, old_swapchain);
+    Result result = CreateSwapchain(w, vk, w->surface, w->swapchain_format, new_width, new_height, w->images.length, w->present_mode, old_swapchain);
     if (result != Result::SUCCESS) {
         return SwapchainStatus::FAILED;
     }
@@ -1129,6 +1128,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     if (surface_capabilities.maxImageCount > 0) {
         num_frames = Min<u32>(num_frames, surface_capabilities.maxImageCount);
     }
+    logging::info("gfx/window", "Swapchain frames: %d", num_frames);
 
     // Retrieve supported surface formats.
     // TODO: smarter format picking logic (HDR / non sRGB displays).
@@ -1164,7 +1164,32 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     u32 fb_width = surface_capabilities.currentExtent.width;
     u32 fb_height = surface_capabilities.currentExtent.height;
 
-    Result res = CreateSwapchain(w, vk, surface, format, fb_width, fb_height, num_frames, VK_NULL_HANDLE);
+    // Default to FIFO, this is always supported.
+    VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+
+    // If vsync is disabled check if MAILBOX or IMMEDIATE is supported.
+    if (!vk.vsync) {
+        u32 supported_present_mode_count = 0;
+        result = vkGetPhysicalDeviceSurfacePresentModesKHR(vk.physical_device, surface, &supported_present_mode_count, 0);
+        if (result != VK_SUCCESS) {
+            logging::warning("gfx/window", "first vkGetPhysicalDeviceSurfacePresentModesKHR failed: %d", result);
+        } else {
+            Array<VkPresentModeKHR> supported_present_modes(supported_present_mode_count);
+            result = vkGetPhysicalDeviceSurfacePresentModesKHR(vk.physical_device, surface, &supported_present_mode_count, supported_present_modes.data);
+            if (result != VK_SUCCESS) {
+                logging::warning("gfx/window", "second vkGetPhysicalDeviceSurfacePresentModesKHR failed: %d", result);
+            } else {
+                if (supported_present_modes.contains(VK_PRESENT_MODE_MAILBOX_KHR)) {
+                    present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+                } else if (supported_present_modes.contains(VK_PRESENT_MODE_IMMEDIATE_KHR)) {
+                    present_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+                }
+            }
+        }
+    }
+    logging::info("gfx/window", "Swapchain present mode: %s", string_VkPresentModeKHR(present_mode));
+
+    Result res = CreateSwapchain(w, vk, surface, format, fb_width, fb_height, num_frames, present_mode, VK_NULL_HANDLE);
     if (res != Result::SUCCESS) {
         return res;
     }
@@ -1177,7 +1202,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
         // Graphics commands
         {
             VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-            pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;// | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+            pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
             pool_info.queueFamilyIndex = vk.queue_family_index;
 
             result = vkCreateCommandPool(vk.device, &pool_info, 0, &frame.command_pool);
