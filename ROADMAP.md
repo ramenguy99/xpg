@@ -120,7 +120,7 @@ Python:
         - [x] Async upload with copy queue
         - [x] Keyboard input
         - [x] Handle throws in threadpool jobs
-        - [ ] Integrated GPU does not have transfer queue, therefore prefers using CPU buffers directly. Use physical device type to switch strategy.
+        - [x] Integrated GPU does not have transfer queue, therefore prefers using CPU buffers directly. Use physical device type to switch strategy.
         - [ ] Stop pre-fetching if we detect skipping for most frames? Keep skip statistics?
     - [ ] Warp interop
         - [ ] Requires instructions to build warp from our branch
@@ -133,7 +133,7 @@ Python:
             vs what is useful for pipeline instantiation and can be done only once at start.
             [x] maybe add other hooks / callbacks to Pipeline object to make this split more obvious
                 init vs create seems useful, even though they both need reflection, can just call it twice at start
-            [-] maybe add helpers that are commonly used in this kind of pipeline creation step
+            [x] maybe add helpers that are commonly used in this kind of pipeline creation step
                 (keep in mind that often some inputs / logic comes from outside). Do this later with more apps / viewer.
     - [x] Fix reflection serialization / deserialization
     - [-] Slang not outputting binding decoration when using parameter block, but reflection seems to get it? Bug in slang?
@@ -163,7 +163,7 @@ Python:
     - [ ] Would be nice to have optional features and check if they are supported later. Not clear what's easiest way to do this.
           And how to handle priorities / scores.
         - [ ] Make use of this to use some fallback when vk_khr_timestamp_calibration is not available
-- [ ] If blocked in process_events -> ctrl+c not working
+- [x] If blocked in process_events -> ctrl+c not working
     - [x] Check if should release GIL
     - [x] Check if can get interrupt somehow and unblock the loop (e.g. with glfwPostEmptyEvent)
         - [x] on windows glfw waits on WaitMessage -> an easy workaraound would be to wait with some timoeout
