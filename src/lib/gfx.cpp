@@ -1595,16 +1595,49 @@ CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, cons
         return vkr;
     }
 
-    void* addr = 0;
-    vkr = vmaMapMemory(vk.vma, buffer->allocation, &addr);
-    if (vkr != VK_SUCCESS) {
-        return vkr;
+    // If allocation is already persistenly mapped, just do the memcpy
+    if (buffer->map.data) {
+        buffer->map.copy_exact(data);
+    } else {
+        // Check if allocation can be mapped
+        VkMemoryPropertyFlags memPropFlags;
+        vmaGetAllocationMemoryProperties(vk.vma, buffer->allocation, &memPropFlags);
+        if(memPropFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+            // Let VMA do the map, copy, unmap steps
+            vkr = vmaCopyMemoryToAllocation(vk.vma, data.data, buffer->allocation, 0, data.length);
+            if (vkr != VK_SUCCESS) {
+                return vkr;
+            }
+        } else {
+            // Allocate a staging buffer and do the copy through commands
+            Buffer staging = {};
+            vkr = CreateBuffer(&staging, vk, data.length, {
+                .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                .alloc = AllocPresets::HostWriteCombining,
+            });
+
+            if (vkr != VK_SUCCESS) {
+                DestroyBuffer(buffer, vk);
+                return vkr;
+            }
+
+            // Copy into staging buffer
+            staging.map.copy_exact(data);
+
+            // Upload
+            BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
+            CmdCopyBuffer(vk.sync_command_buffer, {
+                .src = staging.buffer,
+                .dest = buffer->buffer,
+                .size = data.length,
+            });
+            EndCommands(vk.sync_command_buffer);
+            SubmitSync(vk);
+
+            // Free staging buffer
+            DestroyBuffer(&staging, vk);
+        }
     }
-
-    ArrayView<u8> map((u8*)addr, data.length);
-    map.copy_exact(data);
-
-    vmaUnmapMemory(vk.vma, buffer->allocation);
 
     return VK_SUCCESS;
 }

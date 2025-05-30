@@ -217,7 +217,7 @@ struct Buffer: public GfxObject {
     //     return 0;
     // }
 
-    static nb::ref<Buffer> from_data_bytes(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type) {
+    static nb::ref<Buffer> from_data(nb::ref<Context> ctx, const nb::bytes& data, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type) {
         std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx, data.size());
 
         VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)data.data(), data.size()), {
@@ -2719,7 +2719,7 @@ void gfx_create_bindings(nb::module_& m)
     nb::class_<Buffer, GfxObject>(m, "Buffer")
         .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
         .def("destroy", &Buffer::destroy)
-        .def_static("from_data", &Buffer::from_data_bytes, nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def_static("from_data", &Buffer::from_data, nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
         // .def_static("from_data", &Buffer::from_data_view, nb::arg("ctx"), nb::arg("view"), nb::arg("usage_flags"), nb::arg("alloc_type"))
         .def_prop_ro("view", [] (Buffer& buffer) {
             if (!buffer.buffer.map.data) {
