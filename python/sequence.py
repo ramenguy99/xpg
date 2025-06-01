@@ -172,7 +172,7 @@ class Sequence:
             self.gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST, upload_method == UploadMethod.TRANSFER_QUEUE, name=f"gpubuf{i}") for i in range(GPU_BUFFERS)], num_frames, GPU_PREFETCH_SIZE)
 
             # GPU prefetching state
-            if ctx.has_transfer_queue:
+            if upload_method == UploadMethod.TRANSFER_QUEUE:
                 self.prefetch_states = [
                     PrefetchState(
                         commands=CommandBuffer(ctx, queue_family_index=ctx.transfer_queue_family_index),
