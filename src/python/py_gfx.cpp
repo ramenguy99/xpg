@@ -336,7 +336,7 @@ struct Fence: public GfxObject {
     }
 
     void wait() {
-        vkWaitForFences(ctx->vk.device, 1, &fence, VK_TRUE, ~0);
+        vkWaitForFences(ctx->vk.device, 1, &fence, VK_TRUE, ~0U);
     }
     void reset() {
         vkResetFences(ctx->vk.device, 1, &fence);
@@ -1589,7 +1589,7 @@ struct CommandsManager: public nb::intrusive_base {
                 throw std::runtime_error("Fence must not be None if wait_and_reset_fence is True");
             }
 
-            vkWaitForFences(cmd->ctx->vk.device, 1, &fence, VK_TRUE, ~0);
+            vkWaitForFences(cmd->ctx->vk.device, 1, &fence, VK_TRUE, ~0U);
             vkResetFences(cmd->ctx->vk.device, 1, &fence);
         }
     }
@@ -2370,7 +2370,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("presentation") = true,
             nb::arg("preferred_frames_in_flight") = 2,
             nb::arg("vsync") = true,
-            nb::arg("force_physical_device_index") = (u32)~0,
+            nb::arg("force_physical_device_index") = ~0U,
             nb::arg("prefer_discrete_gpu") = true,
             nb::arg("enable_validation_layer") = false,
             nb::arg("enable_gpu_based_validation") = false,

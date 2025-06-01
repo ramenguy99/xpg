@@ -20,6 +20,7 @@ imgui.ini
 /build-deploy
 /build-test
 /build-slang
+/build-msvc
 
 /install
 /install-deploy

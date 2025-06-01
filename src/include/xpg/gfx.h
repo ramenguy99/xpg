@@ -151,7 +151,7 @@ struct Context
 struct ContextDesc {
     u32 minimum_api_version;
 
-    u32 force_physical_device_index = ~0;
+    u32 force_physical_device_index = ~0U;
     bool prefer_discrete_gpu = true;
     DeviceFeatures required_features = 0;
     DeviceFeatures optional_features = 0;

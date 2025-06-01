@@ -39,6 +39,7 @@ C++:
     - [x] result
     - [x] framegraph
 - [x] Check support for present modes
+- [ ] Cleanup gfx wrappers -> do not like alloca / dynamic alloc, maybe should just wrap the vulkan types for defaults?
 - [ ] Cleanup platform stuff (file IO and threading)
     - maybe pickup a small filesystem library?
     - maybe pickup a small utf8 library too for strings/paths?

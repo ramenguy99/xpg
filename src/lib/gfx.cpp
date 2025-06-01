@@ -11,7 +11,7 @@
 
 // #define COPY_QUEUE_INDEX 2
 
-// TODO: this technically works, but applications need to be aware of this.
+// FEATURE: this technically works, but applications need to be aware of this.
 // When using this, application resize logic is much more complicated, as it needs
 // to delay freeing objects in use. This appears to also fix flickering / artifacts
 // on image resize.
@@ -41,13 +41,9 @@ VulkanDebugReportCallback(VkDebugReportFlagsEXT flags,
     const char* pLayerPrefix, const char* pMessage, void* pUserData)
 {
     // This silences warnings like "For optimal performance image layout should be VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL instead of GENERAL."
-    // We'll assume other performance warnings are also not useful.
-    // 
-    // TODO: make this configurable, we might want to enable it at some point
     // 
     // if (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
     //     return VK_FALSE;
-
     if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
         logging::error("gfx/validation", "%s", pMessage);
     }
@@ -210,10 +206,16 @@ struct GenericFeatureStruct {
 };
 
 template<size_t F, size_t E>
-struct FeatureDependencies {
+struct FeatureAndExtensionDependencies {
     DeviceFeatures::Flags flag;
     GenericFeatureStruct* features_req[F];
     GenericFeatureStruct* features_sup[F];
+    const char*  extensions[E];
+};
+
+template<size_t E>
+struct ExtensionDependencies {
+    DeviceFeatures::Flags flag;
     const char*  extensions[E];
 };
 
@@ -492,7 +494,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     CHAIN(host_query_reset_features, DeviceFeatures::HOST_QUERY_RESET);
 
     // Feature dependencies
-    FeatureDependencies<1, 3> dynamic_rendering_deps = {
+    FeatureAndExtensionDependencies<1, 3> dynamic_rendering_deps = {
         .flag = DeviceFeatures::DYNAMIC_RENDERING,
         .features_req = { (GenericFeatureStruct*)&dynamic_rendering_features },
         .features_sup = { (GenericFeatureStruct*)&dynamic_rendering_features_sup },
@@ -503,28 +505,28 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         },
     };
 
-    FeatureDependencies<1, 1> synchronization_2_deps = {
+    FeatureAndExtensionDependencies<1, 1> synchronization_2_deps = {
         .flag = DeviceFeatures::SYNCHRONIZATION_2,
         .features_req = { (GenericFeatureStruct*)&synchronization_2_features },
         .features_sup = { (GenericFeatureStruct*)&synchronization_2_features_sup },
         .extensions = { VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME },
     };
 
-    FeatureDependencies<1, 1> scalar_block_layout_deps = {
+    FeatureAndExtensionDependencies<1, 1> scalar_block_layout_deps = {
         .flag = DeviceFeatures::SCALAR_BLOCK_LAYOUT,
         .features_req = { (GenericFeatureStruct*)&scalar_block_layout_features },
         .features_sup = { (GenericFeatureStruct*)&scalar_block_layout_features_sup },
         .extensions = { VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME },
     };
 
-    FeatureDependencies<1, 1> descriptor_indexing_deps = {
+    FeatureAndExtensionDependencies<1, 1> descriptor_indexing_deps = {
         .flag = DeviceFeatures::DESCRIPTOR_INDEXING,
         .features_req = { (GenericFeatureStruct*)&descriptor_indexing_features },
         .features_sup = { (GenericFeatureStruct*)&descriptor_indexing_features_sup },
         .extensions = { VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME },
     };
 
-    FeatureDependencies<4, 7> ray_query_deps = {
+    FeatureAndExtensionDependencies<4, 7> ray_query_deps = {
         .flag = DeviceFeatures::RAY_QUERY,
         .features_req = { 
             (GenericFeatureStruct*)&descriptor_indexing_features,
@@ -549,7 +551,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         },
     };
 
-    FeatureDependencies<4, 7> ray_tracing_pipeline_deps = {
+    FeatureAndExtensionDependencies<4, 7> ray_tracing_pipeline_deps = {
         .flag = DeviceFeatures::RAY_TRACING_PIPELINE,
         .features_req = { 
             (GenericFeatureStruct*)&descriptor_indexing_features,
@@ -574,14 +576,14 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         },
     };
 
-    FeatureDependencies<1, 1> host_query_reset_deps = {
+    FeatureAndExtensionDependencies<1, 1> host_query_reset_deps = {
         .flag = DeviceFeatures::HOST_QUERY_RESET,
         .features_req = { (GenericFeatureStruct*)&host_query_reset_features },
         .features_sup = { (GenericFeatureStruct*)&host_query_reset_features_sup },
         .extensions = { VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME },
     };
 
-    FeatureDependencies<0, 2> external_resources_deps = {
+    ExtensionDependencies<2> external_resources_deps = {
         .flag = DeviceFeatures::EXTERNAL_RESOURCES,
         .extensions = {
 #ifdef _WIN32
@@ -594,7 +596,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         },
     };
 
-    FeatureDependencies<0, 1> calibrated_timestamps_deps = {
+    ExtensionDependencies<1> calibrated_timestamps_deps = {
         .flag = DeviceFeatures::CALIBRATED_TIMESTAMPS,
         .extensions = {
             VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME,
@@ -684,11 +686,9 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             }
         }
 
-        // TODO: driver version depending on vendor ID (AMD, Intel, Nvidia, MoltenVK?)
         char driver_version[64] = {};
-
-        // NVIDIA
         if (properties.vendorID == 4318) {
+            // NVIDIA
             snprintf(driver_version, sizeof(driver_version), "%u.%u.%u.%u",
                 (properties.driverVersion >> 22)  & 0x3FF,
                 (properties.driverVersion >> 14)  & 0xFF,
@@ -697,8 +697,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             );
         }
 #ifdef _WIN32
-        // Intel on windows
         else if (properties.vendorID == 0x8086) {
+            // Intel on windows
             snprintf(driver_version, sizeof(driver_version), "%u.%u",
                 properties.driverVersion >> 14,
                 properties.driverVersion & 0x3FFF
@@ -730,44 +730,59 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             features.pNext = sup_next;
             vkGetPhysicalDeviceFeatures2(physical_devices[i], &features);
 
-#define CHECK_SUPPORTED(o) \
+#define CHECK_FEATURES(o) \
+            bool all_features_supported = true; \
+            for (usize i = 0; i < ArrayCount(o##_deps.features_sup); i++ ) { \
+                if (!CheckAllSupported(*o##_deps.features_req[i], *o##_deps.features_sup[i])) { \
+                    all_features_supported = false; \
+                    break; \
+                } \
+            } \
+
+#define CHECK_EXTENSIONS(o) \
+            bool all_extensions_supported = true; \
+            for (usize i = 0; i < ArrayCount(o##_deps.extensions); i++) { \
+                bool found = false; \
+                for (usize j = 0; j < extensions.length; j++) { \
+                    if (strcmp(o##_deps.extensions[i], extensions[j].extensionName) == 0) { \
+                        found = true; \
+                        break; \
+                    } \
+                } \
+                if (!found) { \
+                    all_extensions_supported = false; \
+                    break; \
+                } \
+            } \
+
+#define CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(o) \
             if (features_to_check & o##_deps.flag) { \
-                bool all_features_supported = true; \
-                for (usize i = 0; i < ArrayCount(o##_deps.features_sup); i++ ) { \
-                    if (!CheckAllSupported(*o##_deps.features_req[i], *o##_deps.features_sup[i])) { \
-                        all_features_supported = false; \
-                        break; \
-                    } \
-                } \
-                bool all_extensions_supported = true; \
-                for (usize i = 0; i < ArrayCount(o##_deps.extensions); i++) { \
-                    bool found = false; \
-                    for (usize j = 0; j < extensions.length; j++) { \
-                        if (strcmp(o##_deps.extensions[i], extensions[j].extensionName) == 0) { \
-                            found = true; \
-                            break; \
-                        } \
-                    } \
-                    if (!found) { \
-                        all_extensions_supported = false; \
-                        break; \
-                    } \
-                } \
+                CHECK_FEATURES(o) \
+                CHECK_EXTENSIONS(o) \
                 logging::trace("gfx/device", "%-25s | features: %s, extensions: %s", #o, all_features_supported ? "yes" : " no", all_extensions_supported ? "yes" : " no"); \
                 if (all_features_supported && all_extensions_supported) { \
                     info.supported_features = info.supported_features | o##_deps.flag; \
                 } \
             }
 
-            CHECK_SUPPORTED(dynamic_rendering);
-            CHECK_SUPPORTED(synchronization_2);
-            CHECK_SUPPORTED(descriptor_indexing);
-            CHECK_SUPPORTED(scalar_block_layout);
-            CHECK_SUPPORTED(ray_query);
-            CHECK_SUPPORTED(ray_tracing_pipeline);
-            CHECK_SUPPORTED(external_resources);
-            CHECK_SUPPORTED(host_query_reset);
-            CHECK_SUPPORTED(calibrated_timestamps);
+#define CHECK_SUPPORTED_EXTENSIONS(o) \
+            if (features_to_check & o##_deps.flag) { \
+                CHECK_EXTENSIONS(o) \
+                logging::trace("gfx/device", "%-25s | extensions: %s", #o, all_extensions_supported ? "yes" : " no"); \
+                if (all_extensions_supported) { \
+                    info.supported_features = info.supported_features | o##_deps.flag; \
+                } \
+            }
+
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(dynamic_rendering);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(synchronization_2);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(descriptor_indexing);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(scalar_block_layout);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(ray_query);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(ray_tracing_pipeline);
+            CHECK_SUPPORTED_EXTENSIONS(external_resources);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(host_query_reset);
+            CHECK_SUPPORTED_EXTENSIONS(calibrated_timestamps);
 
             logging::trace("gfx/debug", "Supported features: 0x%x", info.supported_features);
 
@@ -805,7 +820,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             continue;
         }
 
-        static const u32 INVALID_PHYSICAL_DEVICE_INDEX = ~0;
+        static const u32 INVALID_PHYSICAL_DEVICE_INDEX = ~0U;
         bool force_device = desc.force_physical_device_index != INVALID_PHYSICAL_DEVICE_INDEX;
 
         bool picked = false;
@@ -859,36 +874,48 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     if (desc.require_presentation) enabled_extensions.add("VK_KHR_swapchain");
 
     // Deduplicate features and extensions. This is O(n^2) without a set, but we don't suport enough features yet to care.
-#define ENABLE_FEATURE(o) \
+
+#define ENABLE_FEATURES(o) \
+    for (usize i = 0; i < ArrayCount(o##_deps.features_req); i++ ) { \
+        if (!enabled_features.contains(o##_deps.features_req[i])) { \
+            enabled_features.add(o##_deps.features_req[i]); \
+        } \
+    } \
+
+#define ENABLE_EXTENSIONS(o) \
+    for (usize i = 0; i < ArrayCount(o##_deps.extensions); i++ ) { \
+        bool found = false; \
+        for (usize j = 0; j < enabled_extensions.length; j++) { \
+            if (strcmp(o##_deps.extensions[i], enabled_extensions[j]) == 0) { \
+                found = true; \
+                break; \
+            } \
+        } \
+        if (!found) { \
+            enabled_extensions.add(o##_deps.extensions[i]); \
+        } \
+    } \
+
+#define ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(o) \
     if (picked_info.supported_features & o##_deps.flag) { \
-        for (usize i = 0; i < ArrayCount(o##_deps.features_req); i++ ) { \
-            if (!enabled_features.contains(o##_deps.features_req[i])) { \
-                enabled_features.add(o##_deps.features_req[i]); \
-            } \
-        } \
-        for (usize i = 0; i < ArrayCount(o##_deps.extensions); i++ ) { \
-            bool found = false; \
-            for (usize j = 0; j < enabled_extensions.length; j++) { \
-                if (strcmp(o##_deps.extensions[i], enabled_extensions[j]) == 0) { \
-                    found = true; \
-                    break; \
-                } \
-            } \
-            if (!found) { \
-                enabled_extensions.add(o##_deps.extensions[i]); \
-            } \
-        } \
+        ENABLE_FEATURES(o) \
+        ENABLE_EXTENSIONS(o) \
     }
 
-    ENABLE_FEATURE(dynamic_rendering);
-    ENABLE_FEATURE(synchronization_2);
-    ENABLE_FEATURE(descriptor_indexing);
-    ENABLE_FEATURE(scalar_block_layout);
-    ENABLE_FEATURE(ray_query);
-    ENABLE_FEATURE(ray_tracing_pipeline);
-    ENABLE_FEATURE(external_resources);
-    ENABLE_FEATURE(host_query_reset);
-    ENABLE_FEATURE(calibrated_timestamps);
+#define ENABLE_EXTENSIONS_IF_SUPPORTED(o) \
+    if (picked_info.supported_features & o##_deps.flag) { \
+        ENABLE_EXTENSIONS(o) \
+    }
+
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(dynamic_rendering);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(synchronization_2);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(descriptor_indexing);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(scalar_block_layout);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(ray_query);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(ray_tracing_pipeline);
+    ENABLE_EXTENSIONS_IF_SUPPORTED(external_resources);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(host_query_reset);
+    ENABLE_EXTENSIONS_IF_SUPPORTED(calibrated_timestamps);
 
     void* enabled_next = 0;
     for (usize i = 0; i < enabled_features.length; i++) {
@@ -936,6 +963,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         return Result::DEVICE_CREATION_FAILED;
     }
 
+    // FEATURE: enable VMA extensions if supported
     VmaAllocatorCreateInfo vma_info = {};
     vma_info.flags = desc.required_features & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_TRACING_PIPELINE) ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT : 0; // Optionally set here that we externally synchronize.
     vma_info.instance = instance;
@@ -1405,7 +1433,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     logging::info("gfx/window", "Swapchain frames: %d", num_frames);
 
     // Retrieve supported surface formats.
-    // TODO: smarter format picking logic (HDR / non sRGB displays).
+    // FEATURE: smarter format picking logic (HDR / non sRGB displays).
     u32 formats_count;
     result = vkGetPhysicalDeviceSurfaceFormatsKHR(vk.physical_device, surface, &formats_count, 0);
     if (result != VK_SUCCESS || formats_count == 0) {
@@ -1981,7 +2009,7 @@ VkResult CreatePoolForBuffer(VmaPool* pool, const Context& vk, const PoolBufferD
     }
 
     // Create pool that can be exported
-    // TODO: on win32 the cuda samples also specifies a VkExportMemoryWin32HandleInfoKHR for read/write permission and security attributes, see if this still works without it
+    // NOTE: on win32 the cuda samples also specifies a VkExportMemoryWin32HandleInfoKHR for read/write permission and security attributes, but on our system it seems to work without this
 
     VmaPoolCreateInfo pool_info = {};
     pool_info.memoryTypeIndex = mem_type_index;
