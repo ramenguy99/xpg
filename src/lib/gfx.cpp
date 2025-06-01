@@ -1495,6 +1495,28 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
             }
         }
 
+        // Async compute commands, if queue is available
+        if (vk.compute_queue != VK_NULL_HANDLE) {
+            VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+            pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+            pool_info.queueFamilyIndex = vk.compute_queue_family_index;
+
+            result = vkCreateCommandPool(vk.device, &pool_info, 0, &frame.compute_command_pool);
+            if (result != VK_SUCCESS) {
+                return Result::API_OUT_OF_MEMORY;
+            }
+
+            VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+            allocate_info.commandPool = frame.compute_command_pool;
+            allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocate_info.commandBufferCount = 1;
+
+            result = vkAllocateCommandBuffers(vk.device, &allocate_info, &frame.compute_command_buffer);
+            if (result != VK_SUCCESS) {
+                return Result::API_OUT_OF_MEMORY;
+            }
+        }
+
         // Copy commands, if queue is available
         if (vk.copy_queue != VK_NULL_HANDLE) {
             VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
@@ -1553,6 +1575,11 @@ DestroyWindowWithSwapchain(Window* w, const Context& vk)
 
         vkFreeCommandBuffers(vk.device, frame.command_pool, 1, &frame.command_buffer);
         vkDestroyCommandPool(vk.device, frame.command_pool, 0);
+
+        if(vk.compute_queue) {
+            vkFreeCommandBuffers(vk.device, frame.compute_command_pool, 1, &frame.compute_command_buffer);
+            vkDestroyCommandPool(vk.device, frame.compute_command_pool, 0);
+        }
 
         if(vk.copy_queue) {
             vkFreeCommandBuffers(vk.device, frame.copy_command_pool, 1, &frame.copy_command_buffer);

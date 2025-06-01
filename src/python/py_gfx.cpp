@@ -1288,6 +1288,7 @@ struct Frame: public nb::intrusive_base {
 
     gfx::Frame& frame;
     nb::ref<CommandBuffer> command_buffer;
+    std::optional<nb::ref<CommandBuffer>> compute_command_buffer;
     std::optional<nb::ref<CommandBuffer>> transfer_command_buffer;
     nb::ref<Window> window;
     nb::ref<Image> image;
@@ -1608,6 +1609,9 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
     image = new Image(window->ctx, frame.current_image, frame.current_image_view, window->window.fb_width, window->window.fb_height);
     image->current_state.last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     command_buffer = new CommandBuffer(window->ctx, frame.command_pool, frame.command_buffer);
+    if (window->ctx->vk.compute_queue) {
+        compute_command_buffer = new CommandBuffer(window->ctx, frame.compute_command_pool, frame.compute_command_buffer);
+    }
     if (window->ctx->vk.copy_queue) {
         transfer_command_buffer = new CommandBuffer(window->ctx, frame.copy_command_pool, frame.copy_command_buffer);
     }
@@ -2397,11 +2401,20 @@ void gfx_create_bindings(nb::module_& m)
             return ctx.device_properties;
         })
         .def_ro("memory_properties", &Context::memory_properties)
+        .def_prop_ro("has_compute_queue", [](Context& ctx) {
+            return ctx.vk.compute_queue != VK_NULL_HANDLE;
+        })
         .def_prop_ro("has_transfer_queue", [](Context& ctx) {
             return ctx.vk.copy_queue != VK_NULL_HANDLE;
         })
         .def_prop_ro("graphics_queue_family_index", [](Context& ctx) {
             return ctx.vk.queue_family_index;
+        })
+        .def_prop_ro("compute_queue_family_index", [](Context& ctx) {
+            if (ctx.vk.compute_queue == VK_NULL_HANDLE) {
+                throw std::runtime_error("Compute queue not supported by device");
+            }
+            return ctx.vk.compute_queue_family_index;
         })
         .def_prop_ro("transfer_queue_family_index", [](Context& ctx) {
             if (ctx.vk.copy_queue == VK_NULL_HANDLE) {
@@ -2451,6 +2464,12 @@ void gfx_create_bindings(nb::module_& m)
             return std::make_tuple(timestamps[0], timestamps[1]);
         })
         .def_prop_ro("queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { return new Queue(ctx, ctx->vk.queue); })
+        .def_prop_ro("compute_queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { 
+            if (ctx->vk.compute_queue == VK_NULL_HANDLE) {
+                throw std::runtime_error("Compute queue not supported by device");
+            }
+            return new Queue(ctx, ctx->vk.compute_queue); 
+        })
         .def_prop_ro("transfer_queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { 
             if (ctx->vk.copy_queue == VK_NULL_HANDLE) {
                 throw std::runtime_error("Transfer queue not supported by device");
@@ -2469,6 +2488,13 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<Frame>([](Frame *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def_ro("command_buffer", &Frame::command_buffer)
         .def_ro("image", &Frame::image)
+        .def("compute_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<nb::ref<Semaphore>> signal_semaphores) {
+            if (!frame.compute_command_buffer.has_value()) {
+                nb::raise("Device does not support compute queue. Check Context.has_compute_queue to know if it's supported.");
+            }
+            return new CommandsManager(frame.compute_command_buffer.value(), frame.window->ctx->vk.compute_queue, wait_semaphores, signal_semaphores, VK_NULL_HANDLE, false);
+        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("signal_semaphores") = nb::list())
+        .def_ro("compute_command_buffer", &Frame::compute_command_buffer)
         .def("transfer_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<nb::ref<Semaphore>> signal_semaphores) {
             if (!frame.transfer_command_buffer.has_value()) {
                 nb::raise("Device does not support transfer queue. Check Context.has_transfer_queue to know if it's supported.");

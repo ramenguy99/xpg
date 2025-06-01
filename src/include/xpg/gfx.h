@@ -203,6 +203,9 @@ struct Frame
     VkCommandPool command_pool;
     VkCommandBuffer command_buffer;
 
+    VkCommandPool compute_command_pool;
+    VkCommandBuffer compute_command_buffer;
+
     VkCommandPool copy_command_pool;
     VkCommandBuffer copy_command_buffer;
 
