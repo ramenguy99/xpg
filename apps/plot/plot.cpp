@@ -1556,7 +1556,6 @@ int main(int argc, char** argv) {
     gfx::Context vk = {};
     result = gfx::CreateContext(&vk, {
         .minimum_api_version = (u32)VK_API_VERSION_1_0,
-        .device_features = gfx::DeviceFeatures::PRESENTATION,
         .enable_validation_layer = enable_vulkan_validation,
     });
     if (result != gfx::Result::SUCCESS) {

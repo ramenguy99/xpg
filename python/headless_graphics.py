@@ -2,11 +2,12 @@ from pyxpg import *
 import PIL.Image
 import numpy as np
 
-# Initialize without DeviceFeatures.PRESENTATION for headless
+# Initialize without presentation for headless mode
 print("Initializing context...")
 ctx = Context(
     version=(1, 1),
-    device_features=DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.DYNAMIC_RENDERING,
+    required_features=DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.DYNAMIC_RENDERING,
+    presentation=False,
     enable_validation_layer=True,
     enable_synchronization_validation=True,
 )

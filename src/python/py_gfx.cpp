@@ -93,13 +93,17 @@ struct DeviceProperties: public nb::intrusive_base {
 struct Context: public nb::intrusive_base {
     Context(
         std::tuple<u32, u32> version,
-        gfx::DeviceFeatures::DeviceFeaturesFlags device_features,
+        gfx::DeviceFeatures::Flags required_features,
+        gfx::DeviceFeatures::Flags optional_features,
+        bool presentation,
         u32 preferred_frames_in_flight,
         bool vsync,
+        u32 force_physical_device_index, 
+        bool prefer_discrete_gpu,
         bool enable_validation_layer,
         bool enable_gpu_based_validation,
         bool enable_synchronization_validation
-    ) : features(device_features)
+    )
     {
         gfx::Result result;
         result = gfx::Init();
@@ -109,7 +113,11 @@ struct Context: public nb::intrusive_base {
 
         result = gfx::CreateContext(&vk, {
             .minimum_api_version = VK_MAKE_API_VERSION(0, std::get<0>(version), std::get<1>(version), 0),
-            .device_features = device_features,
+            .force_physical_device_index = force_physical_device_index,
+            .prefer_discrete_gpu = prefer_discrete_gpu,
+            .required_features = required_features,
+            .optional_features = optional_features,
+            .require_presentation = presentation,
             .preferred_frames_in_flight = preferred_frames_in_flight,
             .vsync = vsync,
             .enable_validation_layer = enable_validation_layer,
@@ -139,7 +147,6 @@ struct Context: public nb::intrusive_base {
     gfx::Context vk;
     nb::ref<DeviceProperties> device_properties;
     nb::ref<MemoryProperties> memory_properties;
-    gfx::DeviceFeatures::DeviceFeaturesFlags features;
 };
 
 struct GfxObject: public nb::intrusive_base {
@@ -2191,15 +2198,14 @@ void gfx_create_bindings(nb::module_& m)
         })
     ;
 
-    nb::enum_<gfx::DeviceFeatures::DeviceFeaturesFlags>(m, "DeviceFeatures", nb::is_flag(), nb::is_arithmetic())
+    nb::enum_<gfx::DeviceFeatures::Flags>(m, "DeviceFeatures", nb::is_flag())
         .value("NONE",                  gfx::DeviceFeatures::NONE)
-        .value("PRESENTATION",          gfx::DeviceFeatures::PRESENTATION)
         .value("DYNAMIC_RENDERING",     gfx::DeviceFeatures::DYNAMIC_RENDERING)
         .value("SYNCHRONIZATION_2",     gfx::DeviceFeatures::SYNCHRONIZATION_2)
         .value("DESCRIPTOR_INDEXING",   gfx::DeviceFeatures::DESCRIPTOR_INDEXING)
         .value("SCALAR_BLOCK_LAYOUT",   gfx::DeviceFeatures::SCALAR_BLOCK_LAYOUT)
         .value("RAY_QUERY",             gfx::DeviceFeatures::RAY_QUERY)
-        .value("RAY_PIPELINE",          gfx::DeviceFeatures::RAY_PIPELINE)
+        .value("RAY_PIPELINE",          gfx::DeviceFeatures::RAY_TRACING_PIPELINE)
         .value("EXTERNAL_RESOURCES",    gfx::DeviceFeatures::EXTERNAL_RESOURCES)
         .value("HOST_QUERY_RESET",      gfx::DeviceFeatures::HOST_QUERY_RESET)
         .value("CALIBRATED_TIMESTAMPS", gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)
@@ -2353,11 +2359,15 @@ void gfx_create_bindings(nb::module_& m)
         
     nb::class_<Context>(m, "Context",
         nb::intrusive_ptr<Context>([](Context *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<std::tuple<u32, u32>, gfx::DeviceFeatures::DeviceFeaturesFlags, u32, bool, bool, bool, bool>(),
+        .def(nb::init<std::tuple<u32, u32>, gfx::DeviceFeatures::Flags, gfx::DeviceFeatures::Flags, bool, u32, bool, u32, bool, bool, bool, bool>(),
             nb::arg("version") = std::make_tuple(1, 1),
-            nb::arg("device_features") = gfx::DeviceFeatures::DeviceFeaturesFlags(gfx::DeviceFeatures::PRESENTATION | gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::SYNCHRONIZATION_2),
+            nb::arg("required_features") = gfx::DeviceFeatures::Flags(gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::SYNCHRONIZATION_2),
+            nb::arg("optional_features") = gfx::DeviceFeatures::Flags(gfx::DeviceFeatures::NONE),
+            nb::arg("presentation") = true,
             nb::arg("preferred_frames_in_flight") = 2,
             nb::arg("vsync") = true,
+            nb::arg("force_physical_device_index") = (u32)~0,
+            nb::arg("prefer_discrete_gpu") = true,
             nb::arg("enable_validation_layer") = false,
             nb::arg("enable_gpu_based_validation") = false,
             nb::arg("enable_synchronization_validation") = false
@@ -2380,7 +2390,9 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("version", [](Context& ctx) {
             return nb::make_tuple(VK_API_VERSION_MAJOR(ctx.vk.device_version), VK_API_VERSION_MINOR(ctx.vk.device_version));
         })
-        .def_ro("device_features", &Context::features)
+        .def_prop_ro("device_features", [](Context& ctx) {
+            return ctx.vk.device_features.flags;
+        })
         .def_prop_ro("device_properties", [](Context& ctx) {
             return ctx.device_properties;
         })
@@ -2401,13 +2413,13 @@ void gfx_create_bindings(nb::module_& m)
             return ctx.vk.timestamp_period_ns;
         })
         .def("reset_query_pool", [](Context& ctx, const QueryPool& pool) {
-            if (!(ctx.features & gfx::DeviceFeatures::HOST_QUERY_RESET)) {
+            if (!(ctx.vk.device_features & gfx::DeviceFeatures::HOST_QUERY_RESET)) {
                 throw std::runtime_error("Device feature HOST_QUERY_RESET must be set to use Context.reset_query_pool");
             }
             vkResetQueryPoolEXT(ctx.vk.device, pool.pool, 0, pool.count);
         })
         .def("get_calibrated_timestamps", [](Context& ctx) -> std::tuple<u64, u64> {
-            if (!(ctx.features & gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)) {
+            if (!(ctx.vk.device_features & gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)) {
                 throw std::runtime_error("Device feature HOST_QUERY_RESET must be set to use Context.get_calibrated_timestamps");
             }
 

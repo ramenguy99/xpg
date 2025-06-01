@@ -11,7 +11,7 @@ import warp as wp
 
 ctx = Context(
     version=(1, 1),
-    device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION | DeviceFeatures.EXTERNAL_RESOURCES, 
+    required_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.EXTERNAL_RESOURCES, 
     enable_validation_layer=True,
     enable_synchronization_validation=True,
 )

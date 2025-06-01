@@ -15,10 +15,9 @@ from utils.buffers import UploadableBuffer
 scene = parse_scene(Path("res", "bistro.bin"))
 
 ctx = Context(
-    device_features=
+    required_features=
         DeviceFeatures.DYNAMIC_RENDERING |
         DeviceFeatures.SYNCHRONIZATION_2 |
-        DeviceFeatures.PRESENTATION |
         DeviceFeatures.DESCRIPTOR_INDEXING |
         DeviceFeatures.SCALAR_BLOCK_LAYOUT |
         DeviceFeatures.RAY_QUERY, 

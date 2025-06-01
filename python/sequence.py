@@ -27,7 +27,7 @@ GPU_PREFETCH_SIZE = 2
 PREFETCH_SIZE = 2
 
 ctx = Context(
-    device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.CALIBRATED_TIMESTAMPS, 
+    required_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.CALIBRATED_TIMESTAMPS, 
     enable_validation_layer=True,
     enable_synchronization_validation=True,
     preferred_frames_in_flight=2,

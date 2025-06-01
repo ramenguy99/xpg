@@ -59,54 +59,57 @@ enum class Result
     WINDOW_CREATION_FAILED,
 };
 
-// TODO:
-// Currently we only support picking a device that supports all the features
-// we need, and fail otherwise.
-// 
-// Other ways that we can potentially pick a device:
-// - Callback based, all burden is on app
-// - Discrete / Integrated preference or force
-// - Optional features (with priorities / scores)
-// - By number, XPG environment variable override (or app specific way, e.g. cli arg, config file)
 struct DeviceFeatures {
-    enum DeviceFeaturesFlags {
-        NONE                  =      0,
-        PRESENTATION          = 1 << 0,
-        DYNAMIC_RENDERING     = 1 << 1,
-        SYNCHRONIZATION_2     = 1 << 2,
-        DESCRIPTOR_INDEXING   = 1 << 3,
-        SCALAR_BLOCK_LAYOUT   = 1 << 4,
-        RAY_QUERY             = 1 << 5,
-        RAY_PIPELINE          = 1 << 6,
-        EXTERNAL_RESOURCES    = 1 << 7,
-        HOST_QUERY_RESET      = 1 << 8,
-        CALIBRATED_TIMESTAMPS = 1 << 9,
+    enum Flags: u64 {
+        NONE                  =         0,
+        DYNAMIC_RENDERING     = 1ull << 0,
+        SYNCHRONIZATION_2     = 1ull << 1,
+        DESCRIPTOR_INDEXING   = 1ull << 2,
+        SCALAR_BLOCK_LAYOUT   = 1ull << 3,
+        RAY_QUERY             = 1ull << 4,
+        RAY_TRACING_PIPELINE  = 1ull << 5,
+        EXTERNAL_RESOURCES    = 1ull << 6,
+        HOST_QUERY_RESET      = 1ull << 7,
+        CALIBRATED_TIMESTAMPS = 1ull << 8,
     };
 
-    DeviceFeatures(DeviceFeaturesFlags flags): flags(flags) {}
-    DeviceFeatures(uint64_t flags): flags((DeviceFeaturesFlags)flags) {}
+    DeviceFeatures() {};
+    DeviceFeatures(Flags flags): flags(flags) {}
+    DeviceFeatures(uint64_t flags): flags((Flags)flags) {}
 
     operator bool() {
         return (uint64_t)flags != 0;
     }
 
-    DeviceFeatures operator|(const DeviceFeaturesFlags& b) const {
-        return (DeviceFeaturesFlags)((uint64_t)flags | (uint64_t)b);
+    DeviceFeatures operator|(const Flags& b) const {
+        return (Flags)((uint64_t)flags | (uint64_t)b);
     }
 
     DeviceFeatures operator|(const DeviceFeatures& b) const {
-        return (DeviceFeaturesFlags)((uint64_t)flags | (uint64_t)b.flags);
+        return (Flags)((uint64_t)flags | (uint64_t)b.flags);
     }
 
-    DeviceFeatures operator&(const DeviceFeaturesFlags& b) const {
-        return (DeviceFeaturesFlags)((uint64_t)flags & (uint64_t)b);
+    DeviceFeatures operator&(const Flags& b) const {
+        return (Flags)((uint64_t)flags & (uint64_t)b);
     }
 
     DeviceFeatures operator&(const DeviceFeatures& b) const {
-        return (DeviceFeaturesFlags)((uint64_t)flags & (uint64_t)b.flags);
+        return (Flags)((uint64_t)flags & (uint64_t)b.flags);
     }
 
-    DeviceFeaturesFlags flags;
+    DeviceFeatures operator~() const {
+        return (Flags)(~(uint64_t)flags);
+    }
+
+    bool operator==(const DeviceFeatures& b) const {
+        return ((uint64_t)flags == (uint64_t)b.flags);
+    }
+
+    bool operator!=(const DeviceFeatures& b) const {
+        return ((uint64_t)flags != (uint64_t)b.flags);
+    }
+
+    Flags flags = Flags::NONE;
 };
 
 //- Context
@@ -117,13 +120,21 @@ struct Context
     VkInstance instance;
     VkPhysicalDevice physical_device;
     VkDevice device;
-    VkQueue queue;
+    DeviceFeatures device_features;
     float timestamp_period_ns;
+    
+    VkQueue queue;
     u32 queue_family_index;
     bool queue_timestamp_queries;
+
+    VkQueue compute_queue;
+    u32 compute_queue_family_index;
+    bool compute_queue_timestamp_queries;
+
     VkQueue copy_queue;
     u32 copy_queue_family_index;
     bool copy_queue_timestamp_queries;
+
     VmaAllocator vma;
     u32 preferred_frames_in_flight;
     bool vsync;
@@ -139,9 +150,14 @@ struct Context
 
 struct ContextDesc {
     u32 minimum_api_version;
-    DeviceFeatures device_features;
+
+    u32 force_physical_device_index = ~0;
+    bool prefer_discrete_gpu = true;
+    DeviceFeatures required_features = 0;
+    DeviceFeatures optional_features = 0;
 
     // Only used if presentation is requested
+    bool require_presentation = false;
     u32 preferred_frames_in_flight = 2;
     bool vsync = true;
 

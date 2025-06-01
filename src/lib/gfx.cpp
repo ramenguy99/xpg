@@ -209,12 +209,48 @@ struct GenericFeatureStruct {
     VkBool32 values[1];
 };
 
+template<size_t F, size_t E>
+struct FeatureDependencies {
+    DeviceFeatures::Flags flag;
+    GenericFeatureStruct* features_req[F];
+    GenericFeatureStruct* features_sup[F];
+    const char*  extensions[E];
+};
+
+struct PhysicalDeviceInfo {
+    u32 device_api_version = 0;
+    VkPhysicalDeviceType device_type = VK_PHYSICAL_DEVICE_TYPE_OTHER;
+
+    DeviceFeatures supported_features = DeviceFeatures::NONE;
+
+    u32 queue_family_index = VK_QUEUE_FAMILY_IGNORED;
+    u32 compute_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
+    u32 copy_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
+
+    float timestamp_period = false;
+    bool queue_timestamp_queries = false;
+    bool compute_queue_timestamp_queries = false;
+    bool copy_queue_timestamp_queries = false;
+};
+
 template <typename T>
-void Chain(GenericFeatureStruct* parent, T* child) {
+void Chain(void** parent_next, T* child) {
     static_assert(sizeof(T) >= sizeof(GenericFeatureStruct), "Feature struct must be equal or larger than GenericFeatureStruct");
 
-    child->pNext = parent->pNext;
-    parent->pNext = child;
+    child->pNext = *parent_next;
+    *parent_next = child;
+}
+
+template <typename T>
+void ClearFeatures(T& features) {
+    static_assert(sizeof(T) >= sizeof(GenericFeatureStruct), "Feature struct must be equal or larger than GenericFeatureStruct");
+    static_assert((sizeof(T) - offsetof(GenericFeatureStruct, values)) % sizeof(VkBool32) == 0, "Fields in feature struct must have size that is a multiple of boolean size");
+
+    GenericFeatureStruct* feat = (GenericFeatureStruct*)&features;
+    constexpr size_t count = (sizeof(T) - offsetof(GenericFeatureStruct, values)) / sizeof(VkBool32);
+    for(usize i = 0; i < count ; i++) {
+        feat->values[i] = VK_FALSE;
+    }
 }
 
 template <typename T>
@@ -235,6 +271,7 @@ bool CheckAllSupported(const T& requested, const T& supported) {
     }
     return all_supported;
 }
+
 
 Result
 CreateContext(Context* vk, const ContextDesc&& desc)
@@ -299,7 +336,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
     // Instance extensions
     Array<const char*> instance_extensions;
-    if (desc.device_features & DeviceFeatures::PRESENTATION) {
+    if (desc.require_presentation) {
         u32 glfw_instance_extensions_count;
         const char** glfw_instance_extensions = glfwGetRequiredInstanceExtensions(&glfw_instance_extensions_count);
         for (u32 i = 0; i < glfw_instance_extensions_count; i++) {
@@ -376,30 +413,37 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     }
 
     // Requested device features
-    GenericFeatureStruct req_chain = {};
-    GenericFeatureStruct sup_chain = {};
+    DeviceFeatures features_to_check = desc.required_features | desc.optional_features;
+    if (desc.required_features & (DeviceFeatures::RAY_TRACING_PIPELINE | DeviceFeatures::RAY_QUERY)) {
+        features_to_check = features_to_check | DeviceFeatures::DESCRIPTOR_INDEXING;
+    }
+
+    void* sup_next = {};
 
     #define CHAIN(o, flags) \
         decltype(o) o##_sup = { o.sType }; \
         bool o##_sup_check = false; \
-        if (desc.device_features & (flags)) { \
+        if (features_to_check & ((DeviceFeatures)flags)) { \
             o##_sup_check = true; \
-            Chain(&req_chain, &o); \
-            Chain(&sup_chain, &o##_sup); \
+            Chain(&sup_next, &o##_sup); \
         }
     
+    // Dynamic rendering
     VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR};
     dynamic_rendering_features.dynamicRendering = VK_TRUE;
     CHAIN(dynamic_rendering_features, DeviceFeatures::DYNAMIC_RENDERING);
 
+    // Synchronization 2
     VkPhysicalDeviceSynchronization2FeaturesKHR synchronization_2_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR};
     synchronization_2_features.synchronization2 = true;
     CHAIN(synchronization_2_features, DeviceFeatures::SYNCHRONIZATION_2);
 
+    // Scalar block layout
     VkPhysicalDeviceScalarBlockLayoutFeaturesEXT scalar_block_layout_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT};
     scalar_block_layout_features.scalarBlockLayout = true;
     CHAIN(scalar_block_layout_features, DeviceFeatures::SCALAR_BLOCK_LAYOUT);
 
+    // Descriptor indexing
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT};
     // descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing = VK_TRUE;
     // descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing = VK_TRUE;
@@ -423,25 +467,139 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
     CHAIN(descriptor_indexing_features, DeviceFeatures::DESCRIPTOR_INDEXING);
 
-    VkPhysicalDeviceHostQueryResetFeaturesEXT host_query_reset_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES_EXT };
-    host_query_reset_features.hostQueryReset = VK_TRUE;
-    CHAIN(host_query_reset_features, DeviceFeatures::HOST_QUERY_RESET);
-
+    // Raytracing
     VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR};
     buffer_device_address_features.bufferDeviceAddress = VK_TRUE;
-    CHAIN(buffer_device_address_features, DeviceFeatures::RAY_PIPELINE | DeviceFeatures::RAY_QUERY);
+    CHAIN(buffer_device_address_features, DeviceFeatures::RAY_TRACING_PIPELINE | DeviceFeatures::RAY_QUERY);
 
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
     acceleration_structure_features.accelerationStructure = VK_TRUE;
-    CHAIN(acceleration_structure_features, DeviceFeatures::RAY_PIPELINE | DeviceFeatures::RAY_QUERY);
+    CHAIN(acceleration_structure_features, DeviceFeatures::RAY_TRACING_PIPELINE | DeviceFeatures::RAY_QUERY);
 
+    // - Ray query
     VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
     ray_query_features.rayQuery = VK_TRUE;
     CHAIN(ray_query_features, DeviceFeatures::RAY_QUERY);
 
+    // - Ray tracing pipeline
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
     ray_tracing_pipeline_features.rayTracingPipeline = VK_TRUE;
-    CHAIN(ray_tracing_pipeline_features, DeviceFeatures::RAY_PIPELINE);
+    CHAIN(ray_tracing_pipeline_features, DeviceFeatures::RAY_TRACING_PIPELINE);
+
+    // Host query reset
+    VkPhysicalDeviceHostQueryResetFeaturesEXT host_query_reset_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES_EXT };
+    host_query_reset_features.hostQueryReset = VK_TRUE;
+    CHAIN(host_query_reset_features, DeviceFeatures::HOST_QUERY_RESET);
+
+    // Feature dependencies
+    FeatureDependencies<1, 3> dynamic_rendering_deps = {
+        .flag = DeviceFeatures::DYNAMIC_RENDERING,
+        .features_req = { (GenericFeatureStruct*)&dynamic_rendering_features },
+        .features_sup = { (GenericFeatureStruct*)&dynamic_rendering_features_sup },
+        .extensions = {
+            VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME,
+            VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME,
+            VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME
+        },
+    };
+
+    FeatureDependencies<1, 1> synchronization_2_deps = {
+        .flag = DeviceFeatures::SYNCHRONIZATION_2,
+        .features_req = { (GenericFeatureStruct*)&synchronization_2_features },
+        .features_sup = { (GenericFeatureStruct*)&synchronization_2_features_sup },
+        .extensions = { VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME },
+    };
+
+    FeatureDependencies<1, 1> scalar_block_layout_deps = {
+        .flag = DeviceFeatures::SCALAR_BLOCK_LAYOUT,
+        .features_req = { (GenericFeatureStruct*)&scalar_block_layout_features },
+        .features_sup = { (GenericFeatureStruct*)&scalar_block_layout_features_sup },
+        .extensions = { VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME },
+    };
+
+    FeatureDependencies<1, 1> descriptor_indexing_deps = {
+        .flag = DeviceFeatures::DESCRIPTOR_INDEXING,
+        .features_req = { (GenericFeatureStruct*)&descriptor_indexing_features },
+        .features_sup = { (GenericFeatureStruct*)&descriptor_indexing_features_sup },
+        .extensions = { VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME },
+    };
+
+    FeatureDependencies<4, 7> ray_query_deps = {
+        .flag = DeviceFeatures::RAY_QUERY,
+        .features_req = { 
+            (GenericFeatureStruct*)&descriptor_indexing_features,
+            (GenericFeatureStruct*)&buffer_device_address_features,
+            (GenericFeatureStruct*)&acceleration_structure_features,
+            (GenericFeatureStruct*)&ray_query_features,
+        },
+        .features_sup = { 
+            (GenericFeatureStruct*)&descriptor_indexing_features_sup,
+            (GenericFeatureStruct*)&buffer_device_address_features_sup,
+            (GenericFeatureStruct*)&acceleration_structure_features_sup,
+            (GenericFeatureStruct*)&ray_query_features_sup,
+        },
+        .extensions = {
+            VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
+            VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+            VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
+            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+            VK_KHR_SPIRV_1_4_EXTENSION_NAME,
+            VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
+            VK_KHR_RAY_QUERY_EXTENSION_NAME,
+        },
+    };
+
+    FeatureDependencies<4, 7> ray_tracing_pipeline_deps = {
+        .flag = DeviceFeatures::RAY_TRACING_PIPELINE,
+        .features_req = { 
+            (GenericFeatureStruct*)&descriptor_indexing_features,
+            (GenericFeatureStruct*)&buffer_device_address_features,
+            (GenericFeatureStruct*)&acceleration_structure_features,
+            (GenericFeatureStruct*)&ray_tracing_pipeline_features,
+        },
+        .features_sup = { 
+            (GenericFeatureStruct*)&descriptor_indexing_features_sup,
+            (GenericFeatureStruct*)&buffer_device_address_features_sup,
+            (GenericFeatureStruct*)&acceleration_structure_features_sup,
+            (GenericFeatureStruct*)&ray_tracing_pipeline_features_sup,
+        },
+        .extensions = {
+            VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
+            VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+            VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
+            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+            VK_KHR_SPIRV_1_4_EXTENSION_NAME,
+            VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
+            VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+        },
+    };
+
+    FeatureDependencies<1, 1> host_query_reset_deps = {
+        .flag = DeviceFeatures::HOST_QUERY_RESET,
+        .features_req = { (GenericFeatureStruct*)&host_query_reset_features },
+        .features_sup = { (GenericFeatureStruct*)&host_query_reset_features_sup },
+        .extensions = { VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME },
+    };
+
+    FeatureDependencies<0, 2> external_resources_deps = {
+        .flag = DeviceFeatures::EXTERNAL_RESOURCES,
+        .extensions = {
+#ifdef _WIN32
+            VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+            VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
+#else
+            VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
+            VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
+#endif
+        },
+    };
+
+    FeatureDependencies<0, 1> calibrated_timestamps_deps = {
+        .flag = DeviceFeatures::CALIBRATED_TIMESTAMPS,
+        .extensions = {
+            VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME,
+        },
+    };
 
     // Enumerate and choose a physical devices.
     u32 physical_device_count = 0;
@@ -458,69 +616,25 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         return Result::API_OUT_OF_MEMORY;
     }
 
-    VkPhysicalDevice physical_device = 0;
 
-    u32 picked_queue_family_index = 0;
-    u32 picked_copy_queue_family_index = 0;
-    bool picked_queue_family_found = false;
-    bool picked_copy_queue_family_found = false;
-    
-    float picked_timestamp_period = false;
-    bool picked_queue_timestamp_queries = false;
-    bool picked_copy_queue_timestamp_queries = false;
+    u32 picked_index = physical_device_count;
+    PhysicalDeviceInfo picked_info = {};
 
-    bool picked_discrete = false;
-    u32 picked_device_api_version = 0;
     for (u32 i = 0; i < physical_device_count; i++) {
+        PhysicalDeviceInfo info = {};
+
         // Check device properties
         VkPhysicalDeviceProperties properties = {};
         vkGetPhysicalDeviceProperties(physical_devices[i], &properties);
-        if (properties.apiVersion < desc.minimum_api_version) {
-            continue;
-        }
+        info.device_api_version = properties.apiVersion;
 
-        // TODO: vkGetPhysicalDeviceProperties2, support more / vendor specific device information
-
-        // Check if all features we need are supported. To simplify the logic we skip this
-        // if we require vulkan 1.0 and assume the only feature you can request then is
-        // PRESENTATION.
-        bool all_features_supported = true;
-        if (instance_version >= VK_API_VERSION_1_1) {
-            VkPhysicalDeviceFeatures2 features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-            features.pNext = sup_chain.pNext;
-
-            vkGetPhysicalDeviceFeatures2(physical_devices[i], &features);
-
-            // TODO: would be nice to add tracing logs here for debugging this kind of stuff.
-#define CHECK_SUPPORTED(o) \
-            if (o##_sup_check) { \
-                all_features_supported = all_features_supported && CheckAllSupported(o, o##_sup); \
-            }
-
-            CHECK_SUPPORTED(dynamic_rendering_features);
-            CHECK_SUPPORTED(synchronization_2_features);
-            CHECK_SUPPORTED(scalar_block_layout_features);
-            CHECK_SUPPORTED(descriptor_indexing_features);
-            CHECK_SUPPORTED(buffer_device_address_features);
-            CHECK_SUPPORTED(acceleration_structure_features);
-            CHECK_SUPPORTED(ray_query_features);
-            CHECK_SUPPORTED(ray_tracing_pipeline_features);
-        }
-        if(!all_features_supported) {
-            continue;
-        }
+        // GPU type
+        info.device_type = properties.deviceType;
 
         // Timetsamp support
-        float timestamp_period = properties.limits.timestampPeriod;
-        bool queue_timestamp_queries = false;
-        bool copy_queue_timestamp_queries = false;
+        info.timestamp_period = properties.limits.timestampPeriod;
 
         // Check queues
-        u32 queue_family_index = 0;
-        u32 copy_queue_family_index = 0;
-        bool queue_family_found = false;
-        bool copy_queue_family_found = false;
-
         u32 queue_family_property_count = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(physical_devices[i], &queue_family_property_count, 0);
         Array<VkQueueFamilyProperties> queue_family_properties(queue_family_property_count);
@@ -530,8 +644,9 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         for (u32 j = 0; j < queue_family_property_count; j++) {
             VkQueueFamilyProperties& prop = queue_family_properties[j];
             if(prop.queueCount > 0) {
+                logging::trace("gfx/device", "Queue %d | flags: 0x%x", j, prop.queueFlags);
                 if(prop.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                    if(!queue_family_found) {
+                    if(info.queue_family_index == VK_QUEUE_FAMILY_IGNORED) {
                         // NOTE: Doing this properly requires a surface, to support this we would need to delay queue choice after creating a window.
                         // Order of dependencies is then: instance -> window -> physical device + queue family -> device -> everthing else
                         // There is actually a platform specific version of this that does not require a window:
@@ -544,137 +659,287 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                         // The actual API would be:
                         //     VkBool32 presentationSupport = false;
                         //     vkGetPhysicalDeviceSurfaceSupportKHR(physical_devices[i], j, surface, &presentationSupport);
-                        int presentation_ok = !(desc.device_features & DeviceFeatures::PRESENTATION) || glfwGetPhysicalDevicePresentationSupport(instance, physical_devices[i], j);
+                        bool supports_presentation = glfwGetPhysicalDevicePresentationSupport(instance, physical_devices[i], j);
+                        int presentation_ok = !desc.require_presentation || supports_presentation;
 
                         if (presentation_ok) {
-                            queue_family_index = j;
-                            queue_family_found = true;
-                            queue_timestamp_queries = timestamp_period > 0 && properties.limits.timestampComputeAndGraphics && prop.timestampValidBits > 0;
+                            info.queue_family_index = j;
+                            info.queue_timestamp_queries = info.timestamp_period > 0 && properties.limits.timestampComputeAndGraphics && prop.timestampValidBits > 0;
+                            if (supports_presentation) {
+                                logging::trace("gfx/device", "    picked for presentation");
+                            }
                         }
                     }
                 } else if(prop.queueFlags & VK_QUEUE_COMPUTE_BIT) {
-                    // TODO: async compute queue
+                    if(info.compute_queue_family_index == VK_QUEUE_FAMILY_IGNORED) {
+                        info.compute_queue_family_index = j;
+                        info.compute_queue_timestamp_queries = info.timestamp_period > 0 && properties.limits.timestampComputeAndGraphics && prop.timestampValidBits > 0;
+                    }
                 } else if(prop.queueFlags & VK_QUEUE_TRANSFER_BIT) {
-                    if(!copy_queue_family_found) {
-                        copy_queue_family_index = j;
-                        copy_queue_family_found = true;
-                        copy_queue_timestamp_queries = timestamp_period > 0 && prop.timestampValidBits > 0;
+                    if(info.copy_queue_family_index == VK_QUEUE_FAMILY_IGNORED) {
+                        info.copy_queue_family_index = j;
+                        info.copy_queue_timestamp_queries = info.timestamp_period > 0 && prop.timestampValidBits > 0;
                     }
                 }
             }
         }
-        if(!queue_family_found) {
+
+        // TODO: driver version depending on vendor ID (AMD, Intel, Nvidia, MoltenVK?)
+        char driver_version[64] = {};
+
+        // NVIDIA
+        if (properties.vendorID == 4318) {
+            snprintf(driver_version, sizeof(driver_version), "%u.%u.%u.%u",
+                (properties.driverVersion >> 22)  & 0x3FF,
+                (properties.driverVersion >> 14)  & 0xFF,
+                (properties.driverVersion >> 6)  & 0xFF,
+                properties.driverVersion & 0x3F
+            );
+        }
+#ifdef _WIN32
+        // Intel on windows
+        else if (properties.vendorID == 0x8086) {
+            snprintf(driver_version, sizeof(driver_version), "%u.%u",
+                properties.driverVersion >> 14,
+                properties.driverVersion & 0x3FFF
+            );
+        }
+#endif
+        else {
+            snprintf(driver_version, sizeof(driver_version), "%u.%u.%u",
+                VK_API_VERSION_MAJOR(properties.driverVersion), VK_API_VERSION_MINOR(properties.driverVersion), VK_API_VERSION_PATCH(properties.driverVersion)
+            );
+        }
+
+        logging::info("gfx/device", "Physical device %u:\n    Name: %s\n    Vulkan version: %u.%u.%u\n    Drivers version: %s\n    Vendor ID: %u\n    Device ID: %u\n    Device type: %s\n    QueueFamily: 0x%x\n    ComputeQueueFamily: 0x%x\n    CopyQueueFamily: 0x%x\n",
+            i, properties.deviceName,
+            VK_API_VERSION_MAJOR(properties.apiVersion), VK_API_VERSION_MINOR(properties.apiVersion), VK_API_VERSION_PATCH(properties.apiVersion),
+            driver_version, properties.vendorID, properties.deviceID, string_VkPhysicalDeviceType(properties.deviceType),
+            info.queue_family_index, info.compute_queue_family_index, info.copy_queue_family_index);
+
+
+        // Check if all features we need are supported.
+        if (instance_version >= VK_API_VERSION_1_1) {
+            u32 extensions_count = 0;
+            vkEnumerateDeviceExtensionProperties(physical_devices[i], 0, &extensions_count, 0);
+
+            Array<VkExtensionProperties> extensions(extensions_count);
+            vkEnumerateDeviceExtensionProperties(physical_devices[i], 0, &extensions_count, extensions.data);
+
+            VkPhysicalDeviceFeatures2 features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+            features.pNext = sup_next;
+            vkGetPhysicalDeviceFeatures2(physical_devices[i], &features);
+
+#define CHECK_SUPPORTED(o) \
+            if (features_to_check & o##_deps.flag) { \
+                bool all_features_supported = true; \
+                for (usize i = 0; i < ArrayCount(o##_deps.features_sup); i++ ) { \
+                    if (!CheckAllSupported(*o##_deps.features_req[i], *o##_deps.features_sup[i])) { \
+                        all_features_supported = false; \
+                        break; \
+                    } \
+                } \
+                bool all_extensions_supported = true; \
+                for (usize i = 0; i < ArrayCount(o##_deps.extensions); i++) { \
+                    bool found = false; \
+                    for (usize j = 0; j < extensions.length; j++) { \
+                        if (strcmp(o##_deps.extensions[i], extensions[j].extensionName) == 0) { \
+                            found = true; \
+                            break; \
+                        } \
+                    } \
+                    if (!found) { \
+                        all_extensions_supported = false; \
+                        break; \
+                    } \
+                } \
+                logging::trace("gfx/device", "%-25s | features: %s, extensions: %s", #o, all_features_supported ? "yes" : " no", all_extensions_supported ? "yes" : " no"); \
+                if (all_features_supported && all_extensions_supported) { \
+                    info.supported_features = info.supported_features | o##_deps.flag; \
+                } \
+            }
+
+            CHECK_SUPPORTED(dynamic_rendering);
+            CHECK_SUPPORTED(synchronization_2);
+            CHECK_SUPPORTED(descriptor_indexing);
+            CHECK_SUPPORTED(scalar_block_layout);
+            CHECK_SUPPORTED(ray_query);
+            CHECK_SUPPORTED(ray_tracing_pipeline);
+            CHECK_SUPPORTED(external_resources);
+            CHECK_SUPPORTED(host_query_reset);
+            CHECK_SUPPORTED(calibrated_timestamps);
+
+            logging::trace("gfx/debug", "Supported features: 0x%x", info.supported_features);
+
+            // We clear the supported flags here. It's not obvious if the spec requires this, but I assume that if
+            // a device does not know about a feature struct, it might also not know how large it is and might not
+            // be able to clear it.
+#define CLEAR(o, flags) \
+            if (features_to_check & ((DeviceFeatures)flags)) { \
+                ClearFeatures(o##_sup); \
+            }
+
+            CLEAR(dynamic_rendering_features, DeviceFeatures::DYNAMIC_RENDERING);
+            CLEAR(synchronization_2_features, DeviceFeatures::SYNCHRONIZATION_2);
+            CLEAR(scalar_block_layout_features, DeviceFeatures::SCALAR_BLOCK_LAYOUT);
+            CLEAR(descriptor_indexing_features, DeviceFeatures::DESCRIPTOR_INDEXING);
+            CLEAR(buffer_device_address_features, DeviceFeatures::RAY_TRACING_PIPELINE | DeviceFeatures::RAY_QUERY);
+            CLEAR(acceleration_structure_features, DeviceFeatures::RAY_TRACING_PIPELINE | DeviceFeatures::RAY_QUERY);
+            CLEAR(ray_query_features, DeviceFeatures::RAY_QUERY);
+            CLEAR(ray_tracing_pipeline_features, DeviceFeatures::RAY_TRACING_PIPELINE);
+            CLEAR(host_query_reset_features, DeviceFeatures::HOST_QUERY_RESET);
+        }
+
+        if (properties.apiVersion < desc.minimum_api_version) {
+            logging::info("gfx/device", "Discarded because device API version (%u.%u.%u) is below required API version (%u.%u.%u)",
+                VK_API_VERSION_MAJOR(properties.apiVersion), VK_API_VERSION_MINOR(properties.apiVersion), VK_API_VERSION_PATCH(properties.apiVersion),
+                VK_API_VERSION_MAJOR(desc.minimum_api_version), VK_API_VERSION_MINOR(desc.minimum_api_version), VK_API_VERSION_PATCH(desc.minimum_api_version));
+            continue;
+        }
+        if (info.queue_family_index == VK_QUEUE_FAMILY_IGNORED) {
+            logging::info("gfx/device", "Discarded because no suitable queue found");
+            continue;
+        }
+        if ((info.supported_features & desc.required_features) != desc.required_features) {
+            logging::info("gfx/device", "Discarded because does not support all required features. Missing features: 0x%zx", (~info.supported_features & desc.required_features).flags);
             continue;
         }
 
+        static const u32 INVALID_PHYSICAL_DEVICE_INDEX = ~0;
+        bool force_device = desc.force_physical_device_index != INVALID_PHYSICAL_DEVICE_INDEX;
+
         bool picked = false;
-
-        // Pick the first discrete GPU that matches all the constraints
-        bool discrete = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
-        if (!physical_device || (discrete && !picked_discrete)) {
-            physical_device = physical_devices[i];
-
-            picked_queue_family_index = queue_family_index;
-            picked_copy_queue_family_index = copy_queue_family_index;
-        #ifdef COPY_QUEUE_INDEX
-            picked_copy_queue_family_index = COPY_QUEUE_INDEX;
-        #endif
-            picked_queue_family_found = queue_family_found;
-            picked_copy_queue_family_found = copy_queue_family_found;
-
-            picked_timestamp_period = timestamp_period;
-            picked_queue_timestamp_queries = queue_timestamp_queries;
-            picked_copy_queue_timestamp_queries = copy_queue_timestamp_queries;
-
-            picked_discrete = discrete;
-            picked_device_api_version = properties.apiVersion;
-
-            picked = true;
+        if (force_device) {
+            if (i == desc.force_physical_device_index) {
+                logging::info("gfx/device", "Picked because of forced device index (%u)", desc.force_physical_device_index, i);
+                picked = true;
+            } else {
+                logging::info("gfx/device", "Discarded because forced device index (%u) does not match device index (%u)", desc.force_physical_device_index, i);
+            }
+        } else {
+            if (picked_index == physical_device_count) {
+                logging::info("gfx/device", "Picked because first suitable device", desc.force_physical_device_index, i);
+                picked = true;
+            } else {
+                if (desc.prefer_discrete_gpu) {
+                    if (picked_info.device_type != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+                        logging::info("gfx/device", "Picked because first discrete GPU", desc.force_physical_device_index, i);
+                        picked = true;
+                    } else {
+                        logging::info("gfx/device", "Discarded because not a discrete GPU and one was already found", desc.force_physical_device_index, i);
+                    }
+                } else {
+                    if (picked_info.device_type != VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+                        logging::info("gfx/device", "Picked because first integrated GPU", desc.force_physical_device_index, i);
+                        picked = true;
+                    } else {
+                        logging::info("gfx/device", "Discarded because not an integrated GPU and one was already found", desc.force_physical_device_index, i);
+                    }
+                }
+            }
         }
 
-        logging::info("gfx/info", "Physical device %u:%s\n    Name: %s\n    Vulkan version: %u.%u.%u\n    Drivers version: %u\n    Vendor ID: %u\n    Device ID: %u\n    Device type: %s\n    QueueFamily: %d (%s)\n    CopyQueueFamily: %d (%s)\n",
-            i, picked ? " (PICKED)" : "", properties.deviceName,
-            VK_API_VERSION_MAJOR(properties.apiVersion), VK_API_VERSION_MINOR(properties.apiVersion), VK_API_VERSION_PATCH(properties.apiVersion),
-            properties.driverVersion, properties.vendorID, properties.deviceID, string_VkPhysicalDeviceType(properties.deviceType),
-            queue_family_index, queue_family_found ? "yes" : "no", copy_queue_family_index, copy_queue_family_found ? "yes" : "no");
-
-        // TODO: report info about group of physical devices with same extensions, see 5.2 of the spec
-        // u32 count = 1;
-        // VkPhysicalDeviceGroupProperties group_properties[1];
-        // vkEnumeratePhysicalDeviceGroups(instance, &count, group_properties);
+        if (picked) {
+            picked_info = info;
+            picked_index = i;
+        }
     }
 
     // Check that a valid device is found.
-    if (!physical_device) {
+    if (picked_index == physical_device_count) {
+        logging::error("gfx", "No valid physical device found");
         return Result::NO_VALID_DEVICE_FOUND;
+    } else {
+        logging::info("gfx/device", "Picked device: %u", picked_index);
     }
 
-    // Device extensions
-    Array<const char*> device_extensions;
-    if (desc.device_features & DeviceFeatures::PRESENTATION)         device_extensions.add("VK_KHR_swapchain");
-    if (desc.device_features & DeviceFeatures::DYNAMIC_RENDERING) {
-        device_extensions.add("VK_KHR_create_renderpass2");
-        device_extensions.add("VK_KHR_depth_stencil_resolve");
-        device_extensions.add("VK_KHR_dynamic_rendering");
+    // Enabled features and extensions
+    Array<GenericFeatureStruct*> enabled_features;
+    Array<const char*> enabled_extensions;
+    if (desc.require_presentation) enabled_extensions.add("VK_KHR_swapchain");
+
+    // Deduplicate features and extensions. This is O(n^2) without a set, but we don't suport enough features yet to care.
+#define ENABLE_FEATURE(o) \
+    if (picked_info.supported_features & o##_deps.flag) { \
+        for (usize i = 0; i < ArrayCount(o##_deps.features_req); i++ ) { \
+            if (!enabled_features.contains(o##_deps.features_req[i])) { \
+                enabled_features.add(o##_deps.features_req[i]); \
+            } \
+        } \
+        for (usize i = 0; i < ArrayCount(o##_deps.extensions); i++ ) { \
+            bool found = false; \
+            for (usize j = 0; j < enabled_extensions.length; j++) { \
+                if (strcmp(o##_deps.extensions[i], enabled_extensions[j]) == 0) { \
+                    found = true; \
+                    break; \
+                } \
+            } \
+            if (!found) { \
+                enabled_extensions.add(o##_deps.extensions[i]); \
+            } \
+        } \
     }
-    if (desc.device_features & DeviceFeatures::SYNCHRONIZATION_2)    device_extensions.add("VK_KHR_synchronization2");
-    if (desc.device_features & (DeviceFeatures::DESCRIPTOR_INDEXING | DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_PIPELINE))
-        device_extensions.add("VK_EXT_descriptor_indexing");
-    if (desc.device_features & DeviceFeatures::SCALAR_BLOCK_LAYOUT)  device_extensions.add("VK_EXT_scalar_block_layout");
-    if (desc.device_features & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_PIPELINE)) {
-        device_extensions.add("VK_KHR_deferred_host_operations");
-        device_extensions.add("VK_KHR_buffer_device_address");
-        device_extensions.add("VK_KHR_acceleration_structure");
-        device_extensions.add("VK_KHR_spirv_1_4");
-        device_extensions.add("VK_KHR_shader_float_controls");
+
+    ENABLE_FEATURE(dynamic_rendering);
+    ENABLE_FEATURE(synchronization_2);
+    ENABLE_FEATURE(descriptor_indexing);
+    ENABLE_FEATURE(scalar_block_layout);
+    ENABLE_FEATURE(ray_query);
+    ENABLE_FEATURE(ray_tracing_pipeline);
+    ENABLE_FEATURE(external_resources);
+    ENABLE_FEATURE(host_query_reset);
+    ENABLE_FEATURE(calibrated_timestamps);
+
+    void* enabled_next = 0;
+    for (usize i = 0; i < enabled_features.length; i++) {
+        Chain(&enabled_next, enabled_features[i]);
     }
-    if (desc.device_features & DeviceFeatures::RAY_QUERY)            device_extensions.add("VK_KHR_ray_query");
-    if (desc.device_features & DeviceFeatures::RAY_PIPELINE)         device_extensions.add("VK_KHR_ray_tracing_pipeline");
-    if (desc.device_features & DeviceFeatures::EXTERNAL_RESOURCES) {
-#ifdef _WIN32
-        device_extensions.add("VK_KHR_external_memory_win32");
-        device_extensions.add("VK_KHR_external_semaphore_win32");
-#else
-        device_extensions.add("VK_KHR_external_memory_fd");
-        device_extensions.add("VK_KHR_external_semaphore_fd");
-#endif
-    }
-    if (desc.device_features & DeviceFeatures::HOST_QUERY_RESET)      device_extensions.add("VK_EXT_host_query_reset");
-    if (desc.device_features & DeviceFeatures::CALIBRATED_TIMESTAMPS) device_extensions.add("VK_EXT_calibrated_timestamps");
 
     // Create a physical device.
     VkDevice device = 0;
 
     float queue_priorities[] = { 1.0f };
-    float copy_queue_priorities[] = { 1.0f };
-    VkDeviceQueueCreateInfo queue_create_info[2] = {};
+    ArrayFixed<VkDeviceQueueCreateInfo, 3> queue_create_info(1);
     queue_create_info[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info[0].queueFamilyIndex = picked_queue_family_index;
+    queue_create_info[0].queueFamilyIndex = picked_info.queue_family_index;
     queue_create_info[0].queueCount = 1;
     queue_create_info[0].pQueuePriorities = queue_priorities;
 
-    queue_create_info[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info[1].queueFamilyIndex = picked_copy_queue_family_index;
-    queue_create_info[1].queueCount = 1;
-    queue_create_info[1].pQueuePriorities = copy_queue_priorities;
+    if (picked_info.compute_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
+        queue_create_info.add({
+            .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .queueFamilyIndex = picked_info.compute_queue_family_index,
+            .queueCount = 1,
+            .pQueuePriorities = queue_priorities,
+        });
+    }
+
+    if (picked_info.copy_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
+        queue_create_info.add({
+            .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .queueFamilyIndex = picked_info.copy_queue_family_index,
+            .queueCount = 1,
+            .pQueuePriorities = queue_priorities,
+        });
+    }
 
     VkDeviceCreateInfo device_create_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-    device_create_info.pNext = req_chain.pNext;
-    device_create_info.queueCreateInfoCount = picked_copy_queue_family_found ? 2 : 1;
-    device_create_info.pQueueCreateInfos = queue_create_info;
-    device_create_info.enabledExtensionCount = (u32)device_extensions.length;
-    device_create_info.ppEnabledExtensionNames = device_extensions.data;
+    device_create_info.pNext = enabled_next;
+    device_create_info.queueCreateInfoCount = queue_create_info.length;
+    device_create_info.pQueueCreateInfos = queue_create_info.data;
+    device_create_info.enabledExtensionCount = (u32)enabled_extensions.length;
+    device_create_info.ppEnabledExtensionNames = enabled_extensions.data;
     device_create_info.pEnabledFeatures = NULL;
 
-    result = vkCreateDevice(physical_device, &device_create_info, 0, &device);
+    result = vkCreateDevice(physical_devices[picked_index], &device_create_info, 0, &device);
     if (result != VK_SUCCESS) {
         return Result::DEVICE_CREATION_FAILED;
     }
 
     VmaAllocatorCreateInfo vma_info = {};
-    vma_info.flags = desc.device_features & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_PIPELINE) ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT : 0; // Optionally set here that we externally synchronize.
+    vma_info.flags = desc.required_features & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_TRACING_PIPELINE) ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT : 0; // Optionally set here that we externally synchronize.
     vma_info.instance = instance;
-    vma_info.physicalDevice = physical_device;
+    vma_info.physicalDevice = physical_devices[picked_index];
     vma_info.device = device;
     vma_info.vulkanApiVersion = desc.minimum_api_version;
 
@@ -685,17 +950,22 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     }
 
     VkQueue queue = VK_NULL_HANDLE;
-    vkGetDeviceQueue(device, picked_queue_family_index, 0, &queue);
+    vkGetDeviceQueue(device, picked_info.queue_family_index, 0, &queue);
+
+    VkQueue compute_queue = VK_NULL_HANDLE;
+    if (picked_info.compute_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
+        vkGetDeviceQueue(device, picked_info.compute_queue_family_index, 0, &compute_queue);
+    }
 
     VkQueue copy_queue = VK_NULL_HANDLE;
-    if(picked_copy_queue_family_found) {
-        vkGetDeviceQueue(device, picked_copy_queue_family_index, 0, &copy_queue);
+    if (picked_info.copy_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
+        vkGetDeviceQueue(device, picked_info.copy_queue_family_index, 0, &copy_queue);
     }
 
     // Create sync command
     VkCommandPoolCreateInfo sync_pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     sync_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;// | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    sync_pool_info.queueFamilyIndex = picked_queue_family_index;
+    sync_pool_info.queueFamilyIndex = picked_info.queue_family_index;
 
     VkCommandPool sync_pool = {};
     result = vkCreateCommandPool(device, &sync_pool_info, 0, &sync_pool);
@@ -722,17 +992,21 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     }
 
     vk->instance_version = instance_version;
-    vk->device_version = picked_device_api_version;
+    vk->device_version = picked_info.device_api_version;
     vk->instance = instance;
-    vk->physical_device = physical_device;
+    vk->physical_device = physical_devices[picked_index];
     vk->device = device;
+    vk->device_features = picked_info.supported_features;
+    vk->timestamp_period_ns = picked_info.timestamp_period;
     vk->queue = queue;
-    vk->timestamp_period_ns = picked_timestamp_period;
-    vk->queue_family_index = picked_queue_family_index;
-    vk->queue_timestamp_queries = picked_queue_timestamp_queries;
+    vk->queue_family_index = picked_info.queue_family_index;
+    vk->queue_timestamp_queries = picked_info.queue_timestamp_queries;
+    vk->compute_queue = compute_queue;
+    vk->compute_queue_family_index = picked_info.compute_queue_family_index;
+    vk->compute_queue_timestamp_queries = picked_info.compute_queue_timestamp_queries;
     vk->copy_queue = copy_queue;
-    vk->copy_queue_family_index = picked_copy_queue_family_index;
-    vk->copy_queue_timestamp_queries = picked_copy_queue_timestamp_queries;
+    vk->copy_queue_family_index = picked_info.copy_queue_family_index;
+    vk->copy_queue_timestamp_queries = picked_info.copy_queue_timestamp_queries;
     vk->preferred_frames_in_flight = desc.preferred_frames_in_flight;
     vk->vsync = desc.vsync;
     vk->debug_callback = debug_callback;

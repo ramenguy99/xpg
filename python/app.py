@@ -8,7 +8,9 @@ from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype, DescriptorSetsReflection
 
 ctx = Context(
-    device_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.PRESENTATION, 
+    required_features=
+        DeviceFeatures.DYNAMIC_RENDERING |
+        DeviceFeatures.SYNCHRONIZATION_2,
     enable_validation_layer=True,
     enable_synchronization_validation=True,
 )

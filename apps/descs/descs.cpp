@@ -201,7 +201,7 @@ int main(int argc, char** argv) {
     gfx::Context vk = {};
     result = gfx::CreateContext(&vk, {
         .minimum_api_version = (u32)VK_API_VERSION_1_1,
-        .device_features = gfx::DeviceFeatures::PRESENTATION | gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
+        .required_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
         .enable_validation_layer = true,
         //        .enable_gpu_based_validation = true,
     });

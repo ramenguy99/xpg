@@ -156,8 +156,7 @@ int main(int argc, char** argv) {
     gfx::Context vk = {};
     result = gfx::CreateContext(&vk, {
         .minimum_api_version = (u32)VK_API_VERSION_1_1,
-        .device_features = 
-            gfx::DeviceFeatures::PRESENTATION |
+        .required_features = 
             gfx::DeviceFeatures::DYNAMIC_RENDERING |
             gfx::DeviceFeatures::DESCRIPTOR_INDEXING |
             gfx::DeviceFeatures::SYNCHRONIZATION_2 | 

@@ -6,7 +6,7 @@ from pyxpg import *
 import numpy as np
 
 ctx = Context(
-    device_features=DeviceFeatures.SYNCHRONIZATION_2,
+    required_features=DeviceFeatures.SYNCHRONIZATION_2,
     enable_validation_layer=True,
     enable_synchronization_validation=True,
 )

@@ -5,12 +5,12 @@
 Trivia:
 - [ ] Better name
 - [ ] Better README
-    [ ] Description
-    [ ] C++:
+    - [ ] Description
+    - [ ] C++:
         - Build instructions
         - Cmake variables
         - Example apps
-    [ ] Python:
+    - [ ] Python:
         - Pip install instructions
         - Conda install instructions (`conda install conda-forge::vulkan-tools`)
 
@@ -155,14 +155,14 @@ Python:
         img = Image(ctx, W, H, Format.R8G8B8_UNORM,
                     ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.TRANSFER_SRC,
                     AllocType.DEVICE)
-- [ ] Device features
+- [-] Device features
     - [x] Validation errors when not using vulkan 1.3 (for some reason enabling descriptor indexing is not enough)
-    - [ ] Synchronization 2 is not actually optional!
+    - [x] Would be nice to have optional features and check if they are supported later. Not clear what's easiest way to do this.
+          And how to handle priorities / scores.
+        - [x] Make use of this to use some fallback when vk_khr_timestamp_calibration is not available
+    - [-] Synchronization 2 is not actually optional!
         - Remove this as a device feature, enable if the device supports it, otherwise use the fallback mechanism
           ported / included as the layer mechanism
-    - [ ] Would be nice to have optional features and check if they are supported later. Not clear what's easiest way to do this.
-          And how to handle priorities / scores.
-        - [ ] Make use of this to use some fallback when vk_khr_timestamp_calibration is not available
 - [x] If blocked in process_events -> ctrl+c not working
     - [x] Check if should release GIL
     - [x] Check if can get interrupt somehow and unblock the loop (e.g. with glfwPostEmptyEvent)
