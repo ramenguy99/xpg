@@ -188,10 +188,6 @@ Python:
     - [ ] Can we turn error handling / runtime assertions into exceptions?
 - [x] Input callbacks:
     - [x] Add more keys
-- [ ] None converts to a nullptr nb::ref, makes a lot of our code potentially segfault
-    - Opened discussion in nanobind repo
-    - Only applies to containers, can check those manually and throw for now probably
-    -> we have some potentially difficult to debug segfaults but can live with this for now
 
 ## Future
 
@@ -208,6 +204,14 @@ Python:
 - [ ] Expose host image copy and timeline semaphores?
     -> timeline semaphores should be avilable everywhere. Ideally subclass / parameter of Semaphore and transparent to queue waits but with extra APIs on the object.
     -> Host image copy can be used automatically for Image.with_data() to or manually with exposed host operations. Not available on AMD
+
+Nanobind:
+- [ ] None converts to a nullptr nb::ref, makes a lot of our code potentially segfault
+    - Opened discussion in nanobind repo
+    - Only applies to containers, can check those manually and throw for now probably
+    -> we have some potentially difficult to debug segfaults but can live with this for now
+- [ ] Flags that do not have is_arithmetic (and maybe others as well) produce weird bindings
+      for default values. Stubgen fails on python3.8 cibuildwheel (not sure if other versions too)
 
 Viewer:
 - [ ] Primitives

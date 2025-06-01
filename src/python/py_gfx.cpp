@@ -2202,7 +2202,7 @@ void gfx_create_bindings(nb::module_& m)
         })
     ;
 
-    nb::enum_<gfx::DeviceFeatures::Flags>(m, "DeviceFeatures", nb::is_flag())
+    nb::enum_<gfx::DeviceFeatures::Flags>(m, "DeviceFeatures", nb::is_flag(), nb::is_arithmetic())
         .value("NONE",                  gfx::DeviceFeatures::NONE)
         .value("DYNAMIC_RENDERING",     gfx::DeviceFeatures::DYNAMIC_RENDERING)
         .value("SYNCHRONIZATION_2",     gfx::DeviceFeatures::SYNCHRONIZATION_2)
