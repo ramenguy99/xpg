@@ -19,11 +19,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
+          submodules: none
 
       - name: Build (linux)
         if: runner.os != 'Windows'
         run: |
+          git submodule init
+          git config submodule.ext/slang.update none
+          git submodule update --recursive
           mkdir build
           cd build
           cmake -DCMAKE_BUILD_TYPE=Debug -DXPG_BUILD_SLANG=0 ..
@@ -32,6 +35,9 @@ jobs:
       - name: Build (windows)
         if: runner.os == 'Windows'
         run: |
+          git submodule init
+          git config submodule.ext/slang.update none
+          git submodule update --recursive
           mkdir build
           cd build
           cmake -DXPG_BUILD_SLANG=0 ..
