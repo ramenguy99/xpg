@@ -784,7 +784,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(host_query_reset);
             CHECK_SUPPORTED_EXTENSIONS(calibrated_timestamps);
 
-            logging::trace("gfx/debug", "Supported features: 0x%x", info.supported_features);
+            logging::trace("gfx/debug", "Supported features: 0x%zx", info.supported_features.flags);
 
             // We clear the supported flags here. It's not obvious if the spec requires this, but I assume that if
             // a device does not know about a feature struct, it might also not know how large it is and might not
