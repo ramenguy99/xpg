@@ -157,7 +157,7 @@ struct ContextDesc {
     DeviceFeatures optional_features = 0;
 
     // Only used if presentation is requested
-    bool require_presentation = false;
+    bool require_presentation = true;
     u32 preferred_frames_in_flight = 2;
     bool vsync = true;
 

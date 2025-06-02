@@ -719,7 +719,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
 
         // Check if all features we need are supported.
-        if (instance_version >= VK_API_VERSION_1_1) {
+        if (desc.minimum_api_version >= VK_API_VERSION_1_1 && vkGetPhysicalDeviceFeatures2) {
             u32 extensions_count = 0;
             vkEnumerateDeviceExtensionProperties(physical_devices[i], 0, &extensions_count, 0);
 
