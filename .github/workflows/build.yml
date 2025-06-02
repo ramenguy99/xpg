@@ -1,16 +1,10 @@
 name: Build
 
 on:
-  workflow_dispatch:
-    inputs:
-      slang:
-        description: 'Build slang? (0: no, 1: yes)'
-        required: true
-        default: '0'
   push:
-    branches: [ $default-branch ]
+    branches: [ main ]
   pull_request:
-    branches: [ $default-branch ]
+    branches: [ main ]
 
 jobs:
   build:
@@ -19,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-2025]
 
     steps:
       - uses: actions/checkout@v4
@@ -27,25 +21,19 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Set cmake args to env
-        run: |
-          if [[ "${{ inputs.slang }}" -eq "0" ]]; then
-            echo "ARGS=-DXPG_BUILD_SLANG=0" >> $GITHUB_ENV
-          else
-            echo "ARGS=" >> $GITHUB_ENV
-          fi
-        shell: bash
-
       - name: Build (linux)
         if: runner.os != 'Windows'
         run: |
           mkdir build
           cd build
-          cmake -DCMAKE_BUILD_TYPE=Debug $ARGS ..
+          cmake -DCMAKE_BUILD_TYPE=Debug -DXPG_BUILD_SLANG=0 ..
           cmake --build . -j
 
       - name: Build (windows)
+        if: runner.os == 'Windows'
         run: |
-          cmake $env:ARGS ..
+          mkdir build
+          cd build
+          cmake -DXPG_BUILD_SLANG=0 ..
           cmake --build . --config=Debug -j
   
