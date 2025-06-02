@@ -29,8 +29,8 @@ build-dir = "python-build/{wheel_tag}"
 wheel.py-api = "cp312"
 
 # Configure
-cmake.define = { XPG_BUILD_APPS = "OFF", XPG_BUILD_PYTHON = "ON", XPG_BUILD_SLANG = "ON", CMAKE_CXX_FLAGS = "-D_LARGEFILE64_SOURCE" }
-#cmake.define = { XPG_BUILD_APPS = "OFF", XPG_BUILD_PYTHON = "ON", XPG_BUILD_SLANG = "OFF", CMAKE_CXX_FLAGS = "-D_LARGEFILE64_SOURCE"  }
+cmake.define = { XPG_BUILD_APPS = "OFF", XPG_BUILD_PYTHON = "ON", XPG_BUILD_SLANG = "ON", CMAKE_CXX_FLAGS = "-D_LARGEFILE64_SOURCE", CMAKE_C_FLAGS="-D_POSIX_C_SOURCE=199309L -D_POSIX_SOURCE=199309L -D_XOPEN_SOURCE=700 -D_GNU_SOURCE" }
+#cmake.define = { XPG_BUILD_APPS = "OFF", XPG_BUILD_PYTHON = "ON", XPG_BUILD_SLANG = "OFF", CMAKE_CXX_FLAGS = "-D_LARGEFILE64_SOURCE", CMAKE_C_FLAGS="-D_POSIX_C_SOURCE=199309L -D_POSIX_SOURCE=199309L -D_XOPEN_SOURCE=700 -D_GNU_SOURCE" }
 
 [tool.cibuildwheel]
 build-verbosity = 1
@@ -40,12 +40,14 @@ build = ["cp38-*", "cp39-*", "cp310-*", "cp311-*", "cp312-*"]
 
 # Install dependencies on manylinux
 [tool.cibuildwheel.linux]
-before-all = [ "yum install -y libXcursor-devel libXi-devel libXinerama-devel libXrandr-devel wayland-devel wayland-protocols-devel", ]
+before-all = [ "yum install -y libXcursor-devel libXi-devel libXinerama-devel libXrandr-devel", ]
+# Needed for GLFW wayland: wayland-devel libxkbcommon-devel wayland-protocols-devel
 
 # Install dependencies on musllinux
 [[tool.cibuildwheel.overrides]]
 select = "*-musllinux*"
-before-all = [ "apk add xorg-server-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libwayland-dev wayland-protocols" ]
+before-all = [ "apk add xorg-server-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev" ]
+# Needed for GLFW wayland: libwayland-dev libxkbcommon-dev wayland-protocols
 
 # Needed for full C++17 support on macOS
 [tool.cibuildwheel.macos.environment]

@@ -27,10 +27,12 @@ Build:
     - [ ] clang on windows
     - [ ] gcc on linux
     - [ ] clang on linux
+- [ ] Enable wayland in GLFW after merging this patch to the fix the build on manylinux: https://github.com/glfw/glfw/pull/2649
 
 Maintenance:
 - [x] Update all deps (last: 22/04/2025)
-- [ ] Add basic CI build and tests on master or manually triggered (can remove slang to keep it fast, could also be a pipeline option)
+- [x] Add basic CI build on master or manually triggered (can remove slang to keep it fast, could also be a pipeline option)
+- [ ] Add simple unit tests, pytest with a specific python version? Use lavapipe for rendering tests?
 
 C++:
 - [x] Cleanup namespaces
