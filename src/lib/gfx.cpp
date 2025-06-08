@@ -1963,7 +1963,7 @@ DestroyBuffer(Buffer* buffer, const Context& vk)
     *buffer = {};
 }
 
-VkResult CreatePoolForBuffer(VmaPool* pool, const Context& vk, const PoolBufferDesc&& desc) {
+VkResult CreatePoolForBuffer(Pool* pool, const Context& vk, const PoolBufferDesc&& desc) {
     // Alloc buffer
     VkExternalMemoryBufferCreateInfo external_memory_buffer_info = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO };
     external_memory_buffer_info.handleTypes = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
@@ -1996,20 +1996,38 @@ VkResult CreatePoolForBuffer(VmaPool* pool, const Context& vk, const PoolBufferD
 
     VmaPoolCreateInfo pool_info = {};
     pool_info.memoryTypeIndex = mem_type_index;
+
+    VkExportMemoryAllocateInfo* export_mem_alloc_info = nullptr;
     if (desc.external) {
-        // TODO: don't leak this, the usage of this by vma is delayed, thus the pointer must live as long as the pool.
-        // Also need to be careful storing this in a struct because it would become self-referential, e.g. it will not
-        // be safely copiable anymore. I think an allocation here is fine.
-        //
-        // We can fix this by wrapping VmaPool in our own Pool object that frees this when destroyed.
-        VkExportMemoryAllocateInfo* export_mem_alloc_info = new VkExportMemoryAllocateInfo;
+        // NOTE: The usage of this by vma is delayed, thus the pointer must live as long as the pool.
+        // We cannot store this by value in a struct because it would become self-referential and it would not
+        // be safely copiable anymore.
+        export_mem_alloc_info = new VkExportMemoryAllocateInfo;
         *export_mem_alloc_info = { VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO };
         export_mem_alloc_info->handleTypes = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
         pool_info.pMemoryAllocateNext = (void*)export_mem_alloc_info;
     }
 
+    VmaPool vma_pool = {};
+    vkr = vmaCreatePool(vk.vma, &pool_info, &vma_pool);
+    if (vkr != VK_SUCCESS) {
+        delete export_mem_alloc_info;
+        return vkr;
+    }
+
+    *pool = {
+        .pool = vma_pool,
+        .export_mem_alloc_info = export_mem_alloc_info,
+    };
+
+    return VK_SUCCESS;
+}
+
+void DestroyPool(Pool* pool, const Context& vk)
+{
+    vmaDestroyPool(vk.vma, pool->pool);
+    delete pool->export_mem_alloc_info;
     *pool = {};
-    return vmaCreatePool(vk.vma, &pool_info, pool);
 }
 
 #ifdef _WIN32
@@ -2045,12 +2063,6 @@ void CloseExternalHandle(ExternalHandle* handle) {
     close(*handle);
     *handle = -1;
 #endif
-}
-
-void DestroyPool(VmaPool* pool, const Context& vk)
-{
-    vmaDestroyPool(vk.vma, *pool);
-    *pool = {};
 }
 
 VkResult

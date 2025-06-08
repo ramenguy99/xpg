@@ -504,7 +504,7 @@ struct ExternalBuffer: public Buffer {
         vkr = gfx::CreateBuffer(&buffer, ctx->vk, size, {
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
-            .pool = pool,
+            .pool = pool.pool,
             .external = true,
         });
         if (vkr != VK_SUCCESS) {
@@ -529,7 +529,7 @@ struct ExternalBuffer: public Buffer {
         }
     }
 
-    VmaPool pool;
+    gfx::Pool pool;
     gfx::ExternalHandle handle = {};
 };
 

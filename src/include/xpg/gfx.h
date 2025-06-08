@@ -840,6 +840,11 @@ VkResult CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const Buff
 VkResult CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, const BufferDesc&& desc);
 void DestroyBuffer(Buffer* buffer, const Context& vk);
 
+struct Pool {
+    VmaPool pool;
+    VkExportMemoryAllocateInfo* export_mem_alloc_info = nullptr;
+};
+
 struct PoolBufferDesc {
     // Vulkan flags
     VkBufferUsageFlags usage;
@@ -851,8 +856,8 @@ struct PoolBufferDesc {
     bool external = false;
 };
 
-VkResult CreatePoolForBuffer(VmaPool* pool, const Context& vk, const PoolBufferDesc&& desc);
-void DestroyPool(VmaPool* pool, const Context& vk);
+VkResult CreatePoolForBuffer(Pool* pool, const Context& vk, const PoolBufferDesc&& desc);
+void DestroyPool(Pool* pool, const Context& vk);
 
 VkResult GetExternalHandleForBuffer(ExternalHandle* handle, const Context& vk, const Buffer& buffer);
 void CloseExternalHandle(ExternalHandle* handle);
