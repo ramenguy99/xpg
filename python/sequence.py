@@ -26,7 +26,7 @@ GPU_PREFETCH_SIZE = 2
 PREFETCH_SIZE = 2
 
 ctx = Context(
-    required_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.CALIBRATED_TIMESTAMPS, 
+    required_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.CALIBRATED_TIMESTAMPS | DeviceFeatures.TIMELINE_SEMAPHORES, 
     enable_validation_layer=True,
     enable_synchronization_validation=True,
     preferred_frames_in_flight=2,
@@ -128,23 +128,34 @@ class GpuBufferState(Enum):
     PREFETCH = auto()
     RENDER = auto()
 
+@dataclass
+class SemaphoreInfo:
+    sem: TimelineSemaphore
+    wait_stage: PipelineStageFlags
+    wait_value: int
+    signal_value: int
+
 class GpuBuffer:
     def __init__(self, ctx: Context, size: int, usage_flags: BufferUsageFlags, use_transfer_queue: bool, name: Optional[str] = None):
         self.buf = Buffer(ctx, size, usage_flags, AllocType.DEVICE_MAPPED, name=name)
         self.state = GpuBufferState.EMPTY
 
         if use_transfer_queue:
-            self.prefetch_done_semaphore = Semaphore(ctx)
-            self.render_done = Semaphore(ctx)
-            self.load_done = Semaphore(ctx)
+            self.semaphore = TimelineSemaphore(ctx)
+            self.semaphore_value = 0
+    
+    def use(self, stage: PipelineStageFlags) -> SemaphoreInfo:
+        info = SemaphoreInfo(self.semaphore, stage, self.semaphore_value, self.semaphore_value + 1)
+        self.semaphore_value += 1
+        return info
         
     def __repr__(self):
-        return self.buf.__repr__()
+        return f"(buf={self.buf.__repr__()}, state={self.state}, semaphore={self.semaphore_value})"
 
 @dataclass
 class PrefetchState:
     commands: CommandBuffer
-    fence: Fence
+    prefetch_done_value: int
 
 class Sequence:
     def __init__(self, ctx: Context, path: Path, num_frames: int, animation_fps: int, name: str, pool: ThreadPool):
@@ -175,7 +186,7 @@ class Sequence:
                 self.prefetch_states = [
                     PrefetchState(
                         commands=CommandBuffer(ctx, queue_family_index=ctx.transfer_queue_family_index),
-                        fence=Fence(ctx, signaled=True),
+                        prefetch_done_value=0,
                     ) for _ in range(GPU_PREFETCH_SIZE)
                 ]
                 self.prefetch_states_lookup: Dict[GpuBuffer, PrefetchState] = {}
@@ -194,12 +205,7 @@ class Sequence:
         file = self.files[thread_index]
         read_exact_at_offset_into(file, 12 + i * self.V * 12, buf.buf.data)
     
-    def update(self, frame_index: int, cmd: CommandBuffer, copy_cmd: CommandBuffer,
-        copy_wait_semaphores: List,
-        copy_signal_semaphores: List,
-        additional_wait_semaphores: List,
-        additional_signal_semaphores: List,
-    ):
+    def update(self, frame_index: int, cmd: CommandBuffer, copy_cmd: CommandBuffer, copy_semaphores: List[SemaphoreInfo], additional_semaphores: List[SemaphoreInfo]):
         self.animation_frame_index = int(self.animation_time * self.animation_fps) % self.N
 
         ####################################################################
@@ -244,17 +250,10 @@ class Sequence:
                         gpu_buf.state = GpuBufferState.RENDER
                     else:
                         assert upload_method == UploadMethod.TRANSFER_QUEUE
+                        assert gpu_buf.state == GpuBufferState.EMPTY or gpu_buf.state == GpuBufferState.RENDER or GpuBufferState.PREFETCH, gpu_buf.state
 
                         # Upload on copy queue
-                        if gpu_buf.state == GpuBufferState.EMPTY:
-                            pass
-                        elif gpu_buf.state == GpuBufferState.RENDER:
-                            copy_wait_semaphores.append((gpu_buf.render_done, PipelineStageFlags.TRANSFER))
-                        elif gpu_buf.state == GpuBufferState.PREFETCH:
-                            copy_wait_semaphores.append((gpu_buf.prefetch_done_semaphore, PipelineStageFlags.TRANSFER))
-                        else:
-                            assert False, gpu_buf.state
-                        copy_signal_semaphores.append(gpu_buf.load_done)
+                        copy_semaphores.append(gpu_buf.use(PipelineStageFlags.TRANSFER))
 
                         with profiler.gpu_transfer_zone("copy"):
                             copy_cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
@@ -272,13 +271,11 @@ class Sequence:
             if gpu_buf.state == GpuBufferState.LOAD or gpu_buf.state == GpuBufferState.PREFETCH:
                 if gpu_buf.state == GpuBufferState.PREFETCH:
                     with profiler.gpu_transfer_zone("prefetch barrier"):
-                        copy_wait_semaphores.append((gpu_buf.prefetch_done_semaphore, PipelineStageFlags.TOP_OF_PIPE))
-                        copy_signal_semaphores.append(gpu_buf.load_done)
+                        copy_semaphores.append(gpu_buf.use(PipelineStageFlags.TOP_OF_PIPE))
                     copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_WRITE, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
                 
                 cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.NONE, MemoryUsage.VERTEX_INPUT, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
-                additional_wait_semaphores.append((gpu_buf.load_done, PipelineStageFlags.VERTEX_INPUT))
-                additional_signal_semaphores.append(gpu_buf.render_done)
+                additional_semaphores.append(gpu_buf.use(PipelineStageFlags.VERTEX_INPUT))
                 gpu_buf.state = GpuBufferState.RENDER
             
             assert gpu_buf.state == GpuBufferState.RENDER, gpu_buf.state
@@ -300,7 +297,7 @@ class Sequence:
         if upload_method == UploadMethod.TRANSFER_QUEUE:
             def gpu_prefetch_cleanup(k: int, gpu_buf: GpuBuffer):
                 state = self.prefetch_states_lookup[gpu_buf]
-                if state.fence.is_signaled():
+                if gpu_buf.semaphore.get_value() >= state.prefetch_done_value:
                     # Release prefetch state
                     self.prefetch_states.append(state)
                     del self.prefetch_states_lookup[gpu_buf]
@@ -323,21 +320,16 @@ class Sequence:
                 with state.commands:
                     state.commands.copy_buffer(cpu_next.buf, gpu_buf.buf)
 
-                if gpu_buf.state == GpuBufferState.EMPTY:
-                    wait_semaphores = []
-                elif gpu_buf.state == GpuBufferState.PREFETCH:
-                    wait_semaphores = [(gpu_buf.prefetch_done_semaphore, PipelineStageFlags.TRANSFER)]
-                elif gpu_buf.state == GpuBufferState.RENDER:
-                    wait_semaphores = [(gpu_buf.render_done, PipelineStageFlags.TRANSFER)]
-                else:
-                    assert False, gpu_buf.state
-                
+                assert gpu_buf.state == GpuBufferState.EMPTY or GpuBufferState.PREFETCH or gpu_buf.state == GpuBufferState.RENDER, gpu_buf.state
+                info = gpu_buf.use(PipelineStageFlags.TRANSFER)
                 self.ctx.transfer_queue.submit(
                     state.commands,
-                    wait_semaphores = wait_semaphores,
-                    signal_semaphores = [gpu_buf.prefetch_done_semaphore],
-                    fence=state.fence,
+                    wait_semaphores = [ (info.sem, info.wait_stage) ],
+                    wait_timeline_values = [ info.wait_value ],
+                    signal_semaphores = [ info.sem ],
+                    signal_timeline_values = [ info.signal_value ],
                 )
+                state.prefetch_done_value = info.signal_value
                 gpu_buf.state = GpuBufferState.PREFETCH
 
             prefetch_start = self.animation_frame_index + 1
@@ -419,8 +411,7 @@ def draw():
 
     # Render
     frame = window.begin_frame()
-    additional_wait_semaphores = []
-    additional_signal_semaphores = []
+    additional_semaphores: List[SemaphoreInfo] = []
     with frame.command_buffer as cmd:
         u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM_READ, constants.view(np.uint8).data)
 
@@ -523,22 +514,27 @@ def draw():
             with profiler.gpu_zone(f"frame {seqs[0].animation_frame_index}"):
                 ####################################################################
                 # Get
-                copy_wait_semaphores = []
-                copy_signal_semaphores = []
+                copy_semaphores: List[SemaphoreInfo] = []
 
                 if upload_method == UploadMethod.TRANSFER_QUEUE:
                     with frame.transfer_command_buffer as copy_cmd:
                         profiler.transfer_frame(copy_cmd)
                         for seq in seqs:
-                            seq.update(frame_index, cmd, copy_cmd, copy_wait_semaphores, copy_signal_semaphores, additional_wait_semaphores, additional_signal_semaphores)
+                            seq.update(frame_index, cmd, copy_cmd, copy_semaphores, additional_semaphores)
                 else:
                     for seq in seqs:
-                        seq.update(frame_index, cmd, None, copy_wait_semaphores, copy_signal_semaphores, additional_wait_semaphores, additional_signal_semaphores)
+                        seq.update(frame_index, cmd, None, copy_semaphores, additional_semaphores)
 
                 # IMPORTANT: only issue if someone depends on this, otherwise no guarantee that this will execute
                 # befor we start the next one
-                if copy_signal_semaphores:
-                    ctx.transfer_queue.submit(copy_cmd, wait_semaphores=copy_wait_semaphores, signal_semaphores=copy_signal_semaphores)
+                if copy_semaphores:
+                    ctx.transfer_queue.submit(
+                        copy_cmd,
+                        wait_semaphores=[(s.sem, s.wait_stage) for s in copy_semaphores],
+                        wait_timeline_values=[s.wait_value for s in copy_semaphores],
+                        signal_semaphores=[s.sem for s in copy_semaphores],
+                        signal_timeline_values=[s.signal_value for s in copy_semaphores],
+                    )
 
                 ####################################################################
                 # Prefetch
@@ -588,7 +584,13 @@ def draw():
                         gui.render(cmd)
 
                 cmd.use_image(frame.image, ImageUsage.PRESENT)
-    window.end_frame(frame, additional_wait_semaphores=additional_wait_semaphores, additional_signal_semaphores=additional_signal_semaphores)
+    window.end_frame(
+        frame,
+        additional_wait_semaphores=[(s.sem, s.wait_stage) for s in additional_semaphores],
+        additional_wait_timeline_values=[s.wait_value for s in additional_semaphores],
+        additional_signal_semaphores=[s.sem for s in additional_semaphores],
+        additional_signal_timeline_values=[s.signal_value for s in additional_semaphores]
+    )
 
     frame_index = (frame_index + 1) % window.num_frames
     total_frame_index += 1
