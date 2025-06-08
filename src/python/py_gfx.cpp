@@ -1024,59 +1024,82 @@ struct CommandBuffer: GfxObject {
         MemoryUsageState src = MemoryUsagePresets::Types[(usize)src_usage];
         MemoryUsageState dst = MemoryUsagePresets::Types[(usize)dst_usage];
 
-        gfx::CmdMemoryBarrier(buffer, {
-            .src_stage = src.last_stage,
-            .dst_stage = dst.first_stage,
-            .src_access = src.access,
-            .dst_access = dst.access,
-        });
+        // Rules:
+        // - If one of the uses is a write: memory barrier needed
+        if (has_any_write_access(src.access | dst.access)) {
+            gfx::CmdMemoryBarrier(buffer, {
+                .src_stage = src.last_stage,
+                .src_access = src.access,
+                .dst_stage = dst.first_stage,
+                .dst_access = dst.access,
+            });
+        }
     }
 
     void buffer_barrier(nb::ref<Buffer> buf, MemoryUsage src_usage, MemoryUsage dst_usage, u32 src_queue_family_index, u32 dst_queue_family_index) {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
 
+        // TODO: add state tracking to buffer objects aswell? (only for memory barriers)
         MemoryUsageState src = MemoryUsagePresets::Types[(usize)src_usage];
         MemoryUsageState dst = MemoryUsagePresets::Types[(usize)dst_usage];
 
-        gfx::CmdBufferBarrier(buffer, {
-            .buffer = buf->buffer.buffer,
-            .src_stage = src.last_stage,
-            .dst_stage = dst.first_stage,
-            .src_access = src.access,
-            .dst_access = dst.access,
-            .src_queue = src_queue_family_index,
-            .dst_queue = dst_queue_family_index,
-        });
+        // Rules:
+        // - If queue ownership transfer: always need an image barrier
+        // - If one of the uses is a write: memory barrier needed
+        if (src_queue_family_index != dst_queue_family_index) {
+            gfx::CmdBufferBarrier(buffer, {
+                .src_stage = src.last_stage,
+                .src_access = src.access,
+                .dst_stage = dst.first_stage,
+                .dst_access = dst.access,
+                .src_queue = src_queue_family_index,
+                .dst_queue = dst_queue_family_index,
+                .buffer = buf->buffer.buffer,
+            });
+        } else if (has_any_write_access(src.access | dst.access)) {
+            gfx::CmdMemoryBarrier(buffer, {
+                .src_stage = src.last_stage,
+                .src_access = src.access,
+                .dst_stage = dst.first_stage,
+                .dst_access = dst.access,
+            });
+        }
     }
 
-    void use_image(Image& image, ImageUsage usage) {
+    void use_image(Image& image, ImageUsage usage, u32 src_queue_family_index, u32 dst_queue_family_index) {
         assert((usize)usage < ArrayCount(ImageUsagePresets::Types));
         ImageUsageState new_state = ImageUsagePresets::Types[(usize)usage];
 
         // Rules:
-        // - If layout transition: always need barrier
+        // - If layout transition or queue ownership transfer: always need an image barrier
         // - If one of the uses is a write: memory barrier needed
-
         bool layout_transition = image.current_state.layout != new_state.layout;
-        bool memory_barrier = has_any_write_access(image.current_state.access | new_state.access);
-        if (layout_transition || memory_barrier) {
-            // TODO: use a memory barrier if no layout transition?
-            // maybe unify with above?
+        bool queue_transfer = src_queue_family_index != dst_queue_family_index;
+        if (layout_transition || queue_transfer) {
             gfx::CmdImageBarrier(buffer, {
-                .image = image.image.image,
                 .src_stage = image.current_state.last_stage,
-                .dst_stage = new_state.first_stage,
                 .src_access = image.current_state.access,
+                .dst_stage = new_state.first_stage,
                 .dst_access = new_state.access,
                 .old_layout= image.current_state.layout,
                 .new_layout = new_state.layout,
+                .src_queue = src_queue_family_index,
+                .dst_queue = dst_queue_family_index,
+                .image = image.image.image,
                 .aspect_mask =
                     (VkImageAspectFlags)((
                         usage == ImageUsage::DepthStencilAttachment ||
                         usage == ImageUsage::DepthStencilAttachmentReadOnly ||
                         usage == ImageUsage::DepthStencilAttachmentWriteOnly
                     )? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT),
+            });
+        } else if (has_any_write_access(image.current_state.access | new_state.access)) {
+            gfx::CmdMemoryBarrier(buffer, {
+                .src_stage = image.current_state.last_stage,
+                .src_access = image.current_state.access,
+                .dst_stage = new_state.first_stage,
+                .dst_access = new_state.access,
             });
         }
 
@@ -1223,31 +1246,31 @@ struct CommandBuffer: GfxObject {
         vkCmdDrawIndexed(buffer, num_indices, num_instances, first_index, vertex_offset, first_instance);
     }
 
-    void copy_buffer(const Buffer& src, const Buffer& dest) {
-        if (src.size != dest.size) {
-            nb::raise("Buffer size mismatch. Source: %zu. Dest: %zu", src.size, dest.size);
+    void copy_buffer(const Buffer& src, const Buffer& dst) {
+        if (src.size != dst.size) {
+            nb::raise("Buffer size mismatch. Src: %zu. Dst: %zu", src.size, dst.size);
         }
 
         gfx::CmdCopyBuffer(buffer, {
             .src = src.buffer.buffer,
-            .dest = dest.buffer.buffer,
+            .dst = dst.buffer.buffer,
             .size = src.size,
         });
     }
 
-    void copy_buffer_range(const Buffer& src, const Buffer& dest, VkDeviceSize size, VkDeviceSize src_offset, VkDeviceSize dest_offset) {
+    void copy_buffer_range(const Buffer& src, const Buffer& dst, VkDeviceSize size, VkDeviceSize src_offset, VkDeviceSize dst_offset) {
         if (src_offset + size > src.size) {
-            nb::raise("Source buffer too small. Source size: %zu. Source offset: %zu. Size: %zu", src.size, src_offset, size);
+            nb::raise("Source buffer too small. Src size: %zu. Src offset: %zu. Size: %zu", src.size, src_offset, size);
         }
-        if (dest_offset + size > dest.size) {
-            nb::raise("Dest buffer too small. Dest size: %zu. Dest offset: %zu. Size: %zu", dest.size, dest_offset, size);
+        if (dst_offset + size > dst.size) {
+            nb::raise("Dest buffer too small. Dst size: %zu. Dst offset: %zu. Size: %zu", dst.size, dst_offset, size);
         }
 
         gfx::CmdCopyBuffer(buffer, {
             .src = src.buffer.buffer,
-            .dest = dest.buffer.buffer,
+            .dst = dst.buffer.buffer,
             .src_offset = src_offset,
-            .dest_offset = dest_offset,
+            .dst_offset = dst_offset,
             .size = src.size,
         });
     }
@@ -3192,9 +3215,9 @@ void gfx_create_bindings(nb::module_& m)
         .def("__exit__", &CommandBuffer::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
         .def("begin", &CommandBuffer::begin)
         .def("end", &CommandBuffer::end)
-        .def("memory_barrier", &CommandBuffer::memory_barrier, nb::arg("src"), nb::arg("dest"))
-        .def("buffer_barrier", &CommandBuffer::buffer_barrier, nb::arg("buffer"), nb::arg("src"), nb::arg("dest"), nb::arg("src_queue_family_index"), nb::arg("dest_queue_family_index"))
-        .def("use_image", &CommandBuffer::use_image, nb::arg("image"), nb::arg("usage"))
+        .def("memory_barrier", &CommandBuffer::memory_barrier, nb::arg("src"), nb::arg("dst"))
+        .def("buffer_barrier", &CommandBuffer::buffer_barrier, nb::arg("buffer"), nb::arg("src"), nb::arg("dst"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED)
+        .def("use_image", &CommandBuffer::use_image, nb::arg("image"), nb::arg("usage"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED)
         .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth").none() = nb::none())
         .def("end_rendering", &CommandBuffer::end_rendering)
         .def("rendering", &CommandBuffer::rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth").none() = nb::none())
@@ -3232,14 +3255,14 @@ void gfx_create_bindings(nb::module_& m)
         )
         .def("copy_buffer", &CommandBuffer::copy_buffer,
             nb::arg("src"),
-            nb::arg("dest")
+            nb::arg("dst")
         )
         .def("copy_buffer_range", &CommandBuffer::copy_buffer_range,
             nb::arg("src"),
-            nb::arg("dest"),
+            nb::arg("dst"),
             nb::arg("size"),
             nb::arg("src_offset") = 0,
-            nb::arg("dest_offset") = 0
+            nb::arg("dst_offset") = 0
         )
         .def("copy_image_to_buffer", &CommandBuffer::copy_image_to_buffer,
             nb::arg("image"),

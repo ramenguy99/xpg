@@ -242,13 +242,13 @@ void ChunkCache::request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32
 
         // Transition image to transfer dest layout
         gfx::CmdImageBarrier(cmd, {
-            .image = image.image,
             .src_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-            .dst_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
             .src_access = VK_ACCESS_2_SHADER_READ_BIT,
+            .dst_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
             .dst_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
             .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
             .new_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .image = image.image,
         });
 
         // Issue copy
@@ -268,13 +268,13 @@ void ChunkCache::request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32
 
         // Transition images to shader read layout
         gfx::CmdImageBarrier(cmd, {
-            .image = image.image,
             .src_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
-            .dst_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
             .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dst_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
             .dst_access = VK_ACCESS_2_SHADER_READ_BIT,
             .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             .new_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .image = image.image,
         });
     }
     platform::Timestamp end = platform::GetTimestamp();

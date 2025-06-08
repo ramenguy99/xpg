@@ -646,22 +646,22 @@ int main(int argc, char** argv) {
             gfx::CmdBarriers(frame.command_buffer, {
                 .image = {
                     {
-                        .image = app.output_image.image,
                         .src_stage = VK_PIPELINE_STAGE_2_NONE,
-                        .dst_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                         .src_access = 0,
+                        .dst_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                         .dst_access = VK_ACCESS_2_SHADER_WRITE_BIT,
                         .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
                         .new_layout = VK_IMAGE_LAYOUT_GENERAL,
+                        .image = app.output_image.image,
                     },
                     {
-                        .image = frame.current_image,
                         .src_stage = VK_PIPELINE_STAGE_2_NONE,
-                        .dst_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                         .src_access = 0,
+                        .dst_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                         .dst_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
                         .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
                         .new_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        .image = frame.current_image,
                     },
                 }
             });
@@ -687,13 +687,13 @@ int main(int argc, char** argv) {
             gfx::CmdBarriers(frame.command_buffer, {
                 .image = {
                     {
-                        .image = app.output_image.image,
                         .src_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                        .dst_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                         .src_access = VK_ACCESS_2_SHADER_WRITE_BIT,
+                        .dst_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                         .dst_access = VK_ACCESS_2_TRANSFER_READ_BIT,
                         .old_layout = VK_IMAGE_LAYOUT_GENERAL,
                         .new_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        .image = app.output_image.image,
                     },
                 }
             });
@@ -714,13 +714,13 @@ int main(int argc, char** argv) {
             gfx::CmdBarriers(frame.command_buffer, {
                 .image = {
                     {
-                        .image = frame.current_image,
                         .src_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                        .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                         .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                        .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                         .dst_access = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                         .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                         .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                        .image = frame.current_image,
                     },
                 }
             });
@@ -741,13 +741,13 @@ int main(int argc, char** argv) {
             vkCmdEndRenderingKHR(frame.command_buffer);
 
             gfx::CmdImageBarrier(frame.command_buffer, {
-                .image = frame.current_image,
                 .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                .dst_stage = VK_PIPELINE_STAGE_2_NONE,
                 .src_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                .dst_stage = VK_PIPELINE_STAGE_2_NONE,
                 .dst_access = 0,
                 .old_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                 .new_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                .image = frame.current_image,
             });
 
             gfx::EndCommands(frame.command_buffer);

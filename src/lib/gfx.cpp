@@ -1705,61 +1705,13 @@ CmdImageBarrier(VkCommandBuffer cmd, const ImageBarrierDesc&& desc)
 
 void CmdBarriers(VkCommandBuffer cmd, const BarriersDesc &&desc)
 {
-    // TODO: fallback to malloc if too many
-    assert(desc.image.length <= 32 && desc.buffer.length <= 32 && desc.memory.length <= 32);
-
-    VkMemoryBarrier2* memory_barriers = (VkMemoryBarrier2*)alloca(sizeof(VkMemoryBarrier2) * desc.memory.length);
-    for (usize i = 0; i < desc.memory.length; i++) {
-        VkMemoryBarrier2& barrier = memory_barriers[i];
-        barrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
-        barrier.srcAccessMask = desc.memory[i].src_access;
-        barrier.dstAccessMask = desc.memory[i].dst_access;
-        barrier.srcStageMask = desc.memory[i].src_stage;
-        barrier.dstStageMask = desc.memory[i].dst_stage;
-    }
-
-    VkBufferMemoryBarrier2* buffer_barriers = (VkBufferMemoryBarrier2*)alloca(sizeof(VkBufferMemoryBarrier2) * desc.buffer.length);
-    for (usize i = 0; i < desc.memory.length; i++) {
-        VkBufferMemoryBarrier2& barrier = buffer_barriers[i];
-        barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-        barrier.srcAccessMask = desc.buffer[i].src_access;
-        barrier.dstAccessMask = desc.buffer[i].dst_access;
-        barrier.srcStageMask = desc.buffer[i].src_stage;
-        barrier.dstStageMask = desc.buffer[i].dst_stage;
-        barrier.srcQueueFamilyIndex = desc.buffer[i].src_queue;
-        barrier.dstQueueFamilyIndex = desc.buffer[i].dst_queue;
-        barrier.buffer = desc.buffer[i].buffer;
-        barrier.offset = desc.buffer[i].offset;
-        barrier.size = desc.buffer[i].size;
-    }
-
-    VkImageMemoryBarrier2* image_barriers = (VkImageMemoryBarrier2*)alloca(sizeof(VkImageMemoryBarrier2) * desc.image.length);
-    for (usize i = 0; i < desc.image.length; i++) {
-        VkImageMemoryBarrier2& barrier = image_barriers[i];
-        barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = desc.image[i].image;
-        barrier.subresourceRange.aspectMask = desc.image[i].aspect_mask;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-        barrier.srcAccessMask = desc.image[i].src_access;
-        barrier.dstAccessMask = desc.image[i].dst_access;
-        barrier.srcStageMask = desc.image[i].src_stage;
-        barrier.dstStageMask = desc.image[i].dst_stage;
-        barrier.oldLayout = desc.image[i].old_layout;
-        barrier.newLayout = desc.image[i].new_layout;
-    }
-
     VkDependencyInfo info = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
     info.memoryBarrierCount= desc.memory.length;
-    info.pMemoryBarriers = memory_barriers;
+    info.pMemoryBarriers = (VkMemoryBarrier2*)desc.memory.data;
     info.bufferMemoryBarrierCount = desc.buffer.length;
-    info.pBufferMemoryBarriers = buffer_barriers;
+    info.pBufferMemoryBarriers = (VkBufferMemoryBarrier2*)desc.buffer.data;
     info.imageMemoryBarrierCount = desc.image.length;
-    info.pImageMemoryBarriers = image_barriers;
+    info.pImageMemoryBarriers = (VkImageMemoryBarrier2*)desc.image.data;
 
     vkCmdPipelineBarrier2KHR(cmd, &info);
 }
@@ -1816,9 +1768,9 @@ void CmdCopyBuffer(VkCommandBuffer cmd, const CopyBufferDesc&& desc)
 {
     VkBufferCopy region = {};
     region.srcOffset = desc.src_offset;
-    region.dstOffset = desc.dest_offset;
+    region.dstOffset = desc.dst_offset;
     region.size = desc.size;
-    vkCmdCopyBuffer(cmd, desc.src, desc.dest, 1, &region);
+    vkCmdCopyBuffer(cmd, desc.src, desc.dst, 1, &region);
 }
 
 void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc)
@@ -2002,7 +1954,7 @@ CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, cons
             BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
             CmdCopyBuffer(vk.sync_command_buffer, {
                 .src = staging.buffer,
-                .dest = buffer->buffer,
+                .dst = buffer->buffer,
                 .size = data.length,
             });
             EndCommands(vk.sync_command_buffer);
@@ -2411,13 +2363,13 @@ UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const Ima
 
     if (desc.current_image_layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
         gfx::CmdImageBarrier(vk.sync_command_buffer, {
-            .image = image.image,
             .src_stage = VK_PIPELINE_STAGE_2_NONE,
-            .dst_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
             .src_access = 0,
+            .dst_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
             .dst_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
             .old_layout = desc.current_image_layout,
             .new_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .image = image.image,
         });
     }
 
@@ -2437,13 +2389,13 @@ UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const Ima
 
     if (desc.final_image_layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
         gfx::CmdImageBarrier(vk.sync_command_buffer, {
-            .image = image.image,
             .src_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
-            .dst_stage = VK_PIPELINE_STAGE_2_NONE,
             .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dst_stage = VK_PIPELINE_STAGE_2_NONE,
             .dst_access = 0,
             .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             .new_layout = desc.final_image_layout,
+            .image = image.image,
         });
     }
 
@@ -2869,8 +2821,8 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 
         gfx::CmdMemoryBarrier(vk.sync_command_buffer, {
             .src_stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-            .dst_stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
             .src_access = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+            .dst_stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
             .dst_access = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
         });
     }

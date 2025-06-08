@@ -88,14 +88,14 @@ int main(int argc, char** argv) {
                 //     .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                 // },
                 {
-                    .image = frame.current_image,
                     .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                     // .src_stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-                    .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                     .src_access = 0,
+                    .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                     .dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
                     .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
                     .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    .image = frame.current_image,
                 },
             },
         });
@@ -118,14 +118,14 @@ int main(int argc, char** argv) {
         gfx::CmdEndRendering(frame.command_buffer);
 
         gfx::CmdImageBarrier(frame.command_buffer, {
-            .image = frame.current_image,
             .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .src_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
             .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
             // .dst_stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
-            .src_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
             .dst_access = 0,
             .old_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             .new_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            .image = frame.current_image,
         });
 
         gfx::EndCommands(frame.command_buffer);

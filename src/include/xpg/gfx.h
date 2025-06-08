@@ -512,40 +512,55 @@ VkResult EndCommands(VkCommandBuffer buffer);
 
 struct MemoryBarrierDesc
 {
-    VkPipelineStageFlags2 src_stage;
-    VkPipelineStageFlags2 dst_stage;
-    VkAccessFlags2 src_access;
-    VkAccessFlags2 dst_access;
+    VkStructureType          type = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    const void*              next = nullptr;
+    VkPipelineStageFlags2    src_stage;
+    VkAccessFlags2           src_access;
+    VkPipelineStageFlags2    dst_stage;
+    VkAccessFlags2           dst_access;
 };
+static_assert(sizeof(MemoryBarrierDesc) == sizeof(VkMemoryBarrier2));
 
 void CmdMemoryBarrier(VkCommandBuffer cmd, const MemoryBarrierDesc&& desc);
 
 struct BufferBarrierDesc
 {
-    VkBuffer buffer;
-    VkPipelineStageFlags2 src_stage;
-    VkPipelineStageFlags2 dst_stage;
-    VkAccessFlags2 src_access;
-    VkAccessFlags2 dst_access;
-    u32 src_queue = VK_QUEUE_FAMILY_IGNORED;
-    u32 dst_queue = VK_QUEUE_FAMILY_IGNORED;
-    u64 offset = 0;
-    u64 size = VK_WHOLE_SIZE;
+    VkStructureType          type = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+    const void*              next = nullptr;
+    VkPipelineStageFlags2    src_stage;
+    VkAccessFlags2           src_access;
+    VkPipelineStageFlags2    dst_stage;
+    VkAccessFlags2           dst_access;
+    uint32_t                 src_queue = VK_QUEUE_FAMILY_IGNORED;
+    uint32_t                 dst_queue = VK_QUEUE_FAMILY_IGNORED;
+    VkBuffer                 buffer;
+    VkDeviceSize             offset = 0;
+    VkDeviceSize             size = VK_WHOLE_SIZE;
 };
+static_assert(sizeof(BufferBarrierDesc) == sizeof(VkBufferMemoryBarrier2));
 
 void CmdBufferBarrier(VkCommandBuffer cmd, const BufferBarrierDesc&& desc);
 
 struct ImageBarrierDesc
 {
-    VkImage image;
-    VkPipelineStageFlags2 src_stage;
-    VkPipelineStageFlags2 dst_stage;
-    VkAccessFlags2 src_access;
-    VkAccessFlags2 dst_access;
-    VkImageLayout old_layout;
-    VkImageLayout new_layout;
-    VkImageAspectFlags aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
+    VkStructureType            type = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    const void*                next = nullptr;
+    VkPipelineStageFlags2      src_stage;
+    VkAccessFlags2             src_access;
+    VkPipelineStageFlags2      dst_stage;
+    VkAccessFlags2             dst_access;
+    VkImageLayout              old_layout;
+    VkImageLayout              new_layout;
+    uint32_t                   src_queue = VK_QUEUE_FAMILY_IGNORED;
+    uint32_t                   dst_queue = VK_QUEUE_FAMILY_IGNORED;
+    VkImage                    image;
+    VkImageAspectFlags         aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
+    uint32_t                   base_mip_level = 0;
+    uint32_t                   level_count = 1;
+    uint32_t                   base_array_layer = 0;
+    uint32_t                   layer_count = 0;
 };
+static_assert(sizeof(ImageBarrierDesc) == sizeof(VkImageMemoryBarrier2));
 
 void CmdImageBarrier(VkCommandBuffer cmd, const ImageBarrierDesc&& desc);
 
@@ -590,9 +605,9 @@ void CmdEndRendering(VkCommandBuffer cmd);
 
 struct CopyBufferDesc {
     VkBuffer src;
-    VkBuffer dest;
+    VkBuffer dst;
     VkDeviceSize src_offset = 0;
-    VkDeviceSize dest_offset = 0;
+    VkDeviceSize dst_offset = 0;
     VkDeviceSize size;
 };
 

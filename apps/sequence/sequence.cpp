@@ -510,11 +510,11 @@ int main(int argc, char** argv) {
 
             // Queue transfer on copy queue
             gfx::CmdBufferBarrier(frame.copy_command_buffer, {
-                .buffer = app.vertex_buffers_gpu[app.frame_index].buffer,
                 .src_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
                 .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
                 .src_queue = vk.copy_queue_family_index,
                 .dst_queue = vk.queue_family_index,
+                .buffer = app.vertex_buffers_gpu[app.frame_index].buffer,
                 .offset = 0,
                 .size = VK_WHOLE_SIZE,
             });
@@ -536,11 +536,11 @@ int main(int argc, char** argv) {
 
             // Queue transfer on Graphics queue
             gfx::CmdBufferBarrier(frame.command_buffer, {
-                .buffer = app.vertex_buffers_gpu[app.frame_index].buffer,
                 .dst_stage = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
                 .dst_access = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,
                 .src_queue = vk.copy_queue_family_index,
                 .dst_queue = vk.queue_family_index,
+                .buffer = app.vertex_buffers_gpu[app.frame_index].buffer,
             });
         } else {
             VkBufferCopy region;
@@ -571,13 +571,13 @@ int main(int argc, char** argv) {
             // },
             .image = {
                 {
-                    .image = frame.current_image,
                     .src_stage = VK_PIPELINE_STAGE_2_NONE,
-                    .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                     .src_access = 0,
+                    .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                     .dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
                     .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
                     .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    .image = frame.current_image,
                 },
             }
         });
@@ -653,13 +653,13 @@ int main(int argc, char** argv) {
         gfx::CmdEndRendering(frame.command_buffer);
 
         gfx::CmdImageBarrier(frame.command_buffer, {
-            .image = frame.current_image,
             .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dst_stage = VK_PIPELINE_STAGE_2_NONE,
             .src_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .dst_stage = VK_PIPELINE_STAGE_2_NONE,
             .dst_access = 0,
             .old_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             .new_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            .image = frame.current_image,
         });
 
         gfx::EndCommands(frame.command_buffer);
