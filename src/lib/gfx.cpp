@@ -2436,64 +2436,6 @@ DestroyImage(Image* image, const Context& vk)
     *image = {};
 }
 
-VkResult
-CreateDepthBuffer(DepthBuffer* depth_buffer, const Context& vk, u32 width, u32 height)
-{
-    // Create a depth buffer.
-    VkImageCreateInfo image_create_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-    image_create_info.imageType = VK_IMAGE_TYPE_2D;
-    image_create_info.extent.width = width;
-    image_create_info.extent.height = height;
-    image_create_info.extent.depth = 1;
-    image_create_info.mipLevels = 1;
-    image_create_info.arrayLayers = 1;
-    image_create_info.format = VK_FORMAT_D32_SFLOAT;
-    image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_create_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
-
-    VmaAllocationCreateInfo alloc_create_info = {};
-    alloc_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    alloc_create_info.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
-    alloc_create_info.priority = 1.0f;
-
-    VkImage image;
-    VmaAllocation allocation;
-    VkResult vkr = vmaCreateImage(vk.vma, &image_create_info, &alloc_create_info, &image, &allocation, nullptr);
-    if (vkr != VK_SUCCESS) {
-        return vkr;
-    }
-
-    VkImageViewCreateInfo image_view_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-    image_view_info.image = image;
-    image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    image_view_info.format = VK_FORMAT_D32_SFLOAT;
-    image_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    image_view_info.subresourceRange.levelCount = 1;
-    image_view_info.subresourceRange.layerCount = 1;
-
-    VkImageView image_view = 0;
-    vkr = vkCreateImageView(vk.device, &image_view_info, 0, &image_view);
-    if (vkr != VK_SUCCESS) {
-        return vkr;
-    }
-
-    depth_buffer->image = image;
-    depth_buffer->view = image_view;
-    depth_buffer->allocation = allocation;
-
-    return vkr;
-}
-
-void
-DestroyDepthBuffer(DepthBuffer* depth_buffer, const Context& vk)
-{
-    vkDestroyImageView(vk.device, depth_buffer->view, 0);
-    vmaDestroyImage(vk.vma, depth_buffer->image, depth_buffer->allocation);
-    *depth_buffer = {};
-}
-
 VkResult CreateDescriptorSet(DescriptorSet* set, const Context& vk, const DescriptorSetDesc&& desc)
 {
     VkResult vkr;

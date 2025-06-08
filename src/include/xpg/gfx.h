@@ -558,7 +558,7 @@ struct ImageBarrierDesc
     uint32_t                   base_mip_level = 0;
     uint32_t                   level_count = 1;
     uint32_t                   base_array_layer = 0;
-    uint32_t                   layer_count = 0;
+    uint32_t                   layer_count = 1;
 };
 static_assert(sizeof(ImageBarrierDesc) == sizeof(VkImageMemoryBarrier2));
 
@@ -762,8 +762,8 @@ struct AllocDesc {
     VkMemoryPropertyFlags memory_properties_preferred = 0;
 };
 
-// TODO: need to add host coherent required flag to most of these, otherwise need to optionally
-// extra flushes that we are generally skipping.
+// TODO: should technically remember to invalidate/flush these if the allocations are mapped but not coherent,
+// but no GPU that we know of has non-coherent memory on Desktop so for now we ignore this.
 namespace AllocPresets {
     constexpr AllocDesc Host = {
         .vma_usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
@@ -897,17 +897,6 @@ VkResult UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, 
 
 VkResult CreateAndUploadImage(Image* image, const Context& vk, ArrayView<u8> data, VkImageLayout layout, const ImageDesc&& desc);
 void DestroyImage(Image* image, const Context& vk);
-
-//- Depth (todo: add desc)
-struct DepthBuffer
-{
-    VkImage image;
-    VkImageView view;
-    VmaAllocation allocation;
-};
-
-VkResult CreateDepthBuffer(DepthBuffer* depth_buffer, const Context& vk, u32 width, u32 height);
-void DestroyDepthBuffer(DepthBuffer* depth_buffer, const Context& vk);
 
 //- Sampler
 struct Sampler {

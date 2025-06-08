@@ -79,7 +79,7 @@ int main(int argc, char** argv) {
         ArrayFixed<f32, 64> frame_times;
         Array<gfx::DescriptorSet> descriptor_sets;
         Array<gfx::Buffer> uniform_buffers;
-        gfx::DepthBuffer depth_buffer;
+        gfx::Image depth_buffer;
 
         // Playback
         bool playback_enabled;
@@ -299,8 +299,14 @@ int main(int argc, char** argv) {
         });
     }
 
-    gfx::DepthBuffer depth_buffer;
-    vkr = gfx::CreateDepthBuffer(&depth_buffer, vk, window.fb_width, window.fb_height);
+    gfx::Image depth_buffer;
+    vkr = gfx::CreateImage(&depth_buffer, vk, {
+        .width = window.fb_width,
+        .height = window.fb_height,
+        .format = VK_FORMAT_D32_SFLOAT,
+        .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        .alloc = gfx::AllocPresets::DeviceDedicated,
+    });
     assert(vkr == VK_SUCCESS);
 
     Array<VkSemaphore> copy_done_semaphores(window.frames.length);
@@ -362,8 +368,14 @@ int main(int argc, char** argv) {
         }
         else if(swapchain_status == gfx::SwapchainStatus::RESIZED) {
             // Resize framebuffer sized elements.
-            gfx::DestroyDepthBuffer(&app.depth_buffer, vk);
-            VkResult vkr = gfx::CreateDepthBuffer(&app.depth_buffer, vk, window.fb_width, window.fb_height);
+            gfx::DestroyImage(&app.depth_buffer, vk);
+            VkResult vkr = gfx::CreateImage(&app.depth_buffer, vk, {
+                .width = window.fb_width,
+                .height = window.fb_height,
+                .format = VK_FORMAT_D32_SFLOAT,
+                .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                .alloc = gfx::AllocPresets::DeviceDedicated,
+            });
             if(vkr != VK_SUCCESS) {
                 printf("Depth buffer resize failed\n");
                 exit(1);
@@ -394,6 +406,7 @@ int main(int argc, char** argv) {
         ImGui::DockSpaceOverViewport(0, NULL, ImGuiDockNodeFlags_PassthruCentralNode);
 
         if (ImGui::Begin("Playback")) {
+#if 1
             struct Getter {
                 static float fn(void* data, int index) {
                     App* a = (App*)data;
@@ -403,7 +416,7 @@ int main(int argc, char** argv) {
                 }
             };
             //ImGui::PlotLines("", app.frame_times.data, (int)app.frame_times.length, 0, 0, 0.0f, .0f, ImVec2(100, 30));
-            ImGui::PlotLines("", Getter::fn, &app, (int)app.frame_times.length, 0, 0, 0.0f, 600.0f, ImVec2(100, 30));
+            ImGui::PlotLines("##fps", Getter::fn, &app, (int)app.frame_times.length, 0, 0, 0.0f, 600.0f, ImVec2(100, 30));
             ImGui::SameLine();
             ImGui::Text("FPS: %.2f (%.2fms) [%.2f (%.2fms)]", 1.0f / dt, dt * 1.0e3f, 1.0 / avg_frame_time, avg_frame_time * 1.0e3f);
 
@@ -452,12 +465,12 @@ int main(int argc, char** argv) {
 
                 x += width + 1.0f;
             }
+#endif
         }
         ImGui::End();
         ImGui::ShowDemoWindow();
 
-        // Render imgui.
-        ImGui::Render();
+        gui::EndFrame();
 
         // Reset command pool
         gfx::BeginCommands(frame.command_pool, frame.command_buffer, vk);
@@ -756,7 +769,7 @@ int main(int argc, char** argv) {
 
     pool.destroy();
 
-    gfx::DestroyDepthBuffer(&app.depth_buffer, vk);
+    gfx::DestroyImage(&app.depth_buffer, vk);
 
     for (usize i = 0; i < app.descriptor_sets.length; i++) {
         gfx::DestroyDescriptorSet(&app.descriptor_sets[i], vk);
