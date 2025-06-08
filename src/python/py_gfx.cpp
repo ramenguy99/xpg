@@ -1875,11 +1875,12 @@ struct AccelerationStructureMesh: gfx::AccelerationStructureMeshDesc {
 static_assert(sizeof(AccelerationStructureMesh) == sizeof(gfx::AccelerationStructureMeshDesc));
 
 struct AccelerationStructure: public GfxObject {
-    AccelerationStructure(nb::ref<Context> ctx, const std::vector<AccelerationStructureMesh>& meshes)
+    AccelerationStructure(nb::ref<Context> ctx, const std::vector<AccelerationStructureMesh>& meshes, bool prefer_fast_build)
         : GfxObject(ctx, true)
     {
         VkResult vkr = gfx::CreateAccelerationStructure(&as, ctx->vk, gfx::AccelerationStructureDesc {
             .meshes = ArrayView((gfx::AccelerationStructureMeshDesc*)meshes.data(), meshes.size()),
+            .prefer_fast_build = prefer_fast_build,
         });
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create acceleration structure");
@@ -3083,7 +3084,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<AccelerationStructure, GfxObject>(m, "AccelerationStructure")
-        .def(nb::init<nb::ref<Context>, const std::vector<AccelerationStructureMesh>>(), nb::arg("ctx"), nb::arg("meshes"))
+        .def(nb::init<nb::ref<Context>, const std::vector<AccelerationStructureMesh>, bool>(), nb::arg("ctx"), nb::arg("meshes"), nb::arg("prefer_fast_build") = false)
         .def("destroy", &AccelerationStructure::destroy)
     ;
 

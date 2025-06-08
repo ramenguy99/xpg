@@ -2664,6 +2664,8 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 	Array<usize> acceleration_sizes(num_meshes);
 	Array<usize> scratch_sizes(num_meshes);
 
+    VkBuildAccelerationStructureFlagsKHR build_flags = desc.prefer_fast_build ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+
     for(usize i = 0; i < num_meshes; i++) {
         // Skip empty meshes
         if(desc.meshes[i].vertices_count == 0 || desc.meshes[i].primitive_count == 0) continue;
@@ -2681,7 +2683,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 
         blas_build_infos[i] = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
         blas_build_infos[i].type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-        blas_build_infos[i].flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
+        blas_build_infos[i].flags = build_flags | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
         blas_build_infos[i].mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
         blas_build_infos[i].geometryCount = 1;
         blas_build_infos[i].pGeometries = &geometries[i];
@@ -2866,7 +2868,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 
 	VkAccelerationStructureBuildGeometryInfoKHR tlas_build_info = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
 	tlas_build_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-	tlas_build_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+	tlas_build_info.flags = build_flags;
 	tlas_build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
 	tlas_build_info.geometryCount = 1;
 	tlas_build_info.pGeometries = &tlas_geometry;

@@ -1009,7 +1009,7 @@ struct AccelerationStructureMeshDesc {
 
 struct AccelerationStructureDesc {
     Span<AccelerationStructureMeshDesc> meshes;
-    // TODO: fast build / compact flags
+    bool prefer_fast_build = false; // If false, prefers fast trace
 };
 
 VkDeviceAddress GetBufferAddress(VkBuffer buffer, VkDevice device);
