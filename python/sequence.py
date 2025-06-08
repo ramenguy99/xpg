@@ -4,7 +4,6 @@ import struct
 from pathlib import Path
 from typing import Optional, List, Dict
 from time import perf_counter
-from threading import Event
 from enum import Enum, auto
 from dataclasses import dataclass
 
@@ -539,7 +538,7 @@ def draw():
                 # IMPORTANT: only issue if someone depends on this, otherwise no guarantee that this will execute
                 # befor we start the next one
                 if copy_signal_semaphores:
-                    ctx.transfer_queue.submit(copy_cmd, copy_wait_semaphores, copy_signal_semaphores)
+                    ctx.transfer_queue.submit(copy_cmd, wait_semaphores=copy_wait_semaphores, signal_semaphores=copy_signal_semaphores)
 
                 ####################################################################
                 # Prefetch
@@ -589,7 +588,7 @@ def draw():
                         gui.render(cmd)
 
                 cmd.use_image(frame.image, ImageUsage.PRESENT)
-    window.end_frame(frame, additional_wait_semaphores, additional_signal_semaphores)
+    window.end_frame(frame, additional_wait_semaphores=additional_wait_semaphores, additional_signal_semaphores=additional_signal_semaphores)
 
     frame_index = (frame_index + 1) % window.num_frames
     total_frame_index += 1

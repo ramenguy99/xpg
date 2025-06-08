@@ -336,6 +336,7 @@ struct Fence: public GfxObject {
     }
 
     void wait() {
+        nb::gil_scoped_release gil;
         vkWaitForFences(ctx->vk.device, 1, &fence, VK_TRUE, ~0U);
     }
     void reset() {
@@ -372,6 +373,8 @@ struct Semaphore: public GfxObject {
     }
     Semaphore(nb::ref<Context> ctx): Semaphore(ctx, false) { }
 
+    Semaphore(): semaphore(VK_NULL_HANDLE) {}
+
     void destroy() {
         if (owned) {
             gfx::DestroyGPUSemaphore(ctx->vk.device, &semaphore);
@@ -383,6 +386,61 @@ struct Semaphore: public GfxObject {
     }
 
     VkSemaphore semaphore;
+};
+
+struct TimelineSemaphore: public Semaphore {
+    TimelineSemaphore(nb::ref<Context> ctx, u64 initial_value, bool external)
+    {
+        this->ctx = ctx;
+        this->owned = true;
+
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::TIMELINE_SEMAPHORES)) {
+            throw std::runtime_error("Device feature TIMELINE_SEMAPHORES must be set to use TimelineSemaphore");
+        }
+
+        VkResult vkr = gfx::CreateGPUTimelineSemaphore(ctx->vk.device, &this->semaphore, initial_value, external);
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create semaphore");
+        }
+    }
+
+    void signal(u64 value) {
+        VkSemaphoreSignalInfoKHR signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO_KHR };
+        signal_info.semaphore = semaphore;
+        signal_info.value = value;
+        VkResult vkr = vkSignalSemaphoreKHR(ctx->vk.device, &signal_info);
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to get semaphore counter value");
+        }
+    }
+
+    void wait(u64 value) {
+        VkSemaphoreWaitInfoKHR wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR };
+        wait_info.semaphoreCount = 1;
+        wait_info.pSemaphores = &semaphore;
+        wait_info.pValues = &value;
+
+        VkResult vkr;
+        {
+            nb::gil_scoped_release gil;
+            vkr = vkWaitSemaphoresKHR(ctx->vk.device, &wait_info, ~0ULL);
+        }
+
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to get semaphore counter value");
+        }
+    }
+
+    u64 get_value() {
+        u64 value;
+        VkResult vkr = vkGetSemaphoreCounterValueKHR(ctx->vk.device, semaphore, &value);
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to get semaphore counter value");
+        }
+        return value;
+    }
+
+    TimelineSemaphore(nb::ref<Context> ctx, u64 initial_value): TimelineSemaphore(ctx, initial_value, false) { }
 };
 
 struct ExternalSemaphore: public Semaphore {
@@ -401,6 +459,28 @@ struct ExternalSemaphore: public Semaphore {
         if (owned) {
             gfx::CloseExternalHandle(&handle);
             Semaphore::destroy();
+        }
+    }
+
+    gfx::ExternalHandle handle;
+};
+
+struct ExternalTimelineSemaphore: public TimelineSemaphore {
+    ExternalTimelineSemaphore(nb::ref<Context> ctx): TimelineSemaphore(ctx, true) {
+        VkResult vkr = gfx::GetExternalHandleForSemaphore(&handle, ctx->vk, semaphore);
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to get handle for semaphore");
+        }
+    }
+
+    ~ExternalTimelineSemaphore() {
+        destroy();
+    }
+
+    void destroy() {
+        if (owned) {
+            gfx::CloseExternalHandle(&handle);
+            TimelineSemaphore::destroy();
         }
     }
 
@@ -1248,7 +1328,9 @@ struct Queue: GfxObject {
 
     void submit(nb::ref<CommandBuffer> cmd, 
         std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores,
+        std::vector<u64> wait_timeline_values,
         std::vector<nb::ref<Semaphore>> signal_semaphores,
+        std::vector<u64> signal_timeline_values,
         std::optional<nb::ref<Fence>> fence) {
 
         Array<VkSemaphore> vk_wait_semaphores(wait_semaphores.size());
@@ -1271,7 +1353,9 @@ struct Queue: GfxObject {
             .cmd = { cmd->buffer },
             .wait_semaphores = Span(vk_wait_semaphores),
             .wait_stages = Span(vk_wait_stages),
+            .wait_timeline_values = Span(ArrayView(wait_timeline_values.data(), wait_timeline_values.size())),
             .signal_semaphores = Span(vk_signal_semaphores),
+            .signal_timeline_values = Span(ArrayView(signal_timeline_values.data(), signal_timeline_values.size())),
             .fence = vk_fence,
         });
 
@@ -1298,10 +1382,14 @@ struct Window: public nb::intrusive_base {
     struct FrameManager: public nb::intrusive_base {
         FrameManager(nb::ref<Window> window,
                      std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores,
-                     std::vector<nb::ref<Semaphore>> additional_signal_semaphores)
+                     std::vector<u64> additional_wait_timeline_values,
+                     std::vector<nb::ref<Semaphore>> additional_signal_semaphores,
+                     std::vector<u64> additional_signal_timeline_values)
             : window(window)
             , additional_wait_semaphores(std::move(additional_wait_semaphores))
+            , additional_wait_timeline_values(std::move(additional_wait_timeline_values))
             , additional_signal_semaphores(std::move(additional_signal_semaphores))
+            , additional_signal_timeline_values(std::move(additional_signal_timeline_values))
         {
         }
 
@@ -1311,17 +1399,24 @@ struct Window: public nb::intrusive_base {
         }
 
         void exit(nb::object, nb::object, nb::object) {
-            window->end_frame(*frame, additional_wait_semaphores, additional_signal_semaphores);
+            window->end_frame(*frame, additional_wait_semaphores, additional_wait_timeline_values, additional_signal_semaphores, additional_signal_timeline_values);
         }
 
         nb::ref<Frame> frame;
         nb::ref<Window> window;
         std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores;
+        std::vector<u64> additional_wait_timeline_values;
         std::vector<nb::ref<Semaphore>> additional_signal_semaphores;
+        std::vector<u64> additional_signal_timeline_values;
     };
 
-    nb::ref<FrameManager> frame(std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores, std::vector<nb::ref<Semaphore>> additional_signal_semaphores) {
-        return new FrameManager(this, std::move(additional_wait_semaphores), std::move(additional_signal_semaphores));
+    nb::ref<FrameManager> frame(
+        std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores,
+        std::vector<u64> additional_wait_timeline_values,
+        std::vector<nb::ref<Semaphore>> additional_signal_semaphores,
+        std::vector<u64> additional_signal_timeline_values)
+    {
+        return new FrameManager(this, std::move(additional_wait_semaphores), std::move(additional_wait_timeline_values), std::move(additional_signal_semaphores), std::move(additional_signal_timeline_values));
     }
 
     Window(nb::ref<Context> ctx, const std::string& name, u32 width, u32 height)
@@ -1413,15 +1508,24 @@ struct Window: public nb::intrusive_base {
     nb::ref<Frame> begin_frame()
     {
         // TODO: make this throw if called multiple times in a row befor end
-        gfx::Frame& frame = gfx::WaitForFrame(&window, ctx->vk);
-        gfx::Result ok = gfx::AcquireImage(&frame, &window, ctx->vk);
+        gfx::Frame* frame;
+        {
+            nb::gil_scoped_release gil;
+            frame = &gfx::WaitForFrame(&window, ctx->vk);
+        }
+        gfx::Result ok = gfx::AcquireImage(frame, &window, ctx->vk);
+
         if (ok != gfx::Result::SUCCESS) {
             throw std::runtime_error("Failed to acquire next image");
         }
-        return new Frame(this, frame);
+        return new Frame(this, *frame);
     }
 
-    void end_frame(Frame& frame, const std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>>& additional_wait_semaphores, const std::vector<nb::ref<Semaphore>>& additional_signal_semaphores)
+    void end_frame(Frame& frame, 
+        const std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>>& additional_wait_semaphores,
+        std::vector<u64>& additional_wait_timeline_values,
+        const std::vector<nb::ref<Semaphore>>& additional_signal_semaphores,
+        std::vector<u64>& additional_signal_timeline_values)
     {
         // TODO: make this throw if not called after begin in the same frame
         VkResult vkr;
@@ -1438,18 +1542,22 @@ struct Window: public nb::intrusive_base {
             }
             wait_semaphores[additional_wait_semaphores.size()] = frame.frame.acquire_semaphore;
             wait_stages[additional_wait_semaphores.size()] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            additional_wait_timeline_values.push_back(0);
 
             Array<VkSemaphore> signal_semaphores(additional_signal_semaphores.size() + 1);
             for(usize i = 0; i < additional_signal_semaphores.size(); i++) {
                 signal_semaphores[i] = additional_signal_semaphores[i]->semaphore;
             }
             signal_semaphores[additional_signal_semaphores.size()] = frame.frame.release_semaphore;
+            additional_signal_timeline_values.push_back(0);
 
             vkr = gfx::SubmitQueue(ctx->vk.queue, {
                 .cmd = { frame.frame.command_buffer },
                 .wait_semaphores = Span(wait_semaphores),
                 .wait_stages = Span(wait_stages),
+                .wait_timeline_values = Span(ArrayView(additional_wait_timeline_values.data(), additional_wait_timeline_values.size())),
                 .signal_semaphores = Span(signal_semaphores),
+                .signal_timeline_values = Span(ArrayView(additional_signal_timeline_values.data(), additional_signal_timeline_values.size())),
                 .fence = frame.frame.fence,
             });
         }
@@ -1541,13 +1649,17 @@ struct CommandsManager: public nb::intrusive_base {
     CommandsManager(nb::ref<CommandBuffer> cmd,
                     VkQueue queue,
                     std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores,
+                    std::vector<u64> wait_timeline_values,
                     std::vector<nb::ref<Semaphore>> signal_semaphores,
+                    std::vector<u64> signal_timeline_values,
                     VkFence fence,
                     bool wait_and_reset_fence)
         : cmd(cmd)
         , queue(queue)
         , wait_semaphores(std::move(wait_semaphores))
+        , wait_timeline_values(std::move(wait_timeline_values))
         , signal_semaphores(std::move(signal_semaphores))
+        , signal_timeline_values(std::move(signal_timeline_values))
         , fence(fence)
         , wait_and_reset_fence(wait_and_reset_fence)
     {
@@ -1576,7 +1688,9 @@ struct CommandsManager: public nb::intrusive_base {
             .cmd = { cmd->buffer },
             .wait_semaphores = Span(vk_wait_semaphores),
             .wait_stages = Span(vk_wait_stages),
+            .wait_timeline_values = Span(ArrayView(wait_timeline_values.data(), wait_timeline_values.size())),
             .signal_semaphores = Span(vk_signal_semaphores),
+            .signal_timeline_values = Span(ArrayView(signal_timeline_values.data(), signal_timeline_values.size())),
             .fence = fence,
         });
 
@@ -1589,7 +1703,10 @@ struct CommandsManager: public nb::intrusive_base {
                 throw std::runtime_error("Fence must not be None if wait_and_reset_fence is True");
             }
 
-            vkWaitForFences(cmd->ctx->vk.device, 1, &fence, VK_TRUE, ~0U);
+            {
+                nb::gil_scoped_release gil;
+                vkWaitForFences(cmd->ctx->vk.device, 1, &fence, VK_TRUE, ~0U);
+            }
             vkResetFences(cmd->ctx->vk.device, 1, &fence);
         }
     }
@@ -1597,7 +1714,9 @@ struct CommandsManager: public nb::intrusive_base {
     nb::ref<CommandBuffer> cmd;
     VkQueue queue;
     std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores;
+    std::vector<u64> wait_timeline_values;
     std::vector<nb::ref<Semaphore>> signal_semaphores;
+    std::vector<u64> signal_timeline_values;
     VkFence fence;
     bool wait_and_reset_fence;
 };
@@ -2213,6 +2332,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("EXTERNAL_RESOURCES",    gfx::DeviceFeatures::EXTERNAL_RESOURCES)
         .value("HOST_QUERY_RESET",      gfx::DeviceFeatures::HOST_QUERY_RESET)
         .value("CALIBRATED_TIMESTAMPS", gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)
+        .value("TIMELINE_SEMAPHORES",   gfx::DeviceFeatures::TIMELINE_SEMAPHORES)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")
@@ -2377,7 +2497,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("enable_synchronization_validation") = false
         )
         .def("sync_commands", [] (nb::ref<Context> ctx) {
-            return new CommandsManager(new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer), ctx->vk.queue, {}, {}, ctx->vk.sync_fence, true);
+            return new CommandsManager(new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer), ctx->vk.queue, {}, {}, {}, {}, ctx->vk.sync_fence, true);
         })
         .def_prop_ro("sync_command_buffer", [] (nb::ref<Context> ctx) {
             return new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer);
@@ -2386,6 +2506,7 @@ void gfx_create_bindings(nb::module_& m)
             gfx::SubmitSync(ctx.vk);
         })
         .def("wait_idle", [](Context& ctx) {
+            nb::gil_scoped_release gil;
             gfx::WaitIdle(ctx.vk);
         })
         .def_prop_ro("instance_version", [](Context& ctx) {
@@ -2488,19 +2609,19 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<Frame>([](Frame *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def_ro("command_buffer", &Frame::command_buffer)
         .def_ro("image", &Frame::image)
-        .def("compute_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<nb::ref<Semaphore>> signal_semaphores) {
+        .def("compute_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<u64> wait_timeline_values, std::vector<nb::ref<Semaphore>> signal_semaphores, std::vector<u64> signal_timeline_values) {
             if (!frame.compute_command_buffer.has_value()) {
                 nb::raise("Device does not support compute queue. Check Context.has_compute_queue to know if it's supported.");
             }
-            return new CommandsManager(frame.compute_command_buffer.value(), frame.window->ctx->vk.compute_queue, wait_semaphores, signal_semaphores, VK_NULL_HANDLE, false);
-        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("signal_semaphores") = nb::list())
+            return new CommandsManager(frame.compute_command_buffer.value(), frame.window->ctx->vk.compute_queue, std::move(wait_semaphores), std::move(wait_timeline_values), std::move(signal_semaphores), std::move(signal_timeline_values), VK_NULL_HANDLE, false);
+        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("wait_timeline_values") = nb::list(), nb::arg("signal_semaphores") = nb::list(), nb::arg("wait_timeline_values") = nb::list())
         .def_ro("compute_command_buffer", &Frame::compute_command_buffer)
-        .def("transfer_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<nb::ref<Semaphore>> signal_semaphores) {
+        .def("transfer_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<u64> wait_timeline_values, std::vector<nb::ref<Semaphore>> signal_semaphores, std::vector<u64> signal_timeline_values) {
             if (!frame.transfer_command_buffer.has_value()) {
                 nb::raise("Device does not support transfer queue. Check Context.has_transfer_queue to know if it's supported.");
             }
-            return new CommandsManager(frame.transfer_command_buffer.value(), frame.window->ctx->vk.copy_queue, wait_semaphores, signal_semaphores, VK_NULL_HANDLE, false);
-        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("signal_semaphores") = nb::list())
+            return new CommandsManager(frame.transfer_command_buffer.value(), frame.window->ctx->vk.copy_queue, std::move(wait_semaphores), std::move(wait_timeline_values), std::move(signal_semaphores), std::move(signal_timeline_values), VK_NULL_HANDLE, false);
+        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("wait_timeline_values") = nb::list(), nb::arg("signal_semaphores") = nb::list(), nb::arg("wait_timeline_values") = nb::list())
         .def_ro("transfer_command_buffer", &Frame::transfer_command_buffer)
     ;
 
@@ -2527,11 +2648,15 @@ void gfx_create_bindings(nb::module_& m)
         .def("end_frame", &Window::end_frame,
             nb::arg("frame"),
             nb::arg("additional_wait_semaphores") = nb::list(),
-            nb::arg("additional_signal_semaphores") = nb::list()
+            nb::arg("additional_wait_timeline_values") = nb::list(),
+            nb::arg("additional_signal_semaphores") = nb::list(),
+            nb::arg("additional_signal_timeline_values") = nb::list()
         )
         .def("frame", &Window::frame,
             nb::arg("additional_wait_semaphores") = nb::list(),
-            nb::arg("additional_signal_semaphores") = nb::list()
+            nb::arg("additional_wait_timeline_values") = nb::list(),
+            nb::arg("additional_signal_semaphores") = nb::list(),
+            nb::arg("additional_signal_timeline_values") = nb::list()
         )
         .def("post_empty_event", &Window::post_empty_event)
         .def_prop_ro("swapchain_format", [](Window& w) -> VkFormat { return w.window.swapchain_format; })
@@ -2788,7 +2913,12 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Queue, GfxObject>(m, "Queue")
-        .def("submit", &Queue::submit, nb::arg("command_buffer"), nb::arg("wait_semaphores") = nb::list(), nb::arg("signal_semaphores") = nb::list(), nb::arg("fence").none() = nb::none())
+        .def("submit", &Queue::submit, nb::arg("command_buffer"),
+        nb::arg("wait_semaphores") = nb::list(),
+        nb::arg("wait_timeline_values") = nb::list(),
+        nb::arg("signal_semaphores") = nb::list(),
+        nb::arg("signal_timeline_values") = nb::list(),
+        nb::arg("fence").none() = nb::none())
     ;
 
     nb::enum_<VkQueryType>(m, "QueryType")
@@ -2946,10 +3076,23 @@ void gfx_create_bindings(nb::module_& m)
         .def("destroy", &Semaphore::destroy)
     ;
 
+    nb::class_<TimelineSemaphore, Semaphore>(m, "TimelineSemaphore")
+        .def(nb::init<nb::ref<Context>, u64>(), nb::arg("ctx"), nb::arg("initial_value") = 0)
+        .def("get_value", &TimelineSemaphore::get_value)
+        .def("signal", &TimelineSemaphore::signal, nb::arg("value"))
+        .def("wait", &TimelineSemaphore::wait, nb::arg("value"))
+    ;
+
     nb::class_<ExternalSemaphore, Semaphore>(m, "ExternalSemaphore")
         .def(nb::init<nb::ref<Context>>(), nb::arg("ctx"))
         .def("destroy", &ExternalSemaphore::destroy)
         .def_prop_ro("handle", [] (ExternalSemaphore& semaphore) { return (u64)semaphore.handle; });
+    ;
+
+    nb::class_<ExternalTimelineSemaphore, TimelineSemaphore>(m, "ExternalTimelineSemaphore")
+        .def(nb::init<nb::ref<Context>>(), nb::arg("ctx"))
+        .def("destroy", &ExternalTimelineSemaphore::destroy)
+        .def_prop_ro("handle", [] (ExternalTimelineSemaphore& semaphore) { return (u64)semaphore.handle; });
     ;
 
     nb::enum_<MemoryUsage>(m, "MemoryUsage")

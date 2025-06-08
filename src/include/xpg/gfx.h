@@ -71,6 +71,7 @@ struct DeviceFeatures {
         EXTERNAL_RESOURCES    = 1ull << 6,
         HOST_QUERY_RESET      = 1ull << 7,
         CALIBRATED_TIMESTAMPS = 1ull << 8,
+        TIMELINE_SEMAPHORES   = 1ull << 9,
     };
 
     DeviceFeatures() {};
@@ -183,6 +184,7 @@ typedef int ExternalHandle;
 
 VkResult GetExternalHandleForSemaphore(ExternalHandle* handle, const Context& vk, VkSemaphore semaphore);
 VkResult CreateGPUSemaphore(VkDevice device, VkSemaphore* semaphore, bool external = false);
+VkResult CreateGPUTimelineSemaphore(VkDevice device, VkSemaphore* semaphore, uint64_t initial_value = 0, bool external = false);
 void DestroyGPUSemaphore(VkDevice device, VkSemaphore* semaphore);
 
 //- Swapchain
@@ -476,7 +478,25 @@ struct SubmitDesc {
     Span<VkCommandBuffer> cmd;
     Span<VkSemaphore> wait_semaphores;
     Span<VkPipelineStageFlags> wait_stages;
+    
+    // Must contain a value for each semaphore in wait_semaphores.
+    // This is only useful if one or more of these semaphores is a timeline semaphore.
+    //
+    // A stub value must be provided for every binary semaphore in wait_semaphores. The stub value will be ignored.
+    //
+    // Can be empty if no timeline semaphore is used in wait_semaphores.
+    Span<u64> wait_timeline_values;
+
     Span<VkSemaphore> signal_semaphores;
+
+    // Must contain a value for each semaphore in signal_semaphores.
+    // This is only useful if one or more of these semaphores is a timeline semaphore.
+    //
+    // A stub value must be provided for every binary semaphore in signal_semaphores. The stub value will be ignored.
+    //
+    // Can be empty if no timeline semaphore is used in signal_semaphores.
+    Span<u64> signal_timeline_values;
+
     VkFence fence;
 };
 

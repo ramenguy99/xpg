@@ -203,9 +203,10 @@ Python:
 - [ ] glslang bindings for compiling and reflection
     - [ ] fix slang build when using this
 - [ ] Tracy module built-in into xpg. Repackage their bindings for CPU stuff, expose vulkan API tracing, and add compat bindings with our GPU stuff.
-- [ ] Expose host image copy and timeline semaphores?
-    -> timeline semaphores should be avilable everywhere. Ideally subclass / parameter of Semaphore and transparent to queue waits but with extra APIs on the object.
-    -> Host image copy can be used automatically for Image.with_data() to or manually with exposed host operations. Not available on AMD
+- [x] Expose host image copy and timeline semaphores?
+    - [x] timeline semaphores should be avilable everywhere. Ideally subclass / parameter of Semaphore and transparent to queue waits but with extra APIs on the object.
+    - [ ] expose ctx.wait_timeline_semaphores() for waiting on multiple semaphores (all sems or first). Easy to add but currently do not have a usecase for this.
+    - [ ] Host image copy can be used automatically for Image.with_data() to or manually with exposed host operations. Not available on AMD
 
 Nanobind:
 - [ ] None converts to a nullptr nb::ref, makes a lot of our code potentially segfault

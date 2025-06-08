@@ -493,6 +493,11 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     host_query_reset_features.hostQueryReset = VK_TRUE;
     CHAIN(host_query_reset_features, DeviceFeatures::HOST_QUERY_RESET);
 
+    // Timeline semaphores
+    VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR };
+    timeline_semaphore_features.timelineSemaphore = VK_TRUE;
+    CHAIN(timeline_semaphore_features, DeviceFeatures::TIMELINE_SEMAPHORES);
+
     // Feature dependencies
     FeatureAndExtensionDependencies<1, 3> dynamic_rendering_deps = {
         .flag = DeviceFeatures::DYNAMIC_RENDERING,
@@ -581,6 +586,13 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         .features_req = { (GenericFeatureStruct*)&host_query_reset_features },
         .features_sup = { (GenericFeatureStruct*)&host_query_reset_features_sup },
         .extensions = { VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME },
+    };
+
+    FeatureAndExtensionDependencies<1, 1> timeline_semaphore_deps = {
+        .flag = DeviceFeatures::TIMELINE_SEMAPHORES,
+        .features_req = { (GenericFeatureStruct*)&timeline_semaphore_features },
+        .features_sup = { (GenericFeatureStruct*)&timeline_semaphore_features_sup },
+        .extensions = { VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME },
     };
 
     ExtensionDependencies<2> external_resources_deps = {
@@ -783,6 +795,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             CHECK_SUPPORTED_EXTENSIONS(external_resources);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(host_query_reset);
             CHECK_SUPPORTED_EXTENSIONS(calibrated_timestamps);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(timeline_semaphore);
 
             logging::trace("gfx/debug", "Supported features: 0x%zx", info.supported_features.flags);
 
@@ -803,6 +816,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             CLEAR(ray_query_features, DeviceFeatures::RAY_QUERY);
             CLEAR(ray_tracing_pipeline_features, DeviceFeatures::RAY_TRACING_PIPELINE);
             CLEAR(host_query_reset_features, DeviceFeatures::HOST_QUERY_RESET);
+            CLEAR(timeline_semaphore_features, DeviceFeatures::TIMELINE_SEMAPHORES);
         }
 
         if (properties.apiVersion < desc.minimum_api_version) {
@@ -916,6 +930,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     ENABLE_EXTENSIONS_IF_SUPPORTED(external_resources);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(host_query_reset);
     ENABLE_EXTENSIONS_IF_SUPPORTED(calibrated_timestamps);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(timeline_semaphore);
 
     void* enabled_next = 0;
     for (usize i = 0; i < enabled_features.length; i++) {
@@ -1203,7 +1218,7 @@ SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
 
 Frame& WaitForFrame(Window* w, const Context& vk) {
     Frame& frame = w->frames[w->swapchain_frame_index];
-    vkWaitForFences(vk.device, 1, &frame.fence, VK_TRUE, ~0);
+    vkWaitForFences(vk.device, 1, &frame.fence, VK_TRUE, ~0ULL);
     vkResetFences(vk.device, 1, &frame.fence);
 
 #if !SYNC_SWAPCHAIN_DESTRUCTION
@@ -1321,6 +1336,16 @@ VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc) {
     submit_info.pWaitDstStageMask = desc.wait_stages.data;
     submit_info.signalSemaphoreCount = desc.signal_semaphores.length;
     submit_info.pSignalSemaphores = desc.signal_semaphores.data;
+
+    VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR };
+    if (desc.wait_timeline_values.length || desc.signal_timeline_values.length) {
+        timeline_submit_info.waitSemaphoreValueCount = desc.wait_timeline_values.length;
+        timeline_submit_info.pWaitSemaphoreValues = desc.wait_timeline_values.data; 
+        timeline_submit_info.signalSemaphoreValueCount = desc.signal_timeline_values.length;
+        timeline_submit_info.pSignalSemaphoreValues = desc.signal_timeline_values.data; 
+
+        submit_info.pNext = &timeline_submit_info;
+    }
 
     return vkQueueSubmit(queue, 1, &submit_info, desc.fence);
 }
@@ -1852,6 +1877,26 @@ CreateGPUSemaphore(VkDevice device, VkSemaphore* semaphore, bool external)
 
     if(external) {
         semaphore_info.pNext = &export_semaphore_info;
+    }
+
+    return vkCreateSemaphore(device, &semaphore_info, 0, semaphore);
+}
+
+VkResult
+CreateGPUTimelineSemaphore(VkDevice device, VkSemaphore* semaphore, u64 initial_value, bool external)
+{
+    VkSemaphoreTypeCreateInfo timeline_create_info = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+    timeline_create_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timeline_create_info.initialValue = initial_value;
+
+    VkSemaphoreCreateInfo semaphore_info = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    semaphore_info.pNext = &timeline_create_info;
+
+    VkExportSemaphoreCreateInfo export_semaphore_info = { VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO };
+    export_semaphore_info.handleTypes = EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT;
+
+    if(external) {
+        timeline_create_info.pNext = &export_semaphore_info;
     }
 
     return vkCreateSemaphore(device, &semaphore_info, 0, semaphore);
