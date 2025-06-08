@@ -27,12 +27,10 @@ Build:
     - [ ] clang on windows
     - [ ] gcc on linux
     - [ ] clang on linux
-- [ ] Enable wayland in GLFW after merging this patch to the fix the build on manylinux: https://github.com/glfw/glfw/pull/2649
 
 Maintenance:
 - [x] Update all deps (last: 22/04/2025)
 - [x] Add basic CI build on master or manually triggered (can remove slang to keep it fast, could also be a pipeline option)
-- [ ] Add simple unit tests, pytest with a specific python version? Use lavapipe for rendering tests?
 
 C++:
 - [x] Cleanup namespaces
@@ -41,14 +39,7 @@ C++:
     - [x] result
     - [x] framegraph
 - [x] Check support for present modes
-- [ ] Cleanup gfx wrappers -> do not like alloca / dynamic alloc, maybe should just wrap the vulkan types for defaults?
-- [ ] Cleanup platform stuff (file IO and threading)
-    - maybe pickup a small filesystem library?
-    - maybe pickup a small utf8 library too for strings/paths?
-- [ ] Cleanup apps
-    - [ ] Embed shaders somehow?
-    - [ ] Run with syncrhonization validation and GPU based validation
-        - [ ] Completely switch to syncrhonization 2 for submission? Probably need to fix barriers for submit and present at COLOR_ATTACHMENT_OUTPUT stage
+- [x] Cleanup gfx wrappers -> do not like alloca / dynamic alloc, maybe should just wrap the vulkan types for defaults?
 
 Python:
 - [x] Check if there is a better way to do imports that works more intuitively
@@ -180,6 +171,7 @@ Python:
 - [ ] ImGui:
     - [x] vec2 / vec4
     - [x] Drawlist
+    - [ ] Drawlist batched helpers for better perf on big draws
     - [ ] Remove text_end (or other string end type of pointers from APIs)
     - [ ] Fix begin returns tuple, many examples expect bool
     - [ ] Fix imgui with waitevents on linux, likely need some form of animation frame flag / counter to render at least one additional frame
@@ -195,9 +187,22 @@ Python:
 
 Build:
 - [ ] Mac support
+- [ ] Enable wayland in GLFW after merging this patch to the fix the build on manylinux: https://github.com/glfw/glfw/pull/2649
+
+Maintenance:
+- [ ] Add simple unit tests, pytest with a specific python version? Use lavapipe for rendering tests?
 
 Docs:
 - [ ] Doc comments and documentation website
+
+C++:
+- [ ] Cleanup platform stuff (file IO and threading)
+    - maybe pickup a small filesystem library?
+    - maybe pickup a small utf8 library too for strings/paths?
+- [ ] Cleanup apps
+    - [ ] Embed shaders somehow?
+    - [ ] Run with syncrhonization validation and GPU based validation
+        - [ ] Completely switch to syncrhonization 2 for submission? Probably need to fix barriers for submit and present at COLOR_ATTACHMENT_OUTPUT stage
 
 Python:
 - [ ] glslang bindings for compiling and reflection
