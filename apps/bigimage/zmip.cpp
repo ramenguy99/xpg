@@ -29,27 +29,27 @@ bool LoadChunk(ChunkLoadContext& load, ChunkId c) {
     usize l = c.l;
     ZMipChunk b = zmip.chunks[index];
     if (b.offset + b.size < b.offset) {
-        logging::error("bigimage/parse/map", "offset + size overflow on chunk (%llu, %llu) at level %llu", x, y, l);
+        logging::error("bigimage/parse/map", "offset + size overflow on chunk (%zu, %zu) at level %zu", x, y, l);
         return false;
     }
     if (b.offset + b.size > zmip.file.size) {
-        logging::error("bigimage/parse/map", "offset + size out of bounds chunk (%llu, %llu) at level %llu", x, y, l);
+        logging::error("bigimage/parse/map", "offset + size out of bounds chunk (%zu, %zu) at level %zu", x, y, l);
         return false;
     }
 
     ArrayView<u8> chunk = load.compressed_data.slice(0, b.size);
     if (platform::ReadAtOffset(zmip.file, chunk, b.offset) != platform::Result::Success) {
-        logging::error("bigimage/parse/chunk", "Failed to read %u bytes at offset %llu", b.size, b.offset);
+        logging::error("bigimage/parse/chunk", "Failed to read %u bytes at offset %zu", b.size, b.offset);
         return false;
     }
     usize frame_size = ZSTD_getFrameContentSize(chunk.data, chunk.length);
     if (frame_size != load.interleaved.length) {
-        logging::error("bigimage/parse/chunk", "Compressed chunk frame size %llu does not match expected size %llu", frame_size, load.interleaved.length);
+        logging::error("bigimage/parse/chunk", "Compressed chunk frame size %zu does not match expected size %zu", frame_size, load.interleaved.length);
         return false;
     }
     usize zstd_code = ZSTD_decompress(load.interleaved.data, load.interleaved.length, chunk.data, chunk.length);
     if (ZSTD_isError(zstd_code)) {
-        logging::error("bigimage/parse/chunk", "ZSTD_decompress failed with error %s (%llu)", ZSTD_getErrorName(zstd_code), zstd_code);
+        logging::error("bigimage/parse/chunk", "ZSTD_decompress failed with error %s (%zu)", ZSTD_getErrorName(zstd_code), zstd_code);
         return false;
     }
 
@@ -94,9 +94,9 @@ ZMipFile LoadZmipFile(const char* path)
         exit(102);
     }
 
-    logging::info("bigimage/parse/header", "magic: %llu", header.magic);
-    logging::info("bigimage/parse/header", "width: %llu", header.width);
-    logging::info("bigimage/parse/header", "height: %llu", header.height);
+    logging::info("bigimage/parse/header", "magic: %zu", header.magic);
+    logging::info("bigimage/parse/header", "width: %zu", header.width);
+    logging::info("bigimage/parse/header", "height: %zu", header.height);
     logging::info("bigimage/parse/header", "channels: %u", header.channels);
     logging::info("bigimage/parse/header", "chunk_width: %u", header.chunk_width);
     logging::info("bigimage/parse/header", "chunk_height: %u", header.chunk_height);

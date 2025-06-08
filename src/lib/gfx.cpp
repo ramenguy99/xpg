@@ -840,29 +840,29 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         bool picked = false;
         if (force_device) {
             if (i == desc.force_physical_device_index) {
-                logging::info("gfx/device", "Picked because of forced device index (%u)", desc.force_physical_device_index, i);
+                logging::info("gfx/device", "Picked because of forced device index (%u)", i);
                 picked = true;
             } else {
                 logging::info("gfx/device", "Discarded because forced device index (%u) does not match device index (%u)", desc.force_physical_device_index, i);
             }
         } else {
             if (picked_index == physical_device_count) {
-                logging::info("gfx/device", "Picked because first suitable device", desc.force_physical_device_index, i);
+                logging::info("gfx/device", "Picked because first suitable device");
                 picked = true;
             } else {
                 if (desc.prefer_discrete_gpu) {
                     if (picked_info.device_type != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-                        logging::info("gfx/device", "Picked because first discrete GPU", desc.force_physical_device_index, i);
+                        logging::info("gfx/device", "Picked because first discrete GPU");
                         picked = true;
                     } else {
-                        logging::info("gfx/device", "Discarded because not a discrete GPU and one was already found", desc.force_physical_device_index, i);
+                        logging::info("gfx/device", "Discarded because not a discrete GPU and one was already found");
                     }
                 } else {
                     if (picked_info.device_type != VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
-                        logging::info("gfx/device", "Picked because first integrated GPU", desc.force_physical_device_index, i);
+                        logging::info("gfx/device", "Picked because first integrated GPU");
                         picked = true;
                     } else {
-                        logging::info("gfx/device", "Discarded because not an integrated GPU and one was already found", desc.force_physical_device_index, i);
+                        logging::info("gfx/device", "Discarded because not an integrated GPU and one was already found");
                     }
                 }
             }
