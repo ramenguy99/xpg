@@ -573,14 +573,18 @@ struct BarriersDesc {
 void CmdBarriers(VkCommandBuffer cmd, const BarriersDesc&& desc);
 
 struct RenderingAttachmentDesc {
-    VkImageView view;
-    VkAttachmentLoadOp load_op;
-    VkAttachmentStoreOp store_op;
-    VkClearColorValue clear;
-    VkResolveModeFlagBits resolve_mode = VK_RESOLVE_MODE_NONE;
-    VkImageView resolve_image_view = VK_NULL_HANDLE;
-    VkImageLayout resolve_image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkStructureType          type = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    const void*              next = nullptr;
+    VkImageView              view;
+    VkImageLayout            layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    VkResolveModeFlagBits    resolve_mode = VK_RESOLVE_MODE_NONE;
+    VkImageView              resolve_image_view = VK_NULL_HANDLE;
+    VkImageLayout            resolve_image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkAttachmentLoadOp       load_op;
+    VkAttachmentStoreOp      store_op;
+    VkClearColorValue        clear;
 };
+static_assert(sizeof(RenderingAttachmentDesc) == sizeof(VkRenderingAttachmentInfo));
 
 struct DepthAttachmentDesc {
     VkImageView view;

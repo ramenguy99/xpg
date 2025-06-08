@@ -1164,13 +1164,15 @@ struct CommandBuffer: GfxObject {
             clear.float32[2] = color[i].clear[2];
             clear.float32[3] = color[i].clear[3];
 
-            color_descs[i].view = color[i].image->image.view;
-            color_descs[i].store_op = color[i].store_op;
-            color_descs[i].load_op = color[i].load_op;
-            color_descs[i].clear = clear;
-            color_descs[i].resolve_mode = color[i].resolve_mode;
-            color_descs[i].resolve_image_layout = color[i].resolve_image.has_value() ? color[i].resolve_image.value()->current_state.layout : VK_IMAGE_LAYOUT_UNDEFINED;
-            color_descs[i].resolve_image_view = color[i].resolve_image.has_value() ? color[i].resolve_image.value()->image.view : VK_NULL_HANDLE;
+            color_descs[i] = {
+                .view = color[i].image->image.view,
+                .resolve_mode = color[i].resolve_mode,
+                .resolve_image_view = color[i].resolve_image.has_value() ? color[i].resolve_image.value()->image.view : VK_NULL_HANDLE,
+                .resolve_image_layout = color[i].resolve_image.has_value() ? color[i].resolve_image.value()->current_state.layout : VK_IMAGE_LAYOUT_UNDEFINED,
+                .load_op = color[i].load_op,
+                .store_op = color[i].store_op,
+                .clear = clear,
+            };
         }
 
         gfx::DepthAttachmentDesc depth_desc = {};

@@ -1718,20 +1718,6 @@ void CmdBarriers(VkCommandBuffer cmd, const BarriersDesc &&desc)
 
 void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc)
 {
-    // TODO: better handling of passing more than preallocated amount.
-    ArrayFixed<VkRenderingAttachmentInfo, 8> attachment_info(desc.color.length);
-    for(usize i = 0; i < desc.color.length; i++) {
-        attachment_info[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        attachment_info[i].imageView = desc.color[i].view;
-        attachment_info[i].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        attachment_info[i].loadOp = desc.color[i].load_op;
-        attachment_info[i].storeOp = desc.color[i].store_op;
-        attachment_info[i].clearValue.color = desc.color[i].clear;
-        attachment_info[i].resolveMode = desc.color[i].resolve_mode;
-        attachment_info[i].resolveImageView = desc.color[i].resolve_image_view;
-        attachment_info[i].resolveImageLayout = desc.color[i].resolve_image_layout;
-    }
-
     VkRenderingAttachmentInfo depth { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
     depth.imageView = desc.depth.view;
     depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -1747,8 +1733,8 @@ void CmdBeginRendering(VkCommandBuffer cmd, const BeginRenderingDesc&& desc)
     rendering_info.renderArea.extent.height = desc.height;
     rendering_info.layerCount = 1;
     rendering_info.viewMask = 0;
-    rendering_info.colorAttachmentCount = attachment_info.length;
-    rendering_info.pColorAttachments = attachment_info.data;
+    rendering_info.colorAttachmentCount = desc.color.length;
+    rendering_info.pColorAttachments = (VkRenderingAttachmentInfo*)desc.color.data;
     rendering_info.pDepthAttachment = 0;
     rendering_info.pStencilAttachment = 0;
 
