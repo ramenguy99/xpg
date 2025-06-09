@@ -4,6 +4,7 @@
 
 using glm::vec2;
 using glm::ivec2;
+using glm::uvec2;
 using glm::vec3;
 using glm::vec4;
 using glm::mat4;
@@ -14,7 +15,7 @@ int main(int argc, char** argv) {
     gfx::Result result;
     result = gfx::Init();
     if (result != gfx::Result::SUCCESS) {
-        logging::error("bigimage", "Failed to initialize platform\n");
+        logging::error("scene3d", "Failed to initialize platform\n");
     }
 
     gfx::Context vk = {};
@@ -26,16 +27,19 @@ int main(int argc, char** argv) {
     });
 
     if (result != gfx::Result::SUCCESS) {
-        logging::error("bigimage", "Failed to initialize vulkan\n");
+        logging::error("scene3d", "Failed to initialize vulkan\n");
         exit(100);
     }
 
     gfx::Window window = {};
     result = gfx::CreateWindowWithSwapchain(&window, vk, "XPG", 1600, 900);
     if (result != gfx::Result::SUCCESS) {
-        logging::error("bigimage", "Failed to create vulkan window\n");
+        logging::error("scene3d", "Failed to create vulkan window\n");
         exit(100);
     }
+
+    gui::ImGuiImpl gui;
+    gui::CreateImGuiImpl(&gui, window, vk, {});
 
     VkResult vkr;
 
@@ -48,8 +52,6 @@ int main(int argc, char** argv) {
 
         // - UI
         platform::Timestamp last_frame_timestamp;
-        gui::ImGuiImpl gui;
-        Array<VkFramebuffer> framebuffers;
 
         // - Scene
 
@@ -60,7 +62,6 @@ int main(int argc, char** argv) {
     // USER: application
     App app = {};
     app.last_frame_timestamp = platform::GetTimestamp();
-    app.framebuffers.resize(window.frames.length);
 
     auto MouseMoveEvent = [&app](ivec2 pos) {
     };
@@ -73,7 +74,39 @@ int main(int argc, char** argv) {
         if (ImGui::GetIO().WantCaptureMouse) return;
     };
 
-    auto Draw = [&app, &vk, &window]() {
+    struct Viewport {
+        uvec2 pos;
+        uvec2 size;
+        VkClearColorValue color;
+        VkCommandBuffer cmd;
+
+        static void draw(const ImDrawList* draw_list, const ImDrawCmd* draw_cmd) {
+            Viewport* v = (Viewport*)draw_cmd->UserCallbackData;
+
+            VkCommandBuffer cmd  = *(VkCommandBuffer*)ImGui::GetPlatformIO().Renderer_RenderState;
+
+            VkClearAttachment attachment;
+            attachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            attachment.colorAttachment = 0;
+            attachment.clearValue.color = v->color;
+
+            VkClearRect rect;
+            rect.baseArrayLayer = 0;
+            rect.layerCount = 1;
+            rect.rect.offset.x = v->pos.x;
+            rect.rect.offset.y = v->pos.y;
+            rect.rect.extent.width =  v->size.x;
+            rect.rect.extent.height = v->size.y;
+            vkCmdClearAttachments(cmd, 1, &attachment, 1, &rect);
+        }
+    };
+
+    ArrayFixed<Viewport, 3> viewports(3);
+    viewports[0].color = { .float32 = { 1, 0, 0, 1 } };
+    viewports[1].color = { .float32 = { 0, 1, 0, 1 } };
+    viewports[2].color = { .float32 = { 0, 0, 1, 1 } };
+
+    auto Draw = [&app, &vk, &window, &viewports]() {
         if (app.closed) return;
 
         platform::Timestamp timestamp = platform::GetTimestamp();
@@ -82,7 +115,7 @@ int main(int argc, char** argv) {
 
         gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, vk);
         if (swapchain_status == gfx::SwapchainStatus::FAILED) {
-            logging::error("bigimage/draw", "Swapchain update failed\n");
+            logging::error("scene3d/draw", "Swapchain update failed\n");
             exit(101);
         }
         else if (swapchain_status == gfx::SwapchainStatus::MINIMIZED) {
@@ -93,26 +126,6 @@ int main(int argc, char** argv) {
             app.first_frame_done = true;
 
             // USER: resize (e.g. framebuffer sized elements)
-            for(usize i = 0; i < app.framebuffers.length; i++) {
-                vkDestroyFramebuffer(vk.device, app.framebuffers[i], 0);
-                app.framebuffers[i] = VK_NULL_HANDLE;
-            }
-        }
-
-        for(usize i = 0; i < app.framebuffers.length; i++) {
-            if(app.framebuffers[i] != VK_NULL_HANDLE) continue;
-
-            VkFramebufferCreateInfo framebufferInfo{};
-            framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-            framebufferInfo.renderPass = app.gui.render_pass;
-            framebufferInfo.attachmentCount = 1;
-            framebufferInfo.pAttachments = &window.image_views[i];
-            framebufferInfo.width = window.fb_width;
-            framebufferInfo.height = window.fb_height;
-            framebufferInfo.layers = 1;
-
-            VkResult vkr = vkCreateFramebuffer(vk.device, &framebufferInfo, nullptr, &app.framebuffers[i]);
-            assert(vkr == VK_SUCCESS);
         }
 
         // Acquire current frame
@@ -125,31 +138,48 @@ int main(int argc, char** argv) {
 
         {
             // USER: pre-gui, but with frame
-
             {
                 gui::BeginFrame();
 
                 // USER: gui
-                gui::DrawStats(dt, window.fb_width, window.fb_height);
+                // gui::DrawStats(dt, window.fb_width, window.fb_height);
 
-                ImGui::ShowDemoWindow();
+                ImGui::DockSpaceOverViewport(0, 0, ImGuiDockNodeFlags_PassthruCentralNode);
 
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+
+                for (usize i = 0; i < viewports.length; i++) {
+                    char window_name[1024];
+                    snprintf(window_name, sizeof(window_name), "Hello %d", (int)i);
+                    if (ImGui::Begin(window_name)) {
+                        ImVec2 min = ImGui::GetCursorScreenPos();
+                        ImVec2 max = ImGui::GetContentRegionAvail();
+                        viewports[i].pos = uvec2(min.x, min.y);
+                        viewports[i].size = uvec2(max.x, max.y);
+
+                        ImDrawList* list = ImGui::GetWindowDrawList();
+                        list->AddCallback(Viewport::draw, &viewports[i]);
+                    }
+                    ImGui::End();
+                }
+                ImGui::PopStyleVar();
                 gui::EndFrame();
             }
 
-#if 0
             // USER: draw commands
+            gfx::BeginCommands(frame.command_pool, frame.command_buffer, vk);
+
             gfx::CmdImageBarrier(frame.command_buffer, {
-                .image = frame.current_image,
                 .src_stage = VK_PIPELINE_STAGE_2_NONE,
-                .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                 .src_access = 0,
+                .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                 .dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
                 .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
                 .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                .image = frame.current_image,
             });
 
-            VkClearColorValue color = { 0.1f, 0.1f, 0.1f, 1.0f };
+            VkClearColorValue color = { 0.3f, 0.1f, 0.1f, 1.0f };
             gfx::CmdBeginRendering(frame.command_buffer, {
                 .color = {
                     {
@@ -169,39 +199,14 @@ int main(int argc, char** argv) {
             gfx::CmdEndRendering(frame.command_buffer);
 
             gfx::CmdImageBarrier(frame.command_buffer, {
-                .image = frame.current_image,
                 .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                .dst_stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
                 .src_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                .dst_stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
                 .dst_access = 0,
                 .old_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                 .new_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                .image = frame.current_image,
                 });
-#else
-
-            // Record commands
-            gfx::BeginCommands(frame.command_pool, frame.command_buffer, vk);
-
-            VkClearColorValue color = { 0.1f, 0.2f, 0.4f, 1.0f };
-
-            VkClearValue clear_values[1];
-            clear_values[0].color = color;
-
-            VkRenderPassBeginInfo info = {};
-            info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-            info.renderPass = app.gui.render_pass;
-            info.framebuffer = app.framebuffers[frame.current_image_index];
-            info.renderArea.extent.width = window.fb_width;
-            info.renderArea.extent.height = window.fb_height;
-            info.clearValueCount = ArrayCount(clear_values);
-            info.pClearValues = clear_values;
-            vkCmdBeginRenderPass(frame.command_buffer, &info, VK_SUBPASS_CONTENTS_INLINE);
-
-            gui::Render(frame.command_buffer);
-
-            vkCmdEndRenderPass(frame.command_buffer);
-
-#endif
 
             gfx::EndCommands(frame.command_buffer);
         }
@@ -223,15 +228,11 @@ int main(int argc, char** argv) {
         .draw = Draw,
     });
 
-    gui::CreateImGuiImpl(&app.gui, window, vk, {
-        .dynamic_rendering = false,
-    });
-
     while (true) {
         gfx::ProcessEvents(app.wait_for_events);
 
         if (gfx::ShouldClose(window)) {
-            logging::info("bigimage", "Window closed");
+            logging::info("scene3d", "Window closed");
             app.closed = true;
             break;
         }
@@ -244,12 +245,9 @@ int main(int argc, char** argv) {
     gfx::WaitIdle(vk);
 
     // USER: cleanup
-    for(usize i = 0; i < app.framebuffers.length; i++) {
-        vkDestroyFramebuffer(vk.device, app.framebuffers[i], 0);
-    }
 
     // Gui
-    gui::DestroyImGuiImpl(&app.gui, vk);
+    gui::DestroyImGuiImpl(&gui, vk);
 
     // Window
     gfx::DestroyWindowWithSwapchain(&window, vk);
