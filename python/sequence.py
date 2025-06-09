@@ -446,10 +446,19 @@ def draw():
                         start = imgui.get_cursor_screen_pos()
                         for i, seq in enumerate(seqs):
                             dl = imgui.get_window_draw_list()
-                            for i in range(seq.N):
-                                cursor = imgui.Vec2(start.x + 5 * i, start.y)
-                                dl.add_rect(cursor, (cursor.x + 6, cursor.y + 20), 0xFFFFFFFF)
-                                dl.add_rect((cursor.x, cursor.y + 22), (cursor.x + 6, cursor.y + 42), 0xFFFFFFFF)
+
+                            p_min = np.empty((seq.N, 2), np.float32)
+                            p_max = np.empty((seq.N, 2), np.float32)
+                            delta_x = 5 * np.arange(seq.N, dtype=np.float32)
+                            p_min[:, 0] = start.x + delta_x
+                            p_min[:, 1] = start.y
+                            p_max[:, 0] = (start.x + 6) + delta_x
+                            p_max[:, 1] = start.y + 20
+                            dl.add_rect_batch(p_min, p_max, np.array((0xFFFFFFFF,), np.uint32), np.array((0.0,), np.float32), np.array((1.0,), np.float32))
+
+                            p_min[:, 1] = start.y + 22
+                            p_max[:, 1] = start.y + 42
+                            dl.add_rect_batch(p_min, p_max, np.array((0xFFFFFFFF,), np.uint32), np.array((0.0,), np.float32), np.array((1.0,), np.float32))
 
                             for k, v in seq.cpu.lookup.items():
                                 cursor = imgui.Vec2(start.x + 5 * k, start.y)

@@ -9,6 +9,7 @@
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/array.h>
 #include <nanobind/stl/vector.h>
+#include <nanobind/ndarray.h>
 
 #include <imgui.h>
 
@@ -68,4 +69,58 @@ void imgui_create_bindings(nb::module_& mod_imgui)
     nb::implicitly_convertible<nb::list, ImVec4>();
 
     #include "generated_imgui.inc"
+
+    drawlist_class.def("add_rect_batch",
+        [](DrawList& self, 
+           nb::ndarray<float, nb::shape<-1, 2>> p_min,
+           nb::ndarray<float, nb::shape<-1, 2>> p_max,
+           nb::ndarray<uint32_t, nb::shape<-1>> col,
+           nb::ndarray<float, nb::shape<-1>> rounding,
+           nb::ndarray<float, nb::shape<-1>> thickness
+        ) {
+            
+            bool col_per_object = col.shape(0) != 1;
+            bool rounding_per_object = rounding.shape(0) != 1;
+            bool thickness_per_object = thickness.shape(0) != 1;
+            for (size_t i = 0; i < p_min.shape(0); i++) {
+                self.list->AddRect(
+                    ImVec2(p_min(i, 0), p_min(i, 1)),
+                    ImVec2(p_max(i, 0), p_max(i, 1)),
+                    col_per_object ? col(i) : col(0),
+                    rounding_per_object ? rounding(i) : rounding(0),
+                    thickness_per_object ? thickness(i) : thickness(0)
+                );
+            }
+        },
+        nb::arg("p_min"),
+        nb::arg("p_max"),
+        nb::arg("color"),
+        nb::arg("rounding"),
+        nb::arg("thickness")
+    );
+
+    drawlist_class.def("add_rect_filled_batch",
+        [](DrawList& self, 
+           nb::ndarray<float, nb::shape<-1, 2>> p_min,
+           nb::ndarray<float, nb::shape<-1, 2>> p_max,
+           nb::ndarray<uint32_t, nb::shape<-1>> col,
+           nb::ndarray<float, nb::shape<-1>> rounding
+        ) {
+            
+            bool col_per_object = col.shape(0) != 1;
+            bool rounding_per_object = rounding.shape(0) != 1;
+            for (size_t i = 0; i < p_min.shape(0); i++) {
+                self.list->AddRectFilled(
+                    ImVec2(p_min(i, 0), p_min(i, 1)),
+                    ImVec2(p_max(i, 0), p_max(i, 1)),
+                    col_per_object ? col(i) : col(0),
+                    rounding_per_object ? rounding(i) : rounding(0)
+                    );
+            }
+        },
+        nb::arg("p_min"),
+        nb::arg("p_max"),
+        nb::arg("color"),
+        nb::arg("rounding")
+    );
 }

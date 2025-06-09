@@ -949,7 +949,7 @@ mod_imgui.def("is_window_hovered",
     }, nb::arg("flags") = 0);
 
 mod_imgui.def("get_window_draw_list",
-    [] () -> nb::ref<DrawList> {
+    [] () -> DrawList* {
         return new DrawList(ImGui::GetWindowDrawList());
     });
 
@@ -2270,12 +2270,12 @@ mod_imgui.def("get_main_viewport",
     });
 
 mod_imgui.def("get_background_draw_list",
-    [] (std::optional<ImGuiViewport*> viewport) -> nb::ref<DrawList> {
+    [] (std::optional<ImGuiViewport*> viewport) -> DrawList* {
         return new DrawList(ImGui::GetBackgroundDrawList(viewport.has_value() ? viewport.value() : NULL));
     }, nb::arg("viewport") = nb::none());
 
 mod_imgui.def("get_foreground_draw_list",
-    [] (std::optional<ImGuiViewport*> viewport) -> nb::ref<DrawList> {
+    [] (std::optional<ImGuiViewport*> viewport) -> DrawList* {
         return new DrawList(ImGui::GetForegroundDrawList(viewport.has_value() ? viewport.value() : NULL));
     }, nb::arg("viewport") = nb::none());
 
@@ -2514,219 +2514,219 @@ mod_imgui.def("find_viewport_by_id",
         return ImGui::FindViewportByID(id);
     }, nb::arg("id"));
 
- nb::class_<DrawList>(mod_imgui, "DrawList",
+auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
     nb::intrusive_ptr<DrawList>([](DrawList *o, PyObject *po) noexcept { o->set_self_py(po); }))
 
     .def("push_clip_rect",
-    [] (nb::ref<DrawList> self, ImVec2 clip_rect_min, ImVec2 clip_rect_max, bool intersect_with_current_clip_rect) -> void {
+    [] (DrawList* self, ImVec2 clip_rect_min, ImVec2 clip_rect_max, bool intersect_with_current_clip_rect) -> void {
         return self->list->PushClipRect(clip_rect_min, clip_rect_max, intersect_with_current_clip_rect);
     }, nb::arg("clip_rect_min"), nb::arg("clip_rect_max"), nb::arg("intersect_with_current_clip_rect") = false)
     .def("push_clip_rect_full_screen",
-    [] (nb::ref<DrawList> self) -> void {
+    [] (DrawList* self) -> void {
         return self->list->PushClipRectFullScreen();
     })
     .def("pop_clip_rect",
-    [] (nb::ref<DrawList> self) -> void {
+    [] (DrawList* self) -> void {
         return self->list->PopClipRect();
     })
     .def("push_texture_id",
-    [] (nb::ref<DrawList> self, ImTextureID texture_id) -> void {
+    [] (DrawList* self, ImTextureID texture_id) -> void {
         return self->list->PushTextureID(texture_id);
     }, nb::arg("texture_id"))
     .def("pop_texture_id",
-    [] (nb::ref<DrawList> self) -> void {
+    [] (DrawList* self) -> void {
         return self->list->PopTextureID();
     })
     .def("get_clip_rect_min",
-    [] (nb::ref<DrawList> self) -> ImVec2 {
+    [] (DrawList* self) -> ImVec2 {
         return self->list->GetClipRectMin();
     })
     .def("get_clip_rect_max",
-    [] (nb::ref<DrawList> self) -> ImVec2 {
+    [] (DrawList* self) -> ImVec2 {
         return self->list->GetClipRectMax();
     })
     .def("add_line",
-    [] (nb::ref<DrawList> self, ImVec2 p1, ImVec2 p2, Color col, float thickness) -> void {
+    [] (DrawList* self, ImVec2 p1, ImVec2 p2, Color col, float thickness) -> void {
         return self->list->AddLine(p1, p2, col, thickness);
     }, nb::arg("p1"), nb::arg("p2"), nb::arg("col"), nb::arg("thickness") = 1.0)
     .def("add_rect",
-    [] (nb::ref<DrawList> self, ImVec2 p_min, ImVec2 p_max, Color col, float rounding, ImDrawFlags flags, float thickness) -> void {
+    [] (DrawList* self, ImVec2 p_min, ImVec2 p_max, Color col, float rounding, ImDrawFlags flags, float thickness) -> void {
         return self->list->AddRect(p_min, p_max, col, rounding, flags, thickness);
     }, nb::arg("p_min"), nb::arg("p_max"), nb::arg("col"), nb::arg("rounding") = 0.0, nb::arg("flags") = 0, nb::arg("thickness") = 1.0)
     .def("add_rect_filled",
-    [] (nb::ref<DrawList> self, ImVec2 p_min, ImVec2 p_max, Color col, float rounding, ImDrawFlags flags) -> void {
+    [] (DrawList* self, ImVec2 p_min, ImVec2 p_max, Color col, float rounding, ImDrawFlags flags) -> void {
         return self->list->AddRectFilled(p_min, p_max, col, rounding, flags);
     }, nb::arg("p_min"), nb::arg("p_max"), nb::arg("col"), nb::arg("rounding") = 0.0, nb::arg("flags") = 0)
     .def("add_rect_filled_multi_color",
-    [] (nb::ref<DrawList> self, ImVec2 p_min, ImVec2 p_max, Color col_upr_left, Color col_upr_right, Color col_bot_right, Color col_bot_left) -> void {
+    [] (DrawList* self, ImVec2 p_min, ImVec2 p_max, Color col_upr_left, Color col_upr_right, Color col_bot_right, Color col_bot_left) -> void {
         return self->list->AddRectFilledMultiColor(p_min, p_max, col_upr_left, col_upr_right, col_bot_right, col_bot_left);
     }, nb::arg("p_min"), nb::arg("p_max"), nb::arg("col_upr_left"), nb::arg("col_upr_right"), nb::arg("col_bot_right"), nb::arg("col_bot_left"))
     .def("add_quad",
-    [] (nb::ref<DrawList> self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, Color col, float thickness) -> void {
+    [] (DrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, Color col, float thickness) -> void {
         return self->list->AddQuad(p1, p2, p3, p4, col, thickness);
     }, nb::arg("p1"), nb::arg("p2"), nb::arg("p3"), nb::arg("p4"), nb::arg("col"), nb::arg("thickness") = 1.0)
     .def("add_quad_filled",
-    [] (nb::ref<DrawList> self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, Color col) -> void {
+    [] (DrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, Color col) -> void {
         return self->list->AddQuadFilled(p1, p2, p3, p4, col);
     }, nb::arg("p1"), nb::arg("p2"), nb::arg("p3"), nb::arg("p4"), nb::arg("col"))
     .def("add_triangle",
-    [] (nb::ref<DrawList> self, ImVec2 p1, ImVec2 p2, ImVec2 p3, Color col, float thickness) -> void {
+    [] (DrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, Color col, float thickness) -> void {
         return self->list->AddTriangle(p1, p2, p3, col, thickness);
     }, nb::arg("p1"), nb::arg("p2"), nb::arg("p3"), nb::arg("col"), nb::arg("thickness") = 1.0)
     .def("add_triangle_filled",
-    [] (nb::ref<DrawList> self, ImVec2 p1, ImVec2 p2, ImVec2 p3, Color col) -> void {
+    [] (DrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, Color col) -> void {
         return self->list->AddTriangleFilled(p1, p2, p3, col);
     }, nb::arg("p1"), nb::arg("p2"), nb::arg("p3"), nb::arg("col"))
     .def("add_circle",
-    [] (nb::ref<DrawList> self, ImVec2 center, float radius, Color col, int num_segments, float thickness) -> void {
+    [] (DrawList* self, ImVec2 center, float radius, Color col, int num_segments, float thickness) -> void {
         return self->list->AddCircle(center, radius, col, num_segments, thickness);
     }, nb::arg("center"), nb::arg("radius"), nb::arg("col"), nb::arg("num_segments") = 0, nb::arg("thickness") = 1.0)
     .def("add_circle_filled",
-    [] (nb::ref<DrawList> self, ImVec2 center, float radius, Color col, int num_segments) -> void {
+    [] (DrawList* self, ImVec2 center, float radius, Color col, int num_segments) -> void {
         return self->list->AddCircleFilled(center, radius, col, num_segments);
     }, nb::arg("center"), nb::arg("radius"), nb::arg("col"), nb::arg("num_segments") = 0)
     .def("add_ngon",
-    [] (nb::ref<DrawList> self, ImVec2 center, float radius, Color col, int num_segments, float thickness) -> void {
+    [] (DrawList* self, ImVec2 center, float radius, Color col, int num_segments, float thickness) -> void {
         return self->list->AddNgon(center, radius, col, num_segments, thickness);
     }, nb::arg("center"), nb::arg("radius"), nb::arg("col"), nb::arg("num_segments"), nb::arg("thickness") = 1.0)
     .def("add_ngon_filled",
-    [] (nb::ref<DrawList> self, ImVec2 center, float radius, Color col, int num_segments) -> void {
+    [] (DrawList* self, ImVec2 center, float radius, Color col, int num_segments) -> void {
         return self->list->AddNgonFilled(center, radius, col, num_segments);
     }, nb::arg("center"), nb::arg("radius"), nb::arg("col"), nb::arg("num_segments"))
     .def("add_ellipse",
-    [] (nb::ref<DrawList> self, ImVec2 center, ImVec2 radius, Color col, float rot, int num_segments, float thickness) -> void {
+    [] (DrawList* self, ImVec2 center, ImVec2 radius, Color col, float rot, int num_segments, float thickness) -> void {
         return self->list->AddEllipse(center, radius, col, rot, num_segments, thickness);
     }, nb::arg("center"), nb::arg("radius"), nb::arg("col"), nb::arg("rot") = 0.0, nb::arg("num_segments") = 0, nb::arg("thickness") = 1.0)
     .def("add_ellipse_filled",
-    [] (nb::ref<DrawList> self, ImVec2 center, ImVec2 radius, Color col, float rot, int num_segments) -> void {
+    [] (DrawList* self, ImVec2 center, ImVec2 radius, Color col, float rot, int num_segments) -> void {
         return self->list->AddEllipseFilled(center, radius, col, rot, num_segments);
     }, nb::arg("center"), nb::arg("radius"), nb::arg("col"), nb::arg("rot") = 0.0, nb::arg("num_segments") = 0)
     .def("add_text",
-    [] (nb::ref<DrawList> self, ImVec2 pos, Color col, const char* text_begin, std::optional<const char*> text_end) -> void {
+    [] (DrawList* self, ImVec2 pos, Color col, const char* text_begin, std::optional<const char*> text_end) -> void {
         return self->list->AddText(pos, col, text_begin, text_end.has_value() ? text_end.value() : NULL);
     }, nb::arg("pos"), nb::arg("col"), nb::arg("text_begin"), nb::arg("text_end") = nb::none())
     .def("add_bezier_cubic",
-    [] (nb::ref<DrawList> self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, Color col, float thickness, int num_segments) -> void {
+    [] (DrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, Color col, float thickness, int num_segments) -> void {
         return self->list->AddBezierCubic(p1, p2, p3, p4, col, thickness, num_segments);
     }, nb::arg("p1"), nb::arg("p2"), nb::arg("p3"), nb::arg("p4"), nb::arg("col"), nb::arg("thickness"), nb::arg("num_segments") = 0)
     .def("add_bezier_quadratic",
-    [] (nb::ref<DrawList> self, ImVec2 p1, ImVec2 p2, ImVec2 p3, Color col, float thickness, int num_segments) -> void {
+    [] (DrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, Color col, float thickness, int num_segments) -> void {
         return self->list->AddBezierQuadratic(p1, p2, p3, col, thickness, num_segments);
     }, nb::arg("p1"), nb::arg("p2"), nb::arg("p3"), nb::arg("col"), nb::arg("thickness"), nb::arg("num_segments") = 0)
     .def("add_polyline",
-    [] (nb::ref<DrawList> self, const ImVec2* points, int num_points, Color col, ImDrawFlags flags, float thickness) -> void {
+    [] (DrawList* self, const ImVec2* points, int num_points, Color col, ImDrawFlags flags, float thickness) -> void {
         return self->list->AddPolyline(points, num_points, col, flags, thickness);
     }, nb::arg("points"), nb::arg("num_points"), nb::arg("col"), nb::arg("flags"), nb::arg("thickness"))
     .def("add_convex_poly_filled",
-    [] (nb::ref<DrawList> self, const ImVec2* points, int num_points, Color col) -> void {
+    [] (DrawList* self, const ImVec2* points, int num_points, Color col) -> void {
         return self->list->AddConvexPolyFilled(points, num_points, col);
     }, nb::arg("points"), nb::arg("num_points"), nb::arg("col"))
     .def("add_concave_poly_filled",
-    [] (nb::ref<DrawList> self, const ImVec2* points, int num_points, Color col) -> void {
+    [] (DrawList* self, const ImVec2* points, int num_points, Color col) -> void {
         return self->list->AddConcavePolyFilled(points, num_points, col);
     }, nb::arg("points"), nb::arg("num_points"), nb::arg("col"))
     .def("add_image",
-    [] (nb::ref<DrawList> self, ImTextureID user_texture_id, ImVec2 p_min, ImVec2 p_max, ImVec2 uv_min, ImVec2 uv_max, Color col) -> void {
+    [] (DrawList* self, ImTextureID user_texture_id, ImVec2 p_min, ImVec2 p_max, ImVec2 uv_min, ImVec2 uv_max, Color col) -> void {
         return self->list->AddImage(user_texture_id, p_min, p_max, uv_min, uv_max, col);
     }, nb::arg("user_texture_id"), nb::arg("p_min"), nb::arg("p_max"), nb::arg("uv_min") = nb::make_tuple(0, 0), nb::arg("uv_max") = nb::make_tuple(1, 1), nb::arg("col") = IM_COL32_WHITE)
     .def("add_image_quad",
-    [] (nb::ref<DrawList> self, ImTextureID user_texture_id, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, ImVec2 uv1, ImVec2 uv2, ImVec2 uv3, ImVec2 uv4, Color col) -> void {
+    [] (DrawList* self, ImTextureID user_texture_id, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, ImVec2 uv1, ImVec2 uv2, ImVec2 uv3, ImVec2 uv4, Color col) -> void {
         return self->list->AddImageQuad(user_texture_id, p1, p2, p3, p4, uv1, uv2, uv3, uv4, col);
     }, nb::arg("user_texture_id"), nb::arg("p1"), nb::arg("p2"), nb::arg("p3"), nb::arg("p4"), nb::arg("uv1") = nb::make_tuple(0, 0), nb::arg("uv2") = nb::make_tuple(1, 0), nb::arg("uv3") = nb::make_tuple(1, 1), nb::arg("uv4") = nb::make_tuple(0, 1), nb::arg("col") = IM_COL32_WHITE)
     .def("add_image_rounded",
-    [] (nb::ref<DrawList> self, ImTextureID user_texture_id, ImVec2 p_min, ImVec2 p_max, ImVec2 uv_min, ImVec2 uv_max, Color col, float rounding, ImDrawFlags flags) -> void {
+    [] (DrawList* self, ImTextureID user_texture_id, ImVec2 p_min, ImVec2 p_max, ImVec2 uv_min, ImVec2 uv_max, Color col, float rounding, ImDrawFlags flags) -> void {
         return self->list->AddImageRounded(user_texture_id, p_min, p_max, uv_min, uv_max, col, rounding, flags);
     }, nb::arg("user_texture_id"), nb::arg("p_min"), nb::arg("p_max"), nb::arg("uv_min"), nb::arg("uv_max"), nb::arg("col"), nb::arg("rounding"), nb::arg("flags") = 0)
     .def("path_clear",
-    [] (nb::ref<DrawList> self) -> void {
+    [] (DrawList* self) -> void {
         return self->list->PathClear();
     })
     .def("path_line_to",
-    [] (nb::ref<DrawList> self, ImVec2 pos) -> void {
+    [] (DrawList* self, ImVec2 pos) -> void {
         return self->list->PathLineTo(pos);
     }, nb::arg("pos"))
     .def("path_line_to_merge_duplicate",
-    [] (nb::ref<DrawList> self, ImVec2 pos) -> void {
+    [] (DrawList* self, ImVec2 pos) -> void {
         return self->list->PathLineToMergeDuplicate(pos);
     }, nb::arg("pos"))
     .def("path_fill_convex",
-    [] (nb::ref<DrawList> self, Color col) -> void {
+    [] (DrawList* self, Color col) -> void {
         return self->list->PathFillConvex(col);
     }, nb::arg("col"))
     .def("path_fill_concave",
-    [] (nb::ref<DrawList> self, Color col) -> void {
+    [] (DrawList* self, Color col) -> void {
         return self->list->PathFillConcave(col);
     }, nb::arg("col"))
     .def("path_stroke",
-    [] (nb::ref<DrawList> self, Color col, ImDrawFlags flags, float thickness) -> void {
+    [] (DrawList* self, Color col, ImDrawFlags flags, float thickness) -> void {
         return self->list->PathStroke(col, flags, thickness);
     }, nb::arg("col"), nb::arg("flags") = 0, nb::arg("thickness") = 1.0)
     .def("path_arc_to",
-    [] (nb::ref<DrawList> self, ImVec2 center, float radius, float a_min, float a_max, int num_segments) -> void {
+    [] (DrawList* self, ImVec2 center, float radius, float a_min, float a_max, int num_segments) -> void {
         return self->list->PathArcTo(center, radius, a_min, a_max, num_segments);
     }, nb::arg("center"), nb::arg("radius"), nb::arg("a_min"), nb::arg("a_max"), nb::arg("num_segments") = 0)
     .def("path_arc_to_fast",
-    [] (nb::ref<DrawList> self, ImVec2 center, float radius, int a_min_of_12, int a_max_of_12) -> void {
+    [] (DrawList* self, ImVec2 center, float radius, int a_min_of_12, int a_max_of_12) -> void {
         return self->list->PathArcToFast(center, radius, a_min_of_12, a_max_of_12);
     }, nb::arg("center"), nb::arg("radius"), nb::arg("a_min_of_12"), nb::arg("a_max_of_12"))
     .def("path_elliptical_arc_to",
-    [] (nb::ref<DrawList> self, ImVec2 center, ImVec2 radius, float rot, float a_min, float a_max, int num_segments) -> void {
+    [] (DrawList* self, ImVec2 center, ImVec2 radius, float rot, float a_min, float a_max, int num_segments) -> void {
         return self->list->PathEllipticalArcTo(center, radius, rot, a_min, a_max, num_segments);
     }, nb::arg("center"), nb::arg("radius"), nb::arg("rot"), nb::arg("a_min"), nb::arg("a_max"), nb::arg("num_segments") = 0)
     .def("path_bezier_cubic_curve_to",
-    [] (nb::ref<DrawList> self, ImVec2 p2, ImVec2 p3, ImVec2 p4, int num_segments) -> void {
+    [] (DrawList* self, ImVec2 p2, ImVec2 p3, ImVec2 p4, int num_segments) -> void {
         return self->list->PathBezierCubicCurveTo(p2, p3, p4, num_segments);
     }, nb::arg("p2"), nb::arg("p3"), nb::arg("p4"), nb::arg("num_segments") = 0)
     .def("path_bezier_quadratic_curve_to",
-    [] (nb::ref<DrawList> self, ImVec2 p2, ImVec2 p3, int num_segments) -> void {
+    [] (DrawList* self, ImVec2 p2, ImVec2 p3, int num_segments) -> void {
         return self->list->PathBezierQuadraticCurveTo(p2, p3, num_segments);
     }, nb::arg("p2"), nb::arg("p3"), nb::arg("num_segments") = 0)
     .def("path_rect",
-    [] (nb::ref<DrawList> self, ImVec2 rect_min, ImVec2 rect_max, float rounding, ImDrawFlags flags) -> void {
+    [] (DrawList* self, ImVec2 rect_min, ImVec2 rect_max, float rounding, ImDrawFlags flags) -> void {
         return self->list->PathRect(rect_min, rect_max, rounding, flags);
     }, nb::arg("rect_min"), nb::arg("rect_max"), nb::arg("rounding") = 0.0, nb::arg("flags") = 0)
     .def("add_draw_cmd",
-    [] (nb::ref<DrawList> self) -> void {
+    [] (DrawList* self) -> void {
         return self->list->AddDrawCmd();
     })
     .def("clone_output",
-    [] (nb::ref<DrawList> self) -> nb::ref<DrawList> {
+    [] (DrawList* self) -> DrawList* {
         return new DrawList(self->list->CloneOutput());
     })
     .def("channels_split",
-    [] (nb::ref<DrawList> self, int count) -> void {
+    [] (DrawList* self, int count) -> void {
         return self->list->ChannelsSplit(count);
     }, nb::arg("count"))
     .def("channels_merge",
-    [] (nb::ref<DrawList> self) -> void {
+    [] (DrawList* self) -> void {
         return self->list->ChannelsMerge();
     })
     .def("channels_set_current",
-    [] (nb::ref<DrawList> self, int n) -> void {
+    [] (DrawList* self, int n) -> void {
         return self->list->ChannelsSetCurrent(n);
     }, nb::arg("n"))
     .def("prim_reserve",
-    [] (nb::ref<DrawList> self, int idx_count, int vtx_count) -> void {
+    [] (DrawList* self, int idx_count, int vtx_count) -> void {
         return self->list->PrimReserve(idx_count, vtx_count);
     }, nb::arg("idx_count"), nb::arg("vtx_count"))
     .def("prim_unreserve",
-    [] (nb::ref<DrawList> self, int idx_count, int vtx_count) -> void {
+    [] (DrawList* self, int idx_count, int vtx_count) -> void {
         return self->list->PrimUnreserve(idx_count, vtx_count);
     }, nb::arg("idx_count"), nb::arg("vtx_count"))
     .def("prim_rect",
-    [] (nb::ref<DrawList> self, ImVec2 a, ImVec2 b, Color col) -> void {
+    [] (DrawList* self, ImVec2 a, ImVec2 b, Color col) -> void {
         return self->list->PrimRect(a, b, col);
     }, nb::arg("a"), nb::arg("b"), nb::arg("col"))
     .def("prim_write_vtx",
-    [] (nb::ref<DrawList> self, ImVec2 pos, ImVec2 uv, Color col) -> void {
+    [] (DrawList* self, ImVec2 pos, ImVec2 uv, Color col) -> void {
         return self->list->PrimWriteVtx(pos, uv, col);
     }, nb::arg("pos"), nb::arg("uv"), nb::arg("col"))
     .def("prim_write_idx",
-    [] (nb::ref<DrawList> self, ImDrawIdx idx) -> void {
+    [] (DrawList* self, ImDrawIdx idx) -> void {
         return self->list->PrimWriteIdx(idx);
     }, nb::arg("idx"))
     .def("prim_vtx",
-    [] (nb::ref<DrawList> self, ImVec2 pos, ImVec2 uv, Color col) -> void {
+    [] (DrawList* self, ImVec2 pos, ImVec2 uv, Color col) -> void {
         return self->list->PrimVtx(pos, uv, col);
     }, nb::arg("pos"), nb::arg("uv"), nb::arg("col"))
 ;

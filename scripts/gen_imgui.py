@@ -538,7 +538,7 @@ for f in data["functions"]:
                     return f"std::optional<{typ.cpp_name}>"
             else:
                 if typ.cpp_name == "ImDrawList*" or typ.cpp_name == "const ImDrawList*":
-                    return f"nb::ref<{typ.name}>"
+                    return f"{typ.name}*"
                 else:
                     return typ.cpp_name
         else:
@@ -547,7 +547,7 @@ for f in data["functions"]:
     if py_func_name.startswith("list__"):
         if drawlist_started == False:
             drawlist_started = True
-            out_cpp(f""" nb::class_<DrawList>(mod_imgui, "DrawList",
+            out_cpp(f"""auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
     nb::intrusive_ptr<DrawList>([](DrawList *o, PyObject *po) noexcept {{ o->set_self_py(po); }}))
 """)
         # Skip protected member functions
