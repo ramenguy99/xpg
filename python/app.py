@@ -126,7 +126,7 @@ def draw():
     # GUI
     updated = False
     with gui.frame():
-        if imgui.begin("wow"):
+        if imgui.begin("Window")[0]:
             imgui.text("Hello")
             try:
                 updated, c = imgui.color_edit3("Color", tuple(color_value))

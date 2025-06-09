@@ -180,8 +180,9 @@ Python:
     - [x] vec2 / vec4
     - [x] Drawlist
     - [x] Drawlist batched helpers for better perf on big draws
-    - [ ] Remove text_end (or other string end type of pointers from APIs)
-    - [ ] Fix begin returns tuple, many examples expect bool
+    - [x] Remove text_end (or other string end type of pointers from APIs)
+    - [x] Fix begin returns tuple, many examples expect bool
+    - [ ] Tuple return types does not have correct type annotations atm
     - [ ] Fix imgui with waitevents on linux, likely need some form of animation frame flag / counter to render at least one additional frame
         - [ ] Also happening on first frame on windows
     - [ ] images interop

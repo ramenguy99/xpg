@@ -15,7 +15,7 @@ ctx = Context(
     enable_validation_layer=True,
     enable_synchronization_validation=True,
 )
-window = Window(ctx, "Hello", 1280, 720)
+window = Window(ctx, "Warp Interop", 1280, 720)
 gui = Gui(window)
 
 # gfx
@@ -141,7 +141,7 @@ def draw():
 
     # GUI
     with gui.frame():
-        if imgui.begin("wow"):
+        if imgui.begin("Window")[0]:
             imgui.text("Hello")
             try:
                 updated, v = imgui.color_edit3("Value", tuple(push_constants))

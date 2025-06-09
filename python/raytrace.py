@@ -251,7 +251,7 @@ def draw():
 
     # GUI
     with gui.frame():
-        if imgui.begin("wow"):
+        if imgui.begin("Window")[0]:
             imgui.text("Hello")
         imgui.end()
 

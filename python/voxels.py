@@ -15,7 +15,7 @@ from utils.buffers import UploadableBuffer
 
 def grid3d(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
     x, y, z = np.meshgrid(x, y, z)
-    return np.vstack((x.flatten(), y.flatten(), z.flatten())).T
+    return np.hstack((x.reshape(-1, 1), y.reshape(-1, 1), z.reshape(-1, 1)))
 
 # Params
 SAMPLES = 4
@@ -24,7 +24,7 @@ SAMPLES = 4
 S = 2
 N = 5
 R = 10
-voxels = grid3d(np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32))
+voxels: np.ndarray = grid3d(np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32), np.linspace(-R, R, N, dtype=np.float32))
 
 I = np.tile(np.array([
     [0, 1, 3],
@@ -34,7 +34,7 @@ I = np.tile(np.array([
     [0, 2, 4],
     [2, 4, 6],
 ], np.uint32), (voxels.shape[0], 1))
-I = (I.reshape((voxels.shape[0], -1)) + np.arange(voxels.shape[0]).reshape(voxels.shape[0], 1) * 8).astype(np.uint32)
+I: np.ndarray = (I.reshape((voxels.shape[0], -1)) + np.arange(voxels.shape[0]).reshape(voxels.shape[0], 1) * 8).astype(np.uint32)
 
 camera = Camera(vec3(30, 30, -30), vec3(0, 0, 0), vec3(0, 0, 1), 45, 1, 0.1, 100.0)
 
@@ -137,9 +137,8 @@ def draw():
 
     # GUI
     with gui.frame():
-        # TODO: implement once binding are available
-        # imgui.set_next_window_pos((50, 50))
-        # imgui.set_next_window_size((50, 200))
+        imgui.set_next_window_pos((50, 50))
+        imgui.set_next_window_size((400, 50))
         if imgui.begin(
             "transparent",
             flags=
@@ -147,7 +146,7 @@ def draw():
                 imgui.WindowFlags.NO_BACKGROUND |
                 imgui.WindowFlags.NO_MOUSE_INPUTS |
                 imgui.WindowFlags.NO_RESIZE
-        ):
+        )[0]:
             imgui.text("Left-click and drag left and right to rotate!")
         imgui.end()
 

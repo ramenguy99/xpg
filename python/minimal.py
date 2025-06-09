@@ -16,7 +16,7 @@ def draw():
 
     # Create GUI
     with gui.frame():
-        if imgui.begin("Window"):
+        if imgui.begin("Window")[0]:
             imgui.text("Hello")
         imgui.end()
 

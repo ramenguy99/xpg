@@ -565,6 +565,10 @@ for f in data["functions"]:
     cpp_args_str: List[str] = []
     nb_args_str: List[str] = []
     for arg in args:
+        if arg.name == "text_begin":
+            arg.name = "text"
+        if arg.name == "text_end":
+            continue
         cpp_args_str.append(f"{type_to_cpp(arg.type)} {arg.name}")
         nb_str = f"nb::arg(\"{arg.name}\")"
         if arg.default:
@@ -583,7 +587,7 @@ for f in data["functions"]:
             nb_str += f" = {default_value}"
         nb_args_str.append(nb_str)
     if py_func_name.startswith("list__"):
-        nb_args_str= nb_args_str[1:]
+        nb_args_str = nb_args_str[1:]
     out_cpp(", ".join(cpp_args_str), end="")
 
     if has_ret:
@@ -617,10 +621,12 @@ for f in data["functions"]:
             func_call = "self->list->" + f["original_fully_qualified_name"]
         else:
             func_call = f["original_fully_qualified_name"]
-
+        
         arg_call_names = []
         for arg in args:
-            if arg.type.array is not None:
+            if arg.name == "text_end":
+                name = "nullptr"
+            elif arg.type.array is not None:
                 name = f"{arg.name}.data()"
             elif arg.name == "fmt":
                 name = r'"%s", fmt'

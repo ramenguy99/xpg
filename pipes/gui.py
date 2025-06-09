@@ -8,7 +8,7 @@ from pipelines import *
 params = RenderParams()
 
 ctx = Context()
-window = Window(ctx, "pipes", params.width, params.height)
+window = Window(ctx, "Pipes", params.width, params.height)
 gui = Gui(window)
 
 @dataclass

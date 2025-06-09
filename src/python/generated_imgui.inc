@@ -2315,9 +2315,9 @@ mod_imgui.def("get_state_storage",
     });
 
 mod_imgui.def("calc_text_size",
-    [] (const char* text, std::optional<const char*> text_end, bool hide_text_after_double_hash, float wrap_width) -> ImVec2 {
-        return ImGui::CalcTextSize(text, text_end.has_value() ? text_end.value() : NULL, hide_text_after_double_hash, wrap_width);
-    }, nb::arg("text"), nb::arg("text_end") = nb::none(), nb::arg("hide_text_after_double_hash") = false, nb::arg("wrap_width") = -1.0);
+    [] (const char* text, bool hide_text_after_double_hash, float wrap_width) -> ImVec2 {
+        return ImGui::CalcTextSize(text, nullptr, hide_text_after_double_hash, wrap_width);
+    }, nb::arg("text"), nb::arg("hide_text_after_double_hash") = false, nb::arg("wrap_width") = -1.0);
 
 mod_imgui.def("color_convert_u32_to_float4",
     [] (Color value) -> ImVec4 {
@@ -2602,9 +2602,9 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
         return self->list->AddEllipseFilled(center, radius, col, rot, num_segments);
     }, nb::arg("center"), nb::arg("radius"), nb::arg("col"), nb::arg("rot") = 0.0, nb::arg("num_segments") = 0)
     .def("add_text",
-    [] (DrawList* self, ImVec2 pos, Color col, const char* text_begin, std::optional<const char*> text_end) -> void {
-        return self->list->AddText(pos, col, text_begin, text_end.has_value() ? text_end.value() : NULL);
-    }, nb::arg("pos"), nb::arg("col"), nb::arg("text_begin"), nb::arg("text_end") = nb::none())
+    [] (DrawList* self, ImVec2 pos, Color col, const char* text) -> void {
+        return self->list->AddText(pos, col, text, nullptr);
+    }, nb::arg("pos"), nb::arg("col"), nb::arg("text"))
     .def("add_bezier_cubic",
     [] (DrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, Color col, float thickness, int num_segments) -> void {
         return self->list->AddBezierCubic(p1, p2, p3, p4, col, thickness, num_segments);
