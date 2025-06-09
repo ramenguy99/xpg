@@ -60,6 +60,7 @@ sets = PerFrameResource(DescriptorSet, window.num_frames,
     [
         DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
     ],
+    name="per-frame-descriptors"
 )
 
 SHADERS = Path(__file__).parent.joinpath("shaders")
@@ -76,14 +77,14 @@ class SequencePipeline(Pipeline):
         constants_dt = to_dtype(desc_refl.descriptors["constants"].resource.type)
 
         # Create uniform buffers and write descriptors
-        u_bufs = PerFrameResource(UploadableBuffer, window.num_frames, ctx, constants_dt.itemsize, BufferUsageFlags.UNIFORM)
+        u_bufs = PerFrameResource(UploadableBuffer, window.num_frames, ctx, constants_dt.itemsize, BufferUsageFlags.UNIFORM, name="per-frame-uniform-buffer")
         for set, u_buf in zip(sets.resources, u_bufs.resources):
             set: DescriptorSet
             set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         # Turn SPIR-V code into vulkan shader modules
-        vert = Shader(ctx, vert_prog.code)
-        frag = Shader(ctx, frag_prog.code)
+        vert = Shader(ctx, vert_prog.code, name="sequence-vert")
+        frag = Shader(ctx, frag_prog.code, name="sequence-frag")
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
@@ -104,6 +105,7 @@ class SequencePipeline(Pipeline):
                 Attachment(format=window.swapchain_format)
             ],
             depth = Depth(format=Format.D32_SFLOAT, test=True, write=True, op=CompareOp.LESS),
+            name = "sequence-pipeline"
         )
 
 pipeline = SequencePipeline()
@@ -116,7 +118,7 @@ GPU_BUFFERS = window.num_frames + GPU_PREFETCH_SIZE
 
 class CpuBuffer:
     def __init__(self, size: int, usage_flags: BufferUsageFlags, name: Optional[str] = None):
-        self.buf = Buffer(ctx, size, usage_flags, AllocType.DEVICE_MAPPED if upload_method == UploadMethod.CPU_BUF else AllocType.HOST, name)
+        self.buf = Buffer(ctx, size, usage_flags, AllocType.DEVICE_MAPPED if upload_method == UploadMethod.CPU_BUF else AllocType.HOST, name=name)
         self.promise = Promise()
     
     def __repr__(self):
@@ -141,7 +143,7 @@ class GpuBuffer:
         self.state = GpuBufferState.EMPTY
 
         if use_transfer_queue:
-            self.semaphore = TimelineSemaphore(ctx)
+            self.semaphore = TimelineSemaphore(ctx, name=f"{name}-semaphore")
             self.semaphore_value = 0
     
     def use(self, stage: PipelineStageFlags) -> SemaphoreInfo:
@@ -172,22 +174,22 @@ class Sequence:
         I = struct.unpack("<I", header[8:12])[0]
 
         indices = np.frombuffer(read_exact_at_offset(file, N * V * 12 + len(header), I * 4), np.uint32)
-        self.i_buf = Buffer.from_data(ctx, indices, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+        self.i_buf = Buffer.from_data(ctx, indices, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK, "sequence-index-buffer")
 
         if upload_method == UploadMethod.CPU_BUF:
-            self.cpu = LRUPool([CpuBuffer(V * 12, BufferUsageFlags.VERTEX, name=f"cpubuf{i}") for i in range(BUFS)], num_frames, PREFETCH_SIZE)
+            self.cpu = LRUPool([CpuBuffer(V * 12, BufferUsageFlags.VERTEX, name=f"cpubuf-{name}-{i}") for i in range(BUFS)], num_frames, PREFETCH_SIZE)
             self.gpu = None
         else:
-            self.cpu = LRUPool([CpuBuffer(V * 12, BufferUsageFlags.TRANSFER_SRC, name=f"cpubuf{i}") for i in range(BUFS)], num_frames, PREFETCH_SIZE)
-            self.gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST, upload_method == UploadMethod.TRANSFER_QUEUE, name=f"gpubuf{i}") for i in range(GPU_BUFFERS)], num_frames, GPU_PREFETCH_SIZE)
+            self.cpu = LRUPool([CpuBuffer(V * 12, BufferUsageFlags.TRANSFER_SRC, name=f"cpubuf-{name}-{i}") for i in range(BUFS)], num_frames, PREFETCH_SIZE)
+            self.gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST, upload_method == UploadMethod.TRANSFER_QUEUE, name=f"gpubuf-{name}-{i}") for i in range(GPU_BUFFERS)], num_frames, GPU_PREFETCH_SIZE)
 
             # GPU prefetching state
             if upload_method == UploadMethod.TRANSFER_QUEUE:
                 self.prefetch_states = [
                     PrefetchState(
-                        commands=CommandBuffer(ctx, queue_family_index=ctx.transfer_queue_family_index),
+                        commands=CommandBuffer(ctx, queue_family_index=ctx.transfer_queue_family_index, name=f"gpu-prefetch-commands-{name}-{i}"),
                         prefetch_done_value=0,
-                    ) for _ in range(GPU_PREFETCH_SIZE)
+                    ) for i in range(GPU_PREFETCH_SIZE)
                 ]
                 self.prefetch_states_lookup: Dict[GpuBuffer, PrefetchState] = {}
 
@@ -393,7 +395,7 @@ def draw():
 
         if depth:
             depth.destroy()
-        depth = Image(ctx, window.fb_width, window.fb_height, Format.D32_SFLOAT, ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT, AllocType.DEVICE_DEDICATED)
+        depth = Image(ctx, window.fb_width, window.fb_height, Format.D32_SFLOAT, ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT, AllocType.DEVICE_DEDICATED, name="depth-buffer")
         images_just_created = True
 
     # Camera

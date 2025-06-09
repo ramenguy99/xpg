@@ -146,7 +146,8 @@ struct Context
     VkFence sync_fence;
 
     // Debug
-    VkDebugReportCallbackEXT debug_callback;
+    bool debug_utils_enabled;
+    VkDebugUtilsMessengerEXT debug_messenger;
 };
 
 struct ContextDesc {
@@ -162,7 +163,12 @@ struct ContextDesc {
     u32 preferred_frames_in_flight = 2;
     bool vsync = true;
 
-    // Validation
+    // Debug utils, adds the instance extension VK_EXT_debug_utils to enable
+    // debug report, names and markers.
+    VkBool32 enable_debug_utils = false;
+
+    // Enable validation layer. If this is set to true enable_debug_utils
+    // is also implicitly enabled to report validation errors.
     VkBool32 enable_validation_layer = false;
 
     // Validation features, they require the validation to be enabled

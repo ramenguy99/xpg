@@ -34,41 +34,40 @@
 namespace xpg {
 namespace gfx {
 
+#define DEBUG_UTILS_OBJECT_NAME(typ, obj, name) \
+    name_info.objectType = typ; \
+    name_info.objectHandle = (u64)obj; \
+    name_info.pObjectName = name; \
+    vkSetDebugUtilsObjectNameEXT(device, &name_info);
+            
 static VkBool32 VKAPI_CALL
-VulkanDebugReportCallback(VkDebugReportFlagsEXT flags,
-    VkDebugReportObjectTypeEXT objectType,
-    uint64_t object, size_t location, int32_t messageCode,
-    const char* pLayerPrefix, const char* pMessage, void* pUserData)
+VulkanDebugUtilsMessengerCallback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT           message_severity,
+    VkDebugUtilsMessageTypeFlagsEXT                  message_types,
+    const VkDebugUtilsMessengerCallbackDataEXT*      callback_data,
+    void*                                            user_data)
 {
-    // This silences warnings like "For optimal performance image layout should be VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL instead of GENERAL."
-    // 
-    // if (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
-    //     return VK_FALSE;
-    if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
-        logging::error("gfx/validation", "%s", pMessage);
-    }
-    else if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) {
-        logging::warning("gfx/validation", "%s", pMessage);
-    }
-    else {
-        logging::info("gfx/validation", "%s", pMessage);
-    }
+    if      (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)   logging::error  ("gfx/validation", "%s", callback_data->pMessage);
+    else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) logging::warning("gfx/validation", "%s", callback_data->pMessage);
+    else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)    logging::info   ("gfx/validation", "%s", callback_data->pMessage);
+    else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) logging::debug  ("gfx/validation", "%s", callback_data->pMessage);
 
 #ifdef _WIN32
     const char* type =
-        (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
+        (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
         ? "ERROR"
-        : (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
+        : (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
         ? "WARNING"
-        : "INFO";
+        : (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+        ? "INFO"
+        : "VERBOSE";
     char message[4096];
-    snprintf(message, sizeof(message) - 1, "%s: %s\n", type, pMessage);
-    message[4095] = 0;
+    snprintf(message, sizeof(message), "%s: %s\n", type, callback_data->pMessage);
     OutputDebugStringA(message);
 #endif
 
-    // if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
-    //  assert(!"Validation error encountered!");
+    // Uncomment to assert on validation errors
+    // if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) assert(!"Validation error encountered!");
 
     return VK_FALSE;
 }
@@ -302,6 +301,17 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     u32 instance_version_patch = VK_API_VERSION_PATCH(instance_version);
     logging::info("gfx/info", "Vulkan instance API version %u.%u.%u", instance_version_major, instance_version_minor, instance_version_patch);
 
+    // Enumerate instance extensions.
+    uint32_t instance_extension_count;
+    result = vkEnumerateInstanceExtensionProperties(nullptr, &instance_extension_count, nullptr);
+    if (result != VK_SUCCESS) {
+        logging::error("gfx", "vkEnumerateInstanceLayerProperties for count failed: %d", result);
+        return Result::API_OUT_OF_MEMORY;
+    }
+
+    Array<VkExtensionProperties> instance_extensions(instance_extension_count);
+    result = vkEnumerateInstanceExtensionProperties(nullptr, &instance_extension_count, instance_extensions.data);
+
     // Enumerate layer properties.
     u32 layer_properties_count = 0;
     result = vkEnumerateInstanceLayerProperties(&layer_properties_count, NULL);
@@ -319,16 +329,24 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
     // Check if validation layer is present.
     const char* validation_layer_name = "VK_LAYER_KHRONOS_validation";
-    bool validation_layer_present = false;
-    for (u32 i = 0; i < layer_properties_count; i++) {
-        VkLayerProperties& l = layer_properties[i];
-        if (strcmp(l.layerName, validation_layer_name) == 0) {
-            validation_layer_present = true;
-            logging::info("gfx/info", "Vulkan validation layer found");
-            break;
+    bool validation_layer_enabled = false;
+    if (desc.enable_validation_layer) {
+        bool validation_layer_present = false;
+        for (u32 i = 0; i < layer_properties_count; i++) {
+            VkLayerProperties& l = layer_properties[i];
+            if (strcmp(l.layerName, validation_layer_name) == 0) {
+                validation_layer_present = true;
+                logging::info("gfx/info", "Vulkan validation layer found");
+                break;
+            }
+        }
+
+        if (validation_layer_present) {
+            validation_layer_enabled = true;
+        } else {
+            logging::warning("gfx/info", "Validation layer requested, but not available");
         }
     }
-    bool use_validation_layer = validation_layer_present && desc.enable_validation_layer;
 
     // Application info.
     VkApplicationInfo application_info = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
@@ -337,27 +355,43 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     application_info.applicationVersion = XPG_VERSION;
 
     // Instance extensions
-    Array<const char*> instance_extensions;
+    Array<const char*> enabled_instance_extensions;
     if (desc.require_presentation) {
         u32 glfw_instance_extensions_count;
         const char** glfw_instance_extensions = glfwGetRequiredInstanceExtensions(&glfw_instance_extensions_count);
         for (u32 i = 0; i < glfw_instance_extensions_count; i++) {
-            instance_extensions.add(glfw_instance_extensions[i]);
+            enabled_instance_extensions.add(glfw_instance_extensions[i]);
         }
     }
-    if (desc.enable_validation_layer) {
-        instance_extensions.add("VK_EXT_debug_report");
+
+    bool debug_utils_requested = desc.enable_debug_utils || desc.enable_validation_layer;
+    bool debug_utils_enabled = false;
+    if (debug_utils_requested) {
+        bool debug_utils_available = false;
+        for (usize i = 0; i < instance_extensions.length; i++) {
+            if (strcmp(instance_extensions[i].extensionName, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0)
+            {
+                debug_utils_available = true;
+            }
+        }
+
+        if (debug_utils_available) {
+            enabled_instance_extensions.add(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            debug_utils_enabled = true;
+        } else {
+            logging::warning("gfx/info", "Debug utils extension requested, but not available");
+        }
     }
 
     // Instance info.
     VkInstanceCreateInfo info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    info.enabledExtensionCount = (u32)instance_extensions.length;
-    info.ppEnabledExtensionNames = instance_extensions.data;
+    info.enabledExtensionCount = (u32)enabled_instance_extensions.length;
+    info.ppEnabledExtensionNames = enabled_instance_extensions.data;
     info.pApplicationInfo = &application_info;
 
     const char* enabled_layers[1] = { validation_layer_name };
 
-    if (use_validation_layer) {
+    if (validation_layer_enabled) {
         info.enabledLayerCount = ArrayCount(enabled_layers);
         info.ppEnabledLayerNames = enabled_layers;
     }
@@ -370,7 +404,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     VkLayerSettingsCreateInfoEXT layer_settings_create_info = {VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT};
     layer_settings_create_info.settingCount = ArrayCount(layer_settings);
     layer_settings_create_info.pSettings = layer_settings;
-    if (use_validation_layer) {
+    if (validation_layer_enabled) {
         info.pNext = &layer_settings_create_info;
     }
 
@@ -397,20 +431,24 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     volkLoadInstance(instance);
 
     // Install debug callback.
-    VkDebugReportCallbackEXT debug_callback = 0;
-    if (use_validation_layer) {
-        if (vkCreateDebugReportCallbackEXT) {
-            VkDebugReportCallbackCreateInfoEXT createInfo = { VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT };
-            createInfo.flags = VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT;
-            createInfo.pfnCallback = VulkanDebugReportCallback;
+    VkDebugUtilsMessengerEXT debug_messenger = 0;
+    if (debug_utils_enabled) {
+        VkDebugUtilsMessengerCreateInfoEXT messenger_create_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
+        messenger_create_info.messageSeverity =
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | 
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | 
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | 
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        messenger_create_info.messageType = 
+            // VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        messenger_create_info.pfnUserCallback = VulkanDebugUtilsMessengerCallback;
 
-            result = vkCreateDebugReportCallbackEXT(instance, &createInfo, 0, &debug_callback);
-            if (result != VK_SUCCESS) {
-                // Failed to install debug callback.
-                logging::warning("gfx", "vkCreateDebugReportCallbackEXT failed: %d", result);
-            }
-        } else {
-            logging::warning("gfx", "vkCreateDebugReportCallbackEXT not available");
+        result = vkCreateDebugUtilsMessengerEXT(instance, &messenger_create_info, 0, &debug_messenger);
+        if (result != VK_SUCCESS) {
+            // Failed to install debug callback.
+            logging::warning("gfx", "vkCreateDebugUtilsMessengerEXT failed: %d", result);
         }
     }
 
@@ -1010,14 +1048,14 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     sync_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;// | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     sync_pool_info.queueFamilyIndex = picked_info.queue_family_index;
 
-    VkCommandPool sync_pool = {};
-    result = vkCreateCommandPool(device, &sync_pool_info, 0, &sync_pool);
+    VkCommandPool sync_command_pool = {};
+    result = vkCreateCommandPool(device, &sync_pool_info, 0, &sync_command_pool);
     if (result != VK_SUCCESS) {
         return Result::API_OUT_OF_MEMORY;
     }
 
     VkCommandBufferAllocateInfo sync_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    sync_allocate_info.commandPool = sync_pool;
+    sync_allocate_info.commandPool = sync_command_pool;
     sync_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     sync_allocate_info.commandBufferCount = 1;
 
@@ -1032,6 +1070,17 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     result = vkCreateFence(device, &fence_info, 0, &sync_fence);
     if (result != VK_SUCCESS) {
         return Result::API_OUT_OF_MEMORY;
+    }
+
+    if (debug_utils_enabled) {
+        VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT }; \
+
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_QUEUE, queue, "xpg-queue");
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_QUEUE, compute_queue, "xpg-compute-queue");
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_QUEUE, copy_queue, "xpg-transfer-queue");
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, sync_command_buffer, "xpg-sync-command-buffer");
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL, sync_command_pool, "xpg-sync-command-pool");
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_FENCE, sync_fence, "xpg-sync-fence");
     }
 
     vk->instance_version = instance_version;
@@ -1052,11 +1101,12 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     vk->copy_queue_timestamp_queries = picked_info.copy_queue_timestamp_queries;
     vk->preferred_frames_in_flight = desc.preferred_frames_in_flight;
     vk->vsync = desc.vsync;
-    vk->debug_callback = debug_callback;
     vk->vma = vma;
-    vk->sync_command_pool = sync_pool;
+    vk->sync_command_pool = sync_command_pool;
     vk->sync_command_buffer = sync_command_buffer;
     vk->sync_fence = sync_fence;
+    vk->debug_utils_enabled = debug_utils_enabled;
+    vk->debug_messenger = debug_messenger;
 
     return Result::SUCCESS;
 }
@@ -1071,8 +1121,8 @@ void DestroyContext(Context* vk) {
 
     // Device and instance
     vkDestroyDevice(vk->device, 0);
-    if (vk->debug_callback) {
-        vkDestroyDebugReportCallbackEXT(vk->instance, vk->debug_callback, 0);
+    if (vk->debug_messenger) {
+        vkDestroyDebugUtilsMessengerEXT(vk->instance, vk->debug_messenger, 0);
     }
     vkDestroyInstance(vk->instance, 0);
 }
@@ -1155,6 +1205,13 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
         result = vkCreateImageView(vk.device, &create_info, 0, &image_views[i]);
         if (result != VK_SUCCESS) {
             return Result::API_OUT_OF_MEMORY;
+        }
+
+        if (vk.debug_utils_enabled) {
+            VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT }; \
+            VkDevice device = vk.device;
+            DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_IMAGE, images[i], "xpg-swapchain-image");
+            DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_IMAGE_VIEW, image_views[i], "xpg-swapchain-image-view");
         }
     }
 
@@ -1598,6 +1655,28 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
 
         CreateGPUSemaphore(vk.device, &frame.acquire_semaphore);
         CreateGPUSemaphore(vk.device, &frame.release_semaphore);
+
+        if (vk.debug_utils_enabled) {
+            VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT }; \
+            VkDevice device = vk.device;
+
+            // Commands
+            DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, frame.command_buffer, "xpg-frame-command-buffer");
+            DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL,   frame.command_pool,    "xpg-frame-command-pool");
+            if (vk.compute_queue != VK_NULL_HANDLE) {
+                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, frame.compute_command_buffer, "xpg-frame-compute-command-buffer");
+                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL,   frame.compute_command_pool,    "xpg-frame-compute-command-pool");
+            }
+            if (vk.copy_queue != VK_NULL_HANDLE) {
+                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, frame.copy_command_buffer,    "xpg-frame-transfer-command-buffer");
+                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL,   frame.copy_command_pool,    "xpg-frame-transfer-command-pool");
+            }
+
+            // Sync
+            DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, frame.acquire_semaphore, "xpg-frame-acquire-semaphore");
+            DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, frame.release_semaphore, "xpg-frame-release-semaphore");
+            DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_FENCE,     frame.fence,             "xpg-frame-fence");
+        }
     }
 
     w->window = window;

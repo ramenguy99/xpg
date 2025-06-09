@@ -32,9 +32,9 @@ class Profiler:
         self.num_frames = num_frames
         self.max_gpu_zones = max_gpu_zones
 
-        self.pools = [QueryPool(ctx, QueryType.TIMESTAMP, max_gpu_zones * 2) for _ in range(num_frames)]
+        self.pools = [QueryPool(ctx, QueryType.TIMESTAMP, max_gpu_zones * 2, name=f"profiler-query-pool-{i}") for i in range(num_frames)]
         if ctx.has_transfer_queue:
-            self.transfer_pools = [QueryPool(ctx, QueryType.TIMESTAMP, max_gpu_zones * 2) for _ in range(num_frames)]
+            self.transfer_pools = [QueryPool(ctx, QueryType.TIMESTAMP, max_gpu_zones * 2, name=f"profiler-query-pool-transfer-{i}") for i in range(num_frames)]
         else:
             self.transfer_pools = None
 

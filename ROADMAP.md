@@ -77,6 +77,13 @@ Python:
                 [x] Small data upload (constants) -> device mapped or fallback to upload.
                 [x] Large upload (streaming) -> If integrated, device mapped or host mapped. If device + staging buffer with upload.
     - [x] Cleanup command buffers, queues, sync commands and frame API. See what is the shared functionality and if we can improve this a bit.
+    - [ ] Debug names for all objects
+        - [x] Add optional debug names to objects
+        - [x] Add __repr__ to all objects
+        - [x] Add destroy method to everything and unify order of method definitions
+        - [x] Use vulkan API to add debug names, if debug layer is enabled
+        - [x] Add names to builtin objects (context, frames, swapchain images)
+        - [ ] Expose debug markers API on queues and on command buffers
 - [ ] Clean examples
     - [x] Headless graphics and compute
     - [x] Minimal

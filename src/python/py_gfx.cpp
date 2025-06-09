@@ -22,6 +22,17 @@
 namespace nb = nanobind;
 using namespace xpg;
 
+#define DEBUG_UTILS_OBJECT_NAME_WITH_NAME(type, obj, name) \
+    if(ctx->vk.debug_utils_enabled && (name).has_value()) { \
+        VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT }; \
+        name_info.objectType = type; \
+        name_info.objectHandle = (u64)obj; \
+        name_info.pObjectName = (name).value().c_str(); \
+        vkSetDebugUtilsObjectNameEXT(ctx->vk.device, &name_info); \
+    }
+
+#define DEBUG_UTILS_OBJECT_NAME(type, obj) DEBUG_UTILS_OBJECT_NAME_WITH_NAME(type, obj, this->name)
+
 struct MemoryHeap: public nb::intrusive_base {
     MemoryHeap(const VkMemoryHeap& heap)
         : size(heap.size)
@@ -100,6 +111,7 @@ struct Context: public nb::intrusive_base {
         bool vsync,
         u32 force_physical_device_index, 
         bool prefer_discrete_gpu,
+        bool enable_debug_utils,
         bool enable_validation_layer,
         bool enable_gpu_based_validation,
         bool enable_synchronization_validation
@@ -120,6 +132,7 @@ struct Context: public nb::intrusive_base {
             .require_presentation = presentation,
             .preferred_frames_in_flight = preferred_frames_in_flight,
             .vsync = vsync,
+            .enable_debug_utils = enable_debug_utils,
             .enable_validation_layer = enable_validation_layer,
             .enable_gpu_based_validation = enable_gpu_based_validation,
             .enable_synchronization_validation = enable_synchronization_validation,
@@ -183,7 +196,7 @@ struct AllocInfo: nb::intrusive_base {
     bool is_dedicated;
 };
 
-struct Buffer: public GfxObject {
+struct Buffer: GfxObject {
     Buffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, std::optional<nb::str> name)
         : GfxObject(ctx, true, std::move(name))
         , size(size)
@@ -203,10 +216,12 @@ struct Buffer: public GfxObject {
         if (usage_flags & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
             device_address = gfx::GetBufferAddress(buffer.buffer, ctx->vk.device);
         }
+
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_BUFFER, buffer.buffer);
     }
 
-    Buffer(nb::ref<Context> ctx, size_t size)
-        : GfxObject(ctx, true)
+    Buffer(nb::ref<Context> ctx, size_t size, std::optional<nb::str> name)
+        : GfxObject(ctx, true, std::move(name))
         , size(size)
     { }
 
@@ -220,7 +235,7 @@ struct Buffer: public GfxObject {
         }
     }
 
-    static nb::ref<Buffer> from_data(nb::ref<Context> ctx, nb::object data, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type) {
+    static nb::ref<Buffer> from_data(nb::ref<Context> ctx, nb::object data, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, std::optional<nb::str> name) {
         Py_buffer view;
         if (PyObject_GetBuffer(data.ptr(), &view, PyBUF_SIMPLE) != 0) {
             throw nb::python_error();
@@ -231,7 +246,7 @@ struct Buffer: public GfxObject {
             throw std::runtime_error("Data buffer must be contiguous");
         }
 
-        std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx, view.len);
+        std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx, view.len, std::move(name));
         VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)view.buf, view.len), {
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
@@ -250,6 +265,7 @@ struct Buffer: public GfxObject {
             self->device_address = gfx::GetBufferAddress(self->buffer.buffer, ctx->vk.device);
         }
 
+        DEBUG_UTILS_OBJECT_NAME_WITH_NAME(VK_OBJECT_TYPE_BUFFER, self->buffer.buffer, self->name);
         return self.release();
     }
 
@@ -313,9 +329,9 @@ PyType_Slot buffer_slots[] = {
     { 0, nullptr }
 };
 
-struct Fence: public GfxObject {
-    Fence(nb::ref<Context> ctx, bool signaled)
-        : GfxObject(ctx, true)
+struct Fence: GfxObject {
+    Fence(nb::ref<Context> ctx, bool signaled, std::optional<nb::str> name)
+        : GfxObject(ctx, true, std::move(name))
     {
         VkFenceCreateInfo fence_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
         if (signaled) {
@@ -325,6 +341,8 @@ struct Fence: public GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create fence");
         }
+
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_FENCE, fence);
     }
     
     bool is_signaled() {
@@ -362,16 +380,17 @@ struct Fence: public GfxObject {
     VkFence fence;
 };
 
-struct Semaphore: public GfxObject {
-    Semaphore(nb::ref<Context> ctx, bool external)
-        : GfxObject(ctx, true)
+struct Semaphore: GfxObject {
+    Semaphore(nb::ref<Context> ctx, std::optional<nb::str> name, bool external)
+        : GfxObject(ctx, true, std::move(name))
     {
         VkResult vkr = gfx::CreateGPUSemaphore(ctx->vk.device, &semaphore, external);
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create semaphore");
         }
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, semaphore);
     }
-    Semaphore(nb::ref<Context> ctx): Semaphore(ctx, false) { }
+    Semaphore(nb::ref<Context> ctx, std::optional<nb::str> name): Semaphore(ctx, std::move(name), false) { }
 
     Semaphore(): semaphore(VK_NULL_HANDLE) {}
 
@@ -388,11 +407,12 @@ struct Semaphore: public GfxObject {
     VkSemaphore semaphore;
 };
 
-struct TimelineSemaphore: public Semaphore {
-    TimelineSemaphore(nb::ref<Context> ctx, u64 initial_value, bool external)
+struct TimelineSemaphore: Semaphore {
+    TimelineSemaphore(nb::ref<Context> ctx, u64 initial_value, std::optional<nb::str> name, bool external)
     {
         this->ctx = ctx;
         this->owned = true;
+        this->name = std::move(name);
 
         if (!(ctx->vk.device_features & gfx::DeviceFeatures::TIMELINE_SEMAPHORES)) {
             throw std::runtime_error("Device feature TIMELINE_SEMAPHORES must be set to use TimelineSemaphore");
@@ -402,6 +422,8 @@ struct TimelineSemaphore: public Semaphore {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create semaphore");
         }
+
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, semaphore);
     }
 
     void signal(u64 value) {
@@ -440,11 +462,11 @@ struct TimelineSemaphore: public Semaphore {
         return value;
     }
 
-    TimelineSemaphore(nb::ref<Context> ctx, u64 initial_value): TimelineSemaphore(ctx, initial_value, false) { }
+    TimelineSemaphore(nb::ref<Context> ctx, u64 initial_value, std::optional<nb::str> name): TimelineSemaphore(ctx, initial_value, std::move(name), false) { }
 };
 
-struct ExternalSemaphore: public Semaphore {
-    ExternalSemaphore(nb::ref<Context> ctx): Semaphore(ctx, true) {
+struct ExternalSemaphore: Semaphore {
+    ExternalSemaphore(nb::ref<Context> ctx, std::optional<nb::str> name): Semaphore(ctx, std::move(name), true) {
         VkResult vkr = gfx::GetExternalHandleForSemaphore(&handle, ctx->vk, semaphore);
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to get handle for semaphore");
@@ -465,8 +487,8 @@ struct ExternalSemaphore: public Semaphore {
     gfx::ExternalHandle handle;
 };
 
-struct ExternalTimelineSemaphore: public TimelineSemaphore {
-    ExternalTimelineSemaphore(nb::ref<Context> ctx): TimelineSemaphore(ctx, true) {
+struct ExternalTimelineSemaphore: TimelineSemaphore {
+    ExternalTimelineSemaphore(nb::ref<Context> ctx, u64 initial_value, std::optional<nb::str> name): TimelineSemaphore(ctx, initial_value, std::move(name), true) {
         VkResult vkr = gfx::GetExternalHandleForSemaphore(&handle, ctx->vk, semaphore);
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to get handle for semaphore");
@@ -487,9 +509,9 @@ struct ExternalTimelineSemaphore: public TimelineSemaphore {
     gfx::ExternalHandle handle;
 };
 
-struct ExternalBuffer: public Buffer {
-    ExternalBuffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type)
-        : Buffer(ctx, size)
+struct ExternalBuffer: Buffer {
+    ExternalBuffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, std::optional<nb::str> name)
+        : Buffer(ctx, size, std::move(name))
     {
         VkResult vkr;
         vkr = gfx::CreatePoolForBuffer(&pool, ctx->vk, {
@@ -515,6 +537,8 @@ struct ExternalBuffer: public Buffer {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to get external handle");
         }
+
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_BUFFER, buffer.buffer);
     }
 
     ~ExternalBuffer() {
@@ -756,11 +780,13 @@ namespace ImageUsagePresets {
     static_assert(ArrayCount(Types) == (size_t)ImageUsage::Count, "ImageUsage count does not match length of Types array");
 }
 
-struct Image: public GfxObject {
-    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples = 1, std::optional<nb::str> name = std::nullopt)
-        : GfxObject(ctx, true, name)
+struct Image: GfxObject {
+    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples, std::optional<nb::str> name)
+        : GfxObject(ctx, true, std::move(name))
         , width(width)
         , height(height)
+        , format(format)
+        , samples(samples)
     {
         VkResult vkr = gfx::CreateImage(&image, ctx->vk, {
             .width = width,
@@ -777,20 +803,24 @@ struct Image: public GfxObject {
         VmaAllocationInfo2 alloc_info = {};
         vmaGetAllocationInfo2(ctx->vk.vma, image.allocation, &alloc_info);
         alloc = new AllocInfo(alloc_info);
+
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_IMAGE, image.image);
     }
 
-    Image(nb::ref<Context> ctx, VkImage image, VkImageView view, u32 width, u32 height)
+    Image(nb::ref<Context> ctx, VkImage image, VkImageView view, u32 width, u32 height, VkFormat format, u32 samples)
         : GfxObject(ctx, false)
         , width(width)
         , height(height)
+        , format(format)
+        , samples(samples)
     {
         this->image.image = image;
         this->image.view = view;
         this->image.allocation = 0;
     }
 
-    Image(nb::ref<Context> ctx)
-        : GfxObject(ctx, true)
+    Image(nb::ref<Context> ctx, std::optional<nb::str> name)
+        : GfxObject(ctx, true, std::move(name))
     { }
 
     ~Image() {
@@ -804,7 +834,7 @@ struct Image: public GfxObject {
     }
 
     static nb::ref<Image> from_data(nb::ref<Context> ctx, nb::object data, ImageUsage usage,
-        u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples = 1)
+        u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples, std::optional<nb::str> name)
     {
         assert((usize)usage < ArrayCount(ImageUsagePresets::Types));
         ImageUsageState state = ImageUsagePresets::Types[(usize)usage];
@@ -819,7 +849,7 @@ struct Image: public GfxObject {
             throw std::runtime_error("Data buffer must be contiguous");
         }
 
-        std::unique_ptr<Image> self = std::make_unique<Image>(ctx);
+        std::unique_ptr<Image> self = std::make_unique<Image>(ctx, std::move(name));
         VkResult vkr = gfx::CreateAndUploadImage(&self->image, ctx->vk, ArrayView<u8>((u8*)view.buf, view.len), state.layout, {
             .width = width,
             .height = height,
@@ -836,9 +866,15 @@ struct Image: public GfxObject {
 
         VmaAllocationInfo2 alloc_info = {};
         vmaGetAllocationInfo2(ctx->vk.vma, self->image.allocation, &alloc_info);
+
+        self->width = width;
+        self->height = height;
+        self->format = format;
+        self->samples = samples;
+        self->current_state.layout = state.layout;
         self->alloc = new AllocInfo(alloc_info);
 
-        self->current_state.layout = state.layout;
+        DEBUG_UTILS_OBJECT_NAME_WITH_NAME(VK_OBJECT_TYPE_IMAGE, self->image.image, self->name);
 
         return self.release();
     }
@@ -846,6 +882,8 @@ struct Image: public GfxObject {
     gfx::Image image = {};
     u32 width;
     u32 height;
+    VkFormat format;
+    u32 samples;
     ImageUsageState current_state = ImageUsagePresets::Types[(usize)ImageUsage::None];
     nb::ref<AllocInfo> alloc;
 };
@@ -866,8 +904,9 @@ struct Sampler: GfxObject {
         bool anisotroy_enabled,
         float max_anisotropy,
         bool compare_enable,
-        VkCompareOp compare_op
-    ) : GfxObject(ctx, true)
+        VkCompareOp compare_op,
+        std::optional<nb::str> name
+    ) : GfxObject(ctx, true, std::move(name))
     {
         VkResult vkr = gfx::CreateSampler(&sampler, ctx->vk, gfx::SamplerDesc {
             .min_filter =        min_filter,
@@ -888,6 +927,8 @@ struct Sampler: GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create sampler");
         }
+
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SAMPLER, sampler.sampler);
     }
 
     ~Sampler() {
@@ -942,9 +983,9 @@ struct DepthAttachment {
     {}
 };
 
-struct QueryPool: public GfxObject {
-    QueryPool(nb::ref<Context> ctx, VkQueryType type, u32 count)
-        : GfxObject(ctx, true)
+struct QueryPool: GfxObject {
+    QueryPool(nb::ref<Context> ctx, VkQueryType type, u32 count, std::optional<nb::str> name)
+        : GfxObject(ctx, true, std::move(name))
         , count(count)
         , type(type)
     {
@@ -955,6 +996,7 @@ struct QueryPool: public GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create query pool");
         }
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_QUERY_POOL, pool);
     }
 
     ~QueryPool() {
@@ -988,8 +1030,8 @@ struct QueryPool: public GfxObject {
 };
 
 struct CommandBuffer: GfxObject {
-    CommandBuffer(nb::ref<Context> ctx, std::optional<u32> queue_family_index)
-        : GfxObject(ctx, true)
+    CommandBuffer(nb::ref<Context> ctx, std::optional<u32> queue_family_index, std::optional<nb::str> name)
+        : GfxObject(ctx, true, std::move(name))
     {
         VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
         pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
@@ -1009,6 +1051,8 @@ struct CommandBuffer: GfxObject {
         if (vkr != VK_SUCCESS) {
             nb::raise("Failed to create command buffer");
         }
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, buffer);
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL, pool);
     }
 
     CommandBuffer(nb::ref<Context> ctx, VkCommandPool pool, VkCommandBuffer buffer)
@@ -1392,7 +1436,7 @@ struct Queue: GfxObject {
     VkQueue queue;
 };
 
-struct Frame: public nb::intrusive_base {
+struct Frame: nb::intrusive_base {
     Frame(nb::ref<Window> window, gfx::Frame& frame);
 
     gfx::Frame& frame;
@@ -1403,8 +1447,8 @@ struct Frame: public nb::intrusive_base {
     nb::ref<Image> image;
 };
 
-struct Window: public nb::intrusive_base {
-    struct FrameManager: public nb::intrusive_base {
+struct Window: nb::intrusive_base {
+    struct FrameManager: nb::intrusive_base {
         FrameManager(nb::ref<Window> window,
                      std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores,
                      std::vector<u64> additional_wait_timeline_values,
@@ -1670,7 +1714,7 @@ static PyType_Slot window_tp_slots[] = {
     { 0, nullptr }
 };
 
-struct CommandsManager: public nb::intrusive_base {
+struct CommandsManager: nb::intrusive_base {
     CommandsManager(nb::ref<CommandBuffer> cmd,
                     VkQueue queue,
                     std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores,
@@ -1750,7 +1794,7 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
     : window(window)
     , frame(frame)
 {
-    image = new Image(window->ctx, frame.current_image, frame.current_image_view, window->window.fb_width, window->window.fb_height);
+    image = new Image(window->ctx, frame.current_image, frame.current_image_view, window->window.fb_width, window->window.fb_height, window->window.swapchain_format, 1);
     image->current_state.last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     command_buffer = new CommandBuffer(window->ctx, frame.command_pool, frame.command_buffer);
     if (window->ctx->vk.compute_queue) {
@@ -1761,7 +1805,7 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
     }
 }
 
-struct Gui: public nb::intrusive_base {
+struct Gui: nb::intrusive_base {
     Gui(nb::ref<Window> window)
         : window(window)
     {
@@ -1874,9 +1918,9 @@ struct AccelerationStructureMesh: gfx::AccelerationStructureMeshDesc {
 
 static_assert(sizeof(AccelerationStructureMesh) == sizeof(gfx::AccelerationStructureMeshDesc));
 
-struct AccelerationStructure: public GfxObject {
-    AccelerationStructure(nb::ref<Context> ctx, const std::vector<AccelerationStructureMesh>& meshes, bool prefer_fast_build)
-        : GfxObject(ctx, true)
+struct AccelerationStructure: GfxObject {
+    AccelerationStructure(nb::ref<Context> ctx, const std::vector<AccelerationStructureMesh>& meshes, bool prefer_fast_build, std::optional<nb::str> name)
+        : GfxObject(ctx, true, std::move(name))
     {
         VkResult vkr = gfx::CreateAccelerationStructure(&as, ctx->vk, gfx::AccelerationStructureDesc {
             .meshes = ArrayView((gfx::AccelerationStructureMeshDesc*)meshes.data(), meshes.size()),
@@ -1885,6 +1929,7 @@ struct AccelerationStructure: public GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create acceleration structure");
         }
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, as.tlas);
     }
 
     ~AccelerationStructure() {
@@ -1910,9 +1955,9 @@ struct DescriptorSetEntry: gfx::DescriptorSetEntryDesc {
 };
 static_assert(sizeof(DescriptorSetEntry) == sizeof(gfx::DescriptorSetEntryDesc));
 
-struct DescriptorSet: public nb::intrusive_base {
-    DescriptorSet(nb::ref<Context> ctx, const std::vector<DescriptorSetEntry>& entries, VkDescriptorBindingFlagBits flags)
-        : ctx(ctx)
+struct DescriptorSet: GfxObject {
+    DescriptorSet(nb::ref<Context> ctx, const std::vector<DescriptorSetEntry>& entries, VkDescriptorBindingFlagBits flags, std::optional<nb::str> name)
+        : GfxObject(ctx, true, std::move(name))
     {
         VkResult vkr = gfx::CreateDescriptorSet(&set, ctx->vk, {
             .entries = ArrayView((gfx::DescriptorSetEntryDesc*)entries.data(), entries.size()),
@@ -1921,6 +1966,9 @@ struct DescriptorSet: public nb::intrusive_base {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create descriptor set");
         }
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_SET, set.set);
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_POOL, set.pool);
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, set.layout);
     }
 
     void write_buffer(const Buffer& buffer, VkDescriptorType type, u32 binding, u32 element) {
@@ -1968,21 +2016,23 @@ struct DescriptorSet: public nb::intrusive_base {
 
     void destroy()
     {
-        gfx::DestroyDescriptorSet(&set, ctx->vk);
+        if (owned) {
+            gfx::DestroyDescriptorSet(&set, ctx->vk);
+        }
     }
 
-    nb::ref<Context> ctx;
     gfx::DescriptorSet set;
 };
 
-struct Shader: public nb::intrusive_base {
-    Shader(nb::ref<Context> ctx, const nb::bytes& code)
-        : ctx(ctx)
+struct Shader: GfxObject {
+    Shader(nb::ref<Context> ctx, const nb::bytes& code, std::optional<nb::str> name)
+        : GfxObject(ctx, true, std::move(name))
     {
         VkResult vkr = gfx::CreateShader(&shader, ctx->vk, ArrayView<u8>((u8*)code.data(), code.size()));
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create shader");
         }
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SHADER_MODULE, shader.shader);
     }
 
     ~Shader() {
@@ -1990,14 +2040,15 @@ struct Shader: public nb::intrusive_base {
     }
 
     void destroy() {
-        gfx::DestroyShader(&shader, ctx->vk);
+        if (owned) {
+            gfx::DestroyShader(&shader, ctx->vk);
+        }
     }
 
     gfx::Shader shader;
-    nb::ref<Context> ctx;
 };
 
-struct PipelineStage: public nb::intrusive_base {
+struct PipelineStage: nb::intrusive_base {
     PipelineStage(nb::ref<Shader> shader, VkShaderStageFlagBits stage, std::string entry)
         : shader(shader)
         , stage(stage)
@@ -2037,7 +2088,7 @@ struct VertexAttribute: gfx::VertexAttributeDesc {
 };
 static_assert(sizeof(VertexAttribute) == sizeof(gfx::VertexAttributeDesc));
 
-struct InputAssembly: gfx::InputAssemblyDesc{
+struct InputAssembly: gfx::InputAssemblyDesc {
     InputAssembly(VkPrimitiveTopology primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, bool primitive_restart_enable = false)
         : gfx::InputAssemblyDesc {
               .primitive_topology = (VkPrimitiveTopology)primitive_topology,
@@ -2099,19 +2150,17 @@ struct PushConstantsRange: gfx::PushConstantsRangeDesc {
     {
     }
 };
-
-
 static_assert(sizeof(PushConstantsRange) == sizeof(gfx::PushConstantsRangeDesc));
-
 
 struct ComputePipeline: GfxObject {
     ComputePipeline(nb::ref<Context> ctx,
         nb::ref<Shader> shader,
         nb::str entry,
         const std::vector<PushConstantsRange>& push_constant_ranges,
-        const std::vector<nb::ref<DescriptorSet>>& descriptor_sets
+        const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+        std::optional<nb::str> name
         )
-        : GfxObject(ctx, true)
+        : GfxObject(ctx, true, std::move(name))
     {
         Array<VkDescriptorSetLayout> d(descriptor_sets.size());
         for(usize i = 0; i < d.length; i++) {
@@ -2128,6 +2177,8 @@ struct ComputePipeline: GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create graphics pipeline");
         }
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_PIPELINE, pipeline.pipeline);
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_PIPELINE_LAYOUT, pipeline.layout);
     }
 
     ~ComputePipeline() {
@@ -2153,9 +2204,10 @@ struct GraphicsPipeline: GfxObject {
         const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
         u32 samples,
         const std::vector<Attachment>& attachments,
-        Depth depth
+        Depth depth,
+        std::optional<nb::str> name
         )
-        : GfxObject(ctx, true)
+        : GfxObject(ctx, true, std::move(name))
     {
         Array<gfx::PipelineStageDesc> s(stages.size());
         for(usize i = 0; i < s.length; i++) {
@@ -2184,6 +2236,8 @@ struct GraphicsPipeline: GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create graphics pipeline");
         }
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_PIPELINE, pipeline.pipeline);
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_PIPELINE_LAYOUT, pipeline.layout);
     }
 
     ~GraphicsPipeline() {
@@ -2325,7 +2379,7 @@ void gfx_create_bindings(nb::module_& m)
         .def_ro("size", &MemoryHeap::size)
         .def_ro("flags", &MemoryHeap::flags)
         .def("__repr__", [](MemoryHeap& h) { 
-            return nb::str("MemoryHeap(size: {}, flags: {})").format(h.size, h.flags);
+            return nb::str("MemoryHeap(size={}, flags={})").format(h.size, h.flags);
         })
     ;
 
@@ -2334,7 +2388,7 @@ void gfx_create_bindings(nb::module_& m)
         .def_ro("heap_index", &MemoryType::heap_index)
         .def_ro("property_flags", &MemoryType::property_flags)
         .def("__repr__", [](MemoryType& t) { 
-            return nb::str("MemoryType(heap_index: {}, property_flags: {})").format(t.heap_index, t.property_flags); 
+            return nb::str("MemoryType(heap_index={}, property_flags={})").format(t.heap_index, t.property_flags); 
         })
     ;
 
@@ -2343,7 +2397,7 @@ void gfx_create_bindings(nb::module_& m)
         .def_ro("memory_heaps", &MemoryProperties::memory_heaps)
         .def_ro("memory_types", &MemoryProperties::memory_types)
         .def("__repr__", [](MemoryProperties& memory_properties) { 
-            return nb::str("MemoryProperties(memory_heaps: {}, memory_types: {})").format(memory_properties.memory_heaps, memory_properties.memory_types); 
+            return nb::str("MemoryProperties(memory_heaps={}, memory_types={})").format(memory_properties.memory_heaps, memory_properties.memory_types); 
         })
     ;
 
@@ -2509,7 +2563,7 @@ void gfx_create_bindings(nb::module_& m)
         
     nb::class_<Context>(m, "Context",
         nb::intrusive_ptr<Context>([](Context *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<std::tuple<u32, u32>, gfx::DeviceFeatures::Flags, gfx::DeviceFeatures::Flags, bool, u32, bool, u32, bool, bool, bool, bool>(),
+        .def(nb::init<std::tuple<u32, u32>, gfx::DeviceFeatures::Flags, gfx::DeviceFeatures::Flags, bool, u32, bool, u32, bool, bool, bool, bool, bool>(),
             nb::arg("version") = std::make_tuple(1, 1),
             nb::arg("required_features") = gfx::DeviceFeatures::Flags(gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::SYNCHRONIZATION_2),
             nb::arg("optional_features") = gfx::DeviceFeatures::Flags(gfx::DeviceFeatures::NONE),
@@ -2518,6 +2572,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("vsync") = true,
             nb::arg("force_physical_device_index") = ~0U,
             nb::arg("prefer_discrete_gpu") = true,
+            nb::arg("enable_debug_utils") = false,
             nb::arg("enable_validation_layer") = false,
             nb::arg("enable_gpu_based_validation") = false,
             nb::arg("enable_synchronization_validation") = false
@@ -2658,10 +2713,10 @@ void gfx_create_bindings(nb::module_& m)
         .def("should_close", &Window::should_close)
         .def("set_callbacks", &Window::set_callbacks,
             nb::arg("draw"),
-            nb::arg("mouse_move_event").none() = nb::none(),
-            nb::arg("mouse_button_event").none() = nb::none(),
-            nb::arg("mouse_scroll_event").none() = nb::none(),
-            nb::arg("key_event").none() = nb::none(),
+            nb::arg("mouse_move_event") = nb::none(),
+            nb::arg("mouse_button_event") = nb::none(),
+            nb::arg("mouse_scroll_event") = nb::none(),
+            nb::arg("key_event") = nb::none(),
 #if PY_MINOR_VERSION >= 9
             nb::sig("def set_callbacks(self, draw: Callable[[], None], mouse_move_event: Callable[[tuple[int, int]], None] | None = None, mouse_button_event: Callable[[tuple[int, int], MouseButton, Action, Modifiers], None] | None = None, mouse_scroll_event: Callable[[tuple[int, int], tuple[int, int]], None] | None = None, key_event: Callable[[Key, Action, Modifiers], None] | None = None) -> None")
 #else
@@ -2885,22 +2940,22 @@ void gfx_create_bindings(nb::module_& m)
         .value("STORAGE",                              VK_IMAGE_USAGE_STORAGE_BIT)
         .value("COLOR_ATTACHMENT",                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
         .value("DEPTH_STENCIL_ATTACHMENT",             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-        // .value("TRANSIENT_ATTACHMENT",                 VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
-        // .value("INPUT_ATTACHMENT",                     VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
-        // .value("VIDEO_DECODE_DST_KHR",                 VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR)
-        // .value("VIDEO_DECODE_SRC_KHR",                 VK_IMAGE_USAGE_VIDEO_DECODE_SRC_BIT_KHR)
-        // .value("VIDEO_DECODE_DPB_KHR",                 VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)
-        // .value("FRAGMENT_DENSITY_MAP_EXT",             VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
-        // .value("FRAGMENT_SHADING_RATE_ATTACHMENT_KHR", VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
-        // .value("HOST_TRANSFER_EXT",                    VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT)
-        // .value("VIDEO_ENCODE_DST_KHR",                 VK_IMAGE_USAGE_VIDEO_ENCODE_DST_BIT_KHR)
-        // .value("VIDEO_ENCODE_SRC_KHR",                 VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR)
-        // .value("VIDEO_ENCODE_DPB_KHR",                 VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR)
-        // .value("ATTACHMENT_FEEDBACK_LOOP_EXT",         VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
-        // .value("INVOCATION_MASK_HUAWEI",               VK_IMAGE_USAGE_INVOCATION_MASK_BIT_HUAWEI)
-        // .value("SAMPLE_WEIGHT_QCOM",                   VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM)
-        // .value("SAMPLE_BLOCK_MATCH_QCOM",              VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM)
-        // .value("SHADING_RATE_IMAGE_NV",                VK_IMAGE_USAGE_SHADING_RATE_IMAGE_BIT_NV)
+        .value("TRANSIENT_ATTACHMENT",                 VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
+        .value("INPUT_ATTACHMENT",                     VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
+        .value("VIDEO_DECODE_DST",                     VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR)
+        .value("VIDEO_DECODE_SRC",                     VK_IMAGE_USAGE_VIDEO_DECODE_SRC_BIT_KHR)
+        .value("VIDEO_DECODE_DPB",                     VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)
+        .value("FRAGMENT_DENSITY_MAP",                 VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
+        .value("FRAGMENT_SHADING_RATE_ATTACHMENT",     VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
+        .value("HOST_TRANSFER",                        VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT)
+        .value("VIDEO_ENCODE_DST",                     VK_IMAGE_USAGE_VIDEO_ENCODE_DST_BIT_KHR)
+        .value("VIDEO_ENCODE_SRC",                     VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR)
+        .value("VIDEO_ENCODE_DPB",                     VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR)
+        .value("ATTACHMENT_FEEDBACK_LOOP",             VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
+        .value("INVOCATION_MASK",                      VK_IMAGE_USAGE_INVOCATION_MASK_BIT_HUAWEI)
+        .value("SAMPLE_WEIGHT",                        VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM)
+        .value("SAMPLE_BLOCK_MATCH",                   VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM)
+        .value("SHADING_RATE_IMAGE",                   VK_IMAGE_USAGE_SHADING_RATE_IMAGE_BIT_NV)
     ;
 
     nb::enum_<VkCompareOp>(m, "CompareOp")
@@ -2939,12 +2994,17 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Queue, GfxObject>(m, "Queue")
-        .def("submit", &Queue::submit, nb::arg("command_buffer"),
-        nb::arg("wait_semaphores") = nb::list(),
-        nb::arg("wait_timeline_values") = nb::list(),
-        nb::arg("signal_semaphores") = nb::list(),
-        nb::arg("signal_timeline_values") = nb::list(),
-        nb::arg("fence").none() = nb::none())
+        .def("__repr__", [](Queue& queue) { 
+            return nb::str("Queue()");
+        })
+        .def("submit", &Queue::submit,
+            nb::arg("command_buffer"),
+            nb::arg("wait_semaphores") = nb::list(),
+            nb::arg("wait_timeline_values") = nb::list(),
+            nb::arg("signal_semaphores") = nb::list(),
+            nb::arg("signal_timeline_values") = nb::list(),
+            nb::arg("fence") = nb::none()
+        )
     ;
 
     nb::enum_<VkQueryType>(m, "QueryType")
@@ -2966,7 +3026,10 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<QueryPool, GfxObject>(m, "QueryPool")
-        .def(nb::init<nb::ref<Context>, VkQueryType, u32>(), nb::arg("ctx"), nb::arg("type"), nb::arg("count"))
+        .def(nb::init<nb::ref<Context>, VkQueryType, u32, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("type"), nb::arg("count"), nb::arg("name") = nb::none())
+        .def("__repr__", [](QueryPool& pool) { 
+            return nb::str("QueryPool(name={}, type={}, count={})").format(pool.name, pool.type, pool.count);
+        })
         .def_ro("type", &QueryPool::type)
         .def_ro("count", &QueryPool::count)
         .def("wait_results", &QueryPool::wait_results, nb::arg("first"), nb::arg("count"))
@@ -2974,20 +3037,23 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<AllocInfo>(m, "AllocInfo",
         nb::intrusive_ptr<AllocInfo>([](AllocInfo *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def("__repr__", [](AllocInfo& info) { 
+            return nb::str("AllocationInfo(memory_type={}, offset={}, size={}, is_dedicated={})").format(info.memory_type, info.offset, info.size, info.is_dedicated); 
+        })
         .def_ro("memory_type", &AllocInfo::memory_type)
         .def_ro("offset", &AllocInfo::offset)
         .def_ro("size", &AllocInfo::size)
         .def_ro("is_dedicated", &AllocInfo::is_dedicated)
-        .def("__repr__", [](AllocInfo& info) { 
-            return nb::str("AllocationInfo(memory_type: {}, offset: {}, size: {}, is_dedicated: {})").format(info.memory_type, info.offset, info.size, info.is_dedicated); 
-        })
     ;
 
     nb::class_<Buffer, GfxObject> buffer_type(m, "Buffer", nb::type_slots(buffer_slots));
     buffer_type
         .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
+        .def("__repr__", [](Buffer& buf) { 
+            return nb::str("Buffer(name={}, size={})").format(buf.name, buf.size); 
+        })
         .def("destroy", &Buffer::destroy)
-        .def_static("from_data", &Buffer::from_data, nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def_static("from_data", &Buffer::from_data, nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
         .def_prop_ro("data", [] (Buffer& buffer) {
             return nb::steal(PyMemoryView_FromObject(buffer.self_py()));
         }, nb::sig("def data(self) -> memoryview"))
@@ -2999,13 +3065,6 @@ void gfx_create_bindings(nb::module_& m)
                 throw std::runtime_error("Buffer address can only be accessed if BufferUsageFlags.SHADER_DEVICE_ADDRESS was set when creating the buffer");
             }
             return buffer.device_address.value();
-        })
-        .def("__repr__", [](Buffer& buf) { 
-            if (buf.name.has_value()) {
-                return nb::str("Buffer(name: {}, size: {})").format(buf.name.value(), buf.size); 
-            } else {
-                return nb::str("Buffer(size: {})").format(buf.size); 
-            }
         })
         .def_ro("size", &Buffer::size)
         .def_ro("alloc", &Buffer::alloc)
@@ -3020,13 +3079,19 @@ void gfx_create_bindings(nb::module_& m)
 #endif
 
     nb::class_<ExternalBuffer, Buffer>(m, "ExternalBuffer")
-        .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"))
+        .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
+        .def("__repr__", [](ExternalBuffer& buf) { 
+            return nb::str("ExternalBuffer(name={}, size={})").format(buf.name, buf.size); 
+        })
         .def("destroy", &ExternalBuffer::destroy)
-        .def_prop_ro("handle", [] (ExternalBuffer& buffer) { return (u64)buffer.handle; });
+        .def_prop_ro("handle", [] (ExternalBuffer& buffer) { return (u64)buffer.handle; })
     ;
 
     nb::class_<Image, GfxObject>(m, "Image")
         .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, int, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("samples") = 1, nb::arg("name") = nb::none())
+        .def("__repr__", [](Image& image) { 
+            return nb::str("Image(name={}, width={}, height={}, format={}, samples={})").format(image.name, image.width, image.height, image.format, image.samples); 
+        })
         .def("destroy", &Image::destroy)
         .def_static("from_data", &Image::from_data,
             nb::arg("ctx"),
@@ -3037,15 +3102,13 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("format"),
             nb::arg("usage_flags"),
             nb::arg("alloc_type"),
-            nb::arg("samples") = 1
+            nb::arg("samples") = 1,
+            nb::arg("name") = nb::none()
         )
-        .def("__repr__", [](Image& image) { 
-            if (image.name.has_value()) {
-                return nb::str("Image(name: {}, width: {}, height: {})").format(image.name.value(), image.width, image.height); 
-            } else {
-                return nb::str("Image(width: {}, height: {})").format(image.width, image.height); 
-            }
-        })
+        .def_ro("width", &Image::width)
+        .def_ro("height", &Image::height)
+        .def_ro("format", &Image::format)
+        .def_ro("samples", &Image::samples)
         .def_ro("alloc", &Image::alloc)
     ;
 
@@ -3064,7 +3127,8 @@ void gfx_create_bindings(nb::module_& m)
                 bool,
                 float,
                 bool,
-                VkCompareOp
+                VkCompareOp,
+                std::optional<nb::str>
             >(),
                 nb::arg("ctx"),
                 nb::arg("min_filter")        = VK_FILTER_NEAREST,
@@ -3079,17 +3143,28 @@ void gfx_create_bindings(nb::module_& m)
                 nb::arg("anisotroy_enabled") = false,
                 nb::arg("max_anisotropy")    = 0.0f,
                 nb::arg("compare_enable")    = false,
-                nb::arg("compare_op")        = VK_COMPARE_OP_ALWAYS
+                nb::arg("compare_op")        = VK_COMPARE_OP_ALWAYS,
+                nb::arg("name") = nb::none()
             )
+        .def("__repr__", [](Sampler& sampler) { 
+            return nb::str("Sampler(name={})").format(sampler.name);
+        })
+        .def("destroy", &Sampler::destroy)
     ;
 
     nb::class_<AccelerationStructure, GfxObject>(m, "AccelerationStructure")
-        .def(nb::init<nb::ref<Context>, const std::vector<AccelerationStructureMesh>, bool>(), nb::arg("ctx"), nb::arg("meshes"), nb::arg("prefer_fast_build") = false)
+        .def(nb::init<nb::ref<Context>, const std::vector<AccelerationStructureMesh>, bool, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("meshes"), nb::arg("prefer_fast_build") = false, nb::arg("name") = nb::none())
+        .def("__repr__", [](AccelerationStructure& as) { 
+            return nb::str("AccelerationStructure(name={})").format(as.name);
+        })
         .def("destroy", &AccelerationStructure::destroy)
     ;
 
     nb::class_<Fence, GfxObject>(m, "Fence")
-        .def(nb::init<nb::ref<Context>, bool>(), nb::arg("ctx"), nb::arg("signaled") = false)
+        .def(nb::init<nb::ref<Context>, bool, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("signaled") = false, nb::arg("name") = nb::none())
+        .def("__repr__", [](Fence& fence) { 
+            return nb::str("Fence(name={})").format(fence.name);
+        })
         .def("destroy", &Fence::destroy)
         .def("is_signaled", &Fence::is_signaled)
         .def("wait", &Fence::wait)
@@ -3098,27 +3173,39 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Semaphore, GfxObject>(m, "Semaphore")
-        .def(nb::init<nb::ref<Context>>(), nb::arg("ctx"))
+        .def(nb::init<nb::ref<Context>, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("name") = nb::none())
+        .def("__repr__", [](Semaphore& semaphore) { 
+            return nb::str("Semaphore(name={})").format(semaphore.name);
+        })
         .def("destroy", &Semaphore::destroy)
     ;
 
     nb::class_<TimelineSemaphore, Semaphore>(m, "TimelineSemaphore")
-        .def(nb::init<nb::ref<Context>, u64>(), nb::arg("ctx"), nb::arg("initial_value") = 0)
+        .def(nb::init<nb::ref<Context>, u64, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("initial_value") = 0, nb::arg("name") = nb::none())
+        .def("__repr__", [](TimelineSemaphore& semaphore) { 
+            return nb::str("TimelineSemaphore(name={})").format(semaphore.name);
+        })
         .def("get_value", &TimelineSemaphore::get_value)
         .def("signal", &TimelineSemaphore::signal, nb::arg("value"))
         .def("wait", &TimelineSemaphore::wait, nb::arg("value"))
     ;
 
     nb::class_<ExternalSemaphore, Semaphore>(m, "ExternalSemaphore")
-        .def(nb::init<nb::ref<Context>>(), nb::arg("ctx"))
+        .def(nb::init<nb::ref<Context>, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("name") = nb::none())
+        .def("__repr__", [](ExternalSemaphore& semaphore) { 
+            return nb::str("ExternalSemaphore(name={}, handle={})").format(semaphore.name, (u64)semaphore.handle);
+        })
         .def("destroy", &ExternalSemaphore::destroy)
-        .def_prop_ro("handle", [] (ExternalSemaphore& semaphore) { return (u64)semaphore.handle; });
+        .def_prop_ro("handle", [] (ExternalSemaphore& semaphore) { return (u64)semaphore.handle; })
     ;
 
     nb::class_<ExternalTimelineSemaphore, TimelineSemaphore>(m, "ExternalTimelineSemaphore")
-        .def(nb::init<nb::ref<Context>>(), nb::arg("ctx"))
+        .def(nb::init<nb::ref<Context>, u64, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("initial_value") = 0, nb::arg("name") = nb::none())
+        .def("__repr__", [](ExternalTimelineSemaphore& semaphore) { 
+            return nb::str("ExternalTimelineSemaphore(name={}, handle={})").format(semaphore.name, (u64)semaphore.handle);
+        })
         .def("destroy", &ExternalTimelineSemaphore::destroy)
-        .def_prop_ro("handle", [] (ExternalTimelineSemaphore& semaphore) { return (u64)semaphore.handle; });
+        .def_prop_ro("handle", [] (ExternalTimelineSemaphore& semaphore) { return (u64)semaphore.handle; })
     ;
 
     nb::enum_<MemoryUsage>(m, "MemoryUsage")
@@ -3187,7 +3274,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<RenderingAttachment>(m, "RenderingAttachment")
         .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, std::array<float, 4>, std::optional<nb::ref<Image>>, VkResolveModeFlagBits>(),
-            nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear") = std::array<float,4>({0.0f, 0.0f, 0.0f, 0.0f}), nb::arg("resolve_image").none() = nb::none(), nb::arg("resolve_mode") = VK_RESOLVE_MODE_NONE)
+            nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear") = std::array<float,4>({0.0f, 0.0f, 0.0f, 0.0f}), nb::arg("resolve_image") = nb::none(), nb::arg("resolve_mode") = VK_RESOLVE_MODE_NONE)
     ;
 
     nb::class_<DepthAttachment>(m, "DepthAttachment")
@@ -3213,17 +3300,21 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<CommandBuffer, GfxObject>(m, "CommandBuffer")
-        .def(nb::init<nb::ref<Context>, std::optional<u32>>(), nb::arg("ctx"), nb::arg("queue_family_index").none() = nb::none())
+        .def(nb::init<nb::ref<Context>, std::optional<u32>, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("queue_family_index") = nb::none(), nb::arg("name") = nb::none())
         .def("__enter__", &CommandBuffer::enter)
         .def("__exit__", &CommandBuffer::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
+        .def("__repr__", [](CommandBuffer& buf) { 
+            return nb::str("CommandBuffer(name={})").format(buf.name);
+        })
+        .def("destroy", &CommandBuffer::destroy)
         .def("begin", &CommandBuffer::begin)
         .def("end", &CommandBuffer::end)
         .def("memory_barrier", &CommandBuffer::memory_barrier, nb::arg("src"), nb::arg("dst"))
         .def("buffer_barrier", &CommandBuffer::buffer_barrier, nb::arg("buffer"), nb::arg("src"), nb::arg("dst"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED)
         .def("use_image", &CommandBuffer::use_image, nb::arg("image"), nb::arg("usage"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED)
-        .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth").none() = nb::none())
+        .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
         .def("end_rendering", &CommandBuffer::end_rendering)
-        .def("rendering", &CommandBuffer::rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth").none() = nb::none())
+        .def("rendering", &CommandBuffer::rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
         .def("bind_graphics_pipeline", &CommandBuffer::bind_graphics_pipeline,
             nb::arg("pipeline"),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
@@ -3291,9 +3382,11 @@ void gfx_create_bindings(nb::module_& m)
         )
     ;
 
-    nb::class_<Shader>(m, "Shader",
-        nb::intrusive_ptr<Shader>([](Shader *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<nb::ref<Context>, const nb::bytes&>(), nb::arg("ctx"), nb::arg("code"))
+    nb::class_<Shader, GfxObject>(m, "Shader")
+        .def(nb::init<nb::ref<Context>, const nb::bytes&, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("code"), nb::arg("name") = nb::none())
+        .def("__repr__", [](Shader& shader) { 
+            return nb::str("Shader(name={})").format(shader.name);
+        })
         .def("destroy", &Shader::destroy)
     ;
 
@@ -3696,9 +3789,12 @@ void gfx_create_bindings(nb::module_& m)
         .value("VARIABLE_DESCRIPTOR_COUNT",   VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT)
     ;
 
-    nb::class_<DescriptorSet>(m, "DescriptorSet",
-        nb::intrusive_ptr<DescriptorSet>([](DescriptorSet *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<nb::ref<Context>, const std::vector<DescriptorSetEntry>&, VkDescriptorBindingFlagBits>(), nb::arg("ctx"), nb::arg("entries"), nb::arg("flags") = VkDescriptorBindingFlagBits())
+    nb::class_<DescriptorSet, GfxObject>(m, "DescriptorSet")
+        .def(nb::init<nb::ref<Context>, const std::vector<DescriptorSetEntry>&, VkDescriptorBindingFlagBits, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("entries"), nb::arg("flags") = VkDescriptorBindingFlagBits(), nb::arg("name") = nb::none())
+        .def("__repr__", [](DescriptorSet& set) { 
+            return nb::str("DescriptorSet(name={})").format(set.name);
+        })
+        .def("destroy", &DescriptorSet::destroy)
         .def("write_buffer", &DescriptorSet::write_buffer, nb::arg("buffer"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0)
         .def("write_image", &DescriptorSet::write_image, nb::arg("image"), nb::arg("usage"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0)
         .def("write_sampler", &DescriptorSet::write_sampler, nb::arg("sampler"), nb::arg("binding"), nb::arg("element") = 0)
@@ -3852,14 +3948,19 @@ void gfx_create_bindings(nb::module_& m)
                 nb::ref<Shader>,
                 nb::str,
                 const std::vector<PushConstantsRange>&,
-                const std::vector<nb::ref<DescriptorSet>>&
+                const std::vector<nb::ref<DescriptorSet>>&,
+                std::optional<nb::str>
             >(),
             nb::arg("ctx"),
             nb::arg("shader"),
             nb::arg("entry") = "main",
             nb::arg("push_constants_ranges") = std::vector<PushConstantsRange>(),
-            nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>()
+            nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("name") = nb::none()
         )
+        .def("__repr__", [](ComputePipeline& pipeline) { 
+            return nb::str("ComputePipeline(name={})").format(pipeline.name);
+        })
         .def("destroy", &ComputePipeline::destroy)
     ;
     nb::class_<GraphicsPipeline, GfxObject>(m, "GraphicsPipeline")
@@ -3872,7 +3973,8 @@ void gfx_create_bindings(nb::module_& m)
                 const std::vector<nb::ref<DescriptorSet>>&,
                 u32,
                 const std::vector<Attachment>&,
-                Depth
+                Depth,
+                std::optional<nb::str>
             >(),
             nb::arg("ctx"),
             nb::arg("stages") = std::vector<nb::ref<PipelineStage>>(),
@@ -3883,8 +3985,12 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
             nb::arg("samples") = 1,
             nb::arg("attachments") = std::vector<Attachment>(),
-            nb::arg("depth") = Depth(VK_FORMAT_UNDEFINED)
+            nb::arg("depth") = Depth(VK_FORMAT_UNDEFINED),
+            nb::arg("name") = nb::none()
         )
+        .def("__repr__", [](GraphicsPipeline& pipeline) { 
+            return nb::str("GraphicsPipeline(name={})").format(pipeline.name);
+        })
         .def("destroy", &GraphicsPipeline::destroy)
     ;
 

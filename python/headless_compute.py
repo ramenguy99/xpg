@@ -1,6 +1,5 @@
 from pyxpg import *
 import PIL.Image
-import numpy as np
 
 # Initialize without presentation for headless mode
 print("Initializing context...")
