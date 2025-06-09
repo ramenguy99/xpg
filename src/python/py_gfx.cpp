@@ -1374,6 +1374,41 @@ struct CommandBuffer: GfxObject {
         vkCmdWriteTimestamp2KHR(buffer, stage, pool.pool, index);
     }
 
+    void begin_label(nb::str name, std::optional<std::tuple<float, float, float, float>> color) {
+        if (ctx->vk.debug_utils_enabled) {
+            VkDebugUtilsLabelEXT label = { VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
+            label.pLabelName = name.c_str();
+            if (color.has_value()) {
+                label.color[0] = std::get<0>(color.value());
+                label.color[1] = std::get<1>(color.value());
+                label.color[2] = std::get<2>(color.value());
+                label.color[3] = std::get<3>(color.value());
+            }
+            vkCmdBeginDebugUtilsLabelEXT(buffer, &label);
+        }
+    }
+
+    void end_label() {
+        if (ctx->vk.debug_utils_enabled) {
+            vkCmdEndDebugUtilsLabelEXT(buffer);
+        }
+    }
+
+    void insert_label(nb::str name, std::optional<std::tuple<float, float, float, float>> color) {
+        if (ctx->vk.debug_utils_enabled) {
+            VkDebugUtilsLabelEXT label = { VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
+            label.pLabelName = name.c_str();
+            if (color.has_value()) {
+                label.color[0] = std::get<0>(color.value());
+                label.color[1] = std::get<1>(color.value());
+                label.color[2] = std::get<2>(color.value());
+                label.color[3] = std::get<3>(color.value());
+            }
+            vkCmdInsertDebugUtilsLabelEXT(buffer, &label);
+        }
+    }
+
+
     void destroy() {
         if (owned) {
             vkFreeCommandBuffers(ctx->vk.device, pool, 1, &buffer);
@@ -1394,6 +1429,40 @@ struct Queue: GfxObject {
         : GfxObject(ctx, false)
         , queue(queue)
     {}
+
+    void begin_label(nb::str name, std::optional<std::tuple<float, float, float, float>> color) {
+        if (ctx->vk.debug_utils_enabled) {
+            VkDebugUtilsLabelEXT label = { VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
+            label.pLabelName = name.c_str();
+            if (color.has_value()) {
+                label.color[0] = std::get<0>(color.value());
+                label.color[1] = std::get<1>(color.value());
+                label.color[2] = std::get<2>(color.value());
+                label.color[3] = std::get<3>(color.value());
+            }
+            vkQueueBeginDebugUtilsLabelEXT(queue, &label);
+        }
+    }
+
+    void end_label() {
+        if (ctx->vk.debug_utils_enabled) {
+            vkQueueEndDebugUtilsLabelEXT(queue);
+        }
+    }
+
+    void insert_label(nb::str name, std::optional<std::tuple<float, float, float, float>> color) {
+        if (ctx->vk.debug_utils_enabled) {
+            VkDebugUtilsLabelEXT label = { VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
+            label.pLabelName = name.c_str();
+            if (color.has_value()) {
+                label.color[0] = std::get<0>(color.value());
+                label.color[1] = std::get<1>(color.value());
+                label.color[2] = std::get<2>(color.value());
+                label.color[3] = std::get<3>(color.value());
+            }
+            vkQueueInsertDebugUtilsLabelEXT(queue, &label);
+        }
+    }
 
     void submit(nb::ref<CommandBuffer> cmd, 
         std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores,
@@ -3005,6 +3074,9 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("signal_timeline_values") = nb::list(),
             nb::arg("fence") = nb::none()
         )
+        .def("begin_label", &Queue::begin_label, nb::arg("name"), nb::arg("color") = nb::none())
+        .def("end_label", &Queue::end_label)
+        .def("insert_label", &Queue::insert_label, nb::arg("name"), nb::arg("color") = nb::none())
     ;
 
     nb::enum_<VkQueryType>(m, "QueryType")
@@ -3380,6 +3452,9 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("index"),
             nb::arg("stage")
         )
+        .def("begin_label", &CommandBuffer::begin_label, nb::arg("name"), nb::arg("color") = nb::none())
+        .def("end_label", &CommandBuffer::end_label)
+        .def("insert_label", &CommandBuffer::insert_label, nb::arg("name"), nb::arg("color") = nb::none())
     ;
 
     nb::class_<Shader, GfxObject>(m, "Shader")
