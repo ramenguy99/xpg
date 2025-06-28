@@ -35,10 +35,13 @@ namespace xpg {
 namespace gfx {
 
 #define DEBUG_UTILS_OBJECT_NAME(typ, obj, name) \
-    name_info.objectType = typ; \
-    name_info.objectHandle = (u64)obj; \
-    name_info.pObjectName = name; \
-    vkSetDebugUtilsObjectNameEXT(device, &name_info);
+    if (obj) { \
+        name_info.objectType = typ; \
+        name_info.objectHandle = (u64)obj; \
+        name_info.pObjectName = name; \
+        vkSetDebugUtilsObjectNameEXT(device, &name_info); \
+    }
+
             
 static VkBool32 VKAPI_CALL
 VulkanDebugUtilsMessengerCallback(
@@ -74,14 +77,7 @@ VulkanDebugUtilsMessengerCallback(
 
 Result
 Init() {
-    // Initialize glfw.
     glfwInit();
-
-    // Check if device supports vulkan.
-    if (!glfwVulkanSupported()) {
-        return Result::VULKAN_NOT_SUPPORTED;
-    }
-
     return Result::SUCCESS;
 }
 
@@ -232,6 +228,7 @@ struct PhysicalDeviceInfo {
     bool queue_timestamp_queries = false;
     bool compute_queue_timestamp_queries = false;
     bool copy_queue_timestamp_queries = false;
+    bool require_portability_subset_extension = false;
 };
 
 template <typename T>
@@ -291,7 +288,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     if(vkEnumerateInstanceVersion) {
         result = vkEnumerateInstanceVersion(&instance_version);
         if (result != VK_SUCCESS) {
-            logging::error("gfx", "vkEnumerateInstanceVersion failed: %d", result);
+            logging::error("gfx/instance", "vkEnumerateInstanceVersion failed: %d", result);
             return Result::API_OUT_OF_MEMORY;
         }
     }
@@ -299,13 +296,13 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     u32 instance_version_major = VK_API_VERSION_MAJOR(instance_version);
     u32 instance_version_minor = VK_API_VERSION_MINOR(instance_version);
     u32 instance_version_patch = VK_API_VERSION_PATCH(instance_version);
-    logging::info("gfx/info", "Vulkan instance API version %u.%u.%u", instance_version_major, instance_version_minor, instance_version_patch);
+    logging::info("gfx/instance", "Vulkan instance API version %u.%u.%u", instance_version_major, instance_version_minor, instance_version_patch);
 
     // Enumerate instance extensions.
     uint32_t instance_extension_count;
     result = vkEnumerateInstanceExtensionProperties(nullptr, &instance_extension_count, nullptr);
     if (result != VK_SUCCESS) {
-        logging::error("gfx", "vkEnumerateInstanceLayerProperties for count failed: %d", result);
+        logging::error("gfx/instance", "vkEnumerateInstanceLayerProperties for count failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
     }
 
@@ -316,14 +313,14 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     u32 layer_properties_count = 0;
     result = vkEnumerateInstanceLayerProperties(&layer_properties_count, NULL);
     if (result != VK_SUCCESS) {
-        logging::error("gfx", "vkEnumerateInstanceLayerProperties for count failed: %d", result);
+        logging::error("gfx/instance", "vkEnumerateInstanceLayerProperties for count failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
     }
 
     Array<VkLayerProperties> layer_properties(layer_properties_count);
     result = vkEnumerateInstanceLayerProperties(&layer_properties_count, layer_properties.data);
     if (result != VK_SUCCESS) {
-        logging::error("gfx", "vkEnumerateInstanceLayerProperties for values failed: %d", result);
+        logging::error("gfx/instance", "vkEnumerateInstanceLayerProperties for values failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
     }
 
@@ -336,7 +333,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             VkLayerProperties& l = layer_properties[i];
             if (strcmp(l.layerName, validation_layer_name) == 0) {
                 validation_layer_present = true;
-                logging::info("gfx/info", "Vulkan validation layer found");
+                logging::info("gfx/layers", "Vulkan validation layer found");
                 break;
             }
         }
@@ -344,7 +341,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         if (validation_layer_present) {
             validation_layer_enabled = true;
         } else {
-            logging::warning("gfx/info", "Validation layer requested, but not available");
+            logging::warning("gfx/layers", "Validation layer requested, but not available");
         }
     }
 
@@ -379,7 +376,18 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             enabled_instance_extensions.add(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
             debug_utils_enabled = true;
         } else {
-            logging::warning("gfx/info", "Debug utils extension requested, but not available");
+            logging::warning("gfx/instance", "Debug utils extension requested, but not available");
+        }
+    }
+
+    // Enable portability extension if present (required by MoltenVK)
+    u32 instance_create_flags = 0;
+    for(usize i = 0; i < instance_extensions.length; i++) {
+        if (strcmp(instance_extensions[i].extensionName, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == 0) {
+            logging::info("gfx/instance", "VK_KHR_portability_enumeration required for instance creation");
+            enabled_instance_extensions.add(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+            instance_create_flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+            break;
         }
     }
 
@@ -388,6 +396,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     info.enabledExtensionCount = (u32)enabled_instance_extensions.length;
     info.ppEnabledExtensionNames = enabled_instance_extensions.data;
     info.pApplicationInfo = &application_info;
+    info.flags = instance_create_flags;
 
     const char* enabled_layers[1] = { validation_layer_name };
 
@@ -412,7 +421,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     VkInstance instance = 0;
     result = vkCreateInstance(&info, 0, &instance);
     if (result != VK_SUCCESS) {
-        logging::error("gfx", "vkCreateInstance failed: %d", result);
+        logging::error("gfx/instance", "vkCreateInstance failed: %d", result);
 
         switch (result) {
         case VK_ERROR_OUT_OF_HOST_MEMORY:
@@ -448,7 +457,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         result = vkCreateDebugUtilsMessengerEXT(instance, &messenger_create_info, 0, &debug_messenger);
         if (result != VK_SUCCESS) {
             // Failed to install debug callback.
-            logging::warning("gfx", "vkCreateDebugUtilsMessengerEXT failed: %d", result);
+            logging::warning("gfx/debug", "vkCreateDebugUtilsMessengerEXT failed: %d", result);
         }
     }
 
@@ -657,14 +666,14 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     u32 physical_device_count = 0;
     result = vkEnumeratePhysicalDevices(instance, &physical_device_count, 0);
     if (result != VK_SUCCESS) {
-        logging::error("gfx", "vkEnumeratePhysicalDevices for count failed: %d", result);
+        logging::error("gfx/device", "vkEnumeratePhysicalDevices for count failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
     }
 
     Array<VkPhysicalDevice> physical_devices(physical_device_count);
     result = vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices.data);
     if (result != VK_SUCCESS) {
-        logging::error("gfx", "vkEnumeratePhysicalDevices for values failed: %d", result);
+        logging::error("gfx/device", "vkEnumeratePhysicalDevices for values failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
     }
 
@@ -768,14 +777,23 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             info.queue_family_index, info.compute_queue_family_index, info.copy_queue_family_index);
 
 
+        u32 extensions_count = 0;
+        vkEnumerateDeviceExtensionProperties(physical_devices[i], 0, &extensions_count, 0);
+
+        Array<VkExtensionProperties> extensions(extensions_count);
+        vkEnumerateDeviceExtensionProperties(physical_devices[i], 0, &extensions_count, extensions.data);
+
+        // Check if portability extension is required
+        for (usize i = 0; i < extensions.length; i++) {
+            if (strcmp(extensions[i].extensionName, "VK_KHR_portability_subset") == 0) {
+                info.require_portability_subset_extension = true;
+                logging::info("gfx/device", "VK_KHR_portability_subset required for device creation");
+                break;
+            }
+        }
+
         // Check if all features we need are supported.
         if (desc.minimum_api_version >= VK_API_VERSION_1_1 && vkGetPhysicalDeviceFeatures2) {
-            u32 extensions_count = 0;
-            vkEnumerateDeviceExtensionProperties(physical_devices[i], 0, &extensions_count, 0);
-
-            Array<VkExtensionProperties> extensions(extensions_count);
-            vkEnumerateDeviceExtensionProperties(physical_devices[i], 0, &extensions_count, extensions.data);
-
             VkPhysicalDeviceFeatures2 features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
             features.pNext = sup_next;
             vkGetPhysicalDeviceFeatures2(physical_devices[i], &features);
@@ -914,7 +932,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
     // Check that a valid device is found.
     if (picked_index == physical_device_count) {
-        logging::error("gfx", "No valid physical device found");
+        logging::error("gfx/device", "No valid physical device found");
         return Result::NO_VALID_DEVICE_FOUND;
     } else {
         logging::info("gfx/device", "Picked device: %u", picked_index);
@@ -924,6 +942,9 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     Array<GenericFeatureStruct*> enabled_features;
     Array<const char*> enabled_extensions;
     if (desc.require_presentation) enabled_extensions.add("VK_KHR_swapchain");
+    if (picked_info.require_portability_subset_extension) {
+        enabled_extensions.add("VK_KHR_portability_subset");
+    }
 
     // Deduplicate features and extensions. This is O(n^2) without a set, but we don't suport enough features yet to care.
 
@@ -2775,7 +2796,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
         scratch_sizes[i] = as_build_sizes.buildScratchSize;
 
         total_as_size = AlignUp(total_as_size + as_build_sizes.accelerationStructureSize, ALIGNMENT);
-        max_scratch_size = Max(max_scratch_size, as_build_sizes.buildScratchSize);
+        max_scratch_size = Max<u64>(max_scratch_size, as_build_sizes.buildScratchSize);
     }
 
     gfx::Buffer blas_buffer = {};

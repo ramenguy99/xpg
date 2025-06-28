@@ -5,7 +5,12 @@
 
 #include "platform.h"
 
+#ifdef __aarch64__
+#include <arm_acle.h>
+#define SpinlockHint() __yield()
+#else
 #define SpinlockHint() _mm_pause()
+#endif
 
 // struct ConditionVariable {
 // #ifdef _WIN32

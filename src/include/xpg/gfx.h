@@ -44,7 +44,6 @@ enum class Result
 {
     SUCCESS,
 
-    VULKAN_NOT_SUPPORTED,
     API_ERROR,
     API_OUT_OF_MEMORY,
     INVALID_VERSION,

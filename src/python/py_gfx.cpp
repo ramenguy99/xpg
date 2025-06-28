@@ -23,7 +23,7 @@ namespace nb = nanobind;
 using namespace xpg;
 
 #define DEBUG_UTILS_OBJECT_NAME_WITH_NAME(type, obj, name) \
-    if(ctx->vk.debug_utils_enabled && (name).has_value()) { \
+    if(obj && ctx->vk.debug_utils_enabled && (name).has_value()) { \
         VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT }; \
         name_info.objectType = type; \
         name_info.objectHandle = (u64)obj; \
