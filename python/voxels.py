@@ -39,7 +39,10 @@ I: np.ndarray = (I.reshape((voxels.shape[0], -1)) + np.arange(voxels.shape[0]).r
 camera = Camera(vec3(30, 30, -30), vec3(0, 0, 0), vec3(0, 0, 1), 45, 1, 0.1, 100.0)
 
 # Init
-ctx = Context()
+ctx = Context(
+    required_features=DeviceFeatures.SCALAR_BLOCK_LAYOUT | DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2,
+    enable_validation_layer=True,
+)
 window = Window(ctx, "Voxels", 1280, 720)
 gui = Gui(window)
 
