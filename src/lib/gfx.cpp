@@ -893,6 +893,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         static const u32 INVALID_PHYSICAL_DEVICE_INDEX = ~0U;
         bool force_device = desc.force_physical_device_index != INVALID_PHYSICAL_DEVICE_INDEX;
 
+        // TODO: always prefer non CPU devices
         bool picked = false;
         if (force_device) {
             if (i == desc.force_physical_device_index) {
@@ -907,14 +908,14 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                 picked = true;
             } else {
                 if (desc.prefer_discrete_gpu) {
-                    if (picked_info.device_type != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+                    if (picked_info.device_type != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && info.device_type == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
                         logging::info("gfx/device", "Picked because first discrete GPU");
                         picked = true;
                     } else {
                         logging::info("gfx/device", "Discarded because not a discrete GPU and one was already found");
                     }
                 } else {
-                    if (picked_info.device_type != VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+                    if (picked_info.device_type != VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU && info.device_type == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
                         logging::info("gfx/device", "Picked because first integrated GPU");
                         picked = true;
                     } else {
@@ -1191,6 +1192,7 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     VkSwapchainKHR swapchain;
     VkResult result = vkCreateSwapchainKHR(vk.device, &swapchain_info, 0, &swapchain);
     if (result != VK_SUCCESS) {
+	logging::error("gfx/swapchain", "vkCreateSwapchainKHR [%ux%u] failed: %d", fb_width, fb_height, result);
         return Result::SWAPCHAIN_CREATION_FAILED;
     }
 
@@ -1198,12 +1200,14 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     u32 image_count;
     result = vkGetSwapchainImagesKHR(vk.device, swapchain, &image_count, 0);
     if (result != VK_SUCCESS) {
+	logging::error("gfx/swapchain", "vkGetSwapchainImages for count failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
     }
 
     Array<VkImage> images(image_count);
     result = vkGetSwapchainImagesKHR(vk.device, swapchain, &image_count, images.data);
     if (result != VK_SUCCESS) {
+	logging::error("gfx/swapchain", "vkGetSwapchainImages for values failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
     }
 
@@ -1225,6 +1229,7 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
 
         result = vkCreateImageView(vk.device, &create_info, 0, &image_views[i]);
         if (result != VK_SUCCESS) {
+            logging::error("gfx/swapchain", "vkCreateImageView for image %zu failed: %d", i, result);
             return Result::API_OUT_OF_MEMORY;
         }
 
@@ -1253,8 +1258,8 @@ SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
         return SwapchainStatus::FAILED;
     }
 
-    uint32_t new_width = surface_capabilities.currentExtent.width;
-    uint32_t new_height = surface_capabilities.currentExtent.height;
+    uint32_t new_width = surface_capabilities.currentExtent.width == 0xFFFFFFFF ? w->fb_width : surface_capabilities.currentExtent.width;
+    uint32_t new_height = surface_capabilities.currentExtent.height == 0xFFFFFFFF ? w->fb_height : surface_capabilities.currentExtent.height;
 
     if (new_width == 0 || new_height == 0)
         return SwapchainStatus::MINIMIZED;
@@ -1533,7 +1538,8 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     if (surface_capabilities.maxImageCount > 0) {
         num_frames = Min<u32>(num_frames, surface_capabilities.maxImageCount);
     }
-    logging::info("gfx/window", "Swapchain frames: %d", num_frames);
+    logging::info("gfx/window", "Swapchain Frames: preferred %d, min: %d, max %d, picked: %d", vk.preferred_frames_in_flight,
+	          surface_capabilities.minImageCount, surface_capabilities.maxImageCount, num_frames);
 
     // Retrieve supported surface formats.
     // FEATURE: smarter format picking logic (HDR / non sRGB displays).
@@ -1566,8 +1572,10 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     logging::info("gfx/window", "Swapchain format: %s", string_VkFormat(format));
 
     // Retrieve framebuffer size.
-    u32 fb_width = surface_capabilities.currentExtent.width;
-    u32 fb_height = surface_capabilities.currentExtent.height;
+    u32 fb_width = surface_capabilities.currentExtent.width == 0xFFFFFFFF ? width : surface_capabilities.currentExtent.width;
+    u32 fb_height = surface_capabilities.currentExtent.height == 0xFFFFFFFF ? height : surface_capabilities.currentExtent.height;
+
+    logging::info("gfx/window", "Surface extents: [%ux%u]", fb_width, fb_height);
 
     // Default to FIFO, this is always supported.
     VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
@@ -1596,6 +1604,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
 
     Result res = CreateSwapchain(w, vk, surface, format, fb_width, fb_height, num_frames, present_mode, VK_NULL_HANDLE);
     if (res != Result::SUCCESS) {
+        logging::error("gfx/window", "CrateSwapchain failed: %d", res);
         return res;
     }
 
