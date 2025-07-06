@@ -1,5 +1,4 @@
 add_executable(plot
-    imgui_spectrum.h
     roboto-medium.h
     plot.cpp
 )

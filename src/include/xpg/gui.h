@@ -36,5 +36,9 @@ void EndFrame();
 //- GUIs
 void DrawStats(f32 SecondsElapsed, u32 width, u32 height);
 
+//- Style
+void SetLightTheme();
+void SetDarkTheme();
+
 } // namespace gui
 } // namespace xpg
