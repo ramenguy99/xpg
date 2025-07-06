@@ -907,19 +907,37 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                 logging::info("gfx/device", "Picked because first suitable device");
                 picked = true;
             } else {
-                if (desc.prefer_discrete_gpu) {
-                    if (picked_info.device_type != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && info.device_type == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-                        logging::info("gfx/device", "Picked because first discrete GPU");
-                        picked = true;
-                    } else {
-                        logging::info("gfx/device", "Discarded because not a discrete GPU and one was already found");
-                    }
+                bool picked_discrete = picked_info.device_type == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+                bool picked_integrated = picked_info.device_type == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+                bool discrete = info.device_type == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+                bool integrated = info.device_type == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+
+                if (!(picked_discrete || picked_integrated) && (discrete || integrated)) {
+                    logging::info("gfx/device", "Picked because first integrated or discrete GPU");
+                    picked = true;
                 } else {
-                    if (picked_info.device_type != VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU && info.device_type == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
-                        logging::info("gfx/device", "Picked because first integrated GPU");
-                        picked = true;
+                    if (desc.prefer_discrete_gpu) {
+                        if (!picked_discrete) {
+                            if (discrete) {
+                                logging::info("gfx/device", "Picked because first discrete GPU");
+                                picked = true;
+                            } else {
+                                logging::info("gfx/device", "Discarded because not a discrete GPU and a suitable device was already found");
+                            }
+                        } else {
+                            logging::info("gfx/device", "Discarded because a discrete GPU was already found");
+                        }
                     } else {
-                        logging::info("gfx/device", "Discarded because not an integrated GPU and one was already found");
+                        if (!picked_integrated) {
+                            if (integrated) {
+                                logging::info("gfx/device", "Picked because first integrated GPU");
+                                picked = true;
+                            } else {
+                                logging::info("gfx/device", "Discarded because not an integrated GPU and a suitable device was already found");
+                            }
+                        } else {
+                            logging::info("gfx/device", "Discarded because an integrated GPU was already found");
+                        }
                     }
                 }
             }
