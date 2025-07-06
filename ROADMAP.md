@@ -27,6 +27,7 @@ Build:
     - [ ] clang on windows
     - [ ] gcc on linux
     - [ ] clang on linux
+    - [ ] clang on macos
 
 Maintenance:
 - [x] Update all deps (last: 22/04/2025)
@@ -194,7 +195,8 @@ Python:
 ## Future
 
 Build:
-- [ ] Mac support
+- [x] Mac support
+    - [ ] Statically link with moltenvk
 - [ ] Enable wayland in GLFW after merging this patch to the fix the build on manylinux: https://github.com/glfw/glfw/pull/2649
 
 Maintenance:
@@ -211,8 +213,10 @@ C++:
     - [ ] Embed shaders somehow?
     - [ ] Run with syncrhonization validation and GPU based validation
         - [ ] Completely switch to syncrhonization 2 for submission? Probably need to fix barriers for submit and present at COLOR_ATTACHMENT_OUTPUT stage
+- [ ] Controller support
 
 Python:
+- [ ] Mac wheels (not sure how to handle moltenvk yet)
 - [ ] glslang bindings for compiling and reflection
     - [ ] fix slang build when using this
 - [ ] Tracy module built-in into xpg. Repackage their bindings for CPU stuff, expose vulkan API tracing, and add compat bindings with our GPU stuff.
@@ -234,18 +238,3 @@ Nanobind:
     -> we have some potentially difficult to debug segfaults but can live with this for now
 - [ ] Flags that do not have is_arithmetic (and maybe others as well) produce weird bindings
       for default values. Stubgen fails on python3.8 cibuildwheel (not sure if other versions too)
-
-Viewer:
-- [ ] Primitives
-- [ ] Server
-- [ ] Gui helpers
-- [ ] Viewports
-- [ ] Strong focus on extensions
-
-Features (likely at viewer level / helpers):
-- [ ] Meshoptimizer + meshlets
-- [ ] Gaussian splats
-- [ ] Ray marching / octrees
-- [ ] Marching cubes
-- [ ] Pointclouds
-- [ ] Framegraph

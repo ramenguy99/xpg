@@ -1,0 +1,34 @@
+
+[ ] Think about clean way to handle handedness / zy up conventions.
+    -> wrap things that care in a separate module, make different default symbols base on config ?
+    -> maybe math utils should expose both and a default, and only viewer stuff use config?
+
+Viewer:
+- [ ] Primitives
+- [ ] Server
+- [ ] Gui helpers
+- [ ] Viewports
+- [ ] Strong focus on extensions
+
+- Ideas:
+    - Generic viewer type with just basics + specialized viewer types for specific use cases (careful about composition vs specialization)
+        - Scene viewer -> classic scene graph
+            - Single frame viewer
+            - Sequence viewer
+
+Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
+- [ ] Meshoptimizer + meshlets
+- [ ] Gaussian splats
+- [ ] Ray marching / octrees
+- [ ] Marching cubes
+- [ ] Pointclouds
+- [ ] Framegraph
+
+Server:
+-> 3 layers
+    -> raw message (format, type, length, data)
+    -> per format parser
+    -> parsed message 
+-> what about REST? it might be convenient to speak with the viewer direclty in rest, different API?
+   wrap this API into a rest API? e.g. JSON for body is same as this, and type encoded in endpoint? seems doable
+   -> what we have now will be a TcpServer, can also have an  HttpServer and maybe others too?, basically different ways to produce a RawMessage

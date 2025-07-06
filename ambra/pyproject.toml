@@ -1,0 +1,17 @@
+[build-system]
+requires = [
+    "setuptools",
+    "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "ambra"
+version = "0.0.1"
+dependencies = [
+    "numpy>=1",
+    "pyglm>=2,<3",
+    "watchfiles>=1,<2",
+#   "pyxpg==0.0.3",
+]

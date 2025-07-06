@@ -40,3 +40,5 @@ imgui.ini
 /ext/thsvs
 /diagrams
 /today.txt
+
+*.egg-info
