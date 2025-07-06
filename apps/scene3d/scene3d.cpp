@@ -2,6 +2,8 @@
 #include <xpg/log.h>
 #include <xpg/platform.h>
 
+#include <imgui_internal.h>
+
 using glm::vec2;
 using glm::ivec2;
 using glm::uvec2;
@@ -40,6 +42,15 @@ int main(int argc, char** argv) {
 
     gui::ImGuiImpl gui;
     gui::CreateImGuiImpl(&gui, window, vk, {});
+
+    // gui::SetDarkTheme();
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.TabRounding = 0.0f;
+    style.GrabRounding = 0.0f;
+    style.ChildRounding = 0.0f;
+    style.FrameRounding = 0.0f;
+    style.PopupRounding = 0.0f;
+    style.WindowRounding = 0.0f;
 
     VkResult vkr;
 
@@ -151,14 +162,32 @@ int main(int argc, char** argv) {
                 for (usize i = 0; i < viewports.length; i++) {
                     char window_name[1024];
                     snprintf(window_name, sizeof(window_name), "Hello %d", (int)i);
+
+                    ImGuiWindowClass window_class;
+                    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_AutoHideTabBar;
+                    ImGui::SetNextWindowClass(&window_class);
+
                     if (ImGui::Begin(window_name)) {
-                        ImVec2 min = ImGui::GetCursorScreenPos();
-                        ImVec2 max = ImGui::GetContentRegionAvail();
-                        viewports[i].pos = uvec2(min.x, min.y);
-                        viewports[i].size = uvec2(max.x, max.y);
+                        ImVec2 pos = ImGui::GetCursorScreenPos();
+                        ImVec2 size = ImGui::GetContentRegionAvail();
+
+                        viewports[i].pos = uvec2(pos.x, pos.y);
+                        viewports[i].size = uvec2(size.x, size.y);
+
+                        ImGuiWindow* w = ImGui::GetCurrentWindow();
+                        printf("window %zu: %d\n", i, w->DockIsActive);
 
                         ImDrawList* list = ImGui::GetWindowDrawList();
+                        bool channel = false;
+                        if (w->DockIsActive && w->DockNode->IsHiddenTabBar()) {
+                            list = w->DockNode->HostWindow->DrawList;
+                            list->ChannelsSetCurrent(DOCKING_HOST_DRAW_CHANNEL_BG);
+                            channel = true;
+                        }
                         list->AddCallback(Viewport::draw, &viewports[i]);
+                        if (channel) {
+                            list->ChannelsSetCurrent(DOCKING_HOST_DRAW_CHANNEL_FG);
+                        }
                     }
                     ImGui::End();
                 }
