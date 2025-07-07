@@ -31,4 +31,8 @@ Server:
     -> parsed message 
 -> what about REST? it might be convenient to speak with the viewer direclty in rest, different API?
    wrap this API into a rest API? e.g. JSON for body is same as this, and type encoded in endpoint? seems doable
-   -> what we have now will be a TcpServer, can also have an  HttpServer and maybe others too?, basically different ways to produce a RawMessage
+    -> what we have now will be a TcpServer, can also have an  HttpServer and maybe others too?, basically different ways to produce a RawMessage
+-> Handle shutdown of TcpServer
+    -> exceptions in parsing raw messages should be handled gracefully and log (wrap async callback and print info)
+    -> exceptions in main thread should still have the http server exit -> this does not seem to happen correctly atm (maybe connections are keeping this alive in read_exact?) need to switch to async?
+-> try small http server and port of websockets server as PoC

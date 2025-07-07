@@ -4,6 +4,7 @@ from pyglm.glm import ivec2
 from typing import Optional
 from .config import Config
 from .server import Server, Client, RawMessage, Message, parse_builtin_messages
+from queue import Queue, Empty
 
 class Viewer:
     def __init__(self, title: str = "ambra", width: Optional[int] = None, height: Optional[int] = None, config: Optional[Config] = None):
@@ -31,8 +32,10 @@ class Viewer:
         self.background_color = self.config.background_color
 
         self.server = None
+        self.server_message_queue = None
         if self.config.server_enabled:
-            self.server = Server(self.config.server_address, self.config.server_port, lambda c, m: self.on_message(c, m))
+            self.server_message_queue = Queue()
+            self.server = Server(self.config.server_address, self.config.server_port, lambda c, m: self.on_raw_message_async(c, m))
     
     def on_key(self, key: Key, action: Action, modifiers: Modifiers):
         pass
@@ -56,9 +59,7 @@ class Viewer:
 
         # GUI
         with self.gui.frame():
-            if imgui.begin("Window")[0]:
-                imgui.text("Hello")
-            imgui.end()
+            self.on_gui()
 
         # Render
         with self.window.frame() as frame:
@@ -79,19 +80,37 @@ class Viewer:
 
                 cmd.use_image(frame.image, ImageUsage.PRESENT)
 
-    def on_raw_message(self, client: Client, message: RawMessage):
-        message = parse_builtin_messages(message) 
+    def on_raw_message_async(self, client: Client, raw_message: RawMessage):
+        self.server_message_queue.put((client, raw_message))
+        self.window.post_empty_event()
+
+    def on_raw_message(self, client: Client, raw_message: RawMessage):
+        message = parse_builtin_messages(raw_message) 
         if message is not None:
             self.on_message(client, message)
 
     def on_message(self, client: Client, message: Message):
         pass
-    
+
+    def on_gui(self):
+        pass
+
     def run(self):
         while True:
             process_events(self.wait_events)
+
+            if self.server is not None:
+                while True:
+                    try:
+                        client, raw_message = self.server_message_queue.get_nowait()
+                    except Empty:
+                        break
+                    self.on_raw_message(client, raw_message)
 
             if self.window.should_close():
                 break
 
             self.on_draw()
+        
+        if self.server is not None:
+            self.server.shutdown()

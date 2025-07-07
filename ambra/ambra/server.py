@@ -4,7 +4,6 @@ import struct
 from typing import Callable, Union, Optional, TypeAlias
 from threading import Thread
 from enum import Enum
-import atexit
 
 from .utils.io import read_exact
 import json
@@ -16,69 +15,76 @@ class Client:
     port: int
     name: str
 
-class Format(Enum):
-    # Default formats
-    BINARY = 0,
-    PICKLE = 2,
-    JSON = 1,
+class MessageId(Enum):
+    NONE = 0 # Reserved for end of connection
+
+    # Default message ids
+    INPUT = 1
+    OBJECT = 2
 
     # Starting id available for users
-    USER = 1 << 20,
+    USER = 1 << 20
+
+class Format(Enum):
+    # Default formats
+    BINARY = 0
+    PICKLE = 2
+    JSON = 1
+
+    # Starting id available for users
+    USER = 1 << 20
 
 @dataclass
 class RawMessage:
-    typ: int
+    id: int
     format: int
     data: bytearray
 
 class Server:
-    def __init__(self, address: str, port: int, on_raw_message: Callable[[Client, RawMessage], None]):
+    def __init__(self, address: str, port: int, on_raw_message_async: Callable[[Client, RawMessage], None]):
         class Handler(StreamRequestHandler):
             def handle(self):
-                magic = read_exact(self.rfile, 4)
-                if magic != b"AMBR":
-                    return
+                try:
+                    print(f"Server: client {self.client_address[0]}:{self.client_address[1]} opened connection")
+                    magic = read_exact(self.rfile, 4)
+                    if magic != b"AMBR":
+                        return
 
-                # Header
-                client_name_length = struct.unpack("<I", read_exact(self.rfile, 4))
-                if client_name_length > 0:
-                    pass
-                client_name = read_exact(self.rfile, client_name_length).decode(encoding="utf-8", errors="ignore")
-                client = Client(self.client_address[0], self.client_address[1], client_name)
+                    # Header
+                    client_name_length = struct.unpack("<I", read_exact(self.rfile, 4))[0]
+                    if client_name_length > 0:
+                        pass
+                    client_name = read_exact(self.rfile, client_name_length).decode(encoding="utf-8", errors="ignore")
+                    client = Client(self.client_address[0], self.client_address[1], client_name)
 
-                # Messages
-                while True:
-                    type = struct.unpack("<I", read_exact(self.rfile, 4))
-                    if type == 0:
-                        break
-                    format = struct.unpack("<I", read_exact(self.rfile, 4))
-                    length = struct.unpack("<Q", read_exact(self.rfile, 8))
-                    data = read_exact(length)
+                    print(f"Server: client {self.client_address[0]}:{self.client_address[1]} registered as \"{client_name}\"")
 
-                    on_raw_message(client, RawMessage(type, format, data))
+                    # Messages
+                    while True:
+                        id = struct.unpack("<I", read_exact(self.rfile, 4))[0]
+                        if id == 0:
+                            print(f"Server: client {self.client_address[0]}:{self.client_address[1]} closed connection")
+                            break
+                        format, length = struct.unpack("<IQ", read_exact(self.rfile, 12))
+                        data = read_exact(self.rfile, length)
+
+                        on_raw_message_async(client, RawMessage(id, format, data))
+                except EOFError:
+                    print(f"Server: client {self.client_address[0]}:{self.client_address[1]} unexpected EOF before closing connection")
 
         self.server = TCPServer((address, port), Handler)
         self.thread = Thread(None, self._server_entry, "Server", daemon=True)
         self.thread.start()
-        atexit.register(self.shutdown)
+        # atexit.register(self.shutdown)
     
     def shutdown(self):
         self.server.shutdown()
+        self.thread.join()
     
     def _server_entry(self):
         with self.server:
             self.server.serve_forever()
 
-
-class MesssageId(Enum):
-    NONE = 0, # Reserved for end of connection
-
-    # Default message ids
-    INPUT = 1,
-    OBJECT = 2,
-
-    # Starting id available for users
-    USER = 1 << 20,
 
 @dataclass
 class InputMessage:
@@ -110,23 +116,23 @@ Message: TypeAlias = Union[
 ]
 
 _binary_dispatch = {
-    MesssageId.INPUT.value: InputMessage.from_raw,
-    MesssageId.OBJECT.value: ObjectMessage.from_raw,
+    MessageId.INPUT.value: InputMessage.from_raw,
+    MessageId.OBJECT.value: ObjectMessage.from_raw,
 }
 
 _json_dispatch = {
-    MesssageId.INPUT.value: InputMessage.from_json,
-    MesssageId.OBJECT.value: ObjectMessage.from_json,
+    MessageId.INPUT.value: InputMessage.from_json,
+    MessageId.OBJECT.value: ObjectMessage.from_json,
 }
 
 def _parse_builtin_messages_binary(raw: RawMessage) -> Optional[Message]:
-    fn = _binary_dispatch.get(raw.typ)
+    fn = _binary_dispatch.get(raw.id)
     if not fn:
         return None
     return fn(raw)
 
 def _parse_builtin_messages_json(raw: RawMessage) -> Optional[Message]:
-    fn = _json_dispatch.get(raw.typ)
+    fn = _json_dispatch.get(raw.id)
     if not fn:
         return None
     obj = json.loads(raw.data)
