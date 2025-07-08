@@ -1,4 +1,4 @@
-from pyxpg import imgui
+from pyxpg import imgui, Key, Action, Modifiers
 import ambra
 
 from ambra.config import Config
@@ -17,6 +17,10 @@ class Viewer(ambra.Viewer):
                 imgui.text(message)
         imgui.end()
     
+    @hook
+    def on_key(self, key: Key, action: Action, modifiers: Modifiers):
+        pass
+
     def on_raw_message(self, client: Client, raw_message: RawMessage):
         print(f"Message received from: {client.name} ({client.address}, {client.port}): {raw_message.id} {raw_message.format} {MessageId.USER.value}")
         if raw_message.id == MessageId.USER.value:

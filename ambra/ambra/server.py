@@ -1,11 +1,11 @@
-from socketserver import TCPServer, StreamRequestHandler
+import asyncio
+import atexit
 from dataclasses import dataclass
 import struct
-from typing import Callable, Union, Optional, TypeAlias
+from typing import Callable, Union, Optional, TypeAlias, Dict, Tuple
 from threading import Thread
 from enum import Enum
 
-from .utils.io import read_exact
 import json
 import pickle
 
@@ -42,49 +42,77 @@ class RawMessage:
 
 class Server:
     def __init__(self, address: str, port: int, on_raw_message_async: Callable[[Client, RawMessage], None]):
-        class Handler(StreamRequestHandler):
-            def handle(self):
+        self.connections: Dict[Tuple[str, int], asyncio.StreamWriter] = {}
+
+        def entry():
+            async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
                 try:
-                    print(f"Server: client {self.client_address[0]}:{self.client_address[1]} opened connection")
-                    magic = read_exact(self.rfile, 4)
+                    client_address = writer.get_extra_info("peername")
+                    self.connections[client_address] = writer
+
+                    print(f"Server: client {client_address[0]}:{client_address[1]} opened connection")
+                    magic = await reader.readexactly(4)
                     if magic != b"AMBR":
                         return
 
                     # Header
-                    client_name_length = struct.unpack("<I", read_exact(self.rfile, 4))[0]
+                    client_name_length = struct.unpack("<I", await reader.readexactly(4))[0]
                     if client_name_length > 0:
                         pass
-                    client_name = read_exact(self.rfile, client_name_length).decode(encoding="utf-8", errors="ignore")
-                    client = Client(self.client_address[0], self.client_address[1], client_name)
+                    client_name = (await reader.readexactly(client_name_length)).decode(encoding="utf-8", errors="ignore")
+                    client = Client(client_address[0], client_address[1], client_name)
 
-                    print(f"Server: client {self.client_address[0]}:{self.client_address[1]} registered as \"{client_name}\"")
+                    print(f"Server: client {client_address[0]}:{client_address[1]} registered as \"{client_name}\"")
 
                     # Messages
                     while True:
-                        id = struct.unpack("<I", read_exact(self.rfile, 4))[0]
+                        id = struct.unpack("<I", await reader.readexactly(4))[0]
                         if id == 0:
-                            print(f"Server: client {self.client_address[0]}:{self.client_address[1]} closed connection")
+                            print(f"Server: client {client_address[0]}:{client_address[1]} closed connection")
                             break
-                        format, length = struct.unpack("<IQ", read_exact(self.rfile, 12))
-                        data = read_exact(self.rfile, length)
+                        format, length = struct.unpack("<IQ", await reader.readexactly(12))
+                        data = await reader.readexactly(length)
 
                         on_raw_message_async(client, RawMessage(id, format, data))
-                except EOFError:
-                    print(f"Server: client {self.client_address[0]}:{self.client_address[1]} unexpected EOF before closing connection")
+                except asyncio.exceptions.IncompleteReadError:
+                    print(f"Server: client {client_address[0]}:{client_address[1]} unexpected EOF before closing connection")
+                except Exception as e:
+                    print(f"Server: exception while handling client connection {e}")
 
-        self.server = TCPServer((address, port), Handler)
-        self.thread = Thread(None, self._server_entry, "Server", daemon=True)
+                del self.connections[client_address]
+                writer.close()
+                await writer.wait_closed()
+            
+            async def main():
+                server = await asyncio.start_server(handle, address, port)
+
+                async with server:
+                    await server.start_serving()
+                    await self.stop
+
+                    # Stop accepting new connections
+                    server.close()
+
+                    # Close all existing open connections
+                    connections = self.connections.values()
+                    for c in connections:
+                        c.close()
+
+            asyncio.set_event_loop(self.loop)
+            self.loop.run_until_complete(main())
+        
+        self.loop = asyncio.new_event_loop()
+        self.stop = self.loop.create_future()
+
+        self.thread = Thread(None, entry, "Server", daemon=True)
         self.thread.start()
-        # atexit.register(self.shutdown)
+        atexit.register(self.shutdown)
     
     def shutdown(self):
-        self.server.shutdown()
-        self.thread.join()
+        if not self.stop.done():
+            self.loop.call_soon_threadsafe(self.stop.set_result, None)
+            self.thread.join()
     
-    def _server_entry(self):
-        with self.server:
-            self.server.serve_forever()
-
 
 @dataclass
 class InputMessage:
