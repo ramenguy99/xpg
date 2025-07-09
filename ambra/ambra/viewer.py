@@ -5,6 +5,8 @@ from typing import Optional
 from .config import Config
 from .server import Server, Client, RawMessage, Message, parse_builtin_messages
 from queue import Queue, Empty
+from .renderer import Renderer
+from .scene import Scene
 
 class Viewer:
     def __init__(self, title: str = "ambra", width: Optional[int] = None, height: Optional[int] = None, config: Optional[Config] = None):
@@ -28,14 +30,15 @@ class Viewer:
 
         self.gui = Gui(self.window)
 
-        self.wait_events = self.config.wait_events
-        self.background_color = self.config.background_color
+        self.renderer = Renderer(self.ctx, self.window, self.config.renderer)
+        self.scene = Scene("scene")
 
-        self.server = None
-        self.server_message_queue = None
-        if self.config.server_enabled:
-            self.server_message_queue = Queue()
-            self.server = Server(self.config.server_address, self.config.server_port, lambda c, m: self.on_raw_message_async(c, m))
+        self.server = Server(lambda c, m: self.on_raw_message_async(c, m), self.config.server)
+        self.server_message_queue = Queue()
+
+        # Config
+        self.wait_events = self.config.wait_events
+
     
     def on_key(self, key: Key, action: Action, modifiers: Modifiers):
         pass
@@ -62,23 +65,7 @@ class Viewer:
             self.on_gui()
 
         # Render
-        with self.window.frame() as frame:
-            with frame.command_buffer as cmd:
-                cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
-
-                viewport = [0, 0, self.window.fb_width, self.window.fb_height]
-                with cmd.rendering(viewport,
-                    color_attachments=[
-                        RenderingAttachment(
-                            frame.image,
-                            load_op=LoadOp.CLEAR,
-                            store_op=StoreOp.STORE,
-                            clear=self.background_color,
-                        ),
-                    ]):
-                    self.gui.render(cmd)
-
-                cmd.use_image(frame.image, ImageUsage.PRESENT)
+        self.renderer.render(self.scene, self.gui)
 
     def on_raw_message_async(self, client: Client, raw_message: RawMessage):
         self.server_message_queue.put((client, raw_message))

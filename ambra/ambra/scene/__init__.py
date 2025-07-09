@@ -1,19 +1,22 @@
-from pyxpg import Context
-from transform import Transform
+# from ..renderer import Renderer
+from ..transform import Transform
 
 class Object:
     def __init__(self, name: str):
         self.name = name
         self.transform = Transform.identity()
-        self.children = None
+        self.children = []
     
-    def create(ctx: Context):
+    # def create(self, renderer: Renderer):
+    def create(self, renderer):
         pass
 
-    def render(ctx: Context):
+    # def render(self, renderer: Renderer):
+    def render(self, renderer, frame):
         pass
 
-    def destroy(ctx: Context):
+    # def destroy(self, renderer: Renderer):
+    def destroy(self, renderer):
         pass
 
 class Scene(Object):

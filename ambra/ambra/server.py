@@ -9,6 +9,8 @@ from enum import Enum
 import json
 import pickle
 
+from .config import ServerConfig
+
 @dataclass
 class Client:
     address: str
@@ -41,7 +43,7 @@ class RawMessage:
     data: bytearray
 
 class Server:
-    def __init__(self, address: str, port: int, on_raw_message_async: Callable[[Client, RawMessage], None]):
+    def __init__(self, on_raw_message_async: Callable[[Client, RawMessage], None], config: ServerConfig):
         self.connections: Dict[Tuple[str, int], asyncio.StreamWriter] = {}
 
         def entry():
@@ -84,7 +86,7 @@ class Server:
                 await writer.wait_closed()
             
             async def main():
-                server = await asyncio.start_server(handle, address, port)
+                server = await asyncio.start_server(handle, config.address, config.port)
 
                 async with server:
                     await server.start_serving()
@@ -101,15 +103,18 @@ class Server:
             asyncio.set_event_loop(self.loop)
             self.loop.run_until_complete(main())
         
-        self.loop = asyncio.new_event_loop()
-        self.stop = self.loop.create_future()
+        self.enabled = config.enabled
 
-        self.thread = Thread(None, entry, "Server", daemon=True)
-        self.thread.start()
-        atexit.register(self.shutdown)
+        if self.enabled:
+            self.loop = asyncio.new_event_loop()
+            self.stop = self.loop.create_future()
+
+            self.thread = Thread(None, entry, "Server", daemon=True)
+            self.thread.start()
+            atexit.register(self.shutdown)
     
     def shutdown(self):
-        if not self.stop.done():
+        if self.enabled and not self.stop.done():
             self.loop.call_soon_threadsafe(self.stop.set_result, None)
             self.thread.join()
     
