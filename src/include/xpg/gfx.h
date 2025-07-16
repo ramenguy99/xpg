@@ -71,6 +71,7 @@ struct DeviceFeatures {
         HOST_QUERY_RESET      = 1ull << 7,
         CALIBRATED_TIMESTAMPS = 1ull << 8,
         TIMELINE_SEMAPHORES   = 1ull << 9,
+        WIDE_LINES            = 1ull << 10,
     };
 
     DeviceFeatures() {};
@@ -692,6 +693,7 @@ struct RasterizationDesc {
     VkFrontFace front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     bool depth_bias_enable = false;
     bool depth_clamp_enable = false;
+    bool dynamic_line_width = false;
     float line_width = 1.0f;
 };
 

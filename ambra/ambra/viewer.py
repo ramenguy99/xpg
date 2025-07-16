@@ -2,11 +2,15 @@ from pyxpg import *
 from pyglm.glm import ivec2
 
 from typing import Optional
-from .config import Config
+from .config import Config, CameraType
 from .server import Server, Client, RawMessage, Message, parse_builtin_messages
 from queue import Queue, Empty
-from .renderer import Renderer
+from .renderer import Renderer, Viewport, Rect
 from .scene import Scene
+from .camera import PerspectiveCamera, OrthographicCamera, CameraDepth
+from .transform3d import RigidTransform
+
+from dataclasses import dataclass
 
 class Viewer:
     def __init__(self, title: str = "ambra", width: Optional[int] = None, height: Optional[int] = None, config: Optional[Config] = None):
@@ -14,7 +18,7 @@ class Viewer:
 
         self.ctx = Context(
             required_features=DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.DYNAMIC_RENDERING,
-            optional_features=DeviceFeatures.RAY_QUERY | DeviceFeatures.HOST_QUERY_RESET,
+            optional_features=DeviceFeatures.RAY_QUERY | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.WIDE_LINES,
             enable_validation_layer=True,
             enable_synchronization_validation=True,
         )
@@ -31,7 +35,19 @@ class Viewer:
         self.gui = Gui(self.window)
 
         self.renderer = Renderer(self.ctx, self.window, self.config.renderer)
-        self.scene = Scene("scene")
+
+        if self.config.camera_type == CameraType.PERSPECTIVE:
+            camera = PerspectiveCamera(RigidTransform.identity(), CameraDepth(self.config.z_min, self.config.z_max), self.config.perspective_vertical_fov, self.window.fb_width / self.window.fb_height)
+        elif self.config.camera_type == CameraType.ORTHOGRAPHIC:
+            camera = OrthographicCamera(RigidTransform.identity(), CameraDepth(self.config.z_min, self.config.z_max))
+        else:
+            raise RuntimeError(f"Unhandled camera type {self.config.camera_type}")
+
+        self.viewport = Viewport(
+            rect=Rect(0, 0, self.window.fb_width, self.window.fb_height),
+            camera=camera,
+            scene=Scene("scene"),
+        )
 
         self.server = Server(lambda c, m: self.on_raw_message_async(c, m), self.config.server)
         self.server_message_queue = Queue()
@@ -65,7 +81,7 @@ class Viewer:
             self.on_gui()
 
         # Render
-        self.renderer.render(self.scene, self.gui)
+        self.renderer.render(self.viewport, self.gui)
 
     def on_raw_message_async(self, client: Client, raw_message: RawMessage):
         self.server_message_queue.put((client, raw_message))

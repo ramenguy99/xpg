@@ -1261,8 +1261,8 @@ struct CommandBuffer: GfxObject {
         const std::optional<nb::bytes>& push_constants,
         const std::vector<nb::ref<Buffer>> vertex_buffers,
         std::optional<nb::ref<Buffer>> index_buffer,
-        std::array<u32, 4> viewport,
-        std::array<u32, 4> scissors
+        std::array<s32, 4> viewport,
+        std::array<s32, 4> scissors
     );
 
     void dispatch(
@@ -1408,6 +1408,9 @@ struct CommandBuffer: GfxObject {
         }
     }
 
+    void set_line_width(float width) {
+        vkCmdSetLineWidth(buffer, width);
+    }
 
     void destroy() {
         if (owned) {
@@ -2168,6 +2171,30 @@ struct InputAssembly: gfx::InputAssemblyDesc {
 };
 static_assert(sizeof(InputAssembly) == sizeof(gfx::InputAssemblyDesc));
 
+struct Rasterization: gfx::RasterizationDesc {
+    Rasterization(
+        VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL,
+        VkCullModeFlagBits cull_mode = VK_CULL_MODE_NONE,
+        VkFrontFace front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        bool depth_bias_enable = false,
+        bool depth_clamp_enable = false,
+        bool dynamic_line_width = false,
+        float line_width = 1.0f
+    )
+        : gfx::RasterizationDesc{
+              .polygon_mode = polygon_mode,
+              .cull_mode = (VkCullModeFlags)cull_mode,
+              .front_face = front_face,
+              .depth_bias_enable = depth_bias_enable,
+              .depth_clamp_enable = depth_clamp_enable,
+              .dynamic_line_width = dynamic_line_width,
+              .line_width = line_width,
+          }
+    {
+    }
+};
+static_assert(sizeof(Rasterization) == sizeof(gfx::RasterizationDesc));
+
 struct Depth: gfx::DepthDesc {
     Depth(VkFormat format, bool test = false, bool write = false, VkCompareOp op = VK_COMPARE_OP_LESS)
         : gfx::DepthDesc {
@@ -2269,6 +2296,7 @@ struct GraphicsPipeline: GfxObject {
         const std::vector<VertexBinding>& vertex_bindings,
         const std::vector<VertexAttribute>& vertex_attributes,
         InputAssembly input_assembly,
+        Rasterization rasterization,
         const std::vector<PushConstantsRange>& push_constant_ranges,
         const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
         u32 samples,
@@ -2295,6 +2323,7 @@ struct GraphicsPipeline: GfxObject {
             .vertex_bindings = ArrayView((gfx::VertexBindingDesc*)vertex_bindings.data(), vertex_bindings.size()),
             .vertex_attributes = ArrayView((gfx::VertexAttributeDesc*)vertex_attributes.data(), vertex_attributes.size()),
             .input_assembly = input_assembly,
+            .rasterization = rasterization,
             .samples = (VkSampleCountFlagBits)samples,
             .depth = depth,
             .push_constants = ArrayView((gfx::PushConstantsRangeDesc*)push_constant_ranges.data(), push_constant_ranges.size()),
@@ -2361,8 +2390,8 @@ void CommandBuffer::bind_graphics_pipeline(
     const std::optional<nb::bytes>& push_constants,
     const std::vector<nb::ref<Buffer>> vertex_buffers,
     std::optional<nb::ref<Buffer>> index_buffer,
-    std::array<u32, 4> viewport,
-    std::array<u32, 4> scissors
+    std::array<s32, 4> viewport,
+    std::array<s32, 4> scissors
 )
 {
     bind_pipeline_common(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, push_constants);
@@ -2482,6 +2511,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("HOST_QUERY_RESET",      gfx::DeviceFeatures::HOST_QUERY_RESET)
         .value("CALIBRATED_TIMESTAMPS", gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)
         .value("TIMELINE_SEMAPHORES",   gfx::DeviceFeatures::TIMELINE_SEMAPHORES)
+        .value("WIDE_LINES",            gfx::DeviceFeatures::WIDE_LINES)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")
@@ -3455,6 +3485,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("begin_label", &CommandBuffer::begin_label, nb::arg("name"), nb::arg("color") = nb::none())
         .def("end_label", &CommandBuffer::end_label)
         .def("insert_label", &CommandBuffer::insert_label, nb::arg("name"), nb::arg("color") = nb::none())
+        .def("set_line_width", &CommandBuffer::set_line_width, nb::arg("width"))
     ;
 
     nb::class_<Shader, GfxObject>(m, "Shader")
@@ -3834,6 +3865,44 @@ void gfx_create_bindings(nb::module_& m)
         .def(nb::init<VkPrimitiveTopology, bool>(), nb::arg("primitive_topology") = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, nb::arg("primitive_restart_enable") = false);
     ;
 
+    nb::enum_<VkPolygonMode>(m, "PolygonMode")
+        .value("FILL",           VK_POLYGON_MODE_FILL)
+        .value("LINE",           VK_POLYGON_MODE_LINE)
+        .value("POINT",          VK_POLYGON_MODE_POINT)
+        .value("FILL_RECTANGLE", VK_POLYGON_MODE_FILL_RECTANGLE_NV)
+    ;
+
+    nb::enum_<VkCullModeFlagBits>(m, "CullMode", nb::is_flag(), nb::is_arithmetic())
+        .value("NONE",           VK_CULL_MODE_NONE)
+        .value("FRONT_BIT",      VK_CULL_MODE_FRONT_BIT)
+        .value("BACK_BIT",       VK_CULL_MODE_BACK_BIT)
+        .value("FRONT_AND_BACK", VK_CULL_MODE_FRONT_AND_BACK)
+    ;
+
+    nb::enum_<VkFrontFace>(m, "FrontFace")
+        .value("COUNTER_CLOCKWISE", VK_FRONT_FACE_COUNTER_CLOCKWISE)
+        .value("CLOCKWISE",         VK_FRONT_FACE_CLOCKWISE)
+    ;
+
+    nb::class_<Rasterization>(m, "Rasterization")
+        .def(nb::init<
+                VkPolygonMode,
+                VkCullModeFlagBits,
+                VkFrontFace,
+                bool,
+                bool,
+                bool,
+                float
+            >(),
+            nb::arg("polygon_mode") = VK_POLYGON_MODE_FILL,
+            nb::arg("cull_mode") = VK_CULL_MODE_NONE,
+            nb::arg("front_face") = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            nb::arg("depth_bias_enable") = false,
+            nb::arg("depth_clamp_enable") = false,
+            nb::arg("dynamic_line_width") = false,
+            nb::arg("line_width") = 1.0f)
+    ;
+
     nb::enum_<VkDescriptorType>(m, "DescriptorType")
         .value("SAMPLER",                VK_DESCRIPTOR_TYPE_SAMPLER)
         .value("COMBINED_IMAGE_SAMPLER", VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
@@ -4044,6 +4113,7 @@ void gfx_create_bindings(nb::module_& m)
                 const std::vector<VertexBinding>&,
                 const std::vector<VertexAttribute>&,
                 InputAssembly,
+                Rasterization,
                 const std::vector<PushConstantsRange>&,
                 const std::vector<nb::ref<DescriptorSet>>&,
                 u32,
@@ -4056,6 +4126,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("vertex_bindings") = std::vector<VertexBinding>(),
             nb::arg("vertex_attributes") = std::vector<VertexAttribute>(),
             nb::arg("input_assembly") = InputAssembly(),
+            nb::arg("rasterization") = Rasterization(),
             nb::arg("push_constants_ranges") = std::vector<PushConstantsRange>(),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
             nb::arg("samples") = 1,

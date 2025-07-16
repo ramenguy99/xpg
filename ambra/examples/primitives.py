@@ -1,24 +1,34 @@
-import ambra
-from  ambra.scene.primitives import Line
+from ambra.viewer import Viewer
+from  ambra.scene3d.primitives import Line
+from  ambra.transform3d import RigidTransform
+from pyglm.glm import vec3
 
 import numpy as np
 
-viewer = ambra.Viewer("primitives", 1280, 720)
-
+viewer = Viewer("primitives", 1280, 720)
 
 positions = np.array([
-    [0.5, 0.5],
-    [-0.5, -0.5],
+    [ 0.0,  0.0, 0.0],
+    [ 1.0,  0.0, 0.0],
+    [ 0.0,  0.0, 0.0],
+    [ 0.0,  1.0, 0.0],
+    [ 0.0,  0.0, 0.0],
+    [ 0.0,  0.0, 1.0],
 ], np.float32)
 
 colors = np.array([
-    0x0000FFFF,
     0xFF0000FF,
+    0xFF0000FF,
+    0xFF00FF00,
+    0xFF00FF00,
+    0xFFFF0000,
+    0xFFFF0000,
 ], np.uint32)
 
-line = Line(positions, colors)
+line = Line(positions, colors, 4)
 line.create(viewer.renderer)
 
-viewer.scene.children.append(line)
+viewer.viewport.camera.camera_from_world = RigidTransform.look_at(vec3(3), vec3(0), vec3(0, 0, 1))
+viewer.viewport.scene.objects.append(line)
 
 viewer.run()

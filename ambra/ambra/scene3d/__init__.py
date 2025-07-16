@@ -1,7 +1,8 @@
 # from ..renderer import Renderer
-from ..transform import Transform
+from ..transform3d import Transform
+from ..scene import Object, Scene
 
-class Object:
+class Object3D(Object):
     def __init__(self, name: str):
         self.name = name
         self.transform = Transform.identity()
@@ -19,6 +20,6 @@ class Object:
     def destroy(self, renderer):
         pass
 
-class Scene(Object):
-    def __init__(self, name):
-        super().__init__(name)
+class Scene3D(Scene):
+    pass
+    

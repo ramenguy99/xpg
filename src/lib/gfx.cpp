@@ -853,6 +853,9 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             CHECK_SUPPORTED_EXTENSIONS(calibrated_timestamps);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(timeline_semaphore);
 
+            if (features_to_check & DeviceFeatures::WIDE_LINES)
+                info.supported_features = info.supported_features | DeviceFeatures((features.features.wideLines ? DeviceFeatures::WIDE_LINES : 0));
+
             logging::trace("gfx/debug", "Supported features: 0x%zx", info.supported_features.flags);
 
             // We clear the supported flags here. It's not obvious if the spec requires this, but I assume that if
@@ -1015,6 +1018,11 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         Chain(&enabled_next, enabled_features[i]);
     }
 
+    VkPhysicalDeviceFeatures enabled_physical_device_features = {};
+    if (picked_info.supported_features & DeviceFeatures::WIDE_LINES) {
+        enabled_physical_device_features.wideLines = true;
+    }
+
     // Create a physical device.
     VkDevice device = 0;
 
@@ -1049,7 +1057,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     device_create_info.pQueueCreateInfos = queue_create_info.data;
     device_create_info.enabledExtensionCount = (u32)enabled_extensions.length;
     device_create_info.ppEnabledExtensionNames = enabled_extensions.data;
-    device_create_info.pEnabledFeatures = NULL;
+    device_create_info.pEnabledFeatures = &enabled_physical_device_features;
 
     result = vkCreateDevice(physical_devices[picked_index], &device_create_info, 0, &device);
     if (result != VK_SUCCESS) {
@@ -1622,7 +1630,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
 
     Result res = CreateSwapchain(w, vk, surface, format, fb_width, fb_height, num_frames, present_mode, VK_NULL_HANDLE);
     if (res != Result::SUCCESS) {
-        logging::error("gfx/window", "CrateSwapchain failed: %d", res);
+        logging::error("gfx/window", "CreateSwapchain failed: %d", (s32)res);
         return res;
     }
 
@@ -2280,13 +2288,14 @@ CreateGraphicsPipeline(GraphicsPipeline* graphics_pipeline, const Context& vk, c
     blend_state.attachmentCount = (u32)attachments.length;
     blend_state.pAttachments = attachments.data;
 
-    VkDynamicState dynamic_states[2] = {
+    VkDynamicState dynamic_states[3] = {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR,
+        VK_DYNAMIC_STATE_LINE_WIDTH,
     };
 
     VkPipelineDynamicStateCreateInfo dynamic_state = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
-    dynamic_state.dynamicStateCount = ArrayCount(dynamic_states);
+    dynamic_state.dynamicStateCount = ArrayCount(dynamic_states) - (desc.rasterization.dynamic_line_width ? 0 : 1);
     dynamic_state.pDynamicStates = dynamic_states;
 
     // Rendering

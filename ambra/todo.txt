@@ -36,3 +36,8 @@ Server:
     -> exceptions in parsing raw messages should be handled gracefully and log (wrap async callback and print info)
     -> exceptions in main thread should still have the http server exit -> this does not seem to happen correctly atm (maybe connections are keeping this alive in read_exact?) need to switch to async?
 -> try small http server and port of websockets server as PoC
+
+Renderer:
+-> think about what is the best way to support different types of rendering, and how to not duplicate a huge amount of code
+-> 2D vs 3D, raster vs raytrace vs path trace (e.g. accumulation), quality mode (e.g. depth peeling, MSAA, etc..)
+-> how does this play out with implicit prefetching / scene stepping? ideally orthogonal?
