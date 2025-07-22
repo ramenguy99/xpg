@@ -29,10 +29,11 @@ class GpuBufferProperty:
             raise NotImplemented()
     
     def update(self, time: float, frame: int):
-        self.current_buffer_index = self.property.get_frame_index(time, frame)
+        # TODO: potentially prefetch here?
+        pass
     
     def get_current(self):
-        return self.buffers[self.current_buffer_index]
+        return self.buffers[self.property.current_frame]
     
     def destroy(self):
         for buf in self.buffers:

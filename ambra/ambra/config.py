@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Tuple
+from dataclasses import dataclass, field 
+from typing import Tuple, Optional
 from enum import Enum
 
 @dataclass
@@ -14,6 +14,15 @@ class RendererConfig:
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
     prefer_preupload: bool = True
 
+@dataclass
+class PlaybackConfig:
+    enabled: bool = True
+    playing: bool = False
+    frames_per_second: float = 30.0
+    initial_time: float = 0.0
+    initial_frame: Optional[int] = None
+    max_time: Optional[float] = None
+
 class CameraType(Enum):
     PERSPECTIVE = 0
     ORTHOGRAPHIC = 1
@@ -21,7 +30,7 @@ class CameraType(Enum):
 @dataclass
 class Config:
     # Window
-    wait_events: bool = True
+    wait_events: bool = False
 
     # Scene
     camera_type: CameraType = CameraType.PERSPECTIVE
@@ -29,7 +38,8 @@ class Config:
     z_max: float = 1000.0
     perspective_vertical_fov: float = 45.0
     ortho_center: Tuple[float, float] = (0.0, 0.0)
-    ortho_half_extents: Tuple[float, float] = (50, 50)
+    ortho_half_extents: Tuple[float, float] = (1, 1)
 
-    renderer = RendererConfig()
-    server = ServerConfig()
+    renderer: RendererConfig = field(default_factory=RendererConfig)
+    playback: PlaybackConfig = field(default_factory=PlaybackConfig)
+    server: ServerConfig = field(default_factory=ServerConfig)

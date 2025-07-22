@@ -86,7 +86,7 @@ class Property(Generic[T]):
     def __init__(self, num_frames: int, animation: Optional[Animation] = None, name: str = "" , prefer_preupload: Optional[bool] = None):
         self.num_frames = num_frames
         self.name = name
-        self.animation = animation or Animation(AnimationBoundary.HOLD)
+        self.animation = animation or FrameAnimation(AnimationBoundary.HOLD)
         self.prefer_preupload = prefer_preupload
 
         self.current_time = 0
@@ -106,7 +106,7 @@ class Property(Generic[T]):
     
     def update(self, time: float, frame: int) -> T:
         self.current_time = time
-        self.current_frame = frame
+        self.current_frame = self.get_frame_index(time, frame)
     
     def get_current(self) -> T:
         return self.get_frame(self.current_time, self.current_frame)
@@ -288,11 +288,11 @@ class Scene:
     
     # TODO: visitor helpers?
 
-    def max_animation_time(self) -> float:
+    def max_animation_time(self, frames_per_second) -> float:
         time = 0
         def max_animation_time_recursive(o: Object):
-            global time
-            time = max(time, max(p.max_animation_time() for p in o.properties))
+            nonlocal time
+            time = max(time, max(p.max_animation_time(frames_per_second) for p in o.properties))
 
             for c in o.children:
                 max_animation_time_recursive(c)
@@ -304,6 +304,11 @@ class Scene:
     
     def update(self, time: float, frame: int):
         def update_recursive(parent: Object):
+            # Update properties before objects
+            for p in parent.properties:
+                p.update(time, frame)
+            
+            # Update objects
             parent.update(time, frame)
             for c in parent.children:
                 update_recursive(c)

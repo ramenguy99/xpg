@@ -110,3 +110,9 @@ Thoughts:
     -> can properties be shared across objects? since animation is on the property, i dont see any issue with this
     -> If properties are shared, how to handle their GPU counterparts? Are those owned by objects?
        Are they part of the property itself but optional? How does the user configure prefetching vs preload?
+
+[ ] Rework a bit state vs getters in properties
+[ ] Move buffer utils to common place and cleanup
+[ ] Playback UI elements -> likely in common ui place that can be customized / modified (helpers for things like default layout as well, likely configurable)
+[ ] Check and implement transform properties too
+[ ] Make a bigger stress test

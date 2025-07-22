@@ -44,7 +44,7 @@ class Viewer:
         else:
             raise RuntimeError(f"Unhandled camera type {self.config.camera_type}")
 
-        self.playback = Playback()
+        self.playback = Playback(self.config.playback)
         self.last_frame_timestamp = 0
 
         self.viewport = Viewport(

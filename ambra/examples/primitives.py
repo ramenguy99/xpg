@@ -1,11 +1,17 @@
 from ambra.viewer import Viewer
-from  ambra.scene3d.primitives import Line
-from  ambra.transform3d import RigidTransform
+from ambra.primitives3d import Line
+from ambra.transform3d import RigidTransform
+from ambra.config import Config, PlaybackConfig
 from pyglm.glm import vec3
 
 import numpy as np
 
-viewer = Viewer("primitives", 1280, 720)
+viewer = Viewer("primitives", 1280, 720, config=Config(
+    playback=PlaybackConfig(
+        enabled=True,
+        playing=True,
+    )
+))
 
 positions = np.array([
     [ 0.0,  0.0, 0.0],
@@ -15,6 +21,8 @@ positions = np.array([
     [ 0.0,  0.0, 0.0],
     [ 0.0,  0.0, 1.0],
 ], np.float32)
+
+positions = np.linspace(positions, positions + np.array([3, 0, 0]), 100)
 
 colors = np.array([
     0xFF0000FF,

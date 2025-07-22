@@ -3,20 +3,26 @@ from dataclasses import dataclass
 
 from .scene import Scene
 from .camera import Camera
+from .config import PlaybackConfig
 
 # TODO: playback config from viewer config for things like deafult fps/playing/time
 class Playback:
-    def __init__(self):
-        self.max_time = 0.0
-        self.playing = False # Paused if false, Playing if True
-        self.frames_per_second = 30.0
+    def __init__(self, config: PlaybackConfig):
+        self.max_time = config.max_time
+        self.playing = config.playing
+        self.frames_per_second = config.frames_per_second
 
-        self.current_time = 0.0
-        self.current_frame = 0
+        if config.initial_frame is None:
+            self.current_time = config.initial_time or 0.0
+            self.current_frame = int(self.current_time * self.frames_per_second)
+        else:
+            self.current_time = config.initial_frame / self.frames_per_second
+            self.current_frame = config.initial_frame
+
     
     def step(self, dt: float):
         if self.playing:
-            self.current_time = math.fmod(self.current_time + dt, self.max_time)
+            self.current_time = math.fmod(self.current_time + dt, self.max_time) if self.max_time != 0.0 else 0.0
             self.current_frame = int(self.current_time * self.frames_per_second)
     
     def toggle_play_pause(self):
