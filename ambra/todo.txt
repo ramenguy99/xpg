@@ -1,14 +1,52 @@
-
 [ ] Think about clean way to handle handedness / zy up conventions.
     -> wrap things that care in a separate module, make different default symbols base on config ?
-    -> maybe math utils should expose both and a default, and only viewer stuff use config?
+    -> maybe math and camera utils should expose both, and viewer use config to pick
 
 Viewer:
 - [ ] Primitives
-- [ ] Server
+    - [ ] 2D Points
+    - [x] 2D Lines
+    - [ ] Spheres
+    - [ ] Cilinders (with/without caps)
+    - [ ] Meshes
+    - [ ] 2D Images
+    - [ ] 3D Images (e.g. textured quads)
+- [ ] Renderer architecture / path tracer support 
+- [-] Server
 - [ ] Gui helpers
 - [ ] Viewports
 - [ ] Strong focus on extensions
+- [ ] Frame helpers (ideally at object level, shared across all primitives)
+    - Fixed framerate
+    - Variable rate
+    - Missing frames / holes in data (different from hold last pose)
+    - Repeat vs hold vs disappear at end of sequence
+    -> think about how this fits together with streaming/prefetching/animated properties
+    -> also think about how to visualize this in a timeline viewer
+
+Rendering features:
+    - Raster (normal viewer):
+        - 2D and 3D viewports
+        - multi-layer OIT (start from a PoC with depth peeling)
+    - Path tracer:
+        - Objects that could potentially be path traced:
+            - Meshes
+            - Other primitives -> should just be meshed or use intersection shaders? depends on complexity of primitive maybe?
+            - Need light info too
+        - Support for more complex camera models and effects
+            - Lens distortion (could be useful even for visualizing different camera models)
+            - DoF
+            - Vignetting
+        - Accumulation settings
+        - Light sampling with alias tables
+    - Plans:
+        - Lights
+            - Point, Directional and area first (maybe also leverage slang type, for path tracer)?
+            - Environment -> only for path tracer or also do prefiltered IBL?
+        - Materials
+            - start with common material model for all objects, or maybe just a few materials with dynamic dispatch (leverage slang types)
+        - Emissive:
+            - Not sure if we need this or if better to just do mesh lights at first, we are not building a general purpose path tracer
 
 - Ideas:
     - Generic viewer type with just basics + specialized viewer types for specific use cases (careful about composition vs specialization)
@@ -41,3 +79,34 @@ Renderer:
 -> think about what is the best way to support different types of rendering, and how to not duplicate a huge amount of code
 -> 2D vs 3D, raster vs raytrace vs path trace (e.g. accumulation), quality mode (e.g. depth peeling, MSAA, etc..)
 -> how does this play out with implicit prefetching / scene stepping? ideally orthogonal?
+
+
+Properties:
+[ ] Find incremental steps:
+    - Single frame
+    - Viewer playback controls
+    - CPU multi-frame (e.g. line width)
+    - GPU multi-frame (e.g. line positions / colors)
+    - More viewer playback controls (e.g. timeline view, property inspectors)
+[ ] Frame-by-frame vs time-based playback -> likely should be handled at viewer level
+[ ] Freeing in-use buffers -> maybe also can be part of cache? Maybe we really want refcounted buffers for everything?
+[ ] Dynamic upload vs pre-upload of everything -> just implement through sequence-like cache?
+[ ] Think about getter/setters to update properties and explicit redraw to update properties
+
+[ ] Types of animated properties:
+    -> CPU only (e.g. line width, transforms)
+    -> GPU resources (e.g. positions / colors / textures)
+    -> GPU anymated resources (e.g. skeletal anymation -> this maybe special case enough to think later / bypass the system?)
+[ ] How does this play out with disk streaming and prefetching?
+    -> maybe can have a special property type that can be streamed? and then user can pass that in?
+
+Thoughts:
+-> Lets have the interface always be CPU objects, the distinction between data and streaming properties makes sense to
+   me and allows users to customize how the data is loaded but still giving the easy interface with implicit conversion for arrays
+-> Renderables should be able to constru
+-> Later we can maybe provide some kind of escape hatch for giving gpu buffers directly for these properties, another option
+   would be to have renderables that can 
+-> Big questions that remain:
+    -> can properties be shared across objects? since animation is on the property, i dont see any issue with this
+    -> If properties are shared, how to handle their GPU counterparts? Are those owned by objects?
+       Are they part of the property itself but optional? How does the user configure prefetching vs preload?

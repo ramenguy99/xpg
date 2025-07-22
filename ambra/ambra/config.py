@@ -12,6 +12,7 @@ class ServerConfig:
 @dataclass
 class RendererConfig:
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
+    prefer_preupload: bool = True
 
 class CameraType(Enum):
     PERSPECTIVE = 0

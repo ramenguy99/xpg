@@ -1,16 +1,17 @@
-from pyxpg import *
-from pyglm.glm import ivec2
-
 from typing import Optional
+from queue import Queue, Empty
+from time import perf_counter_ns
+
+from pyglm.glm import ivec2
+from pyxpg import Context, Window, Gui, DeviceFeatures, Key, MouseButton, Action, Modifiers, SwapchainStatus, process_events
+
 from .config import Config, CameraType
 from .server import Server, Client, RawMessage, Message, parse_builtin_messages
-from queue import Queue, Empty
-from .renderer import Renderer, Viewport, Rect
+from .renderer import Renderer
 from .scene import Scene
 from .camera import PerspectiveCamera, OrthographicCamera, CameraDepth
 from .transform3d import RigidTransform
-
-from dataclasses import dataclass
+from .viewport import Viewport, Playback, Rect
 
 class Viewer:
     def __init__(self, title: str = "ambra", width: Optional[int] = None, height: Optional[int] = None, config: Optional[Config] = None):
@@ -43,10 +44,14 @@ class Viewer:
         else:
             raise RuntimeError(f"Unhandled camera type {self.config.camera_type}")
 
+        self.playback = Playback()
+        self.last_frame_timestamp = 0
+
         self.viewport = Viewport(
             rect=Rect(0, 0, self.window.fb_width, self.window.fb_height),
             camera=camera,
             scene=Scene("scene"),
+            playback=self.playback
         )
 
         self.server = Server(lambda c, m: self.on_raw_message_async(c, m), self.config.server)
@@ -69,7 +74,17 @@ class Viewer:
         pass
 
     def on_draw(self):
-        # Resize
+        # Compute dt
+        timestamp = perf_counter_ns()
+        dt = (timestamp - self.last_frame_timestamp) * 1e-9
+        self.last_frame_timestamp = timestamp
+
+        # Step dt
+        if self.playback.max_time is None:
+            self.playback.max_time = self.viewport.scene.max_animation_time(self.playback.frames_per_second)
+        self.playback.step(dt)
+
+        # Resize 
         swapchain_status = self.window.update_swapchain()
         if swapchain_status == SwapchainStatus.MINIMIZED:
             return
@@ -79,6 +94,9 @@ class Viewer:
         # GUI
         with self.gui.frame():
             self.on_gui()
+        
+        # Step scene
+        self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
 
         # Render
         self.renderer.render(self.viewport, self.gui)
@@ -99,6 +117,8 @@ class Viewer:
         pass
 
     def run(self):
+        self.last_frame_timestamp = perf_counter_ns()
+
         while True:
             process_events(self.wait_events)
 

@@ -1,10 +1,11 @@
 from pyxpg import *
+
 from .config import RendererConfig
-from .scene3d import Scene, Object
+from .scene import Object
 from .utils.profile import profile
 from .utils.uploadable_buffer import UploadableBuffer
-from .camera import Camera
 from .utils.ring_buffer import RingBuffer
+from .viewport import Viewport
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,25 +16,12 @@ import numpy as np
 SHADERS_PATH = Path(__file__).parent.joinpath("shaders")
 
 @dataclass
-class Rect:
-    x: int
-    y: int
-    width: int
-    height: int
-
-@dataclass
-class Viewport:
-    camera: Camera
-    # camera_control: CameraControl
-    scene: Scene
-    rect: Rect
-
-@dataclass
 class RendererFrame:
     cmd: CommandBuffer
     viewport: Tuple[float, float, float, float]
     scissors: Tuple[float, float, float, float]
     descriptor_set: DescriptorSet
+
     
 class Renderer:
     def __init__(self, ctx: Context, window: Window, config: RendererConfig):
@@ -44,6 +32,7 @@ class Renderer:
 
         # Config
         self.background_color = config.background_color
+        self.prefer_preupload = config.prefer_preupload
 
         # Scene descriptors
         self.descriptor_sets = RingBuffer(window.num_frames, DescriptorSet, ctx, [
@@ -58,6 +47,7 @@ class Renderer:
 
         self.constants = np.zeros((1,), constants_dtype)
         self.uniform_buffers = RingBuffer(window.num_frames, UploadableBuffer, ctx, 64 * 2 + 12, BufferUsageFlags.UNIFORM)
+
         for set, buf in zip(self.descriptor_sets.objects, self.uniform_buffers.objects):
             set: DescriptorSet
             buf: UploadableBuffer
