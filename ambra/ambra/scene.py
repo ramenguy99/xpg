@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from enum import Enum, auto
-from typing import Optional, TypeVar, Generic, Union, List, Tuple
+from typing import Optional, TypeVar, Generic, Union, List, Tuple, Callable
 import numpy as np
 import sys
 from pyglm.glm import vec3, vec2, quat
@@ -25,7 +25,6 @@ else:
 #     # For rotations
 #     NLERP = auto()
 #     SLERP = auto()
-
 
 class AnimationBoundary(Enum):
     HOLD = auto()
@@ -61,7 +60,6 @@ class Animation:
 #         return 
 
 
-
 @dataclass
 class ConstantSpeedAnimation(Animation):
     frames_per_second: float # frame time in seconds
@@ -73,6 +71,7 @@ class ConstantSpeedAnimation(Animation):
     def max_animation_time(self, n: int, fps: float) -> float:
         return n / self.frames_per_second
 
+
 @dataclass
 class FrameAnimation(Animation):
     def get_frame_index(self, n:int, global_time: float, global_frame: int) -> int:
@@ -81,6 +80,7 @@ class FrameAnimation(Animation):
 
     def max_animation_time(self, n: int, frames_per_second: float) -> float:
         return n / frames_per_second
+
 
 class Property(Generic[T]):
     def __init__(self, num_frames: int, animation: Optional[Animation] = None, name: str = "" , prefer_preupload: Optional[bool] = None):
@@ -92,24 +92,24 @@ class Property(Generic[T]):
         self.current_time = 0
         self.current_frame = 0
     
+    def update(self, time: float, frame: int) -> T:
+        self.current_time = time
+        self.current_frame = self.get_frame_index(time, frame)
+    
+    def max_animation_time(self, fps: float) -> float:
+        return self.animation.max_animation_time(self.num_frames, fps)
+    
     def get_frame_index(self, time: float, playback_frame: int) -> int:
         return self.animation.get_frame_index(self.num_frames, time, playback_frame)
 
+    def get_current(self) -> T:
+        return self.get_frame(self.current_time, self.current_frame)
+    
     def get_frame(self, time: float, frame: int) -> T:
         return None
 
     def get_frame_by_index(self, frame: int) -> T:
         return None
-    
-    def max_animation_time(self, fps: float) -> float:
-        return self.animation.max_animation_time(self.num_frames, fps)
-    
-    def update(self, time: float, frame: int) -> T:
-        self.current_time = time
-        self.current_frame = self.get_frame_index(time, frame)
-    
-    def get_current(self) -> T:
-        return self.get_frame(self.current_time, self.current_frame)
     
 
 class DataProperty(Property):
@@ -135,6 +135,7 @@ class StreamingProperty(Property):
     def get_frame_by_index(self, frame: int) -> T:
         return NotImplemented()
 
+
 def shape_match(expected_shape: Tuple[int], got_shape: Tuple[int]) -> bool:
     if len(expected_shape) != len(got_shape):
         return False
@@ -150,9 +151,9 @@ def as_property(value: Union[Property[T], PropertyData], dtype: Optional[np.dtyp
         return value
     else:
         if shape is None:
-            value = np.asarray([value], dtype, order="C")
+            value = np.atleast_1d(np.asarray(value, dtype, order="C"))
             if len(value.shape) > 1:
-                raise ShapeException(value.shape[1:], (1,))
+                raise ShapeException((1,), value.shape[1:])
         else:
             if isinstance(value, Tuple) or isinstance(value, List):
                 for i in range(len(value)):
@@ -173,42 +174,6 @@ def as_property(value: Union[Property[T], PropertyData], dtype: Optional[np.dtyp
         return DataProperty(value, animation, name)
 
 
-
-"""
-class Property(Property):
-    def __init__(self, data: PropertyData[T], animation: Optional[Animation] = None, name: str = ""):
-        self.data = data
-        self.animation = animation or Animation(AnimationInterpolation.FLOOR, AnimationBoundary.HOLD)
-        self.name = name
-    
-    def __getitem__(self, key):
-        return self.data.__getitem__(key)
-    
-    def __len__(self):
-        return self.data.__len__()
-    
-    def sample(self, time: float) -> T:
-        # NOTE: this is for CPU usage only, when rendering interpolation is done in an object specific
-        # way (e.g. in shaders), therefor most objects will not support all animation types for all properties.
-        #
-        # We put the burden of supporting something similar to this to the implementations, based on the same
-        # animation 
-        #
-        # Technically we could think of a "high quality" rendering mode that uses this to support all interpolation
-        # types on the CPU and does per-frame upload.
-        pass
-    
-    def max_count(self):
-        if isinstance(self.data, Tuple) or isinstance(self.data, List):
-            return max([len(self.data[i]) for i in range(len(self.data))])
-        else:
-            return self.shape[1]
-    
-    def max_size(self):
-        return (self.data[0].dtype.itemsize if len(self.data) else 0) * self.max_count()
-"""
-
-
 class ShapeException(Exception):
     def __init__(self, expected: Tuple[int], got: Tuple[int]):
         self.expected = expected
@@ -218,35 +183,42 @@ class ShapeException(Exception):
         return f"Shape mismatch. Expected: {self.expected}, got: {self.got}"
 
 
+_counter = 0
+
 class Object:
-    def __init__(self, name: str):
-        self.name = name
+    def __init__(self, name: Optional[str] = None):
+        self.name = name or f"{type(self).__name__} - {Object.next_id()}"
         self.children: List["Object"] = []
         self.properties: List[Property] = []
+
+        self.update_callbacks: List[Callable[[float, int], None]] = []
+        self.destroy_callbacks: List[Callable[[None], None]] = []
+    
+    @staticmethod
+    def next_id():
+        global _counter
+        _counter += 1
+        return _counter
     
     def add_property(self, prop: Property, dtype: Optional[np.dtype] = None, shape: Optional[Tuple[int]] = None, animation: Optional[Animation] = None, name: str = "") -> Property:
         property = as_property(prop, dtype, shape, animation, name)
         self.properties.append(property)
+        self.update_callbacks.append(lambda time, frame: property.update(time,frame))
         return property
     
-    # def create(self, renderer: Renderer):
     def create(self, renderer):
         pass
 
     def update(self, time: float, frame: int):
-        pass
+        for c in self.update_callbacks:
+            c(time, frame)
 
-    # def render(self, renderer: Renderer):
     def render(self, renderer, frame):
         pass
 
-    # def destroy(self, renderer: Renderer):
     def destroy(self):
-        pass
-    
-    def _set_time(self, time):
-        for p in self.properties:
-            pass
+        for c in self.destroy_callbacks:
+            c()
 
 
 class Object2D(Object):
@@ -286,32 +258,24 @@ class Scene:
         self.name = name
         self.objects = []
     
-    # TODO: visitor helpers?
+    def visit_objects(self, function: Callable[[Object], None]):
+        def visit_recursive(o: Object):
+            function(o)
+            for c in o.children:
+                visit_recursive(c)
+
+        for o in self.objects:
+            visit_recursive(o)
 
     def max_animation_time(self, frames_per_second) -> float:
         time = 0
-        def max_animation_time_recursive(o: Object):
+        def visit(o: Object):
             nonlocal time
             time = max(time, max(p.max_animation_time(frames_per_second) for p in o.properties))
-
-            for c in o.children:
-                max_animation_time_recursive(c)
-
-        for o in self.objects:
-            max_animation_time_recursive(o)
-
+        self.visit_objects(visit)
         return time
     
     def update(self, time: float, frame: int):
-        def update_recursive(parent: Object):
-            # Update properties before objects
-            for p in parent.properties:
-                p.update(time, frame)
-            
-            # Update objects
-            parent.update(time, frame)
-            for c in parent.children:
-                update_recursive(c)
-
-        for o in self.objects:
-            update_recursive(o)
+        def visit(o: Object):
+            o.update(time, frame)
+        self.visit_objects(visit)

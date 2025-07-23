@@ -3,7 +3,7 @@ from pyxpg import *
 from .config import RendererConfig
 from .scene import Object
 from .utils.profile import profile
-from .utils.uploadable_buffer import UploadableBuffer
+from .utils.gpu import UploadableBuffer
 from .utils.ring_buffer import RingBuffer
 from .viewport import Viewport
 

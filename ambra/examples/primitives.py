@@ -33,7 +33,8 @@ colors = np.array([
     0xFFFF0000,
 ], np.uint32)
 
-line = Line(positions, colors, 4)
+line_width = np.linspace(1, 32, 100)
+line = Line(positions, colors, line_width)
 line.create(viewer.renderer)
 
 viewer.viewport.camera.camera_from_world = RigidTransform.look_at(vec3(3), vec3(0), vec3(0, 0, 1))
