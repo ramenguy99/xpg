@@ -46,3 +46,12 @@ class Transform:
             scale=vec3(1),
         )
         
+    def as_mat4(self) -> mat4:
+        m = mat4_cast(self.rotation)
+        m[0] *= self.scale[0]
+        m[1] *= self.scale[1]
+        m[2] *= self.scale[2]
+        m[3, 0] = self.translation.x
+        m[3, 1] = self.translation.y
+        m[3, 2] = self.translation.z
+        return m

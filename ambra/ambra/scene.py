@@ -5,6 +5,7 @@ from typing import Optional, TypeVar, Generic, Union, List, Tuple, Callable
 import numpy as np
 import sys
 from pyglm.glm import vec3, vec2, quat
+from .transform3d import Transform
 
 T = TypeVar('T')
 
@@ -35,7 +36,11 @@ class AnimationBoundary(Enum):
         if self == AnimationBoundary.HOLD:
             return min(frame, n - 1)
         elif self == AnimationBoundary.MIRROR:
-            return (frame + n - 1) % 2 * n - 1
+            dr = frame % (2 * n) 
+            if dr >= n:
+                return 2 * n - dr - 1
+            else:
+                return dr
         elif self == AnimationBoundary.REPEAT:
             return frame % n
         else:
@@ -97,7 +102,9 @@ class Property(Generic[T]):
         self.current_frame = self.get_frame_index(time, frame)
     
     def max_animation_time(self, fps: float) -> float:
-        return self.animation.max_animation_time(self.num_frames, fps)
+        a = self.animation.max_animation_time(self.num_frames, fps)
+        print(a, self.num_frames, fps)
+        return a
     
     def get_frame_index(self, time: float, playback_frame: int) -> int:
         return self.animation.get_frame_index(self.num_frames, time, playback_frame)
@@ -213,6 +220,10 @@ class Object:
         for c in self.update_callbacks:
             c(time, frame)
 
+    def update_transform(self, parent: "Object"):
+        # TODO: can merge with udpate? Where to find parent? With link?
+        pass
+
     def render(self, renderer, frame):
         pass
 
@@ -228,9 +239,9 @@ class Object2D(Object):
                  rotation: Optional[Property[float]] = None,
                  scale: Optional[Property[vec2]] = None):
         super().__init__(name)
-        self.translation = as_property(translation) if translation else Property(np.array([[0, 0]], np.float32))
-        self.rotation = as_property(rotation) if rotation else Property(np.array([[1]], np.float32))
-        self.scale = as_property(scale) if scale else Property(np.array([[1, 1]], np.float32))
+        self.translation = as_property(translation or np.array([0, 0]), np.float32, (2,), name=f"translation")
+        self.rotation = as_property(rotation or np.array([0]), np.float32, name=f"rotation")
+        self.scale = as_property(scale or np.array([1, 1]), np.float32, (2,), name=f"scale")
 
         self.add_property(self.translation)
         self.add_property(self.rotation)
@@ -240,18 +251,31 @@ class Object2D(Object):
 class Object3D(Object):
     def __init__(self,
                  name: str,
-                 translation: Optional[Property[vec3]] = None,
-                 rotation: Optional[Property[quat]] = None,
-                 scale: Optional[Property[vec3]] = None):
+                 translation: Optional[Property[np.ndarray]] = None,
+                 rotation: Optional[Property[np.ndarray]] = None,
+                 scale: Optional[Property[np.ndarray]] = None):
         super().__init__(name)
-        self.translation = as_property(translation) if translation else Property(np.array([[0, 0, 0]], np.float32))
-        self.rotation = as_property(rotation) if rotation else Property(np.array([[1, 0, 0, 0]], np.float32))
-        self.scale = as_property(scale) if scale else Property(np.array([[1, 1, 1]], np.float32))
+        self.translation = as_property(translation if translation is not None else np.array([0, 0, 0]), np.float32, (3,), name=f"translation")
+        self.rotation = as_property(rotation if rotation is not None else np.array([1, 0, 0, 0]), np.float32, (4,), name=f"rotation")
+        self.scale = as_property(scale if scale is not None else np.array([1, 1, 1]), np.float32, (3,), name=f"scale")
+        self.current_relative_transform = Transform(
+            vec3(self.translation.get_current()),
+            quat(self.rotation.get_current()),
+            vec3(self.scale.get_current())
+        )
+        self.current_transform_mat4 = self.current_relative_transform.as_mat4()
 
         self.add_property(self.translation)
         self.add_property(self.rotation)
         self.add_property(self.scale)
-
+    
+    def update_transform(self, parent: "Object3D"):
+        self.current_relative_transform = Transform(
+            vec3(self.translation.get_current()),
+            quat(self.rotation.get_current()),
+            vec3(self.scale.get_current())
+        )
+        self.current_transform_mat4 = (parent.current_transform_mat4 if parent else np.eye(4)) @ self.current_relative_transform.as_mat4()
 
 class Scene:
     def __init__(self, name):
@@ -259,23 +283,24 @@ class Scene:
         self.objects = []
     
     def visit_objects(self, function: Callable[[Object], None]):
-        def visit_recursive(o: Object):
-            function(o)
+        def visit_recursive(p: Object, o: Object):
+            function(p, o)
             for c in o.children:
-                visit_recursive(c)
+                visit_recursive(o, c)
 
         for o in self.objects:
-            visit_recursive(o)
+            visit_recursive(None, o)
 
     def max_animation_time(self, frames_per_second) -> float:
         time = 0
-        def visit(o: Object):
+        def visit(p: Object, o: Object):
             nonlocal time
             time = max(time, max(p.max_animation_time(frames_per_second) for p in o.properties))
         self.visit_objects(visit)
         return time
     
     def update(self, time: float, frame: int):
-        def visit(o: Object):
+        def visit(p: Object, o: Object):
             o.update(time, frame)
+            o.update_transform(p)
         self.visit_objects(visit)

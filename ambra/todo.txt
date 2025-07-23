@@ -120,11 +120,15 @@ Thoughts:
 [ ] Make a bigger stress test
 
 Features:
-[ ] Transform properties, kinematic trees and node descriptor for constants
+[-] Transform properties, kinematic trees and node descriptor for constants
+    [ ] Transform 2D
+    [ ] Cleanup constants dup
 [ ] Images and upload
 [ ] Camera movement
-[ ] Playback UI
 [ ] 2D vs 3D renderer (maybe only a single renderer but can also both scene types?)
 [ ] Viewport:
     [ ] resize
     [ ] multiple viewports
+[ ] UI:
+    [ ] Scene tree and property view -> custom widget callback per property?
+    [ ] Playback UI

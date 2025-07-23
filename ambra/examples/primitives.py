@@ -1,3 +1,4 @@
+from ambra.scene import FrameAnimation, DataProperty, as_property, AnimationBoundary
 from ambra.viewer import Viewer
 from ambra.primitives3d import Line
 from ambra.transform3d import RigidTransform
@@ -22,7 +23,7 @@ positions = np.array([
     [ 0.0,  0.0, 1.0],
 ], np.float32)
 
-positions = np.linspace(positions, positions + np.array([3, 0, 0]), 100)
+positions = np.linspace(positions, positions + np.array([0, 0, 0]), 100)
 
 colors = np.array([
     0xFF0000FF,
@@ -34,7 +35,11 @@ colors = np.array([
 ], np.uint32)
 
 line_width = np.linspace(1, 32, 100)
-line = Line(positions, colors, line_width)
+
+# scale = np.linspace(np.array([1, 1, 1]), np.array([1, 1, 3]), 100)
+translation = as_property(np.linspace(np.array([0, 0, 0]), np.array([0, 1, 1]), 50), np.float32, (3,), FrameAnimation(AnimationBoundary.MIRROR))
+
+line = Line(positions, colors, line_width, scale=None, translation=translation)
 line.create(viewer.renderer)
 
 viewer.viewport.camera.camera_from_world = RigidTransform.look_at(vec3(3), vec3(0), vec3(0, 0, 1))

@@ -1,23 +1,47 @@
 from pyxpg import *
-from .scene import Property, Object
+from .scene import Property, Object3D
 from .renderer import Renderer, RendererFrame
 from .utils.gpu_property import GpuBufferProperty
+from .utils.gpu import UploadableBuffer
+from .utils.ring_buffer import RingBuffer
 
 from typing import Optional
 import numpy as np
 
-class Line(Object):
-    def __init__(self, lines: Property[np.ndarray], colors: Property[np.ndarray], line_width: Property[float] = 1.0, is_strip = False, name: Optional[str] = None):
-        super().__init__(name)
+class Line(Object3D):
+    def __init__(self,
+                 lines: Property[np.ndarray],
+                 colors: Property[np.ndarray],
+                 line_width: Property[float] = 1.0,
+                 is_strip = False,
+                 name: Optional[str] = None,
+                 translation: Optional[Property[np.ndarray]] = None,
+                 rotation: Optional[Property[np.ndarray]] = None,
+                 scale: Optional[Property[np.ndarray]] = None
+                ):
+        super().__init__(name, translation, rotation, scale)
         self.is_strip = is_strip
         self.lines: Property[np.ndarray] = self.add_property(lines, np.float32, (-1, 3,), name="lines")
         self.colors: Property[np.ndarray] = self.add_property(colors, np.uint32, (-1,), name="colors")
         self.line_width: Property[float] = self.add_property(line_width, np.float32, name="line_width")
 
-
     def create(self, r: Renderer):
         self.lines_buffer = GpuBufferProperty(self, r, self.lines, BufferUsageFlags.VERTEX, name=f"{self.name}-lines-3d")
         self.colors_buffer = GpuBufferProperty(self, r, self.colors, BufferUsageFlags.VERTEX, name=f"{self.name}-lines-3d")
+
+        # TODO: dedup between this and renderer, or dedup between objects, or both
+        self.descriptor_sets = RingBuffer(r.window.num_frames, DescriptorSet, r.ctx, [
+            DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER)
+        ])
+        constants_dtype = np.dtype ({
+            "transform": (np.dtype((np.float32, (4, 4))), 0),
+        })
+        self.constants = np.zeros((1,), constants_dtype)
+        self.uniform_buffers = RingBuffer(r.window.num_frames, UploadableBuffer, r.ctx, 64, BufferUsageFlags.UNIFORM)
+        for set, buf in zip(self.descriptor_sets.items, self.uniform_buffers.items):
+            set: DescriptorSet
+            buf: UploadableBuffer
+            set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         vert = r.get_builtin_shader("3d/basic.slang", "vertex_main")
         frag = r.get_builtin_shader("3d/basic.slang", "pixel_main")
@@ -42,10 +66,16 @@ class Line(Object):
             attachments = [
                 Attachment(format=r.output_format)
             ],
-            descriptor_sets = [ r.descriptor_sets.get_current() ],
+            descriptor_sets = [ r.descriptor_sets.get_current(), self.descriptor_sets.get_current() ],
         )
     
     def render(self, r: Renderer, frame: RendererFrame):
+        # TODO: dedup between this and renderer, or dedup between objects, or both
+        set: DescriptorSet = self.descriptor_sets.get_current_and_advance()
+        buf: UploadableBuffer = self.uniform_buffers.get_current_and_advance()
+        self.constants["transform"] = self.current_transform_mat4
+        buf.upload(frame.cmd, MemoryUsage.ANY_SHADER_UNIFORM_READ, self.constants.view(np.uint8))
+
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             # vertex_buffers=[self.positions_buf, self.colors_buf],
@@ -53,7 +83,7 @@ class Line(Object):
                 self.lines_buffer.get_current(),
                 self.colors_buffer.get_current(),
             ],
-            descriptor_sets=[frame.descriptor_set],
+            descriptor_sets=[frame.descriptor_set, set],
             viewport=frame.viewport,
             scissors=frame.scissors,
         )

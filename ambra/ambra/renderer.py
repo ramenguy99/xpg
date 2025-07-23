@@ -48,7 +48,7 @@ class Renderer:
         self.constants = np.zeros((1,), constants_dtype)
         self.uniform_buffers = RingBuffer(window.num_frames, UploadableBuffer, ctx, 64 * 2 + 12, BufferUsageFlags.UNIFORM)
 
-        for set, buf in zip(self.descriptor_sets.objects, self.uniform_buffers.objects):
+        for set, buf in zip(self.descriptor_sets.items, self.uniform_buffers.items):
             set: DescriptorSet
             buf: UploadableBuffer
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)

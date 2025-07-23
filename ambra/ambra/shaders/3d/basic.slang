@@ -1,4 +1,5 @@
 import common;
+import common_object;
 
 struct VSInput
 {
@@ -19,7 +20,7 @@ struct VSOutput
 VSOutput vertex_main(VSInput in, uint instance_id: SV_InstanceID)
 {
     VSOutput out;
-    out.position = mul(g_constants.projection, (mul(g_constants.view,  float4(in.pos, 1.0))));
+    out.position = mul(g_constants.projection, (mul(g_constants.view, mul(g_object_constants.transform, float4(in.pos, 1.0)))));
     out.color = float4(
         (float)((in.color >>  0) & 0xFF) * (1.0 / 255.0),
         (float)((in.color >>  8) & 0xFF) * (1.0 / 255.0),
