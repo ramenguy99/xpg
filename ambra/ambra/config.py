@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field 
+from dataclasses import dataclass, field
 from typing import Tuple, Optional
 from enum import Enum
 
@@ -13,6 +13,7 @@ class ServerConfig:
 class RendererConfig:
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
     prefer_preupload: bool = True
+    uniform_pool_block_size: int = 32 * 1024 * 1024
 
 @dataclass
 class PlaybackConfig:

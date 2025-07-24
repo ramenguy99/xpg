@@ -42,7 +42,7 @@ namespace gfx {
         vkSetDebugUtilsObjectNameEXT(device, &name_info); \
     }
 
-            
+
 static VkBool32 VKAPI_CALL
 VulkanDebugUtilsMessengerCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT           message_severity,
@@ -444,11 +444,11 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     if (debug_utils_enabled) {
         VkDebugUtilsMessengerCreateInfoEXT messenger_create_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
         messenger_create_info.messageSeverity =
-            VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | 
-            VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | 
-            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | 
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
             VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-        messenger_create_info.messageType = 
+        messenger_create_info.messageType =
             // VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
             VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
             VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
@@ -476,7 +476,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             o##_sup_check = true; \
             Chain(&sup_next, &o##_sup); \
         }
-    
+
     // Dynamic rendering
     VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR};
     dynamic_rendering_features.dynamicRendering = VK_TRUE;
@@ -580,13 +580,13 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
     FeatureAndExtensionDependencies<4, 7> ray_query_deps = {
         .flag = DeviceFeatures::RAY_QUERY,
-        .features_req = { 
+        .features_req = {
             (GenericFeatureStruct*)&descriptor_indexing_features,
             (GenericFeatureStruct*)&buffer_device_address_features,
             (GenericFeatureStruct*)&acceleration_structure_features,
             (GenericFeatureStruct*)&ray_query_features,
         },
-        .features_sup = { 
+        .features_sup = {
             (GenericFeatureStruct*)&descriptor_indexing_features_sup,
             (GenericFeatureStruct*)&buffer_device_address_features_sup,
             (GenericFeatureStruct*)&acceleration_structure_features_sup,
@@ -605,13 +605,13 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
     FeatureAndExtensionDependencies<4, 7> ray_tracing_pipeline_deps = {
         .flag = DeviceFeatures::RAY_TRACING_PIPELINE,
-        .features_req = { 
+        .features_req = {
             (GenericFeatureStruct*)&descriptor_indexing_features,
             (GenericFeatureStruct*)&buffer_device_address_features,
             (GenericFeatureStruct*)&acceleration_structure_features,
             (GenericFeatureStruct*)&ray_tracing_pipeline_features,
         },
-        .features_sup = { 
+        .features_sup = {
             (GenericFeatureStruct*)&descriptor_indexing_features_sup,
             (GenericFeatureStruct*)&buffer_device_address_features_sup,
             (GenericFeatureStruct*)&acceleration_structure_features_sup,
@@ -1449,9 +1449,9 @@ VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc) {
     VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR };
     if (desc.wait_timeline_values.length || desc.signal_timeline_values.length) {
         timeline_submit_info.waitSemaphoreValueCount = desc.wait_timeline_values.length;
-        timeline_submit_info.pWaitSemaphoreValues = desc.wait_timeline_values.data; 
+        timeline_submit_info.pWaitSemaphoreValues = desc.wait_timeline_values.data;
         timeline_submit_info.signalSemaphoreValueCount = desc.signal_timeline_values.length;
-        timeline_submit_info.pSignalSemaphoreValues = desc.signal_timeline_values.data; 
+        timeline_submit_info.pSignalSemaphoreValues = desc.signal_timeline_values.data;
 
         submit_info.pNext = &timeline_submit_info;
     }
@@ -1459,7 +1459,7 @@ VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc) {
     return vkQueueSubmit(queue, 1, &submit_info, desc.fence);
 }
 
-VkResult Submit(const Frame& frame, const Context& vk, 
+VkResult Submit(const Frame& frame, const Context& vk,
 // VkPipelineStageFlags2 stage_mask) {
 VkPipelineStageFlags stage_mask) {
 
@@ -2691,13 +2691,18 @@ DestroySampler(Sampler* sampler, const Context& vk) {
 void
 WriteBufferDescriptor(VkDescriptorSet set, const Context& vk, const BufferDescriptorWriteDesc&& write)
 {
-    assert(write.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || write.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    assert(
+        write.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ||
+        write.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ||
+        write.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC ||
+        write.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
+    );
 
     // Prepare descriptor and handle
     VkDescriptorBufferInfo desc_info = {};
     desc_info.buffer = write.buffer;
-    desc_info.offset = 0;
-    desc_info.range = VK_WHOLE_SIZE;
+    desc_info.offset = write.offset;
+    desc_info.range = write.size;
 
     VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
     write_descriptor_set.dstSet = set;

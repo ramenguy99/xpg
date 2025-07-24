@@ -36,7 +36,7 @@ class AnimationBoundary(Enum):
         if self == AnimationBoundary.HOLD:
             return min(frame, n - 1)
         elif self == AnimationBoundary.MIRROR:
-            dr = frame % (2 * n) 
+            dr = frame % (2 * n)
             if dr >= n:
                 return 2 * n - dr - 1
             else:
@@ -62,7 +62,7 @@ class Animation:
 #     samples: np.typing.ArrayLike[float] # list of animation samples in seconds
 
 #     def get_frame_index(self, time: float) -> int:
-#         return 
+#         return
 
 
 @dataclass
@@ -96,34 +96,33 @@ class Property(Generic[T]):
 
         self.current_time = 0
         self.current_frame = 0
-    
+
     def update(self, time: float, frame: int) -> T:
         self.current_time = time
         self.current_frame = self.get_frame_index(time, frame)
-    
+
     def max_animation_time(self, fps: float) -> float:
         a = self.animation.max_animation_time(self.num_frames, fps)
-        print(a, self.num_frames, fps)
         return a
-    
+
     def get_frame_index(self, time: float, playback_frame: int) -> int:
         return self.animation.get_frame_index(self.num_frames, time, playback_frame)
 
     def get_current(self) -> T:
         return self.get_frame(self.current_time, self.current_frame)
-    
+
     def get_frame(self, time: float, frame: int) -> T:
         return None
 
     def get_frame_by_index(self, frame: int) -> T:
         return None
-    
+
 
 class DataProperty(Property):
     def __init__(self, data: PropertyData, animation: Optional[Animation] = None, name: str = "", prefer_preupload: Optional[bool] = None):
         super().__init__(len(data), animation, name, prefer_preupload)
         self.data = data
-    
+
     def get_frame(self, time: float, frame: int) -> T:
         return self.data[self.get_frame_index(time, frame)]
 
@@ -138,7 +137,7 @@ class StreamingProperty(Property):
     def get_frame(self, time: float, frame: int) -> T:
         raise NotImplemented()
         # return self.load(self.get_frame_index(time, frame))
-    
+
     def get_frame_by_index(self, frame: int) -> T:
         return NotImplemented()
 
@@ -185,7 +184,7 @@ class ShapeException(Exception):
     def __init__(self, expected: Tuple[int], got: Tuple[int]):
         self.expected = expected
         self.got = got
-    
+
     def __str__(self):
         return f"Shape mismatch. Expected: {self.expected}, got: {self.got}"
 
@@ -200,19 +199,19 @@ class Object:
 
         self.update_callbacks: List[Callable[[float, int], None]] = []
         self.destroy_callbacks: List[Callable[[None], None]] = []
-    
+
     @staticmethod
     def next_id():
         global _counter
         _counter += 1
         return _counter
-    
+
     def add_property(self, prop: Property, dtype: Optional[np.dtype] = None, shape: Optional[Tuple[int]] = None, animation: Optional[Animation] = None, name: str = "") -> Property:
         property = as_property(prop, dtype, shape, animation, name)
         self.properties.append(property)
         self.update_callbacks.append(lambda time, frame: property.update(time,frame))
         return property
-    
+
     def create(self, renderer):
         pass
 
@@ -268,7 +267,7 @@ class Object3D(Object):
         self.add_property(self.translation)
         self.add_property(self.rotation)
         self.add_property(self.scale)
-    
+
     def update_transform(self, parent: "Object3D"):
         self.current_relative_transform = Transform(
             vec3(self.translation.get_current()),
@@ -281,7 +280,7 @@ class Scene:
     def __init__(self, name):
         self.name = name
         self.objects = []
-    
+
     def visit_objects(self, function: Callable[[Object], None]):
         def visit_recursive(p: Object, o: Object):
             function(p, o)
@@ -298,7 +297,7 @@ class Scene:
             time = max(time, max(p.max_animation_time(frames_per_second) for p in o.properties))
         self.visit_objects(visit)
         return time
-    
+
     def update(self, time: float, frame: int):
         def visit(p: Object, o: Object):
             o.update(time, frame)

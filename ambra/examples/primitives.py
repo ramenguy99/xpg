@@ -42,7 +42,11 @@ translation = as_property(np.linspace(np.array([0, 0, 0]), np.array([0, 1, 1]), 
 line = Line(positions, colors, line_width, scale=None, translation=translation)
 line.create(viewer.renderer)
 
+translation = as_property(np.linspace(np.array([1, 0, 0]), np.array([2, 0, 0]), 50), np.float32, (3,), FrameAnimation(AnimationBoundary.MIRROR))
+line2 = Line(positions, colors, line_width, scale=None, translation=translation)
+line2.create(viewer.renderer)
+
 viewer.viewport.camera.camera_from_world = RigidTransform.look_at(vec3(3), vec3(0), vec3(0, 0, 1))
-viewer.viewport.scene.objects.append(line)
+viewer.viewport.scene.objects.extend([line, line2])
 
 viewer.run()

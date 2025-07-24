@@ -123,7 +123,7 @@ struct Context
     VkDevice device;
     DeviceFeatures device_features;
     float timestamp_period_ns;
-    
+
     VkQueue queue;
     u32 queue_family_index;
     bool queue_timestamp_queries;
@@ -484,7 +484,7 @@ struct SubmitDesc {
     Span<VkCommandBuffer> cmd;
     Span<VkSemaphore> wait_semaphores;
     Span<VkPipelineStageFlags> wait_stages;
-    
+
     // Must contain a value for each semaphore in wait_semaphores.
     // This is only useful if one or more of these semaphores is a timeline semaphore.
     //
@@ -962,6 +962,8 @@ struct BufferDescriptorWriteDesc {
     VkDescriptorType type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     u32 binding;
     u32 element = 0;
+    VkDeviceSize offset = 0;
+    VkDeviceSize size = VK_WHOLE_SIZE;
 };
 
 struct ImageDescriptorWriteDesc {

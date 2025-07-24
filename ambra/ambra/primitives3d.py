@@ -29,19 +29,10 @@ class Line(Object3D):
         self.lines_buffer = GpuBufferProperty(self, r, self.lines, BufferUsageFlags.VERTEX, name=f"{self.name}-lines-3d")
         self.colors_buffer = GpuBufferProperty(self, r, self.colors, BufferUsageFlags.VERTEX, name=f"{self.name}-lines-3d")
 
-        # TODO: dedup between this and renderer, or dedup between objects, or both
-        self.descriptor_sets = RingBuffer(r.window.num_frames, DescriptorSet, r.ctx, [
-            DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER)
-        ])
         constants_dtype = np.dtype ({
             "transform": (np.dtype((np.float32, (4, 4))), 0),
         })
         self.constants = np.zeros((1,), constants_dtype)
-        self.uniform_buffers = RingBuffer(r.window.num_frames, UploadableBuffer, r.ctx, 64, BufferUsageFlags.UNIFORM)
-        for set, buf in zip(self.descriptor_sets.items, self.uniform_buffers.items):
-            set: DescriptorSet
-            buf: UploadableBuffer
-            set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         vert = r.get_builtin_shader("3d/basic.slang", "vertex_main")
         frag = r.get_builtin_shader("3d/basic.slang", "pixel_main")
@@ -66,15 +57,13 @@ class Line(Object3D):
             attachments = [
                 Attachment(format=r.output_format)
             ],
-            descriptor_sets = [ r.descriptor_sets.get_current(), self.descriptor_sets.get_current() ],
+            descriptor_sets = [ r.descriptor_sets.get_current(), r.uniform_pool.descriptor_set ],
         )
-    
+
     def render(self, r: Renderer, frame: RendererFrame):
-        # TODO: dedup between this and renderer, or dedup between objects, or both
-        set: DescriptorSet = self.descriptor_sets.get_current_and_advance()
-        buf: UploadableBuffer = self.uniform_buffers.get_current_and_advance()
         self.constants["transform"] = self.current_transform_mat4
-        buf.upload(frame.cmd, MemoryUsage.ANY_SHADER_UNIFORM_READ, self.constants.view(np.uint8))
+        constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
+        constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -83,7 +72,8 @@ class Line(Object3D):
                 self.lines_buffer.get_current(),
                 self.colors_buffer.get_current(),
             ],
-            descriptor_sets=[frame.descriptor_set, set],
+            descriptor_sets=[frame.descriptor_set, constants_alloc.descriptor_set],
+            dynamic_offsets=[constants_alloc.offset],
             viewport=frame.viewport,
             scissors=frame.scissors,
         )

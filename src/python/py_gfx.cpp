@@ -109,7 +109,7 @@ struct Context: public nb::intrusive_base {
         bool presentation,
         u32 preferred_frames_in_flight,
         bool vsync,
-        u32 force_physical_device_index, 
+        u32 force_physical_device_index,
         bool prefer_discrete_gpu,
         bool enable_debug_utils,
         bool enable_validation_layer,
@@ -183,7 +183,7 @@ struct GfxObject: public nb::intrusive_base {
 };
 
 struct AllocInfo: nb::intrusive_base {
-    AllocInfo(const VmaAllocationInfo2& info) 
+    AllocInfo(const VmaAllocationInfo2& info)
         : memory_type(info.allocationInfo.memoryType)
         , offset(info.allocationInfo.offset)
         , size(info.allocationInfo.size)
@@ -252,7 +252,7 @@ struct Buffer: GfxObject {
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
         });
         PyBuffer_Release(&view);
-        
+
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to create buffer");
         }
@@ -344,7 +344,7 @@ struct Fence: GfxObject {
 
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_FENCE, fence);
     }
-    
+
     bool is_signaled() {
         VkResult vkr = vkGetFenceStatus(ctx->vk.device, fence);
         if (vkr == VK_ERROR_DEVICE_LOST) {
@@ -1020,7 +1020,7 @@ struct QueryPool: GfxObject {
         if (vkr != VK_SUCCESS) {
             throw std::runtime_error("Failed to get query pool results");
         }
-        
+
         return data;
     }
 
@@ -1246,18 +1246,21 @@ struct CommandBuffer: GfxObject {
         VkPipeline pipeline,
         VkPipelineLayout layout,
         const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+        const std::vector<u32>& dynamic_offsets,
         const std::optional<nb::bytes>& push_constants
     );
 
     void bind_compute_pipeline(
         const ComputePipeline& pipeline,
         const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+        const std::vector<u32>& dynamic_offsets,
         const std::optional<nb::bytes>& push_constants
     );
 
     void bind_graphics_pipeline(
         const GraphicsPipeline& pipeline,
         const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+        const std::vector<u32>& dynamic_offsets,
         const std::optional<nb::bytes>& push_constants,
         const std::vector<nb::ref<Buffer>> vertex_buffers,
         std::optional<nb::ref<Buffer>> index_buffer,
@@ -1467,7 +1470,7 @@ struct Queue: GfxObject {
         }
     }
 
-    void submit(nb::ref<CommandBuffer> cmd, 
+    void submit(nb::ref<CommandBuffer> cmd,
         std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores,
         std::vector<u64> wait_timeline_values,
         std::vector<nb::ref<Semaphore>> signal_semaphores,
@@ -1662,7 +1665,7 @@ struct Window: nb::intrusive_base {
         return new Frame(this, *frame);
     }
 
-    void end_frame(Frame& frame, 
+    void end_frame(Frame& frame,
         const std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>>& additional_wait_semaphores,
         std::vector<u64>& additional_wait_timeline_values,
         const std::vector<nb::ref<Semaphore>>& additional_signal_semaphores,
@@ -1711,7 +1714,7 @@ struct Window: nb::intrusive_base {
             throw std::runtime_error("Failed to present frame");
         }
     }
-    
+
     void post_empty_event() {
         glfwPostEmptyEvent();
     }
@@ -2043,12 +2046,14 @@ struct DescriptorSet: GfxObject {
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, set.layout);
     }
 
-    void write_buffer(const Buffer& buffer, VkDescriptorType type, u32 binding, u32 element) {
+    void write_buffer(const Buffer& buffer, VkDescriptorType type, u32 binding, u32 element, VkDeviceSize offset, VkDeviceSize size) {
         gfx::WriteBufferDescriptor(set.set, ctx->vk, {
             .buffer = buffer.buffer.buffer,
             .type = type,
             .binding = binding,
             .element = element,
+            .offset = offset,
+            .size = size,
         });
     };
 
@@ -2356,6 +2361,7 @@ void CommandBuffer::bind_pipeline_common(
     VkPipeline pipeline,
     VkPipelineLayout layout,
     const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+    const std::vector<u32>& dynamic_offsets,
     const std::optional<nb::bytes>& push_constants)
 {
     // Pipeline
@@ -2367,7 +2373,7 @@ void CommandBuffer::bind_pipeline_common(
         for(usize i = 0; i < sets.length; i++) {
             sets[i] = descriptor_sets[i]->set.set;
         }
-        vkCmdBindDescriptorSets(buffer, bind_point, layout, 0, sets.length, sets.data, 0, 0);
+        vkCmdBindDescriptorSets(buffer, bind_point, layout, 0, sets.length, sets.data, (u32)dynamic_offsets.size(), dynamic_offsets.data());
     }
 
     // Push constants
@@ -2379,14 +2385,16 @@ void CommandBuffer::bind_pipeline_common(
 void CommandBuffer::bind_compute_pipeline(
     const ComputePipeline& pipeline,
     const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+    const std::vector<u32>& dynamic_offsets,
     const std::optional<nb::bytes>& push_constants)
 {
-    bind_pipeline_common(VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, push_constants);
+    bind_pipeline_common(VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, dynamic_offsets, push_constants);
 }
 
 void CommandBuffer::bind_graphics_pipeline(
     const GraphicsPipeline& pipeline,
     const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+    const std::vector<u32>& dynamic_offsets,
     const std::optional<nb::bytes>& push_constants,
     const std::vector<nb::ref<Buffer>> vertex_buffers,
     std::optional<nb::ref<Buffer>> index_buffer,
@@ -2394,7 +2402,7 @@ void CommandBuffer::bind_graphics_pipeline(
     std::array<s32, 4> scissors
 )
 {
-    bind_pipeline_common(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, push_constants);
+    bind_pipeline_common(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, dynamic_offsets, push_constants);
 
     // Vertex buffers
     if(vertex_buffers.size() > 0) {
@@ -2476,7 +2484,7 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<MemoryHeap>([](MemoryHeap *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def_ro("size", &MemoryHeap::size)
         .def_ro("flags", &MemoryHeap::flags)
-        .def("__repr__", [](MemoryHeap& h) { 
+        .def("__repr__", [](MemoryHeap& h) {
             return nb::str("MemoryHeap(size={}, flags={})").format(h.size, h.flags);
         })
     ;
@@ -2485,8 +2493,8 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<MemoryType>([](MemoryType *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def_ro("heap_index", &MemoryType::heap_index)
         .def_ro("property_flags", &MemoryType::property_flags)
-        .def("__repr__", [](MemoryType& t) { 
-            return nb::str("MemoryType(heap_index={}, property_flags={})").format(t.heap_index, t.property_flags); 
+        .def("__repr__", [](MemoryType& t) {
+            return nb::str("MemoryType(heap_index={}, property_flags={})").format(t.heap_index, t.property_flags);
         })
     ;
 
@@ -2494,8 +2502,8 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<MemoryProperties>([](MemoryProperties *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def_ro("memory_heaps", &MemoryProperties::memory_heaps)
         .def_ro("memory_types", &MemoryProperties::memory_types)
-        .def("__repr__", [](MemoryProperties& memory_properties) { 
-            return nb::str("MemoryProperties(memory_heaps={}, memory_types={})").format(memory_properties.memory_heaps, memory_properties.memory_types); 
+        .def("__repr__", [](MemoryProperties& memory_properties) {
+            return nb::str("MemoryProperties(memory_heaps={}, memory_types={})").format(memory_properties.memory_heaps, memory_properties.memory_types);
         })
     ;
 
@@ -2659,7 +2667,7 @@ void gfx_create_bindings(nb::module_& m)
             return nb::bytes(properties.pipeline_cache_uuid, VK_UUID_SIZE);
         })
     ;
-        
+
     nb::class_<Context>(m, "Context",
         nb::intrusive_ptr<Context>([](Context *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<std::tuple<u32, u32>, gfx::DeviceFeatures::Flags, gfx::DeviceFeatures::Flags, bool, u32, bool, u32, bool, bool, bool, bool, bool>(),
@@ -2765,17 +2773,17 @@ void gfx_create_bindings(nb::module_& m)
             return std::make_tuple(timestamps[0], timestamps[1]);
         })
         .def_prop_ro("queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { return new Queue(ctx, ctx->vk.queue); })
-        .def_prop_ro("compute_queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { 
+        .def_prop_ro("compute_queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> {
             if (ctx->vk.compute_queue == VK_NULL_HANDLE) {
                 throw std::runtime_error("Compute queue not supported by device");
             }
-            return new Queue(ctx, ctx->vk.compute_queue); 
+            return new Queue(ctx, ctx->vk.compute_queue);
         })
-        .def_prop_ro("transfer_queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { 
+        .def_prop_ro("transfer_queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> {
             if (ctx->vk.copy_queue == VK_NULL_HANDLE) {
                 throw std::runtime_error("Transfer queue not supported by device");
             }
-            return new Queue(ctx, ctx->vk.copy_queue); 
+            return new Queue(ctx, ctx->vk.copy_queue);
         })
     ;
 
@@ -2874,126 +2882,126 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::enum_<gfx::Key>(m, "Key")
-        .value("SPACE",                 gfx::Key::Space)         
-        .value("APOSTROPHE",            gfx::Key::Apostrophe)    
-        .value("COMMA",                 gfx::Key::Comma)         
-        .value("MINUS",                 gfx::Key::Minus)         
-        .value("PERIOD",                gfx::Key::Period)        
-        .value("SLASH",                 gfx::Key::Slash)         
-        .value("N0",                    gfx::Key::N0)            
-        .value("N1",                    gfx::Key::N1)            
-        .value("N2",                    gfx::Key::N2)            
-        .value("N3",                    gfx::Key::N3)            
-        .value("N4",                    gfx::Key::N4)            
-        .value("N5",                    gfx::Key::N5)            
-        .value("N6",                    gfx::Key::N6)            
-        .value("N7",                    gfx::Key::N7)            
-        .value("N8",                    gfx::Key::N8)            
-        .value("N9",                    gfx::Key::N9)            
-        .value("SEMICOLON",             gfx::Key::Semicolon)     
-        .value("EQUAL",                 gfx::Key::Equal)         
-        .value("A",                     gfx::Key::A)             
-        .value("B",                     gfx::Key::B)             
-        .value("C",                     gfx::Key::C)             
-        .value("D",                     gfx::Key::D)             
-        .value("E",                     gfx::Key::E)             
-        .value("F",                     gfx::Key::F)             
-        .value("G",                     gfx::Key::G)             
-        .value("H",                     gfx::Key::H)             
-        .value("I",                     gfx::Key::I)             
-        .value("J",                     gfx::Key::J)             
-        .value("K",                     gfx::Key::K)             
-        .value("L",                     gfx::Key::L)             
-        .value("M",                     gfx::Key::M)             
-        .value("N",                     gfx::Key::N)             
-        .value("O",                     gfx::Key::O)             
-        .value("P",                     gfx::Key::P)             
-        .value("Q",                     gfx::Key::Q)             
-        .value("R",                     gfx::Key::R)             
-        .value("S",                     gfx::Key::S)             
-        .value("T",                     gfx::Key::T)             
-        .value("U",                     gfx::Key::U)             
-        .value("V",                     gfx::Key::V)             
-        .value("W",                     gfx::Key::W)             
-        .value("X",                     gfx::Key::X)             
-        .value("Y",                     gfx::Key::Y)             
-        .value("Z",                     gfx::Key::Z)             
-        .value("LEFT_BRACKET",          gfx::Key::LeftBracket)   
-        .value("BACKSLASH",             gfx::Key::Backslash)     
-        .value("RIGHT_BRACKET",         gfx::Key::RightBracket)  
-        .value("GRAVE_ACCENT",          gfx::Key::GraveAccent)   
-        .value("WORLD_1",               gfx::Key::World1)        
-        .value("WORLD_2",               gfx::Key::World2)        
-        .value("ESCAPE",                gfx::Key::Escape)        
-        .value("ENTER",                 gfx::Key::Enter)         
-        .value("TAB",                   gfx::Key::Tab)           
-        .value("BACKSPACE",             gfx::Key::Backspace)     
-        .value("INSERT",                gfx::Key::Insert)        
-        .value("DELETE",                gfx::Key::Delete)        
-        .value("RIGHT",                 gfx::Key::Right)         
-        .value("LEFT",                  gfx::Key::Left)          
-        .value("DOWN",                  gfx::Key::Down)          
-        .value("UP",                    gfx::Key::Up)            
-        .value("PAGE_UP",               gfx::Key::PageUp)        
-        .value("PAGE_DOWN",             gfx::Key::PageDown)      
-        .value("HOME",                  gfx::Key::Home)          
-        .value("END",                   gfx::Key::End)           
-        .value("CAPS_LOCK",             gfx::Key::CapsLock)      
-        .value("SCROLL_LOCK",           gfx::Key::ScrollLock)    
-        .value("NUM_LOCK",              gfx::Key::NumLock)       
-        .value("PRINT_SCREEN",          gfx::Key::PrintScreen)   
-        .value("PAUSE",                 gfx::Key::Pause)         
-        .value("F1",                    gfx::Key::F1)            
-        .value("F2",                    gfx::Key::F2)            
-        .value("F3",                    gfx::Key::F3)            
-        .value("F4",                    gfx::Key::F4)            
-        .value("F5",                    gfx::Key::F5)            
-        .value("F6",                    gfx::Key::F6)            
-        .value("F7",                    gfx::Key::F7)            
-        .value("F8",                    gfx::Key::F8)            
-        .value("F9",                    gfx::Key::F9)            
-        .value("F10",                   gfx::Key::F10)           
-        .value("F11",                   gfx::Key::F11)           
-        .value("F12",                   gfx::Key::F12)           
-        .value("F13",                   gfx::Key::F13)           
-        .value("F14",                   gfx::Key::F14)           
-        .value("F15",                   gfx::Key::F15)           
-        .value("F16",                   gfx::Key::F16)           
-        .value("F17",                   gfx::Key::F17)           
-        .value("F18",                   gfx::Key::F18)           
-        .value("F19",                   gfx::Key::F19)           
-        .value("F20",                   gfx::Key::F20)           
-        .value("F21",                   gfx::Key::F21)           
-        .value("F22",                   gfx::Key::F22)           
-        .value("F23",                   gfx::Key::F23)           
-        .value("F24",                   gfx::Key::F24)           
-        .value("F25",                   gfx::Key::F25)           
-        .value("KP0",                   gfx::Key::KP0)           
-        .value("KP1",                   gfx::Key::KP1)           
-        .value("KP2",                   gfx::Key::KP2)           
-        .value("KP3",                   gfx::Key::KP3)           
-        .value("KP4",                   gfx::Key::KP4)           
-        .value("KP5",                   gfx::Key::KP5)           
-        .value("KP6",                   gfx::Key::KP6)           
-        .value("KP7",                   gfx::Key::KP7)           
-        .value("KP8",                   gfx::Key::KP8)           
-        .value("KP9",                   gfx::Key::KP9)           
-        .value("KP_DECIMAL",            gfx::Key::KPDecimal)     
-        .value("KP_DIVIDE",             gfx::Key::KPDivide)      
-        .value("KP_MULTIPLY",           gfx::Key::KPMultiply)    
-        .value("KP_SUBTRACT",           gfx::Key::KPSubtract)    
-        .value("KP_ADD",                gfx::Key::KPAdd)         
-        .value("KP_ENTER",              gfx::Key::KPEnter)       
-        .value("KP_EQUAL",              gfx::Key::KPEqual)       
-        .value("LEFT_SHIFT",            gfx::Key::LeftShift)     
-        .value("LEFT_CONTROL",          gfx::Key::LeftControl)   
-        .value("LEFT_ALT",              gfx::Key::LeftAlt)       
-        .value("LEFT_SUPER",            gfx::Key::LeftSuper)     
-        .value("RIGHT_SHIFT",           gfx::Key::RightShift)    
-        .value("RIGHT_CONTROL",         gfx::Key::RightControl)  
-        .value("RIGHT_ALT",             gfx::Key::RightAlt)      
-        .value("RIGHT_SUPER",           gfx::Key::RightSuper)    
-        .value("MENU",                  gfx::Key::Menu)          
+        .value("SPACE",                 gfx::Key::Space)
+        .value("APOSTROPHE",            gfx::Key::Apostrophe)
+        .value("COMMA",                 gfx::Key::Comma)
+        .value("MINUS",                 gfx::Key::Minus)
+        .value("PERIOD",                gfx::Key::Period)
+        .value("SLASH",                 gfx::Key::Slash)
+        .value("N0",                    gfx::Key::N0)
+        .value("N1",                    gfx::Key::N1)
+        .value("N2",                    gfx::Key::N2)
+        .value("N3",                    gfx::Key::N3)
+        .value("N4",                    gfx::Key::N4)
+        .value("N5",                    gfx::Key::N5)
+        .value("N6",                    gfx::Key::N6)
+        .value("N7",                    gfx::Key::N7)
+        .value("N8",                    gfx::Key::N8)
+        .value("N9",                    gfx::Key::N9)
+        .value("SEMICOLON",             gfx::Key::Semicolon)
+        .value("EQUAL",                 gfx::Key::Equal)
+        .value("A",                     gfx::Key::A)
+        .value("B",                     gfx::Key::B)
+        .value("C",                     gfx::Key::C)
+        .value("D",                     gfx::Key::D)
+        .value("E",                     gfx::Key::E)
+        .value("F",                     gfx::Key::F)
+        .value("G",                     gfx::Key::G)
+        .value("H",                     gfx::Key::H)
+        .value("I",                     gfx::Key::I)
+        .value("J",                     gfx::Key::J)
+        .value("K",                     gfx::Key::K)
+        .value("L",                     gfx::Key::L)
+        .value("M",                     gfx::Key::M)
+        .value("N",                     gfx::Key::N)
+        .value("O",                     gfx::Key::O)
+        .value("P",                     gfx::Key::P)
+        .value("Q",                     gfx::Key::Q)
+        .value("R",                     gfx::Key::R)
+        .value("S",                     gfx::Key::S)
+        .value("T",                     gfx::Key::T)
+        .value("U",                     gfx::Key::U)
+        .value("V",                     gfx::Key::V)
+        .value("W",                     gfx::Key::W)
+        .value("X",                     gfx::Key::X)
+        .value("Y",                     gfx::Key::Y)
+        .value("Z",                     gfx::Key::Z)
+        .value("LEFT_BRACKET",          gfx::Key::LeftBracket)
+        .value("BACKSLASH",             gfx::Key::Backslash)
+        .value("RIGHT_BRACKET",         gfx::Key::RightBracket)
+        .value("GRAVE_ACCENT",          gfx::Key::GraveAccent)
+        .value("WORLD_1",               gfx::Key::World1)
+        .value("WORLD_2",               gfx::Key::World2)
+        .value("ESCAPE",                gfx::Key::Escape)
+        .value("ENTER",                 gfx::Key::Enter)
+        .value("TAB",                   gfx::Key::Tab)
+        .value("BACKSPACE",             gfx::Key::Backspace)
+        .value("INSERT",                gfx::Key::Insert)
+        .value("DELETE",                gfx::Key::Delete)
+        .value("RIGHT",                 gfx::Key::Right)
+        .value("LEFT",                  gfx::Key::Left)
+        .value("DOWN",                  gfx::Key::Down)
+        .value("UP",                    gfx::Key::Up)
+        .value("PAGE_UP",               gfx::Key::PageUp)
+        .value("PAGE_DOWN",             gfx::Key::PageDown)
+        .value("HOME",                  gfx::Key::Home)
+        .value("END",                   gfx::Key::End)
+        .value("CAPS_LOCK",             gfx::Key::CapsLock)
+        .value("SCROLL_LOCK",           gfx::Key::ScrollLock)
+        .value("NUM_LOCK",              gfx::Key::NumLock)
+        .value("PRINT_SCREEN",          gfx::Key::PrintScreen)
+        .value("PAUSE",                 gfx::Key::Pause)
+        .value("F1",                    gfx::Key::F1)
+        .value("F2",                    gfx::Key::F2)
+        .value("F3",                    gfx::Key::F3)
+        .value("F4",                    gfx::Key::F4)
+        .value("F5",                    gfx::Key::F5)
+        .value("F6",                    gfx::Key::F6)
+        .value("F7",                    gfx::Key::F7)
+        .value("F8",                    gfx::Key::F8)
+        .value("F9",                    gfx::Key::F9)
+        .value("F10",                   gfx::Key::F10)
+        .value("F11",                   gfx::Key::F11)
+        .value("F12",                   gfx::Key::F12)
+        .value("F13",                   gfx::Key::F13)
+        .value("F14",                   gfx::Key::F14)
+        .value("F15",                   gfx::Key::F15)
+        .value("F16",                   gfx::Key::F16)
+        .value("F17",                   gfx::Key::F17)
+        .value("F18",                   gfx::Key::F18)
+        .value("F19",                   gfx::Key::F19)
+        .value("F20",                   gfx::Key::F20)
+        .value("F21",                   gfx::Key::F21)
+        .value("F22",                   gfx::Key::F22)
+        .value("F23",                   gfx::Key::F23)
+        .value("F24",                   gfx::Key::F24)
+        .value("F25",                   gfx::Key::F25)
+        .value("KP0",                   gfx::Key::KP0)
+        .value("KP1",                   gfx::Key::KP1)
+        .value("KP2",                   gfx::Key::KP2)
+        .value("KP3",                   gfx::Key::KP3)
+        .value("KP4",                   gfx::Key::KP4)
+        .value("KP5",                   gfx::Key::KP5)
+        .value("KP6",                   gfx::Key::KP6)
+        .value("KP7",                   gfx::Key::KP7)
+        .value("KP8",                   gfx::Key::KP8)
+        .value("KP9",                   gfx::Key::KP9)
+        .value("KP_DECIMAL",            gfx::Key::KPDecimal)
+        .value("KP_DIVIDE",             gfx::Key::KPDivide)
+        .value("KP_MULTIPLY",           gfx::Key::KPMultiply)
+        .value("KP_SUBTRACT",           gfx::Key::KPSubtract)
+        .value("KP_ADD",                gfx::Key::KPAdd)
+        .value("KP_ENTER",              gfx::Key::KPEnter)
+        .value("KP_EQUAL",              gfx::Key::KPEqual)
+        .value("LEFT_SHIFT",            gfx::Key::LeftShift)
+        .value("LEFT_CONTROL",          gfx::Key::LeftControl)
+        .value("LEFT_ALT",              gfx::Key::LeftAlt)
+        .value("LEFT_SUPER",            gfx::Key::LeftSuper)
+        .value("RIGHT_SHIFT",           gfx::Key::RightShift)
+        .value("RIGHT_CONTROL",         gfx::Key::RightControl)
+        .value("RIGHT_ALT",             gfx::Key::RightAlt)
+        .value("RIGHT_SUPER",           gfx::Key::RightSuper)
+        .value("MENU",                  gfx::Key::Menu)
     ;
 
     nb::enum_<gfx::MouseButton>(m, "MouseButton")
@@ -3093,7 +3101,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Queue, GfxObject>(m, "Queue")
-        .def("__repr__", [](Queue& queue) { 
+        .def("__repr__", [](Queue& queue) {
             return nb::str("Queue()");
         })
         .def("submit", &Queue::submit,
@@ -3129,7 +3137,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<QueryPool, GfxObject>(m, "QueryPool")
         .def(nb::init<nb::ref<Context>, VkQueryType, u32, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("type"), nb::arg("count"), nb::arg("name") = nb::none())
-        .def("__repr__", [](QueryPool& pool) { 
+        .def("__repr__", [](QueryPool& pool) {
             return nb::str("QueryPool(name={}, type={}, count={})").format(pool.name, pool.type, pool.count);
         })
         .def_ro("type", &QueryPool::type)
@@ -3139,8 +3147,8 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<AllocInfo>(m, "AllocInfo",
         nb::intrusive_ptr<AllocInfo>([](AllocInfo *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def("__repr__", [](AllocInfo& info) { 
-            return nb::str("AllocationInfo(memory_type={}, offset={}, size={}, is_dedicated={})").format(info.memory_type, info.offset, info.size, info.is_dedicated); 
+        .def("__repr__", [](AllocInfo& info) {
+            return nb::str("AllocationInfo(memory_type={}, offset={}, size={}, is_dedicated={})").format(info.memory_type, info.offset, info.size, info.is_dedicated);
         })
         .def_ro("memory_type", &AllocInfo::memory_type)
         .def_ro("offset", &AllocInfo::offset)
@@ -3151,8 +3159,8 @@ void gfx_create_bindings(nb::module_& m)
     nb::class_<Buffer, GfxObject> buffer_type(m, "Buffer", nb::type_slots(buffer_slots));
     buffer_type
         .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
-        .def("__repr__", [](Buffer& buf) { 
-            return nb::str("Buffer(name={}, size={})").format(buf.name, buf.size); 
+        .def("__repr__", [](Buffer& buf) {
+            return nb::str("Buffer(name={}, size={})").format(buf.name, buf.size);
         })
         .def("destroy", &Buffer::destroy)
         .def_static("from_data", &Buffer::from_data, nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
@@ -3182,8 +3190,8 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<ExternalBuffer, Buffer>(m, "ExternalBuffer")
         .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
-        .def("__repr__", [](ExternalBuffer& buf) { 
-            return nb::str("ExternalBuffer(name={}, size={})").format(buf.name, buf.size); 
+        .def("__repr__", [](ExternalBuffer& buf) {
+            return nb::str("ExternalBuffer(name={}, size={})").format(buf.name, buf.size);
         })
         .def("destroy", &ExternalBuffer::destroy)
         .def_prop_ro("handle", [] (ExternalBuffer& buffer) { return (u64)buffer.handle; })
@@ -3191,8 +3199,8 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<Image, GfxObject>(m, "Image")
         .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, int, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("samples") = 1, nb::arg("name") = nb::none())
-        .def("__repr__", [](Image& image) { 
-            return nb::str("Image(name={}, width={}, height={}, format={}, samples={})").format(image.name, image.width, image.height, image.format, image.samples); 
+        .def("__repr__", [](Image& image) {
+            return nb::str("Image(name={}, width={}, height={}, format={}, samples={})").format(image.name, image.width, image.height, image.format, image.samples);
         })
         .def("destroy", &Image::destroy)
         .def_static("from_data", &Image::from_data,
@@ -3248,7 +3256,7 @@ void gfx_create_bindings(nb::module_& m)
                 nb::arg("compare_op")        = VK_COMPARE_OP_ALWAYS,
                 nb::arg("name") = nb::none()
             )
-        .def("__repr__", [](Sampler& sampler) { 
+        .def("__repr__", [](Sampler& sampler) {
             return nb::str("Sampler(name={})").format(sampler.name);
         })
         .def("destroy", &Sampler::destroy)
@@ -3256,7 +3264,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<AccelerationStructure, GfxObject>(m, "AccelerationStructure")
         .def(nb::init<nb::ref<Context>, const std::vector<AccelerationStructureMesh>, bool, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("meshes"), nb::arg("prefer_fast_build") = false, nb::arg("name") = nb::none())
-        .def("__repr__", [](AccelerationStructure& as) { 
+        .def("__repr__", [](AccelerationStructure& as) {
             return nb::str("AccelerationStructure(name={})").format(as.name);
         })
         .def("destroy", &AccelerationStructure::destroy)
@@ -3264,7 +3272,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<Fence, GfxObject>(m, "Fence")
         .def(nb::init<nb::ref<Context>, bool, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("signaled") = false, nb::arg("name") = nb::none())
-        .def("__repr__", [](Fence& fence) { 
+        .def("__repr__", [](Fence& fence) {
             return nb::str("Fence(name={})").format(fence.name);
         })
         .def("destroy", &Fence::destroy)
@@ -3276,7 +3284,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<Semaphore, GfxObject>(m, "Semaphore")
         .def(nb::init<nb::ref<Context>, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("name") = nb::none())
-        .def("__repr__", [](Semaphore& semaphore) { 
+        .def("__repr__", [](Semaphore& semaphore) {
             return nb::str("Semaphore(name={})").format(semaphore.name);
         })
         .def("destroy", &Semaphore::destroy)
@@ -3284,7 +3292,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<TimelineSemaphore, Semaphore>(m, "TimelineSemaphore")
         .def(nb::init<nb::ref<Context>, u64, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("initial_value") = 0, nb::arg("name") = nb::none())
-        .def("__repr__", [](TimelineSemaphore& semaphore) { 
+        .def("__repr__", [](TimelineSemaphore& semaphore) {
             return nb::str("TimelineSemaphore(name={})").format(semaphore.name);
         })
         .def("get_value", &TimelineSemaphore::get_value)
@@ -3294,7 +3302,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<ExternalSemaphore, Semaphore>(m, "ExternalSemaphore")
         .def(nb::init<nb::ref<Context>, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("name") = nb::none())
-        .def("__repr__", [](ExternalSemaphore& semaphore) { 
+        .def("__repr__", [](ExternalSemaphore& semaphore) {
             return nb::str("ExternalSemaphore(name={}, handle={})").format(semaphore.name, (u64)semaphore.handle);
         })
         .def("destroy", &ExternalSemaphore::destroy)
@@ -3303,7 +3311,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<ExternalTimelineSemaphore, TimelineSemaphore>(m, "ExternalTimelineSemaphore")
         .def(nb::init<nb::ref<Context>, u64, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("initial_value") = 0, nb::arg("name") = nb::none())
-        .def("__repr__", [](ExternalTimelineSemaphore& semaphore) { 
+        .def("__repr__", [](ExternalTimelineSemaphore& semaphore) {
             return nb::str("ExternalTimelineSemaphore(name={}, handle={})").format(semaphore.name, (u64)semaphore.handle);
         })
         .def("destroy", &ExternalTimelineSemaphore::destroy)
@@ -3405,7 +3413,7 @@ void gfx_create_bindings(nb::module_& m)
         .def(nb::init<nb::ref<Context>, std::optional<u32>, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("queue_family_index") = nb::none(), nb::arg("name") = nb::none())
         .def("__enter__", &CommandBuffer::enter)
         .def("__exit__", &CommandBuffer::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
-        .def("__repr__", [](CommandBuffer& buf) { 
+        .def("__repr__", [](CommandBuffer& buf) {
             return nb::str("CommandBuffer(name={})").format(buf.name);
         })
         .def("destroy", &CommandBuffer::destroy)
@@ -3420,6 +3428,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("bind_graphics_pipeline", &CommandBuffer::bind_graphics_pipeline,
             nb::arg("pipeline"),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("dynamic_offsets") = std::vector<nb::ref<DescriptorSet>>(),
             nb::arg("push_constants") = std::optional<nb::bytes>(),
             nb::arg("vertex_buffers") = std::vector<nb::ref<Buffer>>(),
             nb::arg("index_buffer") = std::optional<nb::ref<Buffer>>(),
@@ -3429,6 +3438,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("bind_compute_pipeline", &CommandBuffer::bind_compute_pipeline,
             nb::arg("pipeline"),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("dynamic_offsets") = std::vector<nb::ref<DescriptorSet>>(),
             nb::arg("push_constants") = std::optional<nb::bytes>()
         )
         .def("dispatch", &CommandBuffer::dispatch,
@@ -3490,7 +3500,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<Shader, GfxObject>(m, "Shader")
         .def(nb::init<nb::ref<Context>, const nb::bytes&, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("code"), nb::arg("name") = nb::none())
-        .def("__repr__", [](Shader& shader) { 
+        .def("__repr__", [](Shader& shader) {
             return nb::str("Shader(name={})").format(shader.name);
         })
         .def("destroy", &Shader::destroy)
@@ -3935,11 +3945,11 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<DescriptorSet, GfxObject>(m, "DescriptorSet")
         .def(nb::init<nb::ref<Context>, const std::vector<DescriptorSetEntry>&, VkDescriptorBindingFlagBits, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("entries"), nb::arg("flags") = VkDescriptorBindingFlagBits(), nb::arg("name") = nb::none())
-        .def("__repr__", [](DescriptorSet& set) { 
+        .def("__repr__", [](DescriptorSet& set) {
             return nb::str("DescriptorSet(name={})").format(set.name);
         })
         .def("destroy", &DescriptorSet::destroy)
-        .def("write_buffer", &DescriptorSet::write_buffer, nb::arg("buffer"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0)
+        .def("write_buffer", &DescriptorSet::write_buffer, nb::arg("buffer"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0, nb::arg("offset") = 0, nb::arg("size") = VK_WHOLE_SIZE)
         .def("write_image", &DescriptorSet::write_image, nb::arg("image"), nb::arg("usage"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0)
         .def("write_sampler", &DescriptorSet::write_sampler, nb::arg("sampler"), nb::arg("binding"), nb::arg("element") = 0)
         .def("write_acceleration_structure", &DescriptorSet::write_acceleration_structure, nb::arg("acceleration_structure"), nb::arg("binding"), nb::arg("element") = 0)
@@ -4102,7 +4112,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
             nb::arg("name") = nb::none()
         )
-        .def("__repr__", [](ComputePipeline& pipeline) { 
+        .def("__repr__", [](ComputePipeline& pipeline) {
             return nb::str("ComputePipeline(name={})").format(pipeline.name);
         })
         .def("destroy", &ComputePipeline::destroy)
@@ -4134,7 +4144,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("depth") = Depth(VK_FORMAT_UNDEFINED),
             nb::arg("name") = nb::none()
         )
-        .def("__repr__", [](GraphicsPipeline& pipeline) { 
+        .def("__repr__", [](GraphicsPipeline& pipeline) {
             return nb::str("GraphicsPipeline(name={})").format(pipeline.name);
         })
         .def("destroy", &GraphicsPipeline::destroy)
