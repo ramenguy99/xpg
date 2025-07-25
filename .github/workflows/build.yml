@@ -1,10 +1,11 @@
 name: Build
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch
+  # push:
+  #   branches: [ main ]
+  # pull_request:
+  #   branches: [ main ]
 
 jobs:
   build:
@@ -13,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2025, macos-13, macos-14]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2025, macos-14]
 
     steps:
       - uses: actions/checkout@v4
