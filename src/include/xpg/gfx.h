@@ -1,10 +1,17 @@
 #pragma once
 
 // External
+#ifndef XPG_MOLTENVK_STATIC
 #ifdef _WIN32
 #define VK_USE_PLATFORM_WIN32_KHR
 #endif
 #include <volk.h>                           // Vulkan
+#else
+// If linking statically with MoltenVK we use the standard
+// headers directly because we don't dynamically load with volk.
+#include <vulkan/vulkan.h>
+#endif
+
 #define VMA_STATIC_VULKAN_FUNCTIONS 1
 #include <vk_mem_alloc.h>                   // Vulkan Memory Allocator
 

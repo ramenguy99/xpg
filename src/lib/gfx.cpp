@@ -75,8 +75,18 @@ VulkanDebugUtilsMessengerCallback(
     return VK_FALSE;
 }
 
+// Error callback function
+static void Callback_Error(int error, const char* description) {
+    // Print the error code and description to stdout
+    logging::error("glfw", "[%d]: %s", error, description);
+}
+
 Result
 Init() {
+    glfwSetErrorCallback(Callback_Error);
+#ifdef XPG_MOLTENVK_STATIC
+    glfwInitVulkanLoader(vkGetInstanceProcAddr);
+#endif
     glfwInit();
     return Result::SUCCESS;
 }
@@ -276,12 +286,14 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 {
     VkResult result;
 
+#ifndef XPG_MOLTENVK_STATIC
     // Initialize vulkan loader.
     result = volkInitialize();
     if (result != VK_SUCCESS) {
         logging::error("gfx", "volkInitialize failed: %d", result);
         return Result::API_ERROR;
     }
+#endif
 
     // Query vulkan version. If this is not available it's 1.0
     u32 instance_version = VK_API_VERSION_1_0;
@@ -437,7 +449,9 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     }
 
     // Load vulkan functions.
+#ifndef XPG_MOLTENVK_STATIC
     volkLoadInstance(instance);
+#endif
 
     // Install debug callback.
     VkDebugUtilsMessengerEXT debug_messenger = 0;
@@ -729,6 +743,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                             if (supports_presentation) {
                                 logging::trace("gfx/device", "    picked for presentation");
                             }
+                        } else {
+                            logging::trace("gfx/device", "    discarded because of no presentation support");
                         }
                     }
                 } else if(prop.queueFlags & VK_QUEUE_COMPUTE_BIT) {
@@ -1984,6 +2000,9 @@ DestroyGPUSemaphore(VkDevice device, VkSemaphore* semaphore)
 
 
 VkResult GetExternalHandleForSemaphore(ExternalHandle* handle, const Context& vk, VkSemaphore semaphore) {
+#ifdef XPG_MOLTENVK_STATIC
+    return VK_ERROR_FEATURE_NOT_PRESENT;
+#else
 #if _WIN32
     VkSemaphoreGetWin32HandleInfoKHR semaphore_get_handle_info = { VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR };
     semaphore_get_handle_info.semaphore = semaphore;
@@ -1996,6 +2015,7 @@ VkResult GetExternalHandleForSemaphore(ExternalHandle* handle, const Context& vk
     semaphore_get_handle_info.handleType = EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT;
 
     return vkGetSemaphoreFdKHR(vk.device, &semaphore_get_handle_info, handle);
+#endif
 #endif
 }
 
@@ -2172,6 +2192,9 @@ typedef int ExternalHandle;
 #endif
 
 VkResult GetExternalHandleForBuffer(ExternalHandle* handle, const Context& vk, const Buffer& buffer) {
+#ifdef XPG_MOLTENVK_STATIC
+    return VK_ERROR_FEATURE_NOT_PRESENT;
+#else
     VmaAllocationInfo alloc_info = {};
     vmaGetAllocationInfo(vk.vma, buffer.allocation, &alloc_info);
 
@@ -2187,6 +2210,7 @@ VkResult GetExternalHandleForBuffer(ExternalHandle* handle, const Context& vk, c
     memory_get_fd_info.handleType = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
 
     return vkGetMemoryFdKHR(vk.device, &memory_get_fd_info, handle);
+#endif
 #endif
 }
 
@@ -2788,6 +2812,9 @@ VkDeviceAddress GetBufferAddress(VkBuffer buffer, VkDevice device)
 
 VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &vk, const AccelerationStructureDesc &&desc)
 {
+#ifdef XPG_MOLTENVK_STATIC
+    return VK_ERROR_FEATURE_NOT_PRESENT;
+#else
     VkResult vkr = VK_SUCCESS;
 
     // Create blases
@@ -3070,9 +3097,11 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
     as->instances_buffer = instances_buffer;
 
     return VK_SUCCESS;
+#endif
 }
 
 void DestroyAccelerationStructure(AccelerationStructure* as, const Context& vk) {
+#ifndef XPG_MOLTENVK_STATIC
     vkDestroyAccelerationStructureKHR(vk.device, as->tlas, 0);
     as->tlas = VK_NULL_HANDLE;
 
@@ -3084,6 +3113,7 @@ void DestroyAccelerationStructure(AccelerationStructure* as, const Context& vk) 
     gfx::DestroyBuffer(&as->tlas_buffer, vk);
     gfx::DestroyBuffer(&as->instances_buffer, vk);
     gfx::DestroyBuffer(&as->blas_buffer, vk);
+#endif
 }
 
 FormatInfo GetFormatInfo(VkFormat format)

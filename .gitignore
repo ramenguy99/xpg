@@ -16,13 +16,7 @@ imgui.ini
 
 /out/
 /build/
-/build-release
-/build-debug
-/build-deploy
-/build-test
-/build-slang
-/build-msvc
-/build-python
+/build-*
 
 /install
 /install-deploy

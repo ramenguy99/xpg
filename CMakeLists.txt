@@ -24,7 +24,7 @@ endif()
 if (NOT WIN32)
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 endif()
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-volatile -Wno-nullability-completeness")
 endif()
 
@@ -136,6 +136,23 @@ target_include_directories(xpg PUBLIC
 )
 
 target_link_libraries(xpg PUBLIC Vulkan-Headers volk_headers glfw glm VulkanMemoryAllocator)
+if (APPLE)
+    if (NOT "${XPG_MOLTENVK_PATH}" STREQUAL "")
+        target_link_directories(xpg PUBLIC "${XPG_MOLTENVK_PATH}/MoltenVK/static/MoltenVK.xcframework/macos-arm64_x86_64/")
+        # target_include_directories(xpg PUBLIC "${XPG_MOLTENVK_PATH}MoltenVK/include")
+        target_link_libraries(xpg PUBLIC "libMoltenVK.a")
+        target_compile_definitions(xpg PUBLIC XPG_MOLTENVK_STATIC=1)
+        target_link_libraries(xpg PUBLIC
+            "-framework Metal"
+            "-framework Foundation"
+            "-framework QuartzCore"
+            "-framework CoreGraphics"
+            "-framework IOSurface"
+            "-framework IOKit"
+            "-framework AppKit"
+        )
+    endif()
+endif()
 
 if (NOT SKBUILD)
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/src/include/xpg DESTINATION "include" FILES_MATCHING PATTERN "*.h")
