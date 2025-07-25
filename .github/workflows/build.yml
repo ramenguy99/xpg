@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2025, macos-14]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2025, macos-13, macos-14]
 
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
           cd build
           cmake -DXPG_BUILD_SLANG=0 ..
           cmake --build . --config=Debug -j
-  
+
       - name: Build (macOS)
         if: runner.os == 'macOS'
         run: |
