@@ -57,6 +57,11 @@ select = "*-musllinux*"
 before-all = [ "apk add xorg-server-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev" ]
 # Needed for GLFW wayland: libwayland-dev libxkbcommon-dev wayland-protocols
 
+# No python 3.8 for arm64 mac
+[[tool.cibuildwheel.overrides]]
+select = "*-macosx_arm64*"
+build = ["cp39-*", "cp310-*", "cp311-*", "cp312-*"]
+
 # Needed for full C++17 support on macOS
 [tool.cibuildwheel.macos.environment]
 MACOSX_DEPLOYMENT_TARGET = "10.14"
