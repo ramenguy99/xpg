@@ -28,7 +28,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Prepare cibuildwheel environment (UNIX)
+      - name: Download and setup MoltenVK (macOS)
         if: runner.os == 'macOS'
         run: |
           wget https://github.com/KhronosGroup/MoltenVK/releases/download/v1.3.0/MoltenVK-macos.tar

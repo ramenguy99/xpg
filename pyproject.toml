@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pyxpg"
-version = "0.0.3"
+version = "0.0.4"
 description = "XPG python bindings"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -38,7 +38,7 @@ cmake.define.XPG_BUILD_SLANG = "ON"
 if.platform-system = "^linux"
 inherit.cmake.define = "append"
 cmake.define.CMAKE_CXX_FLAGS = "-D_LARGEFILE64_SOURCE"
-cmake.define.CMAKE_C_FLAGS="-D_POSIX_C_SOURCE=199309L -D_POSIX_SOURCE=199309L -D_XOPEN_SOURCE=700 -D_GNU_SOURCE" 
+cmake.define.CMAKE_C_FLAGS="-D_POSIX_C_SOURCE=199309L -D_POSIX_SOURCE=199309L -D_XOPEN_SOURCE=700 -D_GNU_SOURCE"
 
 [tool.cibuildwheel]
 build-verbosity = 1
