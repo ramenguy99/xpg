@@ -1189,6 +1189,8 @@ void DestroyContext(Context* vk) {
         vkDestroyDebugUtilsMessengerEXT(vk->instance, vk->debug_messenger, 0);
     }
     vkDestroyInstance(vk->instance, 0);
+
+    *vk = {};
 }
 
 void WaitIdle(Context& vk) {
@@ -1791,6 +1793,7 @@ DestroyWindowWithSwapchain(Window* w, const Context& vk)
         }
     }
 
+    *w = {};
 }
 
 void CmdMemoryBarrier(VkCommandBuffer cmd, const MemoryBarrierDesc &&desc)

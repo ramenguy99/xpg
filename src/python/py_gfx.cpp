@@ -1721,8 +1721,10 @@ struct Window: nb::intrusive_base {
 
     ~Window()
     {
-        gfx::WaitIdle(ctx->vk);
-        gfx::DestroyWindowWithSwapchain(&window, ctx->vk);
+        if (ctx) {
+            gfx::WaitIdle(ctx->vk);
+            gfx::DestroyWindowWithSwapchain(&window, ctx->vk);
+        }
     }
 
     bool should_close() {
@@ -1731,7 +1733,6 @@ struct Window: nb::intrusive_base {
 
     nb::ref<Context> ctx;
     gfx::Window window;
-    std::vector<Frame> frames;
 
     Function<void()> draw;
     Function<void(nb::tuple)> mouse_move_event;
@@ -1769,9 +1770,13 @@ struct Window: nb::intrusive_base {
         // Retrieve a pointer to the C++ instance associated with 'self' (never fails)
         Window *w = nb::inst_ptr<Window>(self);
 
+        // Manually call destructor. The object will be left in a safe to destruct
+        // state because the destructor will be called again.
+        w->~Window();
+
         // Clear the cycle!
         w->ctx.reset();
-        w->draw                = nullptr;
+        w->draw               = nullptr;
         w->mouse_move_event   = nullptr;
         w->mouse_button_event = nullptr;
         w->mouse_scroll_event = nullptr;
