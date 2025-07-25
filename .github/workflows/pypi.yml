@@ -7,6 +7,10 @@ on:
         description: 'Upload wheels to PyPI? (0: no, 1: yes)'
         required: true
         default: '0'
+      fast:
+        description: 'Build only python 3.9? (0: no, 1: yes)'
+        required: true
+        default: '0'
 
 jobs:
   # Wheels
@@ -25,13 +29,20 @@ jobs:
           submodules: recursive
 
       - name: Prepare cibuildwheel environment (UNIX)
-        if: runner.os != 'macOS'
+        if: runner.os == 'macOS'
         run: |
           wget https://github.com/KhronosGroup/MoltenVK/releases/download/v1.3.0/MoltenVK-macos.tar
           tar xvf MoltenVK-macos.tar
           echo "CIBW_CONFIG_SETTINGS=\"cmake.define.XPG_MOLTENVK_PATH=\"$(pwd)/MoltenVK\"\"" >> $GITHUB_ENV
 
+      - name: Build wheels (Python 3.9 only)
+        if: ${{ github.event.inputs.fast == '1'}}
+        env:
+          CIBW_BUILD: "cp39-*"
+        uses: pypa/cibuildwheel@v2.23.2
+
       - name: Build wheels
+        if: ${{ github.event.inputs.fast == '0'}}
         uses: pypa/cibuildwheel@v2.23.2
 
       - uses: actions/upload-artifact@v4
