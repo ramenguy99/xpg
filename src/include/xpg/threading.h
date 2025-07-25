@@ -6,8 +6,12 @@
 #include "platform.h"
 
 #ifdef __aarch64__
+#ifdef __clang__
 #include <arm_acle.h>
 #define SpinlockHint() __yield()
+#else
+#define SpinlockHint() do {} while(0)
+#endif
 #else
 #define SpinlockHint() _mm_pause()
 #endif
@@ -19,17 +23,17 @@
 // #else
 //     int fd;
 // #endif // _WIN32
-// 
+//
 //     ConditionVariable() {
 // #ifdef _WIN32
 //         InitializeCriticalSection(&lock);
 //         InitializeConditionVariable(&cv);
 // #endif
 //     }
-// 
+//
 //     void signal() {
 //     }
-// 
+//
 //     void wait() {
 //     }
 // };
@@ -127,7 +131,7 @@ struct alignas(64) BlockingCounter {
     }
 };
 
-struct Thread {    
+struct Thread {
 #ifdef _WIN32
     HANDLE handle;
 
