@@ -34,5 +34,7 @@ imgui.ini
 /ext/thsvs
 /diagrams
 /today.txt
+/MoltenVK
 
 *.egg-info
+*.tar

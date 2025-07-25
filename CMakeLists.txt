@@ -141,7 +141,7 @@ if (APPLE)
         target_link_directories(xpg PUBLIC "${XPG_MOLTENVK_PATH}/MoltenVK/static/MoltenVK.xcframework/macos-arm64_x86_64/")
         # target_include_directories(xpg PUBLIC "${XPG_MOLTENVK_PATH}MoltenVK/include")
         target_link_libraries(xpg PUBLIC "libMoltenVK.a")
-        target_compile_definitions(xpg PUBLIC XPG_MOLTENVK_STATIC=1)
+        target_compile_definitions(xpg PUBLIC XPG_MOLTENVK_STATIC)
         target_link_libraries(xpg PUBLIC
             "-framework Metal"
             "-framework Foundation"
