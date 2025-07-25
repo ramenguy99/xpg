@@ -12,7 +12,7 @@ set(XPG_BUILD_GLSLANG_AND_SPIRV OFF CACHE BOOL "Build XPG with GLSL and SPIRV su
 set(XPG_MSVC_ANALYZE OFF CACHE BOOL "Build with /analyze when using MSVC (heavily increases build times)")
 
 # Compiler specific
-if (MSVC) 
+if (MSVC)
     if (${XPG_MSVC_ANALYZE})
         set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /analyze")
     endif()
@@ -138,8 +138,9 @@ target_include_directories(xpg PUBLIC
 target_link_libraries(xpg PUBLIC Vulkan-Headers volk_headers glfw glm VulkanMemoryAllocator)
 if (APPLE)
     if (NOT "${XPG_MOLTENVK_PATH}" STREQUAL "")
+        message("xpg: Linking statically with MoltenVK at ${XPG_MOLTENVK_PATH}")
+
         target_link_directories(xpg PUBLIC "${XPG_MOLTENVK_PATH}/MoltenVK/static/MoltenVK.xcframework/macos-arm64_x86_64/")
-        # target_include_directories(xpg PUBLIC "${XPG_MOLTENVK_PATH}MoltenVK/include")
         target_link_libraries(xpg PUBLIC "libMoltenVK.a")
         target_compile_definitions(xpg PUBLIC XPG_MOLTENVK_STATIC)
         target_link_libraries(xpg PUBLIC
@@ -216,14 +217,14 @@ if(XPG_BUILD_PYTHON)
     install(TARGETS _pyxpg DESTINATION "pyxpg")
 
     # Build time generated files for typing
-    install(FILES 
+    install(FILES
         ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/__init__.pyi
         ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/py.typed
         DESTINATION
         "pyxpg")
 
     # Python sources
-    install(FILES 
+    install(FILES
         ${CMAKE_SOURCE_DIR}/src/python/pyxpg/__init__.py
         DESTINATION
         "pyxpg")
@@ -237,17 +238,17 @@ if(XPG_BUILD_PYTHON)
         DEPENDS _pyxpg
     )
 
-    install(FILES 
+    install(FILES
         ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/imgui/__init__.pyi
         ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/imgui/py.typed
         DESTINATION
         "pyxpg/imgui")
 
-    install(FILES 
+    install(FILES
         ${CMAKE_SOURCE_DIR}/src/python/pyxpg/imgui/__init__.py
         DESTINATION
         "pyxpg/imgui")
-    
+
     # Slang
     if(XPG_BUILD_SLANG)
         nanobind_add_stub(pyxpg_slang_stub
@@ -258,13 +259,13 @@ if(XPG_BUILD_PYTHON)
             DEPENDS _pyxpg
         )
 
-        install(FILES 
+        install(FILES
             ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/slang/__init__.pyi
             ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/slang/py.typed
             DESTINATION
             "pyxpg/slang")
 
-        install(FILES 
+        install(FILES
             ${CMAKE_SOURCE_DIR}/src/python/pyxpg/slang/__init__.py
             DESTINATION
             "pyxpg/slang")
