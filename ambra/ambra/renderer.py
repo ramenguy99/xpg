@@ -87,13 +87,7 @@ class Renderer:
                     buf.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM_READ, self.constants.view(np.uint8))
 
                     f = RendererFrame(cmd, viewport_rect, rect, set)
-                    def render_obj(obj: Object):
-                        obj.render(self, f)
-                        for c in obj.children:
-                            render_obj(c)
-
-                    for o in viewport.scene.objects:
-                        render_obj(o)
+                    viewport.scene.render(self, f)
 
                     gui.render(cmd)
 

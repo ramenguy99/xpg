@@ -211,7 +211,13 @@ class Object:
         property = as_property(prop, dtype, shape, animation, name)
         self.properties.append(property)
         self.update_callbacks.append(lambda time, frame: property.update(time,frame))
+        self.created = False
         return property
+
+    def create_if_needed(self, renderer):
+        if not self.created:
+            self.create(renderer)
+            self.created = True
 
     def create(self, renderer):
         pass
@@ -308,4 +314,10 @@ class Scene:
         def visit(p: Object, o: Object):
             o.update(time, frame)
             o.update_transform(p)
+        self.visit_objects(visit)
+
+    def render(self, renderer, frame):
+        def visit(p: Object, o: Object):
+            o.create_if_needed(renderer)
+            o.render(renderer, frame)
         self.visit_objects(visit)

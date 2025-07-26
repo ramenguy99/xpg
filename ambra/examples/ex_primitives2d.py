@@ -39,11 +39,9 @@ rotation = as_property(np.linspace(0, 4 * np.pi, 50), np.float32, animation=Fram
 translation = as_property(np.linspace(np.array([0, 0]), np.array([1, 1]), 50), np.float32, (2,), FrameAnimation(AnimationBoundary.MIRROR))
 
 line = Lines(positions, colors, line_width, scale=scale, translation=translation, rotation=rotation)
-line.create(viewer.renderer)
 
 translation = as_property(np.linspace(np.array([1, 0]), np.array([2, 0]), 50), np.float32, (2,), FrameAnimation(AnimationBoundary.MIRROR))
 line2 = Lines(positions, colors, line_width, scale=None, translation=translation)
-line2.create(viewer.renderer)
 
 viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(0, 0, -1), vec3(0, 0, 0), vec3(0, -1, 0))
 viewer.viewport.scene.objects.extend([line, line2])

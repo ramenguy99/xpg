@@ -35,7 +35,6 @@ for i in range(H):
 image = (np.linspace(start, end, 100) * 255).astype(np.uint8)
 
 img = Image(image, translation=translation, scale=(1, W / H, 1))
-img.create(viewer.renderer)
 
 viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(0, 0, -1), vec3(0, 0, 0), vec3(0, -1, 0))
 viewer.viewport.scene.objects.extend([img])

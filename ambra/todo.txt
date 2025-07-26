@@ -9,14 +9,14 @@ Viewer:
     - [ ] Spheres
     - [ ] Cilinders (with/without caps)
     - [ ] Meshes
-    - [ ] 2D Images
-    - [ ] 3D Images (e.g. textured quads)
+    - [x] 2D Images
+    - [x] 3D Images (e.g. textured quads)
 - [ ] Renderer architecture / path tracer support
 - [-] Server
 - [ ] Gui helpers
 - [ ] Viewports
 - [ ] Strong focus on extensions
-- [ ] Frame helpers (ideally at object level, shared across all primitives)
+- [x] Frame helpers (ideally at object level, shared across all primitives)
     - Fixed framerate
     - Variable rate
     - Missing frames / holes in data (different from hold last pose)
@@ -118,9 +118,8 @@ Features:
     [x] Cleanup constants dup
 [x] Uniform pool helper
 [x] Images and upload
-[ ] .create currently has to be called manually on primitives
+[x] .create currently has to be called manually on primitives
 [ ] Camera movement
-[ ] 2D vs 3D renderer (maybe only a single renderer but can also both scene types?)
 [ ] Viewport:
     [x] resize
     [ ] multiple viewports
@@ -130,8 +129,11 @@ Features:
     [ ] Playback UI
     [ ] Fps display for debug
     [ ] Port built-in profiler
+[ ] Streaming properties
 [ ] Shader cache vs hot reload
+[ ] Hook pyxpg logging into python logging
 
 Config:
 [ ] vulkan validation options
+[ ] Improve camera initialization (especially ortho for 2D case)
 [ ] add a way to set viewer position in addition to size? (expose glfw for this)
