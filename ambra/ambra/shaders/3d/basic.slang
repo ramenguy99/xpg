@@ -1,5 +1,5 @@
-import common;
-import common_object;
+import "../common";
+import "common_object";
 
 struct VSInput
 {

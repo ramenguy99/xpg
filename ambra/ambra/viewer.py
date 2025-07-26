@@ -2,7 +2,7 @@ from typing import Optional
 from queue import Queue, Empty
 from time import perf_counter_ns
 
-from pyglm.glm import ivec2
+from pyglm.glm import ivec2, vec2
 from pyxpg import Context, Window, Gui, DeviceFeatures, Key, MouseButton, Action, Modifiers, SwapchainStatus, process_events
 
 from .config import Config, CameraType
@@ -10,7 +10,7 @@ from .server import Server, Client, RawMessage, Message, parse_builtin_messages
 from .renderer import Renderer
 from .scene import Scene
 from .camera import PerspectiveCamera, OrthographicCamera, CameraDepth
-from .transform3d import RigidTransform
+from .transform3d import RigidTransform3D
 from .viewport import Viewport, Playback, Rect
 
 class Viewer:
@@ -38,9 +38,9 @@ class Viewer:
         self.renderer = Renderer(self.ctx, self.window, self.config.renderer)
 
         if self.config.camera_type == CameraType.PERSPECTIVE:
-            camera = PerspectiveCamera(RigidTransform.identity(), CameraDepth(self.config.z_min, self.config.z_max), self.config.perspective_vertical_fov, self.window.fb_width / self.window.fb_height)
+            camera = PerspectiveCamera(RigidTransform3D.identity(), CameraDepth(self.config.z_min, self.config.z_max), self.window.fb_width / self.window.fb_height, self.config.perspective_vertical_fov)
         elif self.config.camera_type == CameraType.ORTHOGRAPHIC:
-            camera = OrthographicCamera(RigidTransform.identity(), CameraDepth(self.config.z_min, self.config.z_max))
+            camera = OrthographicCamera(RigidTransform3D.identity(), CameraDepth(self.config.z_min, self.config.z_max), self.window.fb_width / self.window.fb_height, vec2(self.config.ortho_center), vec2(self.config.ortho_half_extents))
         else:
             raise RuntimeError(f"Unhandled camera type {self.config.camera_type}")
 
@@ -60,7 +60,7 @@ class Viewer:
         # Config
         self.wait_events = self.config.wait_events
 
-    
+
     def on_key(self, key: Key, action: Action, modifiers: Modifiers):
         pass
 
@@ -71,6 +71,9 @@ class Viewer:
         pass
 
     def on_scroll(self, position: ivec2, scroll: ivec2):
+        pass
+
+    def on_resize(self, width: int, height: int):
         pass
 
     def on_draw(self):
@@ -84,17 +87,21 @@ class Viewer:
             self.playback.max_time = self.viewport.scene.max_animation_time(self.playback.frames_per_second)
         self.playback.step(dt)
 
-        # Resize 
+        # Resize
         swapchain_status = self.window.update_swapchain()
         if swapchain_status == SwapchainStatus.MINIMIZED:
             return
         if swapchain_status == SwapchainStatus.RESIZED:
-            pass
+            width, height = self.window.fb_width, self.window.fb_height
+            self.viewport.resize(width, height)
+            # NOTE: at some point the renderer would also likely want to be notified
+            # of resize events for resizing framebuffer-sized resources
+            self.on_resize(width, height)
 
         # GUI
         with self.gui.frame():
             self.on_gui()
-        
+
         # Step scene
         self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
 
@@ -106,7 +113,7 @@ class Viewer:
         self.window.post_empty_event()
 
     def on_raw_message(self, client: Client, raw_message: RawMessage):
-        message = parse_builtin_messages(raw_message) 
+        message = parse_builtin_messages(raw_message)
         if message is not None:
             self.on_message(client, message)
 
@@ -134,6 +141,6 @@ class Viewer:
                 break
 
             self.on_draw()
-        
+
         if self.server is not None:
             self.server.shutdown()

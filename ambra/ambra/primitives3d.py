@@ -2,13 +2,11 @@ from pyxpg import *
 from .scene import Property, Object3D
 from .renderer import Renderer, RendererFrame
 from .utils.gpu_property import GpuBufferProperty
-from .utils.gpu import UploadableBuffer
-from .utils.ring_buffer import RingBuffer
 
 from typing import Optional
 import numpy as np
 
-class Line(Object3D):
+class Lines(Object3D):
     def __init__(self,
                  lines: Property[np.ndarray],
                  colors: Property[np.ndarray],
@@ -21,7 +19,7 @@ class Line(Object3D):
                 ):
         super().__init__(name, translation, rotation, scale)
         self.is_strip = is_strip
-        self.lines: Property[np.ndarray] = self.add_property(lines, np.float32, (-1, 3,), name="lines")
+        self.lines: Property[np.ndarray] = self.add_property(lines, np.float32, (-1, 3), name="lines")
         self.colors: Property[np.ndarray] = self.add_property(colors, np.uint32, (-1,), name="colors")
         self.line_width: Property[float] = self.add_property(line_width, np.float32, name="line_width")
 
@@ -52,7 +50,7 @@ class Line(Object3D):
                 VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
                 VertexAttribute(1, 1, Format.R32_UINT),
             ],
-            rasterization=Rasterization(dynamic_line_width=True),
+            rasterization = Rasterization(dynamic_line_width=True),
             input_assembly = InputAssembly(PrimitiveTopology.LINE_STRIP if self.is_strip else PrimitiveTopology.LINE_LIST),
             attachments = [
                 Attachment(format=r.output_format)
@@ -61,21 +59,20 @@ class Line(Object3D):
         )
 
     def render(self, r: Renderer, frame: RendererFrame):
-        self.constants["transform"] = self.current_transform_mat4
+        self.constants["transform"] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
-            # vertex_buffers=[self.positions_buf, self.colors_buf],
-            vertex_buffers=[
+            vertex_buffers = [
                 self.lines_buffer.get_current(),
                 self.colors_buffer.get_current(),
             ],
-            descriptor_sets=[frame.descriptor_set, constants_alloc.descriptor_set],
-            dynamic_offsets=[constants_alloc.offset],
-            viewport=frame.viewport,
-            scissors=frame.scissors,
+            descriptor_sets = [ frame.descriptor_set, constants_alloc.descriptor_set ],
+            dynamic_offsets = [ constants_alloc.offset ],
+            viewport = frame.viewport,
+            scissors = frame.scissors,
         )
         frame.cmd.set_line_width(self.line_width.get_current() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0)
         frame.cmd.draw(self.lines.get_current().shape[0])

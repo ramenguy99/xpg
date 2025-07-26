@@ -113,15 +113,15 @@ Thoughts:
        Are they part of the property itself but optional? How does the user configure prefetching vs preload?
 
 Features:
-[-] Transform properties, kinematic trees and node descriptor for constants
-    [ ] Transform 2D
+[x] Transform properties, kinematic trees and node descriptor for constants
+    [x] Transform 2D
     [x] Cleanup constants dup
 [x] Uniform pool helper
 [ ] Images and upload
 [ ] Camera movement
 [ ] 2D vs 3D renderer (maybe only a single renderer but can also both scene types?)
 [ ] Viewport:
-    [ ] resize
+    [x] resize
     [ ] multiple viewports
     [ ] related to UI if decide to do viewports in ImGui windows, not clear how to do default placement (check docs)
 [ ] UI: -> likely in common ui place that can be customized / modified (helpers for things like default layout as well, likely configurable)

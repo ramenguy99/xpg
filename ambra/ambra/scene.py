@@ -5,7 +5,8 @@ from typing import Optional, TypeVar, Generic, Union, List, Tuple, Callable
 import numpy as np
 import sys
 from pyglm.glm import vec3, vec2, quat
-from .transform3d import Transform
+from .transform2d import Transform2D
+from .transform3d import Transform3D
 
 T = TypeVar('T')
 
@@ -238,14 +239,23 @@ class Object2D(Object):
                  rotation: Optional[Property[float]] = None,
                  scale: Optional[Property[vec2]] = None):
         super().__init__(name)
-        self.translation = as_property(translation or np.array([0, 0]), np.float32, (2,), name=f"translation")
-        self.rotation = as_property(rotation or np.array([0]), np.float32, name=f"rotation")
-        self.scale = as_property(scale or np.array([1, 1]), np.float32, (2,), name=f"scale")
+        self.translation = as_property(translation if translation is not None else np.array([0, 0]), np.float32, (2,), name=f"translation")
+        self.rotation = as_property(rotation if rotation is not None else np.array([0]), np.float32, name=f"rotation")
+        self.scale = as_property(scale if scale is not None else np.array([1, 1]), np.float32, (2,), name=f"scale")
 
         self.add_property(self.translation)
         self.add_property(self.rotation)
         self.add_property(self.scale)
 
+        self.update_transform(None)
+
+    def update_transform(self, parent: "Object2D"):
+        self.current_relative_transform = Transform2D (
+            vec2(self.translation.get_current()),
+            self.rotation.get_current(),
+            vec2(self.scale.get_current())
+        )
+        self.current_transform_matrix = (parent.current_transform_matrix if parent is not None else np.eye(3)) @ self.current_relative_transform.as_mat3()
 
 class Object3D(Object):
     def __init__(self,
@@ -257,24 +267,20 @@ class Object3D(Object):
         self.translation = as_property(translation if translation is not None else np.array([0, 0, 0]), np.float32, (3,), name=f"translation")
         self.rotation = as_property(rotation if rotation is not None else np.array([1, 0, 0, 0]), np.float32, (4,), name=f"rotation")
         self.scale = as_property(scale if scale is not None else np.array([1, 1, 1]), np.float32, (3,), name=f"scale")
-        self.current_relative_transform = Transform(
-            vec3(self.translation.get_current()),
-            quat(self.rotation.get_current()),
-            vec3(self.scale.get_current())
-        )
-        self.current_transform_mat4 = self.current_relative_transform.as_mat4()
 
         self.add_property(self.translation)
         self.add_property(self.rotation)
         self.add_property(self.scale)
 
+        self.update_transform(None)
+
     def update_transform(self, parent: "Object3D"):
-        self.current_relative_transform = Transform(
+        self.current_relative_transform = Transform3D (
             vec3(self.translation.get_current()),
             quat(self.rotation.get_current()),
             vec3(self.scale.get_current())
         )
-        self.current_transform_mat4 = (parent.current_transform_mat4 if parent else np.eye(4)) @ self.current_relative_transform.as_mat4()
+        self.current_transform_matrix = (parent.current_transform_matrix if parent is not None else np.eye(4)) @ self.current_relative_transform.as_mat4()
 
 class Scene:
     def __init__(self, name):

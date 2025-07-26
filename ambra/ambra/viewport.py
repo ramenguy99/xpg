@@ -19,12 +19,12 @@ class Playback:
             self.current_time = config.initial_frame / self.frames_per_second
             self.current_frame = config.initial_frame
 
-    
+
     def step(self, dt: float):
         if self.playing:
             self.current_time = math.fmod(self.current_time + dt, self.max_time) if self.max_time != 0.0 else 0.0
             self.current_frame = int(self.current_time * self.frames_per_second)
-    
+
     def toggle_play_pause(self):
         self.playing = not self.playing
 
@@ -42,3 +42,8 @@ class Viewport:
     # camera_control: CameraControl
     scene: Scene
     playback: Playback
+
+    def resize(self, width: int, height: int):
+        self.rect.width = width
+        self.rect.height = height
+        self.camera.ar = width / height
