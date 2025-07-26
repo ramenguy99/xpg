@@ -3550,6 +3550,18 @@ void gfx_create_bindings(nb::module_& m)
         .value("UINT8_KHR", VK_INDEX_TYPE_UINT8_KHR)
     ;
 
+    nb::class_<gfx::FormatInfo>(m, "FormatInfo")
+        .def_ro("size", &gfx::FormatInfo::size)
+        .def_ro("channels", &gfx::FormatInfo::channels)
+        .def_ro("size_of_block_in_bytes", &gfx::FormatInfo::size_of_block_in_bytes)
+        .def_ro("block_side_in_pixels", &gfx::FormatInfo::block_side_in_pixels)
+        .def("__repr__", [](gfx::FormatInfo info) {
+            return nb::str("FormatInfo(size={}, channels={}, size_of_blocks_in_bytes={}, block_side_in_pixels={})").format(info.size, info.channels, info.size_of_block_in_bytes, info.block_side_in_pixels);
+        })
+    ;
+
+    m.def("get_format_info", gfx::GetFormatInfo);
+
     nb::enum_<VkFormat>(m, "Format")
         .value("UNDEFINED", VK_FORMAT_UNDEFINED)
         .value("R4G4_UNORM_PACK8", VK_FORMAT_R4G4_UNORM_PACK8)

@@ -12,9 +12,9 @@ T = TypeVar('T')
 
 if sys.version_info >= (3, 12):
     from collections.abc import Buffer
-    PropertyData = Union[List, Tuple, np.ndarray, Buffer]
+    PropertyData = Union[List, np.ndarray, Buffer]
 else:
-    PropertyData = Union[List, Tuple, np.ndarray]
+    PropertyData = Union[List, np.ndarray]
 
 
 # class AnimationInterpolation(Enum):
@@ -162,10 +162,10 @@ def as_property(value: Union[Property[T], PropertyData], dtype: Optional[np.dtyp
             if len(value.shape) > 1:
                 raise ShapeException((1,), value.shape[1:])
         else:
-            if isinstance(value, Tuple) or isinstance(value, List):
+            if isinstance(value, List):
                 for i in range(len(value)):
                     a = np.asarray(value[i], dtype)
-                    if shape_match(shape, a.shape):
+                    if not shape_match(shape, a.shape):
                         raise ShapeException(shape, a.shape)
                     value[i] = a
             else:
@@ -187,7 +187,7 @@ class ShapeException(Exception):
         self.got = got
 
     def __str__(self):
-        return f"Shape mismatch. Expected: {self.expected}, got: {self.got}"
+        return f"Shape mismatch. Expected: {self.expected}. Got: {self.got}"
 
 
 _counter = 0

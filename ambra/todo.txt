@@ -117,7 +117,8 @@ Features:
     [x] Transform 2D
     [x] Cleanup constants dup
 [x] Uniform pool helper
-[ ] Images and upload
+[x] Images and upload
+[ ] .create currently has to be called manually on primitives
 [ ] Camera movement
 [ ] 2D vs 3D renderer (maybe only a single renderer but can also both scene types?)
 [ ] Viewport:

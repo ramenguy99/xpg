@@ -37,7 +37,7 @@ class Renderer:
 
         # Scene descriptors
         self.descriptor_sets: RingBuffer[DescriptorSet] = RingBuffer(window.num_frames, DescriptorSet, ctx, [
-            DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER)
+            DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
         ])
 
         constants_dtype = np.dtype ({

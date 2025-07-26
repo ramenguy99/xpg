@@ -1,4 +1,4 @@
-from pyxpg import Context, Buffer, BufferUsageFlags, AllocType, CommandBuffer, MemoryUsage, DescriptorSet, DescriptorSetEntry, DescriptorType
+from pyxpg import Context, Buffer, BufferUsageFlags, Image, ImageUsage, ImageUsageFlags, Format, AllocType, CommandBuffer, MemoryUsage, DescriptorSet, DescriptorSetEntry, DescriptorType, get_format_info, FormatInfo
 from typing import Optional, List
 from dataclasses import dataclass
 
@@ -34,6 +34,45 @@ class UploadableBuffer(Buffer):
     def upload_sync(self, data: memoryview, offset: int = 0):
         with self.ctx.sync_commands() as cmd:
             self.upload(cmd, MemoryUsage.NONE, data, offset)
+
+def div_ceil(n, d):
+    return (n + d - 1) // d
+
+# NOTE: in the future this could use VK_EXT_host_image_copy to do uploads / transitions if available
+class UploadableImage(Image):
+    def __init__(self, ctx: Context, width: int, height: int, format: Format, usage_flags: ImageUsageFlags, dedicated_alloc: bool = False, name: Optional[str] = None):
+        info = get_format_info(format)
+        if info.size_of_block_in_bytes > 0:
+            pitch = div_ceil(width, info.block_side_in_pixels) * info.size_of_block_in_bytes
+            rows = div_ceil(height, info.block_side_in_pixels)
+        else:
+            pitch = width * info.size
+            rows = height
+
+        self._staging = Buffer(ctx, pitch * rows, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST_WRITE_COMBINING, f"{name} - staging")
+        super().__init__(ctx, width, height, format, usage_flags | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE_DEDICATED if dedicated_alloc else AllocType.DEVICE)
+
+    @classmethod
+    def from_data(cls, ctx: Context, data: memoryview, usage: ImageUsage, width: int, height: int, format: Format, usage_flags: ImageUsageFlags, dedicated_alloc: bool = False, name: Optional[str] = None):
+        buf = cls(ctx, width, height, format, usage_flags, dedicated_alloc, name)
+        buf.upload_sync(data, usage)
+        return buf
+
+    def upload(self, cmd: CommandBuffer, usage: ImageUsage, data: memoryview):
+        # Upload to staging buffer
+        if len(data.shape) != 1:
+            raise ValueError(f"data must be flat array. Got shape: {data.shape}")
+        if len(data) != self._staging.size:
+            raise ValueError(f"data must be of size {self._staging.size}. Got size: {len(data)}")
+        self._staging.data[:] = data
+        cmd.use_image(self, ImageUsage.TRANSFER_DST)
+        cmd.copy_buffer_to_image(self._staging, self)
+        if usage != ImageUsage.NONE:
+            cmd.use_image(self, usage)
+
+    def upload_sync(self, data: memoryview, usage: ImageUsage):
+        with self.ctx.sync_commands() as cmd:
+            self.upload(cmd, usage, data)
 
 @dataclass
 class UniformBlockAllocation:
