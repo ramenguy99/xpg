@@ -119,6 +119,14 @@ Features:
 [x] Uniform pool helper
 [x] Images and upload
 [x] .create currently has to be called manually on primitives
+[x] Streaming properties
+    [x] lines with list instead of np array
+    [x] heterogeneous size with max_size
+    [x] streaming prop
+    [ ] trigger all uploads before blocking for rendering -> likely on update with calllbacks?
+    [ ] unify GpuBufferProperty and GpuImage
+    [ ] prefetching and transfer queue
+    [ ] fix images rendering
 [ ] Camera movement
 [ ] Viewport:
     [x] resize
@@ -129,7 +137,6 @@ Features:
     [ ] Playback UI
     [ ] Fps display for debug
     [ ] Port built-in profiler
-[ ] Streaming properties
 [ ] Shader cache vs hot reload
 [ ] Hook pyxpg logging into python logging
 

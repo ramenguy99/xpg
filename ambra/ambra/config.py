@@ -12,7 +12,6 @@ class ServerConfig:
 @dataclass
 class RendererConfig:
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
-    prefer_preupload: bool = True
     uniform_pool_block_size: int = 32 * 1024 * 1024
 
 @dataclass

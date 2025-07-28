@@ -336,6 +336,60 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         return Result::API_OUT_OF_MEMORY;
     }
 
+    // Application info.
+    VkApplicationInfo application_info = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
+    application_info.apiVersion = desc.minimum_api_version;
+    application_info.pApplicationName = "XPG";
+    application_info.applicationVersion = XPG_VERSION;
+
+    // Instance extensions
+    Array<const char*> enabled_instance_extensions;
+    if (desc.require_presentation) {
+        u32 glfw_instance_extensions_count;
+        const char** glfw_instance_extensions = glfwGetRequiredInstanceExtensions(&glfw_instance_extensions_count);
+        for (u32 i = 0; i < glfw_instance_extensions_count; i++) {
+            enabled_instance_extensions.add(glfw_instance_extensions[i]);
+        }
+    }
+
+    // Enable portability extension if present (required by MoltenVK)
+    u32 instance_create_flags = 0;
+    for(usize i = 0; i < instance_extensions.length; i++) {
+        if (strcmp(instance_extensions[i].extensionName, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == 0) {
+            logging::info("gfx/instance", "VK_KHR_portability_enumeration available");
+            enabled_instance_extensions.add(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+            instance_create_flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+            break;
+        }
+    }
+
+    // Enable debug utils if requested and available. If validation is requested we also implicitly request this.
+    bool debug_utils_requested = desc.enable_debug_utils || desc.enable_validation_layer;
+    bool debug_utils_enabled = false;
+    if (debug_utils_requested) {
+        bool debug_utils_available = false;
+        for (usize i = 0; i < instance_extensions.length; i++) {
+            if (strcmp(instance_extensions[i].extensionName, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0)
+            {
+                debug_utils_available = true;
+            }
+        }
+
+        if (debug_utils_available) {
+            enabled_instance_extensions.add(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            debug_utils_enabled = true;
+        } else {
+            logging::warning("gfx/instance", "Debug utils extension requested, but not available");
+        }
+    }
+
+    // Instance info.
+    VkInstanceCreateInfo info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+    info.enabledExtensionCount = (u32)enabled_instance_extensions.length;
+    info.ppEnabledExtensionNames = enabled_instance_extensions.data;
+    info.pApplicationInfo = &application_info;
+    info.flags = instance_create_flags;
+
     // Check if validation layer is present.
     const char* validation_layer_name = "VK_LAYER_KHRONOS_validation";
     bool validation_layer_enabled = false;
@@ -356,59 +410,6 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             logging::warning("gfx/layers", "Validation layer requested, but not available");
         }
     }
-
-    // Application info.
-    VkApplicationInfo application_info = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
-    application_info.apiVersion = desc.minimum_api_version;
-    application_info.pApplicationName = "XPG";
-    application_info.applicationVersion = XPG_VERSION;
-
-    // Instance extensions
-    Array<const char*> enabled_instance_extensions;
-    if (desc.require_presentation) {
-        u32 glfw_instance_extensions_count;
-        const char** glfw_instance_extensions = glfwGetRequiredInstanceExtensions(&glfw_instance_extensions_count);
-        for (u32 i = 0; i < glfw_instance_extensions_count; i++) {
-            enabled_instance_extensions.add(glfw_instance_extensions[i]);
-        }
-    }
-
-    bool debug_utils_requested = desc.enable_debug_utils || desc.enable_validation_layer;
-    bool debug_utils_enabled = false;
-    if (debug_utils_requested) {
-        bool debug_utils_available = false;
-        for (usize i = 0; i < instance_extensions.length; i++) {
-            if (strcmp(instance_extensions[i].extensionName, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0)
-            {
-                debug_utils_available = true;
-            }
-        }
-
-        if (debug_utils_available) {
-            enabled_instance_extensions.add(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-            debug_utils_enabled = true;
-        } else {
-            logging::warning("gfx/instance", "Debug utils extension requested, but not available");
-        }
-    }
-
-    // Enable portability extension if present (required by MoltenVK)
-    u32 instance_create_flags = 0;
-    for(usize i = 0; i < instance_extensions.length; i++) {
-        if (strcmp(instance_extensions[i].extensionName, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == 0) {
-            logging::info("gfx/instance", "VK_KHR_portability_enumeration required for instance creation");
-            enabled_instance_extensions.add(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
-            instance_create_flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
-            break;
-        }
-    }
-
-    // Instance info.
-    VkInstanceCreateInfo info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    info.enabledExtensionCount = (u32)enabled_instance_extensions.length;
-    info.ppEnabledExtensionNames = enabled_instance_extensions.data;
-    info.pApplicationInfo = &application_info;
-    info.flags = instance_create_flags;
 
     const char* enabled_layers[1] = { validation_layer_name };
 
@@ -3119,6 +3120,7 @@ void DestroyAccelerationStructure(AccelerationStructure* as, const Context& vk) 
 #endif
 }
 
+// TODO: Fix missing block formats info
 FormatInfo GetFormatInfo(VkFormat format)
 {
     switch(format) {

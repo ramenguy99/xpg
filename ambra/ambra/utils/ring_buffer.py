@@ -3,12 +3,22 @@ from typing import TypeVar, Type, List, Generic
 
 R = TypeVar("R")
 
+# TODO: likely modify this to just take in a list, not sure why we need the Type and args stuff
 class RingBuffer(Generic[R]):
     def __init__(self, n: int, typ: Type, *args, **kwargs):
         self.items: List[R] = []
         for _ in range(n):
             self.items.append(typ(*args, **kwargs))
         self.index = 0
+
+    def __len__(self):
+        return self.items.__len__()
+
+    def __iter__(self):
+        return self.items.__iter__()
+
+    def __next__(self):
+        return self.items.__next__()
 
     def get_current(self) -> R:
         return self.items[self.index]

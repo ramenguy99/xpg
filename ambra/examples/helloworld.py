@@ -1,4 +1,4 @@
-import ambra
+from ambra.viewer import Viewer
 
-viewer = ambra.Viewer("Hello World", 1280, 720)
+viewer = Viewer("Hello World", 1280, 720)
 viewer.run()

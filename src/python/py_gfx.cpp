@@ -1350,6 +1350,20 @@ struct CommandBuffer: GfxObject {
         });
     }
 
+    void clear_color_image(Image& image, std::array<float, 4> color) {
+        VkClearColorValue clear;
+        clear.float32[0] = color[0];
+        clear.float32[1] = color[1];
+        clear.float32[2] = color[2];
+        clear.float32[3] = color[3];
+
+        VkImageSubresourceRange range = {};
+        range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        range.layerCount = 1;
+        range.levelCount = 1;
+        vkCmdClearColorImage(buffer, image.image.image, image.current_state.layout, &clear, 1, &range);
+    }
+
     void blit_image(Image& src, Image& dst) {
         // TODO: add  error checking (check spec for what blits are valid)
         // TODO: add options for aspect and interpolation type
@@ -3484,6 +3498,10 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("buffer"),
             nb::arg("image"),
             nb::arg("buffer_offset") = 0
+        )
+        .def("clear_color_image", &CommandBuffer::clear_color_image,
+            nb::arg("image"),
+            nb::arg("clear")
         )
         .def("blit_image", &CommandBuffer::blit_image,
             nb::arg("src"),

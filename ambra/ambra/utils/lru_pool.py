@@ -8,11 +8,11 @@ class _RefCount:
 
     def inc(self):
         self.count += 1
-    
+
     def dec(self) -> bool:
         self.count -= 1
         return self.count == 0
-    
+
     def __repr__(self):
         return f"RC({self.count})"
 
@@ -36,6 +36,8 @@ class LRUPool:
         self.max_prefetch: int = max_prefetch
         self.prefetch_store: Dict[O, K] = {}
 
+    # TODO: remove ensure_fetched. I don't think this is needed because anyways
+    # we can do this after the object is returned and before using it.
     def get(self, key: K, load: Callable[[K, O], None], ensure_fetched: Optional[Callable[[O], None]] = None) -> O:
         cached = self.lookup.get(key)
 
@@ -58,7 +60,7 @@ class LRUPool:
             if cached.prefetching:
                 # Realize prefetch
                 ensure_fetched(key, obj)
-                
+
                 # Item is still in the prefetching list here.
                 # It will be removed by the next prefetch cleanup
                 cached.prefetching = False
@@ -69,11 +71,14 @@ class LRUPool:
             except KeyError:
                 pass
         return obj
-    
+
     def is_available(self, key: K) -> bool:
         cached = self.lookup.get(key)
         return cached and not cached.prefetching
-        
+
+    def is_available_or_prefetching(self, key: K) -> bool:
+        return key in self.lookup
+
     def use_frame(self, frame_index: int, key: K):
         entry = self.lookup[key]
         entry.refcount.inc()
@@ -90,8 +95,8 @@ class LRUPool:
         if entry.refcount.dec():
             # If refcount is 0 add buffer back to LRU
             self.lru[entry.obj] = key
-    
-    def release_frame(self, frame_index: int):   
+
+    def release_frame(self, frame_index: int):
         if old := self.in_flight[frame_index]:
             key, entry = old
 
@@ -102,10 +107,10 @@ class LRUPool:
 
             # Mark nothing in flight yet for this frame.
             self.in_flight[frame_index] = None
-    
+
     def give_back(self, k: K, obj: O):
         self.lru[obj] = k
-    
+
     def prefetch(self, useful_range: Collection, cleanup: Callable[[O], bool], submit_load: Callable[[K, O], None]):
         if self.max_prefetch <= 0:
             return
@@ -123,10 +128,10 @@ class LRUPool:
 
                     # Mark as ready
                     self.lookup[key].prefetching = False
-                
+
                 # Remove from prefetching dict
                 del self.prefetch_store[obj]
-            
+
             # TODO: we could also cancel prefetch work here, if possible
 
         bump = []
@@ -155,3 +160,9 @@ class LRUPool:
                 self.lru.move_to_end(o)
             except KeyError:
                 pass
+
+    def destroy(self):
+        self.lru.clear()
+        self.lookup.clear()
+        self.in_flight.clear()
+        self.prefetch_store.clear()

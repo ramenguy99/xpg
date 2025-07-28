@@ -26,8 +26,8 @@ class Viewer:
 
         self.window = Window(self.ctx, title, width, height)
         self.window.set_callbacks(
-            draw=lambda _: self.on_draw(),
-            key_event=lambda key, action, modifiers: self.on_key(key, action, modifiers),
+            draw=self.on_draw,
+            key_event=self.on_key,
             mouse_button_event=lambda pos, button, action, modifiers: self.on_mouse_button(ivec2(pos), button, action, modifiers),
             mouse_move_event=lambda pos: self.on_mouse_move(ivec2(pos)),
             mouse_scroll_event=lambda pos, scroll: self.on_scroll(ivec2(pos), ivec2(scroll)),
@@ -54,7 +54,7 @@ class Viewer:
             playback=self.playback
         )
 
-        self.server = Server(lambda c, m: self.on_raw_message_async(c, m), self.config.server)
+        self.server = Server(self.on_raw_message_async, self.config.server)
         self.server_message_queue = Queue()
 
         # Config
