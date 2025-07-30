@@ -1,41 +1,22 @@
 from pyxpg import *
 
-from .config import RendererConfig
-from .scene import Object
+from .config import RendererConfig, UploadMethod
+from .scene import Property
 from .shaders import compile
-from .utils.profile import profile
 from .utils.gpu import UploadableBuffer, UniformPool
+from .utils.gpu_property import GpuBufferProperty, GpuImageProperty
 from .utils.ring_buffer import RingBuffer
 from .viewport import Viewport
 from .utils.threadpool import ThreadPool
+from .renderer_frame import RendererFrame
 
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple
+from typing import List, Union
 from functools import cache
-from enum import Enum, auto
 
 import numpy as np
 
 SHADERS_PATH = Path(__file__).parent.joinpath("shaders")
-
-@dataclass
-class RendererFrame:
-    cmd: CommandBuffer
-    image: Image
-    index: int
-    total_index: int
-    viewport: Tuple[float, float, float, float]
-    scissors: Tuple[float, float, float, float]
-    descriptor_set: DescriptorSet
-
-
-class UploadMethod(Enum):
-    CPU_BUF = auto()
-    BAR = auto()
-    GFX = auto()
-    TRANSFER_QUEUE = auto()
-
 
 class Renderer:
     def __init__(self, ctx: Context, window: Window, config: RendererConfig):
@@ -65,18 +46,39 @@ class Renderer:
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         self.uniform_pool = UniformPool(ctx, window.num_frames, config.uniform_pool_block_size)
+
         # TODO: make configurable
         self.thread_pool = ThreadPool(4)
         self.total_frame_index = 0
 
-        if ctx.device_properties.device_type == PhysicalDeviceType.INTEGRATED_GPU or ctx.device_properties.device_type == PhysicalDeviceType.CPU:
-            self.upload_method = UploadMethod.CPU_BUF
-        elif False: # TODO: Check if has resizable bar and if is configured to use it
-            pass
-        elif ctx.has_transfer_queue:
-            self.upload_method = UploadMethod.TRANSFER_QUEUE
+        if config.force_upload_method is not None:
+            self.upload_method = config.force_upload_method
+            if self.upload_method == UploadMethod.TRANSFER_QUEUE:
+                if not ctx.has_transfer_queue:
+                    raise RuntimeError("Transfer queue not available on picked device")
+                if not ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES:
+                    raise RuntimeError("Transfer queue upload requires timeline semaphores which are not available on picked device")
         else:
-            self.upload_method = UploadMethod.GFX
+            if ctx.device_properties.device_type == PhysicalDeviceType.INTEGRATED_GPU or ctx.device_properties.device_type == PhysicalDeviceType.CPU:
+                self.upload_method = UploadMethod.CPU_BUF
+            elif False: # TODO: Check if has resizable bar and if is configured to use it
+                self.upload_method = UploadMethod.BAR
+            elif config.use_transfer_queue_if_available and ctx.has_transfer_queue and ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES:
+                self.upload_method = UploadMethod.TRANSFER_QUEUE
+            else:
+                self.upload_method = UploadMethod.GFX
+
+        self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
+
+    def add_gpu_buffer_property(self, property: Property[np.ndarray], usage_flags: BufferUsageFlags, name: str):
+        prop = GpuBufferProperty(self.ctx, self.window.num_frames, self.upload_method, self.thread_pool, property, usage_flags, name)
+        self.gpu_properties.append(prop)
+        return prop
+
+    def add_gpu_image_property(self, property: Property[np.ndarray], usage_flags: ImageUsageFlags, usage: ImageUsage, name: str):
+        prop = GpuImageProperty(self.ctx, self.window.num_frames, self.upload_method, self.thread_pool, property, usage_flags, usage, name)
+        self.gpu_properties.append(prop)
+        return prop
 
     @cache
     def get_builtin_shader(self, name: str, entry: str) -> slang.Shader:
@@ -84,36 +86,83 @@ class Renderer:
         return compile(path, entry)
 
     def render(self, viewport: Viewport, gui: Gui):
-        with self.window.frame() as frame:
-            with frame.command_buffer as cmd:
-                viewport_rect = (viewport.rect.x, viewport.rect.y + viewport.rect.height, viewport.rect.width, viewport.rect.y - viewport.rect.height)
-                rect = (viewport.rect.x, viewport.rect.y, viewport.rect.width, viewport.rect.height)
+        frame = self.window.begin_frame()
+        with frame.command_buffer as cmd:
+            viewport_rect = (viewport.rect.x, viewport.rect.y + viewport.rect.height, viewport.rect.width, viewport.rect.y - viewport.rect.height)
+            rect = (viewport.rect.x, viewport.rect.y, viewport.rect.width, viewport.rect.height)
 
-                set: DescriptorSet = self.descriptor_sets.get_current_and_advance()
-                buf: UploadableBuffer = self.uniform_buffers.get_current_and_advance()
+            set: DescriptorSet = self.descriptor_sets.get_current_and_advance()
+            buf: UploadableBuffer = self.uniform_buffers.get_current_and_advance()
 
-                self.constants["projection"] = viewport.camera.projection()
-                self.constants["view"] = viewport.camera.view()
-                self.constants["camera_position"] = -viewport.camera.camera_from_world.translation
-                buf.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM_READ, self.constants.view(np.uint8))
+            self.constants["projection"] = viewport.camera.projection()
+            self.constants["view"] = viewport.camera.view()
+            self.constants["camera_position"] = -viewport.camera.camera_from_world.translation
+            buf.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM_READ, self.constants.view(np.uint8))
 
-                cmd.use_image(frame.image, ImageUsage.TRANSFER_DST)
-                cmd.clear_color_image(frame.image, self.background_color)
-                cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
+            cmd.use_image(frame.image, ImageUsage.TRANSFER_DST)
+            cmd.clear_color_image(frame.image, self.background_color)
+            cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
 
-                f = RendererFrame(cmd, frame.image, self.total_frame_index % self.window.num_frames, self.total_frame_index, viewport_rect, rect, set)
-                viewport.scene.render(self, f)
-                with cmd.rendering(rect,
-                    color_attachments=[
-                        RenderingAttachment(
-                            frame.image,
-                            load_op=LoadOp.LOAD,
-                            store_op=StoreOp.STORE,
-                            clear=self.background_color,
-                        ),
-                    ]):
-                    gui.render(cmd)
-                cmd.use_image(frame.image, ImageUsage.PRESENT)
+            if frame.transfer_command_buffer:
+                frame.transfer_command_buffer.begin()
+
+            f = RendererFrame(
+                cmd,
+                frame.image,
+                self.total_frame_index % self.window.num_frames,
+                self.total_frame_index,
+                viewport_rect,
+                rect,
+                set,
+                [],
+                frame.transfer_command_buffer,
+                [],
+            )
+
+            # Create new objects, if any
+            viewport.scene.create_if_needed(self)
+
+            # Update properties
+            for p in self.gpu_properties:
+                p.load(f)
+
+            for p in self.gpu_properties:
+                p.upload(f)
+
+            # Render scene
+            viewport.scene.render(self, f)
+
+            # Render GUI
+            with cmd.rendering(rect,
+                color_attachments=[
+                    RenderingAttachment(
+                        frame.image,
+                        load_op=LoadOp.LOAD,
+                        store_op=StoreOp.STORE,
+                        clear=self.background_color,
+                    ),
+                ]):
+                gui.render(cmd)
+            cmd.use_image(frame.image, ImageUsage.PRESENT)
+
+            if frame.transfer_command_buffer:
+                frame.transfer_command_buffer.end()
+                if f.copy_semaphores:
+                    self.ctx.transfer_queue.submit(
+                        frame.transfer_command_buffer,
+                        wait_semaphores=[(s.sem, s.wait_stage) for s in f.copy_semaphores],
+                        wait_timeline_values=[s.wait_value for s in f.copy_semaphores],
+                        signal_semaphores=[s.sem for s in f.copy_semaphores],
+                        signal_timeline_values=[s.signal_value for s in f.copy_semaphores],
+                    )
+
+        self.window.end_frame(
+            frame,
+            additional_wait_semaphores=[(s.sem, s.wait_stage) for s in f.additional_semaphores],
+            additional_wait_timeline_values=[s.wait_value for s in f.additional_semaphores],
+            additional_signal_semaphores=[s.sem for s in f.additional_semaphores],
+            additional_signal_timeline_values=[s.signal_value for s in f.additional_semaphores],
+        )
 
         self.uniform_pool.advance()
         self.total_frame_index += 1

@@ -9,10 +9,18 @@ class ServerConfig:
     port: int = 9168
     max_connections: int = 4
 
+class UploadMethod(Enum):
+    GFX = 0
+    TRANSFER_QUEUE = 1
+    CPU_BUF = 2
+    BAR = 3
+
 @dataclass
 class RendererConfig:
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
     uniform_pool_block_size: int = 32 * 1024 * 1024
+    use_transfer_queue_if_available: bool = True
+    force_upload_method: Optional[UploadMethod] = None
 
 @dataclass
 class PlaybackConfig:

@@ -110,12 +110,13 @@ class Property(Generic[T]):
         self.animation = animation if animation is not None else FrameAnimation(boundary=AnimationBoundary.HOLD)
         self.upload = upload if upload is not None else UploadSettings(preupload=True)
 
-        self.current_time = 0
         self.current_frame_index = 0
 
     def update(self, time: float, frame_index: int) -> T:
-        self.current_time = time
         self.current_frame_index = self.get_frame_index(time, frame_index)
+
+    def get_current(self) -> T:
+        return self.get_frame_by_index(self.current_frame_index)
 
     def max_animation_time(self, fps: float) -> float:
         a = self.animation.max_animation_time(self.num_frames, fps)
@@ -126,9 +127,6 @@ class Property(Generic[T]):
 
     def get_frame_index(self, time: float, playback_frame: int) -> int:
         return self.animation.get_frame_index(self.num_frames, time, playback_frame)
-
-    def get_current(self) -> T:
-        return self.get_frame(self.current_time, self.current_frame_index)
 
     def get_frame(self, time: float, frame_index: int) -> T:
         return self.get_frame_by_index(self.get_frame_index(time, frame_index))
@@ -278,9 +276,6 @@ class Object:
         self.children: List["Object"] = []
         self.properties: List[Property] = []
 
-        self.update_callbacks: List[Callable[[float, int], None]] = []
-        self.destroy_callbacks: List[Callable[[None], None]] = []
-
         self.created = False
 
     @staticmethod
@@ -292,11 +287,6 @@ class Object:
     def add_property(self, prop: Property, dtype: Optional[np.dtype] = None, shape: Optional[Tuple[int]] = None, animation: Optional[Animation] = None, upload: Optional[UploadSettings] = None, name: str = "") -> Property:
         property = as_property(prop, dtype, shape, animation, upload, name)
         self.properties.append(property)
-        # TODO: potentially the same property is updated more than once if added to multiple nodes
-        # decide if this is ok because update will be idempotent or if we should dedup this.
-        #
-        # Currently update is only doing frame lookup and caching of frame index / time
-        self.update_callbacks.append(lambda time, frame: property.update(time,frame))
         return property
 
     def create_if_needed(self, renderer):
@@ -308,8 +298,12 @@ class Object:
         pass
 
     def update(self, time: float, frame: int):
-        for c in self.update_callbacks:
-            c(time, frame)
+        # TODO: potentially the same property is updated more than once if added to multiple nodes
+        # decide if this is ok because update will be idempotent or if we should dedup this.
+        #
+        # Currently update is idempotent because it's only doing frame lookup and caching of frame index / time
+        for p in self.properties:
+            p.update(time, frame)
 
     def update_transform(self, parent: "Object"):
         # TODO: can merge with udpate? Where to find parent? With link?
@@ -319,8 +313,7 @@ class Object:
         pass
 
     def destroy(self):
-        for c in self.destroy_callbacks:
-            c()
+        pass
 
 
 class Object2D(Object):
@@ -392,8 +385,12 @@ class Scene:
             o.update_transform(p)
         self.visit_objects(visit)
 
-    def render(self, renderer, frame):
+    def create_if_needed(self, renderer):
         def visit(p: Object, o: Object):
             o.create_if_needed(renderer)
+        self.visit_objects(visit)
+
+    def render(self, renderer, frame):
+        def visit(p: Object, o: Object):
             o.render(renderer, frame)
         self.visit_objects(visit)

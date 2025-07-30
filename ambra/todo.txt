@@ -123,10 +123,11 @@ Features:
     [x] lines with list instead of np array
     [x] heterogeneous size with max_size
     [x] streaming prop
-    [ ] trigger all uploads before blocking for rendering -> likely on update with calllbacks?
-    [ ] unify GpuBufferProperty and GpuImage
-    [ ] prefetching and transfer queue
-    [ ] fix images rendering
+    [x] trigger all uploads before blocking for rendering -> made properties managed by renderer
+    [ ] unify GpuBufferProperty and GpuImageProperty
+    [ ] prefetching
+            -> likely make a simple mesh class and recreate sequence
+            -> this means also porting some GUI, likey making some helpers, ideally also adding the profiler
 [ ] Camera movement
 [ ] Viewport:
     [x] resize

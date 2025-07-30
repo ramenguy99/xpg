@@ -162,7 +162,7 @@ class LRUPool:
             except KeyError:
                 pass
 
-    def destroy(self):
+    def clear(self):
         self.lru.clear()
         self.lookup.clear()
         self.in_flight.clear()

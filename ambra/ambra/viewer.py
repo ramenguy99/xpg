@@ -19,7 +19,7 @@ class Viewer:
 
         self.ctx = Context(
             required_features=DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.DYNAMIC_RENDERING,
-            optional_features=DeviceFeatures.RAY_QUERY | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.WIDE_LINES,
+            optional_features=DeviceFeatures.RAY_QUERY | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.WIDE_LINES | DeviceFeatures.TIMELINE_SEMAPHORES,
             enable_validation_layer=True,
             enable_synchronization_validation=True,
         )

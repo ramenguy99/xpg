@@ -25,8 +25,8 @@ class Lines(Object2D):
         self.line_width: Property[float] = self.add_property(line_width, np.float32, name="line_width")
 
     def create(self, r: Renderer):
-        self.lines_buffer = GpuBufferProperty(self, r, self.lines, BufferUsageFlags.VERTEX, name=f"{self.name}-lines-2d")
-        self.colors_buffer = GpuBufferProperty(self, r, self.colors, BufferUsageFlags.VERTEX, name=f"{self.name}-lines-2d")
+        self.lines_buffer = r.add_gpu_buffer_property(self.lines, BufferUsageFlags.VERTEX, name=f"{self.name}-lines-2d")
+        self.colors_buffer = r.add_gpu_buffer_property(self.colors, BufferUsageFlags.VERTEX, name=f"{self.name}-colors-2d")
 
         constants_dtype = np.dtype ({
             "transform": (np.dtype((np.float32, (3, 4))), 0),
