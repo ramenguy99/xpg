@@ -59,7 +59,8 @@ class LRUPool:
             obj = cached.obj
             if cached.prefetching:
                 # Realize prefetch
-                ensure_fetched(key, obj)
+                if ensure_fetched:
+                    ensure_fetched(key, obj)
 
                 # Item is still in the prefetching list here.
                 # It will be removed by the next prefetch cleanup

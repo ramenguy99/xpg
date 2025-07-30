@@ -6,6 +6,10 @@ from .ring_buffer import RingBuffer
 
 class UploadableBuffer(Buffer):
     def __init__(self, ctx: Context, size: int, usage_flags: BufferUsageFlags, name: Optional[str] = None):
+        # TODO: we likely want an option to ensure we do not use BAR even if available for cases
+        # where we want the GPU to do the upload.
+        #
+        # Maybe we should also handle integrated and CPU differently here
         super().__init__(ctx, size, usage_flags | BufferUsageFlags.TRANSFER_DST, AllocType.DEVICE_MAPPED_WITH_FALLBACK, name)
         if not self.is_mapped:
             if name is not None:
