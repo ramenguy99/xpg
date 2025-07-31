@@ -151,7 +151,7 @@ class Image(Object3D):
 class Mesh(Object3D):
     def __init__(self,
                  positions: Property[np.ndarray],
-                 normals: Property[np.ndarray],
+                #  normals: Property[np.ndarray],
                  indices: Optional[Property[np.ndarray]] = None,
                  primitive_topology: PrimitiveTopology = PrimitiveTopology.TRIANGLE_LIST,
                  name: Optional[str] = None,
@@ -161,14 +161,14 @@ class Mesh(Object3D):
                 ):
         super().__init__(name, translation, rotation, scale)
         self.positions: Property[np.ndarray] = self.add_property(positions, np.float32, (-1, 3), name="positions")
-        self.normals: Property[np.ndarray] = self.add_property(normals, np.float32, (-1, 3), name="normals")
-        self.indices: Optional[Property[np.ndarray]] = self.add_property(indices, np.uint32, (-1), name="indices") if indices is not None else None
+        # self.normals: Property[np.ndarray] = self.add_property(normals, np.float32, (-1, 3), name="normals")
+        self.indices: Optional[Property[np.ndarray]] = self.add_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
         self.primitive_topology = primitive_topology
 
     def create(self, r: Renderer):
         self.positions_buffer = r.add_gpu_buffer_property(self.positions, BufferUsageFlags.VERTEX, name=f"{self.name}-positions")
-        self.normals_buffer = r.add_gpu_buffer_property(self.normals, BufferUsageFlags.VERTEX, name=f"{self.name}-normals")
-        self.indices_buffer = r.add_gpu_buffer_property(self.indices, BufferUsageFlags.VERTEX, name=f"{self.name}-indices") if self.indices is not None else None
+        # self.normals_buffer = r.add_gpu_buffer_property(self.normals, BufferUsageFlags.VERTEX, name=f"{self.name}-normals")
+        self.indices_buffer = r.add_gpu_buffer_property(self.indices, BufferUsageFlags.INDEX, name=f"{self.name}-indices") if self.indices is not None else None
 
         constants_dtype = np.dtype ({
             "transform": (np.dtype((np.float32, (4, 4))), 0),
@@ -187,11 +187,11 @@ class Mesh(Object3D):
             ],
             vertex_bindings = [
                 VertexBinding(0, 12, VertexInputRate.VERTEX),
-                VertexBinding(1, 12, VertexInputRate.VERTEX),
+                # VertexBinding(1, 12, VertexInputRate.VERTEX),
             ],
             vertex_attributes = [
                 VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
-                VertexAttribute(1, 1, Format.R32G32B32_SFLOAT),
+                # VertexAttribute(1, 1, Format.R32G32B32_SFLOAT),
             ],
             rasterization = Rasterization(), # TODO culling and winding settings
             input_assembly = InputAssembly(self.primitive_topology),
@@ -211,7 +211,7 @@ class Mesh(Object3D):
             self.pipeline,
             vertex_buffers = [
                 self.positions_buffer.get_current(),
-                self.normals_buffer.get_current(),
+                # self.normals_buffer.get_current(),
             ],
             index_buffer = index_buffer,
             descriptor_sets = [ frame.descriptor_set, constants_alloc.descriptor_set ],
@@ -230,6 +230,6 @@ class Mesh(Object3D):
                 ),
             ]):
             if self.indices is not None:
-                frame.cmd.draw_indexed(self.indices.get_current().shape[1])
+                frame.cmd.draw_indexed(self.indices.get_current().shape[0])
             else:
-                frame.cmd.draw(np.prod(self.positions.get_current().shape[1:]))
+                frame.cmd.draw(self.positions.get_current().shape[0])

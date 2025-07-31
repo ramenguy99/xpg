@@ -131,8 +131,8 @@ class Property(Generic[T]):
     def get_frame(self, time: float, frame_index: int) -> T:
         return self.get_frame_by_index(self.get_frame_index(time, frame_index))
 
-    def get_frame_by_index_into(self, frame_index: int, out: memoryview) -> int:
-        frame = self.get_frame_by_index(frame_index)
+    def get_frame_by_index_into(self, frame_index: int, out: memoryview, thread_index: int = -1) -> int:
+        frame = self.get_frame_by_index(frame_index, thread_index)
         if frame is None:
             return 0
         data = view_bytes(frame)
@@ -140,19 +140,7 @@ class Property(Generic[T]):
         out[:size] = data
         return size
 
-    def get_frame_by_index(self, frame_index: int) -> T:
-        raise NotImplemented()
-
-    def get_frame_by_index_into_async(self, frame_index: int, out: memoryview, thread_index: int) -> int:
-        frame = self.get_frame_by_index_async(frame_index, thread_index)
-        if frame is None:
-            return 0
-        data = view_bytes(frame)
-        size = len(data)
-        out[:size] = data
-        return size
-
-    def get_frame_by_index_async(self, frame_index: int, thread_index: int) -> T:
+    def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> T:
         raise NotImplemented()
 
 
@@ -211,8 +199,8 @@ class DataProperty(Property):
         else:
             return self.data.itemsize * np.prod(self.data.shape[1:])
 
-    def get_frame_by_index(self, frame: int) -> T:
-        return self.data[frame]
+    def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> T:
+        return self.data[frame_index]
 
 
 class StreamingProperty(Property):
@@ -229,13 +217,8 @@ class StreamingProperty(Property):
         return NotImplemented()
 
     # def get_frame_by_index_into(self, frame_index: int, out: memoryview) -> int:
-    def get_frame_by_index(self, frame: int) -> T:
+    def get_frame_by_index(self, frame: int, thread_index: int = -1) -> T:
         return NotImplemented()
-
-    # If upload.async_load
-    # def get_frame_by_index_into_async(self, frame_index: int, out: memoryview, thread_index: int) -> int:
-    def get_frame_by_index_async(self, frame_index: int, thread_index: int) -> T:
-        raise NotImplemented()
 
 
 class ShapeException(Exception):

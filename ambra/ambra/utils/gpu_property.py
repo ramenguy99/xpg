@@ -119,7 +119,7 @@ class GpuBufferProperty:
                 self.prefetch_states_lookup: Dict[GpuBuffer, PrefetchState] = {}
 
     def _load_async(self, i: int, buf: CpuBuffer, thread_index: int):
-        buf.used_size = self.property.get_frame_by_index_into_async(i, buf.buf.data, thread_index)
+        buf.used_size = self.property.get_frame_by_index_into(i, buf.buf.data, thread_index)
 
     def load(self, frame: RendererFrame):
         # Issue CPU loads if async, otherwise just prepare buffer

@@ -1,4 +1,4 @@
-from ambra.scene import FrameAnimation, AnimationBoundary, StreamingProperty, UploadSettings, as_property
+from ambra.scene import FrameAnimation, AnimationBoundary, StreamingProperty, UploadSettings, as_property, Property
 from ambra.viewer import Viewer
 from ambra.primitives3d import Mesh
 from ambra.transform3d import RigidTransform3D
@@ -34,17 +34,22 @@ I = struct.unpack("<I", header[8:12])[0]
 indices = np.frombuffer(read_exact_at_offset(file, N * V * 12 + len(header), I * 4), np.uint32)
 
 class FileStreamingProperty(StreamingProperty):
-    def _get_frame_by_index_into_impl(self, file: io.FileIO, frame_index: int, out: memoryview) -> int:
-        offset = 12 + frame_index * V * 12
-        size = V * 12
-        read_exact_at_offset_into(file, offset, out[:size])
+    def max_size(self):
+        return V * 12
+
+    def _get_size_offset(frame_index: int):
+        return V * 12,  12 + frame_index * V * 12
+
+    def get_frame_by_index_into(self, frame_index: int, out: memoryview, thread_index: int = -1) -> int:
+        size, offset = FileStreamingProperty._get_size_offset(frame_index)
+        read_exact_at_offset_into(files[thread_index], offset, out[:size])
         return size
 
-    def get_frame_by_index_into(self, frame_index, out: memoryview) -> int:
-        return self._get_frame_by_index_into_impl(file, frame_index, out)
-
-    def get_frame_by_index_into_async(self, frame_index: int, out: memoryview, thread_index: int) -> int:
-        return self._get_frame_by_index_into_impl(files[thread_index], frame_index, out)
+    def get_frame_by_index(self, frame_index: int, thread_index: int = -1):
+        size, offset = FileStreamingProperty._get_size_offset(frame_index)
+        buf: np.ndarray = np.empty(size, np.uint8)
+        read_exact_at_offset_into(files[thread_index], offset, buf.data)
+        return buf.view(np.float32).reshape((-1, 3), copy=False)
 
 positions = FileStreamingProperty(N, np.float32, (-1, 3), upload=UploadSettings(
     preupload=False,
@@ -52,7 +57,7 @@ positions = FileStreamingProperty(N, np.float32, (-1, 3), upload=UploadSettings(
 ))
 
 mesh = Mesh(positions, indices=indices)
-viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(10), vec3(0), vec3(0, 0, 1))
+viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(5, -5, 5), vec3(0), vec3(0, -1, 0))
 viewer.viewport.scene.objects.extend([mesh])
 
 viewer.run()
