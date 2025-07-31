@@ -11,12 +11,24 @@ from .utils.threadpool import ThreadPool
 from .renderer_frame import RendererFrame
 
 from pathlib import Path
-from typing import List, Union
+from typing import List, Union, Optional
 from functools import cache
+import sys
+import os
 
 import numpy as np
 
 SHADERS_PATH = Path(__file__).parent.joinpath("shaders")
+
+MAX_WORKERS = 16
+DEFAULT_WORKERS = 4
+if sys.version_info >= (3, 13):
+    def get_cpu_count() -> Optional[int]:
+        return os.process_cpu_count()
+else:
+    def get_cpu_count() -> Optional[int]:
+        return os.cpu_count()
+
 
 class Renderer:
     def __init__(self, ctx: Context, window: Window, config: RendererConfig):
@@ -51,8 +63,16 @@ class Renderer:
         self.depth_clear_value = 1.0
         self.depth_compare_op = CompareOp.LESS
 
-        # TODO: make configurable
-        self.thread_pool = ThreadPool(4)
+        if config.thread_pool_workers is not None:
+            self.num_workers = config.thread_pool_workers
+        else:
+            num_cpus = get_cpu_count()
+            if num_cpus is not None:
+                self.num_workers = min(num_cpus, MAX_WORKERS)
+            else:
+                self.num_workers = DEFAULT_WORKERS
+
+        self.thread_pool = ThreadPool(self.num_workers)
         self.total_frame_index = 0
 
         if config.force_upload_method is not None:

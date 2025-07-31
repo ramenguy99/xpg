@@ -23,7 +23,7 @@ viewer = Viewer("primitives", 1280, 720, config=Config(
 # self.files = [open(path, "rb", buffering=0) for _ in range(WORKERS)]
 
 path = Path("N:\\scenes\\smpl\\all_frames_20.bin")
-files = [open(path, "rb", buffering=0) for _ in range(viewer.config.renderer.thread_pool_workers)]
+files = [open(path, "rb", buffering=0) for _ in range(viewer.renderer.num_workers)]
 file = files[0]
 header = read_exact(file, 12)
 N = struct.unpack("<I", header[0: 4])[0]
