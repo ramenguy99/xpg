@@ -147,3 +147,89 @@ class Image(Object3D):
             scissors = frame.scissors,
         )
         frame.cmd.draw(4)
+
+class Mesh(Object3D):
+    def __init__(self,
+                 positions: Property[np.ndarray],
+                 normals: Property[np.ndarray],
+                 indices: Optional[Property[np.ndarray]] = None,
+                 primitive_topology: PrimitiveTopology = PrimitiveTopology.TRIANGLE_LIST,
+                 name: Optional[str] = None,
+                 translation: Optional[Property[np.ndarray]] = None,
+                 rotation: Optional[Property[np.ndarray]] = None,
+                 scale: Optional[Property[np.ndarray]] = None
+                ):
+        super().__init__(name, translation, rotation, scale)
+        self.positions: Property[np.ndarray] = self.add_property(positions, np.float32, (-1, 3), name="positions")
+        self.normals: Property[np.ndarray] = self.add_property(normals, np.float32, (-1, 3), name="normals")
+        self.indices: Optional[Property[np.ndarray]] = self.add_property(indices, np.uint32, (-1), name="indices") if indices is not None else None
+        self.primitive_topology = primitive_topology
+
+    def create(self, r: Renderer):
+        self.positions_buffer = r.add_gpu_buffer_property(self.positions, BufferUsageFlags.VERTEX, name=f"{self.name}-positions")
+        self.normals_buffer = r.add_gpu_buffer_property(self.normals, BufferUsageFlags.VERTEX, name=f"{self.name}-normals")
+        self.indices_buffer = r.add_gpu_buffer_property(self.indices, BufferUsageFlags.VERTEX, name=f"{self.name}-indices") if self.indices is not None else None
+
+        constants_dtype = np.dtype ({
+            "transform": (np.dtype((np.float32, (4, 4))), 0),
+        })
+        self.constants = np.zeros((1,), constants_dtype)
+
+        vert = r.get_builtin_shader("3d/mesh.slang", "vertex_main")
+        frag = r.get_builtin_shader("3d/mesh.slang", "pixel_main")
+
+        # Instantiate the pipeline using the compiled shaders
+        self.pipeline = GraphicsPipeline(
+            r.ctx,
+            stages = [
+                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+            ],
+            vertex_bindings = [
+                VertexBinding(0, 12, VertexInputRate.VERTEX),
+                VertexBinding(1, 12, VertexInputRate.VERTEX),
+            ],
+            vertex_attributes = [
+                VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
+                VertexAttribute(1, 1, Format.R32G32B32_SFLOAT),
+            ],
+            rasterization = Rasterization(), # TODO culling and winding settings
+            input_assembly = InputAssembly(self.primitive_topology),
+            attachments = [
+                Attachment(format=r.output_format)
+            ],
+            descriptor_sets = [ r.descriptor_sets.get_current(), r.uniform_pool.descriptor_set ],
+        )
+
+    def render(self, r: Renderer, frame: RendererFrame):
+        self.constants["transform"] = self.current_transform_matrix
+        constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
+        constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
+
+        index_buffer = self.indices_buffer.get_current() if self.indices_buffer is not None else None
+        frame.cmd.bind_graphics_pipeline(
+            self.pipeline,
+            vertex_buffers = [
+                self.positions_buffer.get_current(),
+                self.normals_buffer.get_current(),
+            ],
+            index_buffer = index_buffer,
+            descriptor_sets = [ frame.descriptor_set, constants_alloc.descriptor_set ],
+            dynamic_offsets = [ constants_alloc.offset ],
+            viewport = frame.viewport,
+            scissors = frame.scissors,
+        )
+
+        # TODO: using scissors here because viewport is inverted y stuff, not sure if that's allowed for this
+        with frame.cmd.rendering(frame.scissors,
+            color_attachments=[
+                RenderingAttachment(
+                    frame.image,
+                    load_op=LoadOp.LOAD,
+                    store_op=StoreOp.STORE,
+                ),
+            ]):
+            if self.indices is not None:
+                frame.cmd.draw_indexed(self.indices.get_current().shape[1])
+            else:
+                frame.cmd.draw(np.prod(self.positions.get_current().shape[1:]))

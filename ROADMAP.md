@@ -196,7 +196,8 @@ Python:
 
 Build:
 - [x] Mac support
-    - [ ] Statically link with moltenvk
+    - [x] Statically link with moltenvk
+    - [ ] Set MVK_CONFIG_LOG_LEVEL env variable, if not set, to configure mvk log level
 - [ ] Enable wayland in GLFW after merging this patch to the fix the build on manylinux: https://github.com/glfw/glfw/pull/2649
 
 Maintenance:

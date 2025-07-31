@@ -19,6 +19,9 @@ class UploadMethod(Enum):
 class RendererConfig:
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
     uniform_pool_block_size: int = 32 * 1024 * 1024
+    # TODO: make this use None for some default behaviour based on
+    # existing number of cores
+    thread_pool_workers: int = 8
     use_transfer_queue_if_available: bool = True
     force_upload_method: Optional[UploadMethod] = None
 
