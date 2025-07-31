@@ -1111,7 +1111,7 @@ struct CommandBuffer: GfxObject {
         }
     }
 
-    void use_image(Image& image, ImageUsage usage, u32 src_queue_family_index, u32 dst_queue_family_index) {
+    void use_image(Image& image, ImageUsage usage, u32 src_queue_family_index, u32 dst_queue_family_index, VkImageAspectFlagBits aspect_mask) {
         assert((usize)usage < ArrayCount(ImageUsagePresets::Types));
         ImageUsageState new_state = ImageUsagePresets::Types[(usize)usage];
 
@@ -1131,12 +1131,7 @@ struct CommandBuffer: GfxObject {
                 .src_queue = src_queue_family_index,
                 .dst_queue = dst_queue_family_index,
                 .image = image.image.image,
-                .aspect_mask =
-                    (VkImageAspectFlags)((
-                        usage == ImageUsage::DepthStencilAttachment ||
-                        usage == ImageUsage::DepthStencilAttachmentReadOnly ||
-                        usage == ImageUsage::DepthStencilAttachmentWriteOnly
-                    )? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT),
+                .aspect_mask = (VkImageAspectFlags)aspect_mask,
             });
         } else if (has_any_write_access(image.current_state.access | new_state.access)) {
             gfx::CmdMemoryBarrier(buffer, {
@@ -1363,6 +1358,19 @@ struct CommandBuffer: GfxObject {
         range.levelCount = 1;
         vkCmdClearColorImage(buffer, image.image.image, image.current_state.layout, &clear, 1, &range);
     }
+
+    void clear_depth_stencil_image(Image& image, std::optional<float> depth, std::optional<u32> stencil) {
+        VkClearDepthStencilValue clear;
+        clear.depth = depth.value_or(0.0f);
+        clear.stencil = stencil.value_or(0);
+
+        VkImageSubresourceRange range = {};
+        range.aspectMask = (depth.has_value() ? VK_IMAGE_ASPECT_DEPTH_BIT : 0) | (stencil.has_value() ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
+        range.layerCount = 1;
+        range.levelCount = 1;
+        vkCmdClearDepthStencilImage(buffer, image.image.image, image.current_state.layout, &clear, 1, &range);
+    }
+
 
     void blit_image(Image& src, Image& dst) {
         // TODO: add  error checking (check spec for what blits are valid)
@@ -3401,16 +3409,6 @@ void gfx_create_bindings(nb::module_& m)
         .value("MESH_SHADER"                          , VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT)
     ;
 
-    nb::class_<RenderingAttachment>(m, "RenderingAttachment")
-        .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, std::array<float, 4>, std::optional<nb::ref<Image>>, VkResolveModeFlagBits>(),
-            nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear") = std::array<float,4>({0.0f, 0.0f, 0.0f, 0.0f}), nb::arg("resolve_image") = nb::none(), nb::arg("resolve_mode") = VK_RESOLVE_MODE_NONE)
-    ;
-
-    nb::class_<DepthAttachment>(m, "DepthAttachment")
-        .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, float>(),
-            nb::arg("image"), nb::arg("load_op"), nb::arg("store_op"), nb::arg("clear") = 0.0f)
-    ;
-
     nb::enum_<VkAttachmentLoadOp>(m, "LoadOp")
         .value("LOAD"     , VK_ATTACHMENT_LOAD_OP_LOAD)
         .value("CLEAR"    , VK_ATTACHMENT_LOAD_OP_CLEAR)
@@ -3423,9 +3421,34 @@ void gfx_create_bindings(nb::module_& m)
         .value("NONE"     , VK_ATTACHMENT_STORE_OP_NONE)
     ;
 
+    nb::class_<RenderingAttachment>(m, "RenderingAttachment")
+        .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, std::array<float, 4>, std::optional<nb::ref<Image>>, VkResolveModeFlagBits>(),
+            nb::arg("image"), nb::arg("load_op") = VK_ATTACHMENT_LOAD_OP_LOAD, nb::arg("store_op") = VK_ATTACHMENT_STORE_OP_STORE, nb::arg("clear") = std::array<float,4>({0.0f, 0.0f, 0.0f, 0.0f}), nb::arg("resolve_image") = nb::none(), nb::arg("resolve_mode") = VK_RESOLVE_MODE_NONE)
+    ;
+
+    nb::class_<DepthAttachment>(m, "DepthAttachment")
+        .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, float>(),
+            nb::arg("image"), nb::arg("load_op") = VK_ATTACHMENT_LOAD_OP_LOAD, nb::arg("store_op") = VK_ATTACHMENT_STORE_OP_STORE, nb::arg("clear") = 0.0f)
+    ;
+
     nb::class_<CommandBuffer::RenderingManager>(m, "RenderingManager")
         .def("__enter__", &CommandBuffer::RenderingManager::enter)
         .def("__exit__", &CommandBuffer::RenderingManager::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
+    ;
+
+    nb::enum_<VkImageAspectFlagBits>(m, "ImageAspectFlags", nb::is_flag(), nb::is_arithmetic())
+        .value("NONE",           VK_IMAGE_ASPECT_NONE)
+        .value("COLOR",          VK_IMAGE_ASPECT_COLOR_BIT)
+        .value("DEPTH",          VK_IMAGE_ASPECT_DEPTH_BIT)
+        .value("STENCIL",        VK_IMAGE_ASPECT_STENCIL_BIT)
+        .value("METADATA",       VK_IMAGE_ASPECT_METADATA_BIT)
+        .value("PLANE_0",        VK_IMAGE_ASPECT_PLANE_0_BIT)
+        .value("PLANE_1",        VK_IMAGE_ASPECT_PLANE_1_BIT)
+        .value("PLANE_2",        VK_IMAGE_ASPECT_PLANE_2_BIT)
+        .value("MEMORY_PLANE_0", VK_IMAGE_ASPECT_MEMORY_PLANE_0_BIT_EXT)
+        .value("MEMORY_PLANE_1", VK_IMAGE_ASPECT_MEMORY_PLANE_1_BIT_EXT)
+        .value("MEMORY_PLANE_2", VK_IMAGE_ASPECT_MEMORY_PLANE_2_BIT_EXT)
+        .value("MEMORY_PLANE_3", VK_IMAGE_ASPECT_MEMORY_PLANE_3_BIT_EXT)
     ;
 
     nb::class_<CommandBuffer, GfxObject>(m, "CommandBuffer")
@@ -3440,7 +3463,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("end", &CommandBuffer::end)
         .def("memory_barrier", &CommandBuffer::memory_barrier, nb::arg("src"), nb::arg("dst"))
         .def("buffer_barrier", &CommandBuffer::buffer_barrier, nb::arg("buffer"), nb::arg("src"), nb::arg("dst"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED)
-        .def("use_image", &CommandBuffer::use_image, nb::arg("image"), nb::arg("usage"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED)
+        .def("use_image", &CommandBuffer::use_image, nb::arg("image"), nb::arg("usage"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("aspect_mask") = VK_IMAGE_ASPECT_COLOR_BIT)
         .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
         .def("end_rendering", &CommandBuffer::end_rendering)
         .def("rendering", &CommandBuffer::rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
@@ -3501,7 +3524,12 @@ void gfx_create_bindings(nb::module_& m)
         )
         .def("clear_color_image", &CommandBuffer::clear_color_image,
             nb::arg("image"),
-            nb::arg("clear")
+            nb::arg("color")
+        )
+        .def("clear_depth_stencil_image", &CommandBuffer::clear_depth_stencil_image,
+            nb::arg("image"),
+            nb::arg("depth") = nb::none(),
+            nb::arg("stencil") = nb::none()
         )
         .def("blit_image", &CommandBuffer::blit_image,
             nb::arg("src"),

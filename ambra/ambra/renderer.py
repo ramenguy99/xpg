@@ -46,6 +46,10 @@ class Renderer:
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         self.uniform_pool = UniformPool(ctx, window.num_frames, config.uniform_pool_block_size)
+        self.depth_buffer: Image = None
+        self.depth_format = Format.D32_SFLOAT
+        self.depth_clear_value = 1.0
+        self.depth_compare_op = CompareOp.LESS
 
         # TODO: make configurable
         self.thread_pool = ThreadPool(4)
@@ -69,6 +73,13 @@ class Renderer:
                 self.upload_method = UploadMethod.GFX
 
         self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
+
+        self.resize(window.fb_width, window.fb_height)
+
+    def resize(self, width: int, height: int):
+        if self.depth_buffer is not None:
+            self.depth_buffer.destroy()
+        self.depth_buffer = Image(self.ctx, width, height, self.depth_format, ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE_DEDICATED, name="depth")
 
     def add_gpu_buffer_property(self, property: Property[np.ndarray], usage_flags: BufferUsageFlags, name: str):
         prop = GpuBufferProperty(self.ctx, self.window.num_frames, self.upload_method, self.thread_pool, property, usage_flags, name)
@@ -102,6 +113,10 @@ class Renderer:
             cmd.use_image(frame.image, ImageUsage.TRANSFER_DST)
             cmd.clear_color_image(frame.image, self.background_color)
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
+
+            cmd.use_image(self.depth_buffer, ImageUsage.TRANSFER_DST, aspect_mask=ImageAspectFlags.DEPTH)
+            cmd.clear_depth_stencil_image(self.depth_buffer, depth=self.depth_clear_value)
+            cmd.use_image(self.depth_buffer, ImageUsage.DEPTH_STENCIL_ATTACHMENT, aspect_mask=ImageAspectFlags.DEPTH)
 
             if frame.transfer_command_buffer:
                 frame.transfer_command_buffer.begin()

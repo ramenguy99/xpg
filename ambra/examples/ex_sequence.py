@@ -1,15 +1,14 @@
-from ambra.scene import FrameAnimation, AnimationBoundary, StreamingProperty, UploadSettings, as_property, Property
+from ambra.scene import StreamingProperty, UploadSettings
 from ambra.viewer import Viewer
 from ambra.primitives3d import Mesh
 from ambra.transform3d import RigidTransform3D
-from ambra.config import Config, PlaybackConfig, CameraType, RendererConfig, UploadMethod
+from ambra.config import Config, PlaybackConfig, RendererConfig, UploadMethod
 from ambra.utils.io import read_exact, read_exact_at_offset_into, read_exact_at_offset
 from pyglm.glm import vec3
 
 import numpy as np
 import struct
 from pathlib import Path
-import io
 
 viewer = Viewer("primitives", 1280, 720, config=Config(
     playback=PlaybackConfig(
@@ -57,7 +56,7 @@ positions = FileStreamingProperty(N, np.float32, (-1, 3), upload=UploadSettings(
 ))
 
 mesh = Mesh(positions, indices=indices)
-viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(5, -5, 5), vec3(0), vec3(0, -1, 0))
+viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(10, -10, 10), vec3(0), vec3(0, -1, 0))
 viewer.viewport.scene.objects.extend([mesh])
 
 viewer.run()

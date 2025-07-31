@@ -93,9 +93,10 @@ class Viewer:
             return
         if swapchain_status == SwapchainStatus.RESIZED:
             width, height = self.window.fb_width, self.window.fb_height
+
+            self.renderer.resize(width, height)
             self.viewport.resize(width, height)
-            # NOTE: at some point the renderer would also likely want to be notified
-            # of resize events for resizing framebuffer-sized resources
+
             self.on_resize(width, height)
 
         # GUI

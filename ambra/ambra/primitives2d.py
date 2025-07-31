@@ -78,14 +78,7 @@ class Lines(Object2D):
         frame.cmd.set_line_width(self.line_width.get_current() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0)
 
         # TODO: using scissors here because viewport is inverted y stuff, not sure if that's allowed for this
-        with frame.cmd.rendering(frame.scissors,
-            color_attachments=[
-                RenderingAttachment(
-                    frame.image,
-                    load_op=LoadOp.LOAD,
-                    store_op=StoreOp.STORE,
-                ),
-            ]):
+        with frame.cmd.rendering(frame.scissors, color_attachments=[ RenderingAttachment( frame.image) ]):
             frame.cmd.draw(self.lines.get_current().shape[0])
 
 class Image(Object2D):

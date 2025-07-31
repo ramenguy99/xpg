@@ -25,7 +25,7 @@ VSOutput vertex_main(VSInput in)
 [shader("pixel")]
 float4 pixel_main(VSOutput in) : SV_Target0
 {
-    float3 L = normalize(float3(-1, -1, 1));
+    float3 L = normalize(float3(-1, 1, 1));
 
     float3 t = ddx(in.world_position);
     float3 b = ddy(in.world_position);

@@ -26,7 +26,7 @@ GPU_PREFETCH_SIZE = 2
 PREFETCH_SIZE = 2
 
 ctx = Context(
-    required_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.CALIBRATED_TIMESTAMPS | DeviceFeatures.TIMELINE_SEMAPHORES, 
+    required_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.CALIBRATED_TIMESTAMPS | DeviceFeatures.TIMELINE_SEMAPHORES,
     enable_validation_layer=True,
     enable_synchronization_validation=True,
     preferred_frames_in_flight=2,
@@ -120,7 +120,7 @@ class CpuBuffer:
     def __init__(self, size: int, usage_flags: BufferUsageFlags, name: Optional[str] = None):
         self.buf = Buffer(ctx, size, usage_flags, AllocType.DEVICE_MAPPED if upload_method == UploadMethod.CPU_BUF else AllocType.HOST, name=name)
         self.promise = Promise()
-    
+
     def __repr__(self):
         return self.buf.__repr__()
 
@@ -145,12 +145,12 @@ class GpuBuffer:
         if use_transfer_queue:
             self.semaphore = TimelineSemaphore(ctx, name=f"{name}-semaphore")
             self.semaphore_value = 0
-    
+
     def use(self, stage: PipelineStageFlags) -> SemaphoreInfo:
         info = SemaphoreInfo(self.semaphore, stage, self.semaphore_value, self.semaphore_value + 1)
         self.semaphore_value += 1
         return info
-        
+
     def __repr__(self):
         return f"(buf={self.buf.__repr__()}, state={self.state}, semaphore={self.semaphore_value})"
 
@@ -206,7 +206,7 @@ class Sequence:
     def _load(self, i: int, buf: CpuBuffer, thread_index: int):
         file = self.files[thread_index]
         read_exact_at_offset_into(file, 12 + i * self.V * 12, buf.buf.data)
-    
+
     def update(self, frame_index: int, cmd: CommandBuffer, copy_cmd: CommandBuffer, copy_semaphores: List[SemaphoreInfo], additional_semaphores: List[SemaphoreInfo]):
         self.animation_frame_index = int(self.animation_time * self.animation_fps) % self.N
 
@@ -237,7 +237,7 @@ class Sequence:
                     with profiler.zone("upload"):
                         # If using mapped buffer
                         gpu_buf.buf.data[:] = cpu_buf.buf.data[:]
-                        
+
                         # Buffer is immediately not in use anymore. Add back to the LRU.
                         # This moves back the buffer to the front of the LRU queue.
                         self.cpu.give_back(k, cpu_buf)
@@ -275,15 +275,15 @@ class Sequence:
                     with profiler.gpu_transfer_zone("prefetch barrier"):
                         copy_semaphores.append(gpu_buf.use(PipelineStageFlags.TOP_OF_PIPE))
                     copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_WRITE, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
-                
+
                 cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.NONE, MemoryUsage.VERTEX_INPUT, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
                 additional_semaphores.append(gpu_buf.use(PipelineStageFlags.VERTEX_INPUT))
                 gpu_buf.state = GpuBufferState.RENDER
-            
+
             assert gpu_buf.state == GpuBufferState.RENDER, gpu_buf.state
-            
+
             self.current_buf = gpu_buf.buf
-    
+
     def prefetch(self):
         def prefetch_cleanup(k: int, buf: CpuBuffer) -> bool:
             if buf.promise.is_set():
@@ -371,7 +371,7 @@ animation_playing = False
 profiler = Profiler(ctx, window.num_frames + 1)
 profiler_max_frames = 20
 profiler_results: List[ProfilerFrame] = []
-    
+
 def draw():
     global depth
     global first_frame, frame_index, last_timestamp, total_frame_index
@@ -388,7 +388,7 @@ def draw():
     swapchain_status = window.update_swapchain()
     if swapchain_status == SwapchainStatus.MINIMIZED:
         return
-    
+
     images_just_created = False
     if first_frame or swapchain_status == SwapchainStatus.RESIZED:
         first_frame = False
@@ -421,7 +421,7 @@ def draw():
 
         if prof and len(profiler_results) < profiler_max_frames:
             profiler_results.append(prof)
-        
+
         with profiler.zone(f"frame {seqs[0].animation_frame_index}"):
             # GUI
             with profiler.zone("gui"):
@@ -442,7 +442,7 @@ def draw():
                                 seq.animation_frame_index = idx
                                 seq.animation_time = idx / seq.animation_fps
                         _, animation_playing = imgui.checkbox("Playing", animation_playing)
-                        
+
                         start = imgui.get_cursor_screen_pos()
                         for i, seq in enumerate(seqs):
                             dl = imgui.get_window_draw_list()
@@ -520,7 +520,7 @@ def draw():
 
                     gui_profiler_list(prof, dt, ctx.timestamp_period_ns)
                     gui_profiler_graph(profiler_results, ctx.timestamp_period_ns)
-                
+
 
             with profiler.gpu_zone(f"frame {seqs[0].animation_frame_index}"):
                 ####################################################################
@@ -552,11 +552,11 @@ def draw():
                 for seq in seqs:
                     seq.prefetch()
                 ####################################################################
-                
+
                 cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
                 if images_just_created:
-                    cmd.use_image(depth, ImageUsage.DEPTH_STENCIL_ATTACHMENT)
-                
+                    cmd.use_image(depth, ImageUsage.DEPTH_STENCIL_ATTACHMENT, aspect_mask=ImageAspectFlags.DEPTH)
+
                 viewport = [0, 0, window.fb_width, window.fb_height]
                 with profiler.gpu_zone("draw"):
                     with cmd.rendering(viewport,

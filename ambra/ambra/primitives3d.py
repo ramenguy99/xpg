@@ -78,14 +78,7 @@ class Lines(Object3D):
         frame.cmd.set_line_width(self.line_width.get_current() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0)
 
         # TODO: using scissors here because viewport is inverted y stuff, not sure if that's allowed for this
-        with frame.cmd.rendering(frame.scissors,
-            color_attachments=[
-                RenderingAttachment(
-                    frame.image,
-                    load_op=LoadOp.LOAD,
-                    store_op=StoreOp.STORE,
-                ),
-            ]):
+        with frame.cmd.rendering(frame.scissors, color_attachments=[ RenderingAttachment(frame.image) ]):
             frame.cmd.draw(self.lines.get_current().shape[0])
 
 class Image(Object3D):
@@ -198,6 +191,7 @@ class Mesh(Object3D):
             attachments = [
                 Attachment(format=r.output_format)
             ],
+            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_sets = [ r.descriptor_sets.get_current(), r.uniform_pool.descriptor_set ],
         )
 
@@ -222,13 +216,9 @@ class Mesh(Object3D):
 
         # TODO: using scissors here because viewport is inverted y stuff, not sure if that's allowed for this
         with frame.cmd.rendering(frame.scissors,
-            color_attachments=[
-                RenderingAttachment(
-                    frame.image,
-                    load_op=LoadOp.LOAD,
-                    store_op=StoreOp.STORE,
-                ),
-            ]):
+            color_attachments=[ RenderingAttachment(frame.image) ],
+            depth=DepthAttachment(r.depth_buffer),
+        ):
             if self.indices is not None:
                 frame.cmd.draw_indexed(self.indices.get_current().shape[0])
             else:
