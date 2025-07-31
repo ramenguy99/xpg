@@ -5,7 +5,6 @@ from .scene import Scene
 from .camera import Camera
 from .config import PlaybackConfig
 
-# TODO: playback config from viewer config for things like deafult fps/playing/time
 class Playback:
     def __init__(self, config: PlaybackConfig):
         self.max_time = config.max_time

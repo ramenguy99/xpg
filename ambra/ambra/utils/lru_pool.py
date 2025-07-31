@@ -36,8 +36,6 @@ class LRUPool:
         self.max_prefetch: int = max_prefetch
         self.prefetch_store: Dict[O, K] = {}
 
-    # TODO: remove ensure_fetched. I don't think this is needed because anyways
-    # we can do this after the object is returned and before using it.
     def get(self, key: K, load: Callable[[K, O], None], ensure_fetched: Optional[Callable[[O], None]] = None) -> O:
         cached = self.lookup.get(key)
 

@@ -41,8 +41,11 @@ class Renderer:
         self.background_color = config.background_color
 
         # Scene descriptors
-        self.descriptor_sets: RingBuffer[DescriptorSet] = RingBuffer(window.num_frames, DescriptorSet, ctx, [
-            DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
+        self.descriptor_sets = RingBuffer([
+            DescriptorSet(ctx, [
+                DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
+            ])
+            for _ in range(window.num_frames)
         ])
 
         constants_dtype = np.dtype ({
@@ -52,7 +55,7 @@ class Renderer:
         })
 
         self.constants = np.zeros((1,), constants_dtype)
-        self.uniform_buffers: RingBuffer[UploadableBuffer] = RingBuffer(window.num_frames, UploadableBuffer, ctx, 64 * 2 + 12, BufferUsageFlags.UNIFORM)
+        self.uniform_buffers = RingBuffer([UploadableBuffer(ctx, 64 * 2 + 12, BufferUsageFlags.UNIFORM) for _ in range(window.num_frames)])
 
         for set, buf in zip(self.descriptor_sets.items, self.uniform_buffers.items):
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)

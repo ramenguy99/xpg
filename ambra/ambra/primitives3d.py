@@ -2,7 +2,6 @@ from pyxpg import *
 from .scene import Property, Object3D
 from .renderer import Renderer, RendererFrame
 from .utils.gpu import RingBuffer
-from .utils.gpu_property import GpuBufferProperty, GpuImageProperty
 
 from typing import Optional
 import numpy as np
@@ -97,9 +96,12 @@ class Image(Object3D):
             "transform": (np.dtype((np.float32, (4, 4))), 0),
         })
         self.constants = np.zeros((1,), constants_dtype)
-        self.descriptor_sets: RingBuffer[DescriptorSet] = RingBuffer(r.window.num_frames, DescriptorSet, r.ctx, [
-            DescriptorSetEntry(1, DescriptorType.SAMPLER),
-            DescriptorSetEntry(1, DescriptorType.SAMPLED_IMAGE),
+        self.descriptor_sets = RingBuffer([
+            DescriptorSet(r.ctx, [
+                DescriptorSetEntry(1, DescriptorType.SAMPLER),
+                DescriptorSetEntry(1, DescriptorType.SAMPLED_IMAGE),
+            ])
+            for _ in range(r.window.num_frames)
         ])
         for set in self.descriptor_sets.items:
             set.write_sampler(self.sampler, 0)

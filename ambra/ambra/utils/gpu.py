@@ -127,10 +127,16 @@ class UniformPool:
         size = max(min_size, self.block_size)
         block_idx = len(self.blocks)
         block = UniformBlock(
-            descriptor_sets = RingBuffer(self.num_frames, DescriptorSet, self.ctx, [
-                DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER_DYNAMIC),
-            ], name=f"set - uniform pool block {block_idx}"),
-            buffers = RingBuffer(self.num_frames, UploadableBuffer, self.ctx, size, BufferUsageFlags.UNIFORM, name=f"set - uniform pool block {block_idx}"),
+            descriptor_sets = RingBuffer([
+                DescriptorSet(self.ctx, [
+                    DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER_DYNAMIC),
+                ], name=f"set - uniform pool block {block_idx}")
+                for _ in range(self.num_frames)
+            ]),
+            buffers = RingBuffer([
+                UploadableBuffer(self.ctx, size, BufferUsageFlags.UNIFORM, name=f"set - uniform pool block {block_idx}")
+                for _ in range(self.num_frames)
+            ]),
             size = size,
         )
         for s, b in zip(block.descriptor_sets.items, block.buffers.items):
@@ -153,7 +159,7 @@ class UniformPool:
             if b.used + size < b.size:
                 return b.alloc(size, self.alignment)
 
-        # No space left, alloca a new block
+        # No space left, alloc a new block
         return self._alloc_block(size).alloc(size, self.alignment)
 
     def advance(self):
