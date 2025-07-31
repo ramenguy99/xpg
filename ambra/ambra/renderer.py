@@ -110,6 +110,9 @@ class Renderer:
             self.constants["camera_position"] = -viewport.camera.camera_from_world.translation
             buf.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM_READ, self.constants.view(np.uint8))
 
+            cmd.set_viewport(viewport_rect)
+            cmd.set_scissors(rect)
+
             cmd.use_image(frame.image, ImageUsage.TRANSFER_DST)
             cmd.clear_color_image(frame.image, self.background_color)
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
@@ -133,6 +136,7 @@ class Renderer:
                 frame.transfer_command_buffer,
                 [],
             )
+
 
             # Create new objects, if any
             viewport.scene.create_if_needed(self)

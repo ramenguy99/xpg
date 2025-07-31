@@ -16,8 +16,10 @@ class RendererFrame:
     image: Image
     index: int
     total_index: int
+
     viewport: Tuple[float, float, float, float]
-    scissors: Tuple[float, float, float, float]
+    rect: Tuple[int, int, int, int]
+
     descriptor_set: DescriptorSet
     additional_semaphores: List[SemaphoreInfo]
 

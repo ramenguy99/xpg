@@ -11,7 +11,7 @@ import warp as wp
 
 ctx = Context(
     version=(1, 1),
-    required_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.EXTERNAL_RESOURCES, 
+    required_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.EXTERNAL_RESOURCES,
     enable_validation_layer=True,
     enable_synchronization_validation=True,
 )
@@ -35,8 +35,8 @@ set = DescriptorSet(
 
 
 if os.name == 'nt':
-    memory_handle_type = wp.ExternalMemoryBuffer.HANDLE_TYPE_OPAQUEWIN32 
-    semaphore_handle_type = wp.ExternalMemoryBuffer.HANDLE_TYPE_OPAQUEWIN32 
+    memory_handle_type = wp.ExternalMemoryBuffer.HANDLE_TYPE_OPAQUEWIN32
+    semaphore_handle_type = wp.ExternalMemoryBuffer.HANDLE_TYPE_OPAQUEWIN32
 else:
     memory_handle_type = wp.ExternalMemoryBuffer.HANDLE_TYPE_OPAQUEFD
     semaphore_handle_type = wp.ExternalMemoryBuffer.HANDLE_TYPE_OPAQUEFD
@@ -172,14 +172,14 @@ def draw():
                         clear=[0.1, 0.2, 0.4, 1],
                     ),
                 ]):
+                cmd.set_viewport(viewport)
+                cmd.set_scissors(viewport)
                 cmd.bind_graphics_pipeline(
                     pipeline=color.pipeline,
                     descriptor_sets=[ set ],
                     push_constants=push_constants.tobytes(),
                     vertex_buffers=[ v_buf ],
                     index_buffer=i_buf,
-                    viewport=viewport,
-                    scissors=viewport,
                 )
                 cmd.draw_indexed(I.size)
                 gui.render(cmd)

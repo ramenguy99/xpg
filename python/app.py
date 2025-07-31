@@ -155,14 +155,15 @@ def draw():
                         clear=[0.1, 0.2, 0.4, 1],
                     ),
                 ]):
+                cmd.set_viewport(viewport)
+                cmd.set_scissors(viewport)
+
                 # Bind the pipeline
                 cmd.bind_graphics_pipeline(
                     pipeline=color.pipeline,
                     descriptor_sets=[ set ],
                     vertex_buffers=[ v_buf ],
                     index_buffer=i_buf,
-                    viewport=viewport,
-                    scissors=viewport,
                 )
                 # Issue a draw
                 cmd.draw_indexed(I.size)

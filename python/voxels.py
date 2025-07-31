@@ -171,7 +171,7 @@ def draw():
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
 
             if images_just_created:
-                cmd.use_image(depth, ImageUsage.DEPTH_STENCIL_ATTACHMENT)
+                cmd.use_image(depth, ImageUsage.DEPTH_STENCIL_ATTACHMENT, aspect_mask=ImageAspectFlags.DEPTH)
                 if SAMPLES > 1:
                     cmd.use_image(msaa_target, ImageUsage.COLOR_ATTACHMENT)
 
@@ -186,12 +186,12 @@ def draw():
                 ],
                 depth = DepthAttachment(depth, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=1.0)
             ):
+                cmd.set_viewport(viewport)
+                cmd.set_scissors(viewport)
                 cmd.bind_graphics_pipeline(
                     pipeline=voxels.pipeline,
                     descriptor_sets=[ set ],
                     index_buffer=index_buf,
-                    viewport=viewport,
-                    scissors=viewport,
                 )
 
                 cmd.draw_indexed(I.size)

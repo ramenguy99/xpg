@@ -99,11 +99,11 @@ with ctx.sync_commands() as cmd:
                 clear=[0.1, 0.2, 0.4, 1],
             ),
         ]):
+            cmd.set_viewport(viewport)
+            cmd.set_scissors(viewport)
             cmd.bind_graphics_pipeline(
                 pipeline,
-                vertex_buffers=[ v_buf ], 
-                viewport=viewport,
-                scissors=viewport,
+                vertex_buffers=[ v_buf ],
             )
             cmd.draw(3)
     cmd.use_image(img, ImageUsage.TRANSFER_SRC)

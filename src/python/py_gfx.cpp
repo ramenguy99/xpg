@@ -1169,15 +1169,15 @@ struct CommandBuffer: GfxObject {
     }
 
     struct RenderingManager {
-        RenderingManager(nb::ref<CommandBuffer> cmd, std::array<u32, 4> viewport, std::vector<RenderingAttachment> color, std::optional<DepthAttachment> depth)
+        RenderingManager(nb::ref<CommandBuffer> cmd, std::array<u32, 4> render_area, std::vector<RenderingAttachment> color, std::optional<DepthAttachment> depth)
             : cmd(cmd)
-            , viewport(viewport)
+            , render_area(render_area)
             , color(std::move(color))
             , depth(depth)
         {}
 
         void enter() {
-            cmd->begin_rendering(viewport, color, depth);
+            cmd->begin_rendering(render_area, color, depth);
         }
 
         void exit(nb::object, nb::object, nb::object) {
@@ -1185,16 +1185,16 @@ struct CommandBuffer: GfxObject {
         }
 
         nb::ref<CommandBuffer> cmd;
-        std::array<u32, 4> viewport;
+        std::array<u32, 4> render_area;
         std::vector<RenderingAttachment> color;
         std::optional<DepthAttachment> depth;
     };
 
-    RenderingManager rendering(std::array<u32, 4> viewport, const std::vector<RenderingAttachment>& color, std::optional<DepthAttachment> depth) {
-        return RenderingManager(this, viewport, std::move(color), depth);
+    RenderingManager rendering(std::array<u32, 4> render_area, const std::vector<RenderingAttachment>& color, std::optional<DepthAttachment> depth) {
+        return RenderingManager(this, render_area, std::move(color), depth);
     }
 
-    void begin_rendering(std::array<u32, 4> viewport, const std::vector<RenderingAttachment>& color, std::optional<DepthAttachment> depth) {
+    void begin_rendering(std::array<u32, 4> render_area, const std::vector<RenderingAttachment>& color, std::optional<DepthAttachment> depth) {
         Array<gfx::RenderingAttachmentDesc> color_descs(color.size());
         for(usize i = 0; i < color_descs.length; i++) {
             VkClearColorValue clear;
@@ -1225,15 +1225,35 @@ struct CommandBuffer: GfxObject {
         gfx::CmdBeginRendering(buffer, {
             .color = Span(color_descs),
             .depth = depth_desc,
-            .offset_x = viewport[0],
-            .offset_y = viewport[1],
-            .width = viewport[2],
-            .height = viewport[3],
+            .offset_x = render_area[0],
+            .offset_y = render_area[1],
+            .width = render_area[2],
+            .height = render_area[3],
         });
     }
 
     void end_rendering() {
         gfx::CmdEndRendering(buffer);
+    }
+
+    void set_viewport(std::array<s32, 4> viewport) {
+        VkViewport vp = {};
+        vp.x = (float)viewport[0];
+        vp.y = (float)viewport[1];
+        vp.width = (float)viewport[2];
+        vp.height = (float)viewport[3];
+        vp.minDepth = 0.0f;
+        vp.maxDepth = 1.0f;
+        vkCmdSetViewport(buffer, 0, 1, &vp);
+    }
+
+    void set_scissors(std::array<s32, 4> scissors) {
+        VkRect2D scissor = {};
+        scissor.offset.x = scissors[0];
+        scissor.offset.y = scissors[1];
+        scissor.extent.width = scissors[2];
+        scissor.extent.height = scissors[3];
+        vkCmdSetScissor(buffer, 0, 1, &scissor);
     }
 
     void bind_pipeline_common(
@@ -1258,9 +1278,7 @@ struct CommandBuffer: GfxObject {
         const std::vector<u32>& dynamic_offsets,
         const std::optional<nb::bytes>& push_constants,
         const std::vector<nb::ref<Buffer>> vertex_buffers,
-        std::optional<nb::ref<Buffer>> index_buffer,
-        std::array<s32, 4> viewport,
-        std::array<s32, 4> scissors
+        std::optional<nb::ref<Buffer>> index_buffer
     );
 
     void dispatch(
@@ -2424,9 +2442,7 @@ void CommandBuffer::bind_graphics_pipeline(
     const std::vector<u32>& dynamic_offsets,
     const std::optional<nb::bytes>& push_constants,
     const std::vector<nb::ref<Buffer>> vertex_buffers,
-    std::optional<nb::ref<Buffer>> index_buffer,
-    std::array<s32, 4> viewport,
-    std::array<s32, 4> scissors
+    std::optional<nb::ref<Buffer>> index_buffer
 )
 {
     bind_pipeline_common(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, dynamic_offsets, push_constants);
@@ -2447,24 +2463,6 @@ void CommandBuffer::bind_graphics_pipeline(
     if(index_buffer.has_value()) {
         vkCmdBindIndexBuffer(buffer, index_buffer.value()->buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
     }
-
-    // Viewport
-    VkViewport vp = {};
-    vp.x = (float)viewport[0];
-    vp.y = (float)viewport[1];
-    vp.width = (float)viewport[2];
-    vp.height = (float)viewport[3];
-    vp.minDepth = 0.0f;
-    vp.maxDepth = 1.0f;
-    vkCmdSetViewport(buffer, 0, 1, &vp);
-
-    // Scissors
-    VkRect2D scissor = {};
-    scissor.offset.x = scissors[0];
-    scissor.offset.y = scissors[1];
-    scissor.extent.width = scissors[2];
-    scissor.extent.height = scissors[3];
-    vkCmdSetScissor(buffer, 0, 1, &scissor);
 }
 
 #ifdef _WIN32
@@ -3464,18 +3462,18 @@ void gfx_create_bindings(nb::module_& m)
         .def("memory_barrier", &CommandBuffer::memory_barrier, nb::arg("src"), nb::arg("dst"))
         .def("buffer_barrier", &CommandBuffer::buffer_barrier, nb::arg("buffer"), nb::arg("src"), nb::arg("dst"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED)
         .def("use_image", &CommandBuffer::use_image, nb::arg("image"), nb::arg("usage"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("aspect_mask") = VK_IMAGE_ASPECT_COLOR_BIT)
-        .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
+        .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("render_area"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
         .def("end_rendering", &CommandBuffer::end_rendering)
-        .def("rendering", &CommandBuffer::rendering, nb::arg("viewport"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
+        .def("rendering", &CommandBuffer::rendering, nb::arg("render_area"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
+        .def("set_viewport", &CommandBuffer::set_viewport, nb::arg("viewport"))
+        .def("set_scissors", &CommandBuffer::set_scissors, nb::arg("scissors"))
         .def("bind_graphics_pipeline", &CommandBuffer::bind_graphics_pipeline,
             nb::arg("pipeline"),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
             nb::arg("dynamic_offsets") = std::vector<nb::ref<DescriptorSet>>(),
             nb::arg("push_constants") = std::optional<nb::bytes>(),
             nb::arg("vertex_buffers") = std::vector<nb::ref<Buffer>>(),
-            nb::arg("index_buffer") = std::optional<nb::ref<Buffer>>(),
-            nb::arg("viewport") = std::array<float, 4>(),
-            nb::arg("scissors") = std::array<float, 4>()
+            nb::arg("index_buffer") = std::optional<nb::ref<Buffer>>()
         )
         .def("bind_compute_pipeline", &CommandBuffer::bind_compute_pipeline,
             nb::arg("pipeline"),

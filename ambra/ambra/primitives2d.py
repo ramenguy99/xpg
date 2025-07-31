@@ -72,13 +72,10 @@ class Lines(Object2D):
             ],
             descriptor_sets = [ frame.descriptor_set, constants_alloc.descriptor_set ],
             dynamic_offsets = [ constants_alloc.offset ],
-            viewport = frame.viewport,
-            scissors = frame.scissors,
         )
         frame.cmd.set_line_width(self.line_width.get_current() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0)
 
-        # TODO: using scissors here because viewport is inverted y stuff, not sure if that's allowed for this
-        with frame.cmd.rendering(frame.scissors, color_attachments=[ RenderingAttachment( frame.image) ]):
+        with frame.cmd.rendering(frame.rect, color_attachments=[ RenderingAttachment( frame.image) ]):
             frame.cmd.draw(self.lines.get_current().shape[0])
 
 class Image(Object2D):
@@ -93,7 +90,7 @@ class Image(Object2D):
         self.image: Property[np.ndarray] = self.add_property(image, shape=(-1, -1, -1), name="image")
 
     def create(self, r: Renderer):
-        self.images = GpuImageProperty(self, r, self.image, ImageUsageFlags.SAMPLED, ImageUsage.SHADER_READ_ONLY, name=f"{self.name}-image")
+        self.images = r.add_gpu_image_property(self.image, ImageUsageFlags.SAMPLED, ImageUsage.SHADER_READ_ONLY, name=f"{self.name}-image")
         self.sampler = Sampler(r.ctx, min_filter=Filter.LINEAR, mag_filter=Filter.LINEAR, u=SamplerAddressMode.CLAMP_TO_EDGE, v=SamplerAddressMode.CLAMP_TO_EDGE)
 
         constants_dtype = np.dtype ({
@@ -136,7 +133,7 @@ class Image(Object2D):
             self.pipeline,
             descriptor_sets = [ frame.descriptor_set, constants_alloc.descriptor_set, descriptor_set ],
             dynamic_offsets = [ constants_alloc.offset ],
-            viewport = frame.viewport,
-            scissors = frame.scissors,
         )
-        frame.cmd.draw(4)
+
+        with frame.cmd.rendering(frame.rect, color_attachments=[ RenderingAttachment( frame.image) ]):
+            frame.cmd.draw(4)

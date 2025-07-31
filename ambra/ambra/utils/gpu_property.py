@@ -392,6 +392,15 @@ class GpuImageProperty:
     def get_current(self):
         return self.images[self.property.current_frame_index]
 
+    def load(self, frame: RendererFrame):
+        pass
+
+    def upload(self, frame: RendererFrame):
+        pass
+
+    def post_upload(self, frame: RendererFrame):
+        pass
+
     def destroy(self):
         for img in self.images:
             img.destroy()

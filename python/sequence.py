@@ -570,6 +570,9 @@ def draw():
                         ],
                         depth=DepthAttachment(depth, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=1.0)
                     ):
+                        cmd.set_viewport(viewport)
+                        cmd.set_scissors(viewport)
+
                         # Bind the pipeline
                         for seq in seqs:
                             cmd.bind_graphics_pipeline(
@@ -577,8 +580,6 @@ def draw():
                                 descriptor_sets=[ descriptor_set ],
                                 vertex_buffers=[ seq.current_buf ],
                                 index_buffer=seq.i_buf,
-                                viewport=viewport,
-                                scissors=viewport,
                             )
 
                             # Issue a draw
