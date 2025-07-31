@@ -144,6 +144,8 @@ class Mesh(Object3D):
                 #  normals: Property[np.ndarray],
                  indices: Optional[Property[np.ndarray]] = None,
                  primitive_topology: PrimitiveTopology = PrimitiveTopology.TRIANGLE_LIST,
+                 cull_mode: CullMode = CullMode.NONE,
+                 front_face: FrontFace = FrontFace.COUNTER_CLOCKWISE,
                  name: Optional[str] = None,
                  translation: Optional[Property[np.ndarray]] = None,
                  rotation: Optional[Property[np.ndarray]] = None,
@@ -154,6 +156,8 @@ class Mesh(Object3D):
         # self.normals: Property[np.ndarray] = self.add_property(normals, np.float32, (-1, 3), name="normals")
         self.indices: Optional[Property[np.ndarray]] = self.add_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
         self.primitive_topology = primitive_topology
+        self.cull_mode = cull_mode
+        self.front_face = front_face
 
     def create(self, r: Renderer):
         self.positions_buffer = r.add_gpu_buffer_property(self.positions, BufferUsageFlags.VERTEX, name=f"{self.name}-positions")
@@ -183,7 +187,7 @@ class Mesh(Object3D):
                 VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
                 # VertexAttribute(1, 1, Format.R32G32B32_SFLOAT),
             ],
-            rasterization = Rasterization(), # TODO culling and winding settings
+            rasterization = Rasterization(cull_mode=self.cull_mode, front_face=self.front_face),
             input_assembly = InputAssembly(self.primitive_topology),
             attachments = [
                 Attachment(format=r.output_format)
