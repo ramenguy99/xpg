@@ -1,8 +1,8 @@
 from ambra.scene import StreamingProperty, UploadSettings
 from ambra.viewer import Viewer
-from ambra.primitives3d import Mesh
+from ambra.primitives3d import Mesh, Lines
 from ambra.transform3d import RigidTransform3D
-from ambra.config import Config, PlaybackConfig, RendererConfig, UploadMethod
+from ambra.config import Config, PlaybackConfig, RendererConfig, UploadMethod, GuiConfig
 from ambra.utils.io import read_exact, read_exact_at_offset_into, read_exact_at_offset
 from pyglm.glm import vec3
 
@@ -10,17 +10,24 @@ import numpy as np
 import struct
 from pathlib import Path
 
-viewer = Viewer("primitives", 1280, 720, config=Config(
+viewer = Viewer("primitives", 1900, 1000, config=Config(
+    # vsync = False,
+    preferred_frames_in_flight=3,
     playback=PlaybackConfig(
         enabled=True,
         playing=True,
+        frames_per_second=25.0,
     ),
     renderer=RendererConfig(
-        force_upload_method=UploadMethod.GFX,
+        background_color=(0,0,0,1),
+    ),
+    gui=GuiConfig(
+        stats=True,
+        playback=True,
+        inspector=True,
+        renderer=True,
     )
 ))
-
-# self.files = [open(path, "rb", buffering=0) for _ in range(WORKERS)]
 
 path = Path("N:\\scenes\\smpl\\all_frames_20.bin")
 files = [open(path, "rb", buffering=0) for _ in range(viewer.renderer.num_workers)]
@@ -53,10 +60,12 @@ class FileStreamingProperty(StreamingProperty):
 positions = FileStreamingProperty(N, np.float32, (-1, 3), upload=UploadSettings(
     preupload=False,
     async_load=True,
+    cpu_prefetch_count=2,
+    gpu_prefetch_count=2,
 ))
 
 mesh = Mesh(positions, indices=indices)
 viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(10, -10, 10), vec3(0), vec3(0, -1, 0))
-viewer.viewport.scene.objects.extend([mesh])
+viewer.viewport.scene.objects.append(mesh)
 
 viewer.run()

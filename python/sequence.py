@@ -142,9 +142,11 @@ class GpuBuffer:
         self.buf = Buffer(ctx, size, usage_flags, AllocType.DEVICE_MAPPED, name=name)
         self.state = GpuBufferState.EMPTY
 
+        self.semaphore_value = 0
         if use_transfer_queue:
             self.semaphore = TimelineSemaphore(ctx, name=f"{name}-semaphore")
-            self.semaphore_value = 0
+        else:
+            self.semaphore = None
 
     def use(self, stage: PipelineStageFlags) -> SemaphoreInfo:
         info = SemaphoreInfo(self.semaphore, stage, self.semaphore_value, self.semaphore_value + 1)

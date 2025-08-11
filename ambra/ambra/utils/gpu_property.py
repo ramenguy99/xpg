@@ -78,8 +78,15 @@ class GpuBufferProperty:
         self.upload_method = upload_method
         self.thread_pool = thread_pool
         self.property = property
+        self.name = name
 
-        self.current = None
+        self.current: Buffer = None
+        self.cpu_buffers: List[CpuBuffer] = []
+        self.cpu_pool: Optional[LRUPool] = None
+        self.gpu_buffers: List[GpuBuffer] = []
+        self.gpu_pool: Optional[LRUPool] = None
+        self.prefetch_states: List[PrefetchState] = []
+        self.prefetch_states_lookup: Dict[GpuBuffer, PrefetchState] = {}
 
         # Upload
         if self.property.upload.preupload:
@@ -91,9 +98,9 @@ class GpuBufferProperty:
             size = self.property.max_size()
 
             cpu_prefetch_count = self.property.upload.cpu_prefetch_count
-            gpu_prefetch_count = self.property.upload.gpu_prefetch_count
+            gpu_prefetch_count = self.property.upload.gpu_prefetch_count if upload_method == UploadMethod.TRANSFER_QUEUE else 0
 
-            cpu_buffers_count = num_frames_in_flight + cpu_prefetch_count
+            cpu_buffers_count = num_frames_in_flight + cpu_prefetch_count + gpu_prefetch_count
             gpu_buffers_count = num_frames_in_flight + gpu_prefetch_count
 
             if upload_method == UploadMethod.CPU_BUF:
@@ -105,9 +112,10 @@ class GpuBufferProperty:
             self.cpu_pool = LRUPool(self.cpu_buffers, num_frames_in_flight, cpu_prefetch_count)
 
             if upload_method != UploadMethod.CPU_BUF:
-                gpu_alloc_type = AllocType.DEVICE_MAPPED if upload_method == UploadMethod.BAR else AllocType.HOST
+                gpu_alloc_type = AllocType.DEVICE_MAPPED if upload_method == UploadMethod.BAR else AllocType.DEVICE
                 self.gpu_buffers = [GpuBuffer(ctx, size, usage_flags | BufferUsageFlags.TRANSFER_DST, gpu_alloc_type, upload_method == UploadMethod.TRANSFER_QUEUE, name=f"gpubuf-{name}-{i}") for i in range(gpu_buffers_count)]
                 self.gpu_pool = LRUPool(self.gpu_buffers, num_frames_in_flight, gpu_prefetch_count)
+
 
             if upload_method == UploadMethod.TRANSFER_QUEUE:
                 self.prefetch_states = [
@@ -215,7 +223,7 @@ class GpuBufferProperty:
                 assert gpu_buf.state == GpuBufferState.RENDER, gpu_buf.state
                 self.current = gpu_buf.buf
 
-    def post_upload(self, frame: RendererFrame):
+    def prefetch(self, frame: RendererFrame):
         if not self.property.upload.preupload:
             if self.property.upload.async_load:
                 # Issue prefetches
@@ -234,10 +242,10 @@ class GpuBufferProperty:
                 # (assuming constant dt, playback state) once globally and call prefetch with this.
                 prefetch_start = self.property.current_frame_index + 1
                 prefetch_end = prefetch_start + self.property.upload.cpu_prefetch_count
-                prefetch_range = [self.property.get_frame_index(self.property.current_time, i) for i in range(prefetch_start, prefetch_end)]
+                prefetch_range = [self.property.get_frame_index(0, i) for i in range(prefetch_start, prefetch_end)]
                 self.cpu_pool.prefetch(prefetch_range, cpu_prefetch_cleanup, cpu_prefetch)
 
-            if self.ctx.has_transfer_queue:
+            if self.upload_method == UploadMethod.TRANSFER_QUEUE:
                 def gpu_prefetch_cleanup(k: int, gpu_buf: GpuBuffer):
                     state = self.prefetch_states_lookup[gpu_buf]
                     if gpu_buf.semaphore.get_value() >= state.prefetch_done_value:
@@ -279,7 +287,7 @@ class GpuBufferProperty:
                 # TODO: fix, same as above
                 prefetch_start = self.property.current_frame_index + 1
                 prefetch_end = prefetch_start + self.property.upload.gpu_prefetch_count
-                prefetch_range = [self.property.get_frame_index(self.property.current_time, i) for i in range(prefetch_start, prefetch_end)]
+                prefetch_range = [self.property.get_frame_index(0, i) for i in range(prefetch_start, prefetch_end)]
                 self.gpu_pool.prefetch([i for i in prefetch_range if self.cpu_pool.is_available(i)], gpu_prefetch_cleanup, gpu_prefetch)
 
     def get_current(self):

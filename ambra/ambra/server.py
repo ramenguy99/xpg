@@ -84,7 +84,7 @@ class Server:
                 del self.connections[client_address]
                 writer.close()
                 await writer.wait_closed()
-            
+
             async def main():
                 server = await asyncio.start_server(handle, config.address, config.port)
 
@@ -102,7 +102,7 @@ class Server:
 
             asyncio.set_event_loop(self.loop)
             self.loop.run_until_complete(main())
-        
+
         self.enabled = config.enabled
 
         if self.enabled:
@@ -112,12 +112,12 @@ class Server:
             self.thread = Thread(None, entry, "Server", daemon=True)
             self.thread.start()
             atexit.register(self.shutdown)
-    
+
     def shutdown(self):
         if self.enabled and not self.stop.done():
             self.loop.call_soon_threadsafe(self.stop.set_result, None)
             self.thread.join()
-    
+
 
 @dataclass
 class InputMessage:
@@ -143,7 +143,7 @@ class ObjectMessage:
     def from_json(cls, obj: object):
         return ObjectMessage()
 
-Message: TypeAlias = Union[
+Message = Union[
     InputMessage,
     ObjectMessage,
 ]
@@ -184,5 +184,5 @@ def parse_builtin_messages(raw: RawMessage) -> Optional[Message]:
     format_fn = _dispatch.get(raw.format)
     if not format_fn:
         return None
-    
+
     return format_fn(raw)

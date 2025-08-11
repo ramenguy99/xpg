@@ -171,6 +171,9 @@ class Renderer:
             for p in self.gpu_properties:
                 p.upload(f)
 
+            for p in self.gpu_properties:
+                p.prefetch(f)
+
             # Render scene
             viewport.scene.render(self, f)
 

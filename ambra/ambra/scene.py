@@ -8,6 +8,8 @@ from pyglm.glm import vec3, vec2, quat
 from .transform2d import Transform2D
 from .transform3d import Transform3D
 
+from pyxpg import imgui
+
 T = TypeVar('T')
 
 if sys.version_info >= (3, 12):
@@ -107,7 +109,7 @@ class Property(Generic[T]):
         self.dtype = dtype
         self.shape = shape
         self.name = name
-        self.animation = animation if animation is not None else FrameAnimation(boundary=AnimationBoundary.HOLD)
+        self.animation = animation if animation is not None else FrameAnimation(boundary=AnimationBoundary.REPEAT)
         self.upload = upload if upload is not None else UploadSettings(preupload=True)
 
         self.current_frame_index = 0
@@ -195,9 +197,9 @@ class DataProperty(Property):
 
     def max_size(self) -> int:
         if isinstance(self.data, List):
-            return max([d.itemsize * np.prod(d.shape) for d in self.data])
+            return max([d.itemsize * np.prod(d.shape, dtype=np.int64) for d in self.data])
         else:
-            return self.data.itemsize * np.prod(self.data.shape[1:])
+            return self.data.itemsize * np.prod(self.data.shape[1:], dtype=np.int64)
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> T:
         return self.data[frame_index]
@@ -255,11 +257,15 @@ _counter = 0
 
 class Object:
     def __init__(self, name: Optional[str] = None):
-        self.name = name or f"{type(self).__name__} - {Object.next_id()}"
+        self.uid = Object.next_id()
+        self.name = name or f"{type(self).__name__} - {self.uid}"
         self.children: List["Object"] = []
         self.properties: List[Property] = []
 
         self.created = False
+        self.gui_expanded = False
+        self.gui_selected = False
+        self.gui_selected_property = None
 
     @staticmethod
     def next_id():
@@ -298,6 +304,20 @@ class Object:
     def destroy(self):
         pass
 
+    def gui(self):
+        imgui.text("Properties:")
+        imgui.indent(5)
+        for p in self.properties:
+            s = imgui.selectable(f"{p.name}", self.gui_selected_property == p)
+            if s:
+                self.gui_selected_property = p
+            if self.gui_selected_property == p:
+                imgui.indent(10)
+                imgui.text(f"{p.shape} {np.dtype(p.dtype).name} {p.max_size()}")
+                if p.num_frames > 1:
+                    imgui.text(f"{p.current_frame_index} / {p.num_frames}")
+                imgui.indent(-10)
+        imgui.indent(-5)
 
 class Object2D(Object):
     def __init__(self,
@@ -343,9 +363,9 @@ class Object3D(Object):
 class Scene:
     def __init__(self, name):
         self.name = name
-        self.objects = []
+        self.objects: List[Object] = []
 
-    def visit_objects(self, function: Callable[[Object], None]):
+    def visit_objects_with_parent(self, function: Callable[[Object, Object], None]):
         def visit_recursive(p: Object, o: Object):
             function(p, o)
             for c in o.children:
@@ -354,9 +374,29 @@ class Scene:
         for o in self.objects:
             visit_recursive(None, o)
 
+    def visit_objects(self, function: Callable[[Object], None]):
+        def visit_recursive(o: Object):
+            function(o)
+            for c in o.children:
+                visit_recursive(c)
+
+        for o in self.objects:
+            visit_recursive(o)
+
+    def visit_objects_pre_post(self, pre: Callable[[Object], bool], post: Callable[[Object], None]):
+        def visit_recursive(o: Object):
+            rec = pre(o)
+            if rec:
+                for c in o.children:
+                    visit_recursive(c)
+                post(o)
+
+        for o in self.objects:
+            visit_recursive(o)
+
     def max_animation_time(self, frames_per_second) -> float:
         time = 0
-        def visit(p: Object, o: Object):
+        def visit(o: Object):
             nonlocal time
             time = max(time, max(p.max_animation_time(frames_per_second) for p in o.properties))
         self.visit_objects(visit)
@@ -366,14 +406,14 @@ class Scene:
         def visit(p: Object, o: Object):
             o.update(time, frame)
             o.update_transform(p)
-        self.visit_objects(visit)
+        self.visit_objects_with_parent(visit)
 
     def create_if_needed(self, renderer):
-        def visit(p: Object, o: Object):
+        def visit(o: Object):
             o.create_if_needed(renderer)
         self.visit_objects(visit)
 
     def render(self, renderer, frame):
-        def visit(p: Object, o: Object):
+        def visit(o: Object):
             o.render(renderer, frame)
         self.visit_objects(visit)

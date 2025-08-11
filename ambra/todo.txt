@@ -91,14 +91,14 @@ Properties:
     [ ] More viewer playback controls (e.g. timeline view, property inspectors)
 [x] Frame-by-frame vs time-based playback -> likely should be handled at viewer level
 [x] Freeing in-use buffers -> maybe also can be part of cache? Maybe we really want refcounted buffers for everything?
-[ ] Dynamic upload vs pre-upload of everything -> just implement through sequence-like cache?
+[x] Dynamic upload vs pre-upload of everything -> just implement through sequence-like cache? -> explicitly settable, fine for most properties
 [ ] Think about getter/setters to update properties and explicit redraw to update properties
 
 [x] Types of animated properties:
     -> CPU only (e.g. line width, transforms)
     -> GPU resources (e.g. positions / colors / textures)
     -> GPU anymated resources (e.g. skeletal anymation -> this maybe special case enough to think later / bypass the system?)
-[ ] How does this play out with disk streaming and prefetching?
+[x] How does this play out with disk streaming and prefetching?
     -> maybe can have a special property type that can be streamed? and then user can pass that in?
 
 Thoughts:
@@ -124,21 +124,24 @@ Features:
     [x] heterogeneous size with max_size
     [x] streaming prop
     [x] trigger all uploads before blocking for rendering -> made properties managed by renderer
-    [ ] unify GpuBufferProperty and GpuImageProperty
-    [ ] prefetching
+    [x] prefetching
             -> likely make a simple mesh class and recreate sequence
             -> this means also porting some GUI, likey making some helpers, ideally also adding the profiler
+    [ ] unify GpuBufferProperty and GpuImageProperty
 [ ] Camera movement
 [ ] Viewport:
     [x] resize
     [ ] multiple viewports
     [ ] related to UI if decide to do viewports in ImGui windows, not clear how to do default placement (check docs)
 [ ] UI: -> likely in common ui place that can be customized / modified (helpers for things like default layout as well, likely configurable)
-    [ ] Scene tree and property view -> custom widget callback per property?
-    [ ] Playback UI
-    [ ] Fps display for debug
+    [x] Scene tree and property view -> custom widget callback per property?
+    [x] Playback UI
+    [x] Fps display for debug
     [ ] Port built-in profiler
-[ ] Shader cache vs hot reload
+[ ] Shaders
+    [ ] cache
+    [ ] export to spirv during package
+    [ ] hot reloading
 [ ] Hook pyxpg logging into python logging
 
 Config:

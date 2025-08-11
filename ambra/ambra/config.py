@@ -37,9 +37,18 @@ class CameraType(Enum):
     ORTHOGRAPHIC = 1
 
 @dataclass
+class GuiConfig:
+    stats: bool = False
+    playback: bool = False
+    inspector: bool = False
+    renderer: bool = False
+
+@dataclass
 class Config:
     # Window
     wait_events: bool = False
+    vsync: bool = True
+    preferred_frames_in_flight: int = 2
 
     # Scene
     camera_type: CameraType = CameraType.PERSPECTIVE
@@ -49,6 +58,10 @@ class Config:
     ortho_center: Tuple[float, float] = (0.0, 0.0)
     ortho_half_extents: Tuple[float, float] = (1, 1)
 
+    # Stats
+    stats_frame_time_count: int = 32
+
     renderer: RendererConfig = field(default_factory=RendererConfig)
     playback: PlaybackConfig = field(default_factory=PlaybackConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
+    gui: GuiConfig = field(default_factory=GuiConfig)
