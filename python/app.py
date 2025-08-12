@@ -141,7 +141,7 @@ def draw():
     with window.frame() as frame:
         with frame.command_buffer as cmd:
             if updated:
-                u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM_READ, buf.view(np.uint8).data)
+                u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM, buf.view(np.uint8).data)
 
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
 

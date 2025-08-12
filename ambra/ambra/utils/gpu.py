@@ -33,7 +33,7 @@ class UploadableBuffer(Buffer):
             self._staging.data[offset:offset+len(data)] = data
             cmd.copy_buffer_range(self._staging, self, len(data), src_offset=offset, dst_offset=offset)
             if usage != MemoryUsage.NONE:
-                cmd.memory_barrier(MemoryUsage.TRANSFER_WRITE, usage)
+                cmd.memory_barrier(MemoryUsage.TRANSFER_DST, usage)
 
     def upload_sync(self, data: memoryview, offset: int = 0):
         with self.ctx.sync_commands() as cmd:
@@ -42,17 +42,20 @@ class UploadableBuffer(Buffer):
 def div_ceil(n, d):
     return (n + d - 1) // d
 
+def get_image_pitch_and_rows(width: int, height: int, format: Format):
+    info = get_format_info(format)
+    if info.size_of_block_in_bytes > 0:
+        pitch = div_ceil(width, info.block_side_in_pixels) * info.size_of_block_in_bytes
+        rows = div_ceil(height, info.block_side_in_pixels)
+    else:
+        pitch = width * info.size
+        rows = height
+    return pitch, rows
+
 # NOTE: in the future this could use VK_EXT_host_image_copy to do uploads / transitions if available
 class UploadableImage(Image):
     def __init__(self, ctx: Context, width: int, height: int, format: Format, usage_flags: ImageUsageFlags, dedicated_alloc: bool = False, name: Optional[str] = None):
-        info = get_format_info(format)
-        if info.size_of_block_in_bytes > 0:
-            pitch = div_ceil(width, info.block_side_in_pixels) * info.size_of_block_in_bytes
-            rows = div_ceil(height, info.block_side_in_pixels)
-        else:
-            pitch = width * info.size
-            rows = height
-
+        pitch, rows = get_image_pitch_and_rows(width, height, format)
         self._staging = Buffer(ctx, pitch * rows, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST_WRITE_COMBINING, f"{name} - staging")
         super().__init__(ctx, width, height, format, usage_flags | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE_DEDICATED if dedicated_alloc else AllocType.DEVICE)
 
@@ -88,7 +91,7 @@ class UniformBlockAllocation:
     def upload(self, cmd: CommandBuffer, data: memoryview):
         if self.size < len(data):
             raise IndexError("data is larger than buffer allocation")
-        self.buffer.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM_READ, data, self.offset)
+        self.buffer.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM, data, self.offset)
 
 @dataclass
 class UniformBlock:

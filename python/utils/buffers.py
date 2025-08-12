@@ -15,8 +15,8 @@ class UploadableBuffer(Buffer):
             self._staging.data[offset:offset+len(data)] = data
             cmd.copy_buffer_range(self._staging, self, len(data), src_offset=offset, dst_offset=offset)
             if usage != MemoryUsage.NONE:
-                cmd.memory_barrier(MemoryUsage.TRANSFER_WRITE, usage)
-    
+                cmd.memory_barrier(MemoryUsage.TRANSFER_DST, usage)
+
     def upload_sync(self, data: memoryview, offset: int = 0):
         with self.ctx.sync_commands() as cmd:
             self.upload(cmd, MemoryUsage.NONE, data, offset)

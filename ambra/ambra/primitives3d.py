@@ -24,8 +24,8 @@ class Lines(Object3D):
         self.line_width: Property[float] = self.add_property(line_width, np.float32, name="line_width")
 
     def create(self, r: Renderer):
-        self.lines_buffer = r.add_gpu_buffer_property(self.lines, BufferUsageFlags.VERTEX, name=f"{self.name}-lines-3d")
-        self.colors_buffer = r.add_gpu_buffer_property(self.colors, BufferUsageFlags.VERTEX, name=f"{self.name}-colors-3d")
+        self.lines_buffer = r.add_gpu_buffer_property(self.lines, BufferUsageFlags.VERTEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-lines-3d")
+        self.colors_buffer = r.add_gpu_buffer_property(self.colors, BufferUsageFlags.VERTEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-colors-3d")
 
         constants_dtype = np.dtype ({
             "transform": (np.dtype((np.float32, (4, 4))), 0),
@@ -89,7 +89,7 @@ class Image(Object3D):
         self.image: Property[np.ndarray] = self.add_property(image, shape=(-1, -1, -1), name="image")
 
     def create(self, r: Renderer):
-        self.images = r.add_gpu_image_property(self.image, ImageUsageFlags.SAMPLED, ImageUsage.SHADER_READ_ONLY, name=f"{self.name}-image")
+        self.images = r.add_gpu_image_property(self.image, ImageUsageFlags.SAMPLED, ImageUsage.SHADER_READ_ONLY, PipelineStageFlags.FRAGMENT_SHADER, name=f"{self.name}-image")
         self.sampler = Sampler(r.ctx, min_filter=Filter.LINEAR, mag_filter=Filter.LINEAR, u=SamplerAddressMode.CLAMP_TO_EDGE, v=SamplerAddressMode.CLAMP_TO_EDGE)
 
         constants_dtype = np.dtype ({
@@ -162,9 +162,9 @@ class Mesh(Object3D):
         self.front_face = front_face
 
     def create(self, r: Renderer):
-        self.positions_buffer = r.add_gpu_buffer_property(self.positions, BufferUsageFlags.VERTEX, name=f"{self.name}-positions")
-        # self.normals_buffer = r.add_gpu_buffer_property(self.normals, BufferUsageFlags.VERTEX, name=f"{self.name}-normals")
-        self.indices_buffer = r.add_gpu_buffer_property(self.indices, BufferUsageFlags.INDEX, name=f"{self.name}-indices") if self.indices is not None else None
+        self.positions_buffer = r.add_gpu_buffer_property(self.positions, BufferUsageFlags.VERTEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-positions")
+        # self.normals_buffer = r.add_gpu_buffer_property(self.normals, BufferUsageFlags.VERTEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-normals")
+        self.indices_buffer = r.add_gpu_buffer_property(self.indices, BufferUsageFlags.INDEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-indices") if self.indices is not None else None
 
         constants_dtype = np.dtype ({
             "transform": (np.dtype((np.float32, (4, 4))), 0),

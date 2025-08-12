@@ -21,7 +21,8 @@ class RendererConfig:
     uniform_pool_block_size: int = 32 * 1024 * 1024
     thread_pool_workers: Optional[int] = None
     use_transfer_queue_if_available: bool = True
-    force_upload_method: Optional[UploadMethod] = None
+    force_buffer_upload_method: Optional[UploadMethod] = None
+    force_image_upload_method: Optional[UploadMethod] = None
 
 @dataclass
 class PlaybackConfig:

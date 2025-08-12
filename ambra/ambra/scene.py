@@ -125,7 +125,16 @@ class Property(Generic[T]):
         return a
 
     def max_size() -> int:
-        return 0
+        raise NotImplemented()
+
+    def width() -> int:
+        raise NotImplemented()
+
+    def height() -> int:
+        raise NotImplemented()
+
+    def channels() -> int:
+        raise NotImplemented()
 
     def get_frame_index(self, time: float, playback_frame: int) -> int:
         return self.animation.get_frame_index(self.num_frames, time, playback_frame)
@@ -195,11 +204,22 @@ class DataProperty(Property):
         super().__init__(len(data), dtype, shape, animation, upload, name)
         self.data: PropertyData = data
 
+    # Buffers
     def max_size(self) -> int:
         if isinstance(self.data, List):
             return max([d.itemsize * np.prod(d.shape, dtype=np.int64) for d in self.data])
         else:
             return self.data.itemsize * np.prod(self.data.shape[1:], dtype=np.int64)
+
+    # Images
+    def width(self) -> int:
+        return self.data[0].shape[0]
+
+    def height(self) -> int:
+        return self.data[0].shape[1]
+
+    def channels(self) -> int:
+        return self.data[0].shape[2]
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> T:
         return self.data[frame_index]
@@ -215,7 +235,18 @@ class StreamingProperty(Property):
                  name: str = ""):
         super().__init__(num_frames, dtype, shape, animation, upload, name)
 
+    # For buffers
     def max_size(self) -> int:
+        return NotImplemented()
+
+    # For images
+    def width(self) -> int:
+        return NotImplemented()
+
+    def height(self) -> int:
+        return NotImplemented()
+
+    def channels(self) -> int:
         return NotImplemented()
 
     # def get_frame_by_index_into(self, frame_index: int, out: memoryview) -> int:
@@ -240,7 +271,7 @@ def as_property(value: Union[Property[T], PropertyData],
     if isinstance(value, Property):
         if not shape_match(shape, value.shape):
             raise ShapeException(shape, value.shape)
-        if not np.dtype(dtype) == value.dtype:
+        if dtype is not None and not np.dtype(dtype) == value.dtype:
             raise TypeError(f"dtype mismatch. Expected: {dtype}. Got: {value.dtype}")
         if animation is not None:
             value.animation = animation

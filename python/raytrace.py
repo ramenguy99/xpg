@@ -20,7 +20,7 @@ ctx = Context(
         DeviceFeatures.SYNCHRONIZATION_2 |
         DeviceFeatures.DESCRIPTOR_INDEXING |
         DeviceFeatures.SCALAR_BLOCK_LAYOUT |
-        DeviceFeatures.RAY_QUERY, 
+        DeviceFeatures.RAY_QUERY,
     enable_validation_layer=True,
     enable_synchronization_validation=True,
 )
@@ -112,7 +112,7 @@ for i, m in enumerate(scene.meshes):
         indices_type = IndexType.UINT32,
         primitive_count = m.indices.shape[0] // 3,
         transform = tuple(sum(mat4x3(rot @ to_z_up @ m.transform).to_tuple(), ())),
-    )) 
+    ))
 
     def mat_index(p: MaterialParameter):
         return p.value if p.kind == MaterialParameterKind.TEXTURE else 0xFFFFFFFF
@@ -147,17 +147,17 @@ begin = perf_counter()
 BATCHED_UPLOAD = True
 if BATCHED_UPLOAD:
     largest = 0
-    
+
     for image in scene.images:
         largest = max(image.data.size, largest)
-    
+
     def align_up(v, a):
         return (v + a - 1) & ~(a - 1)
-    
+
     STAGING_SIZE = 32 * 1024 * 1024
     alignment = max(64, ctx.device_properties.limits.optimal_buffer_copy_offset_alignment)
     upload_size = align_up(max(largest, STAGING_SIZE), alignment)
-    
+
     staging = Buffer(ctx, upload_size, BufferUsageFlags.TRANSFER_SRC, alloc_type=AllocType.HOST_WRITE_COMBINING)
     i = 0
     while i < len(scene.images):
@@ -177,7 +177,7 @@ if BATCHED_UPLOAD:
                 # Create target image
                 gpu_img = Image(ctx, image.width, image.height, format, ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE)
                 images.append(gpu_img)
-                
+
                 # Copy image data to staging buffer
                 staging.data[offset:offset + len(image.data)] = image.data.data[:]
 
@@ -201,7 +201,7 @@ else:
 
         images.append(
             Image.from_data(
-                ctx, image.data, ImageUsage.SHADER_READ_ONLY, 
+                ctx, image.data, ImageUsage.SHADER_READ_ONLY,
                 image.width, image.height, format,
                 ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE
             )
@@ -270,7 +270,7 @@ def draw():
         u_buf: UploadableBuffer = rt.u_bufs.get_current_and_advance()
 
         with frame.command_buffer as cmd:
-            u_buf.upload(cmd, MemoryUsage.COMPUTE_SHADER_UNIFORM_READ, constants.view(np.uint8).data)
+            u_buf.upload(cmd, MemoryUsage.COMPUTE_SHADER_UNIFORM, constants.view(np.uint8).data)
             cmd.use_image(output, ImageUsage.IMAGE)
 
             viewport = [0, 0, window.fb_width, window.fb_height]

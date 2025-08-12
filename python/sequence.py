@@ -250,7 +250,7 @@ class Sequence:
                         # Upload on gfx queue
                         with profiler.gpu_zone("copy"):
                             cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
-                            cmd.memory_barrier(MemoryUsage.TRANSFER_WRITE, MemoryUsage.VERTEX_INPUT)
+                            cmd.memory_barrier(MemoryUsage.TRANSFER_DST, MemoryUsage.VERTEX_INPUT)
                         gpu_buf.state = GpuBufferState.RENDER
                     else:
                         assert upload_method == UploadMethod.TRANSFER_QUEUE
@@ -261,7 +261,7 @@ class Sequence:
 
                         with profiler.gpu_transfer_zone("copy"):
                             copy_cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
-                            copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_WRITE, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
+                            copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
 
                         gpu_buf.state = GpuBufferState.LOAD
 
@@ -276,7 +276,7 @@ class Sequence:
                 if gpu_buf.state == GpuBufferState.PREFETCH:
                     with profiler.gpu_transfer_zone("prefetch barrier"):
                         copy_semaphores.append(gpu_buf.use(PipelineStageFlags.TOP_OF_PIPE))
-                    copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_WRITE, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
+                    copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
 
                 cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.NONE, MemoryUsage.VERTEX_INPUT, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
                 additional_semaphores.append(gpu_buf.use(PipelineStageFlags.VERTEX_INPUT))
@@ -417,7 +417,7 @@ def draw():
     frame = window.begin_frame()
     additional_semaphores: List[SemaphoreInfo] = []
     with frame.command_buffer as cmd:
-        u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM_READ, constants.view(np.uint8).data)
+        u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM, constants.view(np.uint8).data)
 
         prof = profiler.frame(cmd)
 

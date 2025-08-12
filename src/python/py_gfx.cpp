@@ -579,12 +579,12 @@ enum class MemoryUsage {
     None,
     HostWrite,
     VertexInput,
-    TransferWrite,
-    VertexShaderUniformRead,
-    GeometryShaderUniformRead,
-    FragmentShaderUniformRead,
-    ComputeShaderUniformRead,
-    AnyShaderUniformRead,
+    TransferDst,
+    VertexShaderUniform,
+    GeometryShaderUniform,
+    FragmentShaderUniform,
+    ComputeShaderUniform,
+    AnyShaderUniform,
     Count,
 };
 
@@ -610,32 +610,32 @@ namespace MemoryUsagePresets {
         .last_stage = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
         .access = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,
     };
-    constexpr MemoryUsageState TransferWrite {
+    constexpr MemoryUsageState TransferDst {
         .first_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         .access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
     };
-    constexpr MemoryUsageState VertexShaderUniformRead {
+    constexpr MemoryUsageState VertexShaderUniform {
         .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
         .access = VK_ACCESS_2_UNIFORM_READ_BIT,
     };
-    constexpr MemoryUsageState GeometryShaderUniformRead {
+    constexpr MemoryUsageState GeometryShaderUniform {
         .first_stage = VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
         .access = VK_ACCESS_2_UNIFORM_READ_BIT,
     };
-    constexpr MemoryUsageState FragmentShaderUniformRead {
+    constexpr MemoryUsageState FragmentShaderUniform {
         .first_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
         .access = VK_ACCESS_2_UNIFORM_READ_BIT,
     };
-    constexpr MemoryUsageState ComputeShaderUniformRead {
+    constexpr MemoryUsageState ComputeShaderUniform {
         .first_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
         .access = VK_ACCESS_2_UNIFORM_READ_BIT,
     };
-    constexpr MemoryUsageState AnyShaderUniformRead {
+    constexpr MemoryUsageState AnyShaderUniform {
         .first_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
         .access = VK_ACCESS_2_UNIFORM_READ_BIT,
@@ -646,12 +646,12 @@ namespace MemoryUsagePresets {
         None,
         HostWrite,
         VertexInput,
-        TransferWrite,
-        VertexShaderUniformRead,
-        GeometryShaderUniformRead,
-        FragmentShaderUniformRead,
-        ComputeShaderUniformRead,
-        AnyShaderUniformRead,
+        TransferDst,
+        VertexShaderUniform,
+        GeometryShaderUniform,
+        FragmentShaderUniform,
+        ComputeShaderUniform,
+        AnyShaderUniform,
     };
     static_assert(ArrayCount(Types) == (size_t)MemoryUsage::Count, "MemoryUsage count does not match length of Types array");
 };
@@ -3347,12 +3347,12 @@ void gfx_create_bindings(nb::module_& m)
         .value("NONE", MemoryUsage::None)
         .value("HOST_WRITE", MemoryUsage::HostWrite)
         .value("VERTEX_INPUT", MemoryUsage::VertexInput)
-        .value("TRANSFER_WRITE", MemoryUsage::TransferWrite)
-        .value("VERTEX_SHADER_UNIFORM_READ", MemoryUsage::VertexShaderUniformRead)
-        .value("GEOMETRY_SHADER_UNIFORM_READ", MemoryUsage::GeometryShaderUniformRead)
-        .value("FRAGMENT_SHADER_UNIFORM_READ", MemoryUsage::FragmentShaderUniformRead)
-        .value("COMPUTE_SHADER_UNIFORM_READ", MemoryUsage::ComputeShaderUniformRead)
-        .value("ANY_SHADER_UNIFORM_READ", MemoryUsage::AnyShaderUniformRead)
+        .value("TRANSFER_DST", MemoryUsage::TransferDst)
+        .value("VERTEX_SHADER_UNIFORM", MemoryUsage::VertexShaderUniform)
+        .value("GEOMETRY_SHADER_UNIFORM", MemoryUsage::GeometryShaderUniform)
+        .value("FRAGMENT_SHADER_UNIFORM", MemoryUsage::FragmentShaderUniform)
+        .value("COMPUTE_SHADER_UNIFORM", MemoryUsage::ComputeShaderUniform)
+        .value("ANY_SHADER_UNIFORM", MemoryUsage::AnyShaderUniform)
     ;
 
     nb::enum_<ImageUsage>(m, "ImageUsage")

@@ -167,7 +167,7 @@ def draw():
 
         # Commands
         with frame.command_buffer as cmd:
-            u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM_READ, constants.view(np.uint8).data)
+            u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM, constants.view(np.uint8).data)
             cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
 
             if images_just_created:

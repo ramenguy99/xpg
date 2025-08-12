@@ -78,22 +78,39 @@ class Renderer:
         self.thread_pool = ThreadPool(self.num_workers)
         self.total_frame_index = 0
 
-        if config.force_upload_method is not None:
-            self.upload_method = config.force_upload_method
-            if self.upload_method == UploadMethod.TRANSFER_QUEUE:
+        # Upload method for buffers
+        if config.force_buffer_upload_method is not None:
+            self.buffer_upload_method = config.force_buffer_upload_method
+            if self.buffer_upload_method == UploadMethod.TRANSFER_QUEUE:
                 if not ctx.has_transfer_queue:
                     raise RuntimeError("Transfer queue not available on picked device")
                 if not ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES:
                     raise RuntimeError("Transfer queue upload requires timeline semaphores which are not available on picked device")
         else:
             if ctx.device_properties.device_type == PhysicalDeviceType.INTEGRATED_GPU or ctx.device_properties.device_type == PhysicalDeviceType.CPU:
-                self.upload_method = UploadMethod.CPU_BUF
+                self.buffer_upload_method = UploadMethod.CPU_BUF
             elif False: # TODO: Check if has resizable bar and if is configured to use it
-                self.upload_method = UploadMethod.BAR
+                self.buffer_upload_method = UploadMethod.BAR
             elif config.use_transfer_queue_if_available and ctx.has_transfer_queue and ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES:
-                self.upload_method = UploadMethod.TRANSFER_QUEUE
+                self.buffer_upload_method = UploadMethod.TRANSFER_QUEUE
             else:
-                self.upload_method = UploadMethod.GFX
+                self.buffer_upload_method = UploadMethod.GFX
+
+        # Upload method for images
+        if config.force_image_upload_method is not None:
+            if config.force_image_upload_method == UploadMethod.CPU_BUF or config.force_image_upload_method == UploadMethod.BAR:
+                raise RuntimeError(f"Upload method for images must be {UploadMethod.GFX} or {UploadMethod.TRANSFER_QUEUE}")
+            self.image_upload_method = config.force_image_upload_method
+            if self.image_upload_method == UploadMethod.TRANSFER_QUEUE:
+                if not ctx.has_transfer_queue:
+                    raise RuntimeError("Transfer queue not available on picked device")
+                if not ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES:
+                    raise RuntimeError("Transfer queue upload requires timeline semaphores which are not available on picked device")
+        else:
+            if config.use_transfer_queue_if_available and ctx.has_transfer_queue and ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES:
+                self.image_upload_method = UploadMethod.TRANSFER_QUEUE
+            else:
+                self.image_upload_method = UploadMethod.GFX
 
         self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
 
@@ -104,13 +121,13 @@ class Renderer:
             self.depth_buffer.destroy()
         self.depth_buffer = Image(self.ctx, width, height, self.depth_format, ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE_DEDICATED, name="depth")
 
-    def add_gpu_buffer_property(self, property: Property[np.ndarray], usage_flags: BufferUsageFlags, name: str):
-        prop = GpuBufferProperty(self.ctx, self.window.num_frames, self.upload_method, self.thread_pool, property, usage_flags, name)
+    def add_gpu_buffer_property(self, property: Property[np.ndarray], usage_flags: BufferUsageFlags, memory_usage: MemoryUsage, pipeline_stage_flags: PipelineStageFlags, name: str):
+        prop = GpuBufferProperty(self.ctx, self.window.num_frames, self.buffer_upload_method, self.thread_pool, property, usage_flags, memory_usage, pipeline_stage_flags, name)
         self.gpu_properties.append(prop)
         return prop
 
-    def add_gpu_image_property(self, property: Property[np.ndarray], usage_flags: ImageUsageFlags, usage: ImageUsage, name: str):
-        prop = GpuImageProperty(self.ctx, self.window.num_frames, self.upload_method, self.thread_pool, property, usage_flags, usage, name)
+    def add_gpu_image_property(self, property: Property[np.ndarray], usage_flags: ImageUsageFlags, usage: ImageUsage, pipeline_stage_flags: PipelineStageFlags, name: str):
+        prop = GpuImageProperty(self.ctx, self.window.num_frames, self.buffer_upload_method, self.thread_pool, property, usage_flags, usage, pipeline_stage_flags, name)
         self.gpu_properties.append(prop)
         return prop
 
@@ -131,7 +148,7 @@ class Renderer:
             self.constants["projection"] = viewport.camera.projection()
             self.constants["view"] = viewport.camera.view()
             self.constants["camera_position"] = -viewport.camera.camera_from_world.translation
-            buf.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM_READ, self.constants.view(np.uint8))
+            buf.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM, self.constants.view(np.uint8))
 
             cmd.set_viewport(viewport_rect)
             cmd.set_scissors(rect)
