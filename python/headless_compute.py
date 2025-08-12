@@ -28,7 +28,7 @@ set = DescriptorSet(
         DescriptorSetEntry(1, DescriptorType.STORAGE_IMAGE),
     ],
 )
-set.write_image(img, ImageUsage.IMAGE_WRITE_ONLY, DescriptorType.STORAGE_IMAGE, 0, 0)
+set.write_image(img, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0, 0)
 
 # Shaders
 comp_source = """
@@ -67,10 +67,10 @@ pipeline = ComputePipeline(ctx, comp, descriptor_sets=[ set ])
 # Record commands
 print("Dispatching...")
 with ctx.sync_commands() as cmd:
-    cmd.use_image(img, ImageUsage.IMAGE_WRITE_ONLY)
+    cmd.image_barrier(img, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE_WRITE_ONLY)
     cmd.bind_compute_pipeline(pipeline, descriptor_sets=[ set ])
     cmd.dispatch((W + 7) // 8, (H + 7) // 8)
-    cmd.use_image(img, ImageUsage.TRANSFER_SRC)
+    cmd.image_barrier(img, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.IMAGE_WRITE_ONLY, MemoryUsage.TRANSFER_SRC)
     cmd.copy_image_to_buffer(img, buf)
 
 # Interpret buffer as image and save it to a file

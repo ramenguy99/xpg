@@ -1,7 +1,7 @@
 from pyxpg import *
 from typing import Tuple
 
-ctx = Context()
+ctx = Context(enable_validation_layer=True, enable_synchronization_validation=True)
 window = Window(ctx, "Minimal", 1280, 720)
 gui = Gui(window)
 
@@ -23,7 +23,7 @@ def draw():
     # Render a frame
     with window.frame() as frame:
         with frame.command_buffer as cmd:
-            cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
+            cmd.image_barrier(frame.image, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.COLOR_ATTACHMENT)
 
             viewport = [0, 0, window.fb_width, window.fb_height]
             with cmd.rendering(viewport,
@@ -38,7 +38,7 @@ def draw():
                 # Render GUI
                 gui.render(cmd)
 
-            cmd.use_image(frame.image, ImageUsage.PRESENT)
+            cmd.image_barrier(frame.image, ImageLayout.PRESENT_SRC, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.PRESENT)
 
 # Input event
 def mouse_button_event(p: Tuple[int, int], button: MouseButton, action: Action, mods: Modifiers):

@@ -555,9 +555,9 @@ def draw():
                     seq.prefetch()
                 ####################################################################
 
-                cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
+                cmd.image_barrier(frame.image, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.COLOR_ATTACHMENT)
                 if images_just_created:
-                    cmd.use_image(depth, ImageUsage.DEPTH_STENCIL_ATTACHMENT, aspect_mask=ImageAspectFlags.DEPTH)
+                    cmd.image_barrier(depth, ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL, MemoryUsage.NONE, MemoryUsage.DEPTH_STENCIL_ATTACHMENT, aspect_mask=ImageAspectFlags.DEPTH)
 
                 viewport = [0, 0, window.fb_width, window.fb_height]
                 with profiler.gpu_zone("draw"):
@@ -597,7 +597,7 @@ def draw():
                         # Render gui
                         gui.render(cmd)
 
-                cmd.use_image(frame.image, ImageUsage.PRESENT)
+                cmd.image_barrier(frame.image, ImageLayout.PRESENT_SRC, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.PRESENT)
     window.end_frame(
         frame,
         additional_wait_semaphores=[(s.sem, s.wait_stage) for s in additional_semaphores],

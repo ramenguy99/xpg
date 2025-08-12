@@ -89,7 +89,7 @@ class Image(Object2D):
         self.image: Property[np.ndarray] = self.add_property(image, shape=(-1, -1, -1), name="image")
 
     def create(self, r: Renderer):
-        self.images = r.add_gpu_image_property(self.image, ImageUsageFlags.SAMPLED, ImageUsage.SHADER_READ_ONLY, PipelineStageFlags.FRAGMENT_SHADER, name=f"{self.name}-image")
+        self.images = r.add_gpu_image_property(self.image, ImageUsageFlags.SAMPLED, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.SHADER_READ_ONLY, PipelineStageFlags.FRAGMENT_SHADER, name=f"{self.name}-image")
         self.sampler = Sampler(r.ctx, min_filter=Filter.LINEAR, mag_filter=Filter.LINEAR, u=SamplerAddressMode.CLAMP_TO_EDGE, v=SamplerAddressMode.CLAMP_TO_EDGE)
 
         constants_dtype = np.dtype ({
@@ -129,7 +129,7 @@ class Image(Object2D):
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
 
         descriptor_set = self.descriptor_sets.get_current_and_advance()
-        descriptor_set.write_image(self.images.get_current(), ImageUsage.SHADER_READ_ONLY, DescriptorType.SAMPLED_IMAGE, 1)
+        descriptor_set.write_image(self.images.get_current(), ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 1)
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,

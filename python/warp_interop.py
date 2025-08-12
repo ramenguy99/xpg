@@ -158,7 +158,7 @@ def draw():
         additional_signal_semaphores=[vulkan_done],
     ) as frame:
         with frame.command_buffer as cmd:
-            cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
+            cmd.image_barrier(frame.image, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.COLOR_ATTACHMENT)
 
             # TODO: we technically need a buffer barrier here from external queue family type.
 
@@ -184,7 +184,7 @@ def draw():
                 cmd.draw_indexed(I.size)
                 gui.render(cmd)
 
-            cmd.use_image(frame.image, ImageUsage.PRESENT)
+            cmd.image_barrier(frame.image, ImageLayout.PRESENT_SRC, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.PRESENT)
 
 window.set_callbacks(draw)
 

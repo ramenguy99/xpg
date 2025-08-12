@@ -42,6 +42,7 @@ camera = Camera(vec3(30, 30, -30), vec3(0, 0, 0), vec3(0, 0, 1), 45, 1, 0.1, 100
 ctx = Context(
     required_features=DeviceFeatures.SCALAR_BLOCK_LAYOUT | DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2,
     enable_validation_layer=True,
+    enable_synchronization_validation=True,
 )
 window = Window(ctx, "Voxels", 1280, 720)
 gui = Gui(window)
@@ -168,12 +169,12 @@ def draw():
         # Commands
         with frame.command_buffer as cmd:
             u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM, constants.view(np.uint8).data)
-            cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
+            cmd.image_barrier(frame.image, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.COLOR_ATTACHMENT)
 
             if images_just_created:
-                cmd.use_image(depth, ImageUsage.DEPTH_STENCIL_ATTACHMENT, aspect_mask=ImageAspectFlags.DEPTH)
+                cmd.image_barrier(depth, ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL, MemoryUsage.NONE, MemoryUsage.DEPTH_STENCIL_ATTACHMENT, aspect_mask=ImageAspectFlags.DEPTH)
                 if SAMPLES > 1:
-                    cmd.use_image(msaa_target, ImageUsage.COLOR_ATTACHMENT)
+                    cmd.image_barrier(msaa_target, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.NONE, MemoryUsage.COLOR_ATTACHMENT)
 
             viewport = [0, 0, window.fb_width, window.fb_height]
 
@@ -204,7 +205,7 @@ def draw():
             ):
                 gui.render(cmd)
 
-            cmd.use_image(frame.image, ImageUsage.PRESENT)
+            cmd.image_barrier(frame.image, ImageLayout.PRESENT_SRC, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.PRESENT)
 
 
 drag_start = None

@@ -16,7 +16,6 @@ viewer = Viewer("primitives", 1900, 1000, config=Config(
     ),
     renderer=RendererConfig(
         background_color=(0,0,0,1),
-        # force_upload_method=UploadMethod.TRANSFER_QUEUE,
     ),
     gui=GuiConfig(
         stats=True,
@@ -25,11 +24,10 @@ viewer = Viewer("primitives", 1900, 1000, config=Config(
         renderer=True,
     ),
     camera_type=CameraType.ORTHOGRAPHIC,
-    ortho_half_extents=(10, 10),
+    ortho_half_extents=(2, 2),
 ))
 
 N = 100
-
 W = 512
 H = 256
 C = 4
@@ -50,13 +48,13 @@ class GeneratedStreamingProperty(StreamingProperty):
 
 image_gen = GeneratedStreamingProperty(N, np.uint8, (H, W, C), upload=UploadSettings(
     preupload=False,
-    # async_load=True,
-    # cpu_prefetch_count=2,
-    # gpu_prefetch_count=2,
+    async_load=True,
+    cpu_prefetch_count=2,
+    gpu_prefetch_count=2,
 ))
 
 image = Image(image_gen)
-viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(0.5, 0.5, -2), vec3(0, 0, 0), vec3(0, 1, 0))
+viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(0, 0, -2), vec3(0, 0, 0), vec3(0, 1, 0))
 viewer.viewport.scene.objects.append(image)
 
 viewer.run()

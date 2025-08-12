@@ -61,7 +61,7 @@ def draw():
     with gui.frame():
         imgui.set_next_window_pos((0, 0), imgui.Cond.ALWAYS)
         imgui.set_next_window_size((window.fb_width, window.fb_height), imgui.Cond.ALWAYS)
-        if imgui.begin("canvas", 
+        if imgui.begin("canvas",
             flags=
                 imgui.WindowFlags.NO_RESIZE |
                 imgui.WindowFlags.NO_TITLE_BAR |
@@ -110,10 +110,10 @@ def draw():
 
     with window.frame() as frame:
         with frame.command_buffer as cmd:
-            cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
+            cmd.image_barrier(frame.image, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.COLOR_ATTACHMENT)
             viewport = [0, 0, window.fb_width, window.fb_height]
             with cmd.rendering(
-                viewport=viewport,
+                viewport,
                 color_attachments= [
                     RenderingAttachment(
                         image=frame.image,
@@ -123,8 +123,10 @@ def draw():
                     ),
                 ],
             ):
+                cmd.set_viewport(viewport)
+                cmd.set_scissors(viewport)
                 gui.render(cmd)
-            cmd.use_image(frame.image, ImageUsage.PRESENT)
+            cmd.image_barrier(frame.image, ImageLayout.PRESENT_SRC, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.PRESENT)
 
 
 window.set_callbacks(draw=draw)

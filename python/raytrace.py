@@ -182,9 +182,9 @@ if BATCHED_UPLOAD:
                 staging.data[offset:offset + len(image.data)] = image.data.data[:]
 
                 # Upload
-                cmd.use_image(gpu_img, ImageUsage.TRANSFER_DST)
+                cmd.image_barrier(gpu_img, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST)
                 cmd.copy_buffer_to_image(staging, gpu_img, buffer_offset=offset)
-                cmd.use_image(gpu_img, ImageUsage.SHADER_READ_ONLY)
+                cmd.image_barrier(gpu_img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.TRANSFER_DST, MemoryUsage.SHADER_READ_ONLY)
 
                 # Advance image and buffer offset
                 offset += align_up(image.data.size, alignment)
@@ -201,7 +201,7 @@ else:
 
         images.append(
             Image.from_data(
-                ctx, image.data, ImageUsage.SHADER_READ_ONLY,
+                ctx, image.data, ImageLayout.SHADER_READ_ONLY_OPTIMAL,
                 image.width, image.height, format,
                 ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE
             )
@@ -230,7 +230,7 @@ rt.scene_descriptor_set.write_buffer(mesh_instances_buf, DescriptorType.STORAGE_
 rt.scene_descriptor_set.write_acceleration_structure(acceleration_structure,            rt.desc_reflection.descriptors["acceleration_structure"].binding)
 rt.scene_descriptor_set.write_sampler(sampler,                                          rt.desc_reflection.descriptors["sampler"].binding)
 for i, image in enumerate(images):
-    rt.scene_descriptor_set.write_image(image, ImageUsage.SHADER_READ_ONLY, DescriptorType.SAMPLED_IMAGE, rt.desc_reflection.descriptors["textures"].binding, i)
+    rt.scene_descriptor_set.write_image(image, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, rt.desc_reflection.descriptors["textures"].binding, i)
 
 first_frame = True
 def draw():
@@ -247,7 +247,7 @@ def draw():
         first_frame = False
 
         output = Image(ctx, window.fb_width, window.fb_height, Format.R32G32B32A32_SFLOAT, ImageUsageFlags.STORAGE | ImageUsageFlags.TRANSFER_SRC, AllocType.DEVICE_DEDICATED)
-        rt.scene_descriptor_set.write_image(output, ImageUsage.IMAGE, DescriptorType.STORAGE_IMAGE, rt.desc_reflection.descriptors["output"].binding)
+        rt.scene_descriptor_set.write_image(output, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, rt.desc_reflection.descriptors["output"].binding)
 
     # GUI
     with gui.frame():
@@ -271,19 +271,19 @@ def draw():
 
         with frame.command_buffer as cmd:
             u_buf.upload(cmd, MemoryUsage.COMPUTE_SHADER_UNIFORM, constants.view(np.uint8).data)
-            cmd.use_image(output, ImageUsage.IMAGE)
+            cmd.image_barrier(output, ImageLayout.GENERAL, MemoryUsage.TRANSFER_SRC, MemoryUsage.IMAGE_WRITE_ONLY)
 
             viewport = [0, 0, window.fb_width, window.fb_height]
 
             cmd.bind_compute_pipeline(rt.pipeline, descriptor_sets=[rt.scene_descriptor_set, descriptor_set])
             cmd.dispatch((window.fb_width + 7) // 8, (window.fb_height + 7) // 8)
 
-            cmd.use_image(output, ImageUsage.TRANSFER_SRC)
-            cmd.use_image(frame.image, ImageUsage.TRANSFER_DST)
+            cmd.image_barrier(output, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.IMAGE_WRITE_ONLY, MemoryUsage.TRANSFER_SRC)
+            cmd.image_barrier(frame.image, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.TRANSFER_DST)
 
             cmd.blit_image(output, frame.image)
 
-            cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
+            cmd.image_barrier(frame.image, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.TRANSFER_DST, MemoryUsage.COLOR_ATTACHMENT)
 
             with cmd.rendering(viewport,
                 color_attachments=[
@@ -296,7 +296,7 @@ def draw():
                 # Render gui
                 gui.render(cmd)
 
-            cmd.use_image(frame.image, ImageUsage.PRESENT)
+            cmd.image_barrier(frame.image, ImageLayout.PRESENT_SRC, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.PRESENT)
 
 window.set_callbacks(draw)
 

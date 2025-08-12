@@ -3,7 +3,6 @@ from utils.scene import parse_scene, ImageFormat
 from typing import List
 from time import perf_counter
 
-import tqdm
 from pyxpg import *
 
 scene = parse_scene(Path("res", "bistro.bin"))
@@ -52,14 +51,14 @@ if True:
                 # Create target image
                 gpu_img = Image(ctx, image.width, image.height, format, ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE)
                 images.append(gpu_img)
-                
+
                 # Copy image data to staging buffer
                 staging.data[offset:offset + len(image.data)] = image.data.data[:]
 
                 # Upload
-                cmd.use_image(gpu_img, ImageUsage.TRANSFER_DST)
+                cmd.image_barrier(gpu_img, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST)
                 cmd.copy_buffer_to_image(staging, gpu_img, buffer_offset=offset)
-                cmd.use_image(gpu_img, ImageUsage.SHADER_READ_ONLY)
+                cmd.image_barrier(gpu_img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.TRANSFER_DST, MemoryUsage.SHADER_READ_ONLY)
 
                 # Advance image and buffer offset
                 offset += align_up(image.data.size, alignment)
@@ -78,7 +77,7 @@ else:
 
         images.append(
             Image.from_data(
-                ctx, image.data, ImageUsage.SHADER_READ_ONLY, 
+                ctx, image.data, ImageUsage.SHADER_READ_ONLY,
                 image.width, image.height, format,
                 ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE
             )

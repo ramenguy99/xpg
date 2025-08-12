@@ -126,8 +126,8 @@ class Renderer:
         self.gpu_properties.append(prop)
         return prop
 
-    def add_gpu_image_property(self, property: Property[np.ndarray], usage_flags: ImageUsageFlags, usage: ImageUsage, pipeline_stage_flags: PipelineStageFlags, name: str):
-        prop = GpuImageProperty(self.ctx, self.window.num_frames, self.buffer_upload_method, self.thread_pool, property, usage_flags, usage, pipeline_stage_flags, name)
+    def add_gpu_image_property(self, property: Property[np.ndarray], usage_flags: ImageUsageFlags, layout: ImageLayout, memory_usage: MemoryUsage, pipeline_stage_flags: PipelineStageFlags, name: str):
+        prop = GpuImageProperty(self.ctx, self.window.num_frames, self.image_upload_method, self.thread_pool, property, usage_flags, layout, memory_usage, pipeline_stage_flags, name)
         self.gpu_properties.append(prop)
         return prop
 
@@ -153,13 +153,13 @@ class Renderer:
             cmd.set_viewport(viewport_rect)
             cmd.set_scissors(rect)
 
-            cmd.use_image(frame.image, ImageUsage.TRANSFER_DST)
+            cmd.image_barrier(frame.image, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.TRANSFER_DST)
             cmd.clear_color_image(frame.image, self.background_color)
-            cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
+            cmd.image_barrier(frame.image, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.TRANSFER_DST, MemoryUsage.COLOR_ATTACHMENT)
 
-            cmd.use_image(self.depth_buffer, ImageUsage.TRANSFER_DST, aspect_mask=ImageAspectFlags.DEPTH)
+            cmd.image_barrier(self.depth_buffer, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.DEPTH_STENCIL_ATTACHMENT, MemoryUsage.TRANSFER_DST, aspect_mask=ImageAspectFlags.DEPTH)
             cmd.clear_depth_stencil_image(self.depth_buffer, depth=self.depth_clear_value)
-            cmd.use_image(self.depth_buffer, ImageUsage.DEPTH_STENCIL_ATTACHMENT, aspect_mask=ImageAspectFlags.DEPTH)
+            cmd.image_barrier(self.depth_buffer, ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL, MemoryUsage.TRANSFER_DST, MemoryUsage.DEPTH_STENCIL_ATTACHMENT, aspect_mask=ImageAspectFlags.DEPTH)
 
             if frame.transfer_command_buffer:
                 frame.transfer_command_buffer.begin()
@@ -188,9 +188,6 @@ class Renderer:
             for p in self.gpu_properties:
                 p.upload(f)
 
-            for p in self.gpu_properties:
-                p.prefetch(f)
-
             # Render scene
             viewport.scene.render(self, f)
 
@@ -205,7 +202,7 @@ class Renderer:
                     ),
                 ]):
                 gui.render(cmd)
-            cmd.use_image(frame.image, ImageUsage.PRESENT)
+            cmd.image_barrier(frame.image, ImageLayout.PRESENT_SRC, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.PRESENT)
 
             if frame.transfer_command_buffer:
                 frame.transfer_command_buffer.end()
@@ -225,6 +222,9 @@ class Renderer:
             additional_signal_semaphores=[s.sem for s in f.additional_semaphores],
             additional_signal_timeline_values=[s.signal_value for s in f.additional_semaphores],
         )
+
+        for p in self.gpu_properties:
+            p.prefetch()
 
         self.uniform_pool.advance()
         self.total_frame_index += 1

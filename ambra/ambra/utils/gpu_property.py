@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 import numpy as np
 
-from pyxpg import BufferUsageFlags, ImageUsageFlags, Format, ImageUsage, TimelineSemaphore, PipelineStageFlags, AllocType, Context, Buffer, MemoryUsage, CommandBuffer, Image
+from pyxpg import BufferUsageFlags, ImageUsageFlags, Format, ImageLayout, TimelineSemaphore, PipelineStageFlags, AllocType, Context, Buffer, MemoryUsage, CommandBuffer, Image
 
 from .threadpool import Promise, ThreadPool
 from ..scene import Property, view_bytes
@@ -211,6 +211,8 @@ class GpuBufferProperty:
                             frame.copy_semaphores.append(gpu_buf.use(PipelineStageFlags.TRANSFER))
 
                             frame.copy_cmd.copy_buffer_range(cpu_buf.buf, gpu_buf.resource, cpu_buf.used_size)
+
+                            # Release barrier, uses NONE dst
                             frame.copy_cmd.buffer_barrier(gpu_buf.resource, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
 
                             gpu_buf.state = GpuResourceState.LOAD
@@ -225,8 +227,11 @@ class GpuBufferProperty:
                 if gpu_buf.state == GpuResourceState.LOAD or gpu_buf.state == GpuResourceState.PREFETCH:
                     if gpu_buf.state == GpuResourceState.PREFETCH:
                         frame.copy_semaphores.append(gpu_buf.use(PipelineStageFlags.TOP_OF_PIPE))
+
+                        # Release barrier, uses NONE dst
                         frame.copy_cmd.buffer_barrier(gpu_buf.resource, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
 
+                    # Acquire barrier, uses NONE src
                     frame.cmd.buffer_barrier(gpu_buf.resource, MemoryUsage.NONE, self.memory_usage, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
                     frame.additional_semaphores.append(gpu_buf.use(self.pipeline_stage_flags))
                     gpu_buf.state = GpuResourceState.RENDER
@@ -234,7 +239,7 @@ class GpuBufferProperty:
                 assert gpu_buf.state == GpuResourceState.RENDER, gpu_buf.state
                 self.current = gpu_buf.resource
 
-    def prefetch(self, frame: RendererFrame):
+    def prefetch(self):
         if not self.property.upload.preupload:
             if self.property.upload.async_load:
                 # Issue prefetches
@@ -391,7 +396,8 @@ class GpuImageProperty:
                  thread_pool: ThreadPool,
                  property: Property[np.ndarray],
                  usage_flags: ImageUsageFlags,
-                 usage: ImageUsage,
+                 layout: ImageLayout,
+                 memory_usage: MemoryUsage,
                  pipeline_stage_flags: PipelineStageFlags,
                  name: str):
         self.ctx = ctx
@@ -399,7 +405,8 @@ class GpuImageProperty:
         self.thread_pool = thread_pool
         self.property = property
         self.name = name
-        self.image_usage = usage
+        self.layout = layout
+        self.memory_usage = memory_usage
         self.pipeline_stage_flags = pipeline_stage_flags
 
         self.current: Buffer = None
@@ -431,7 +438,7 @@ class GpuImageProperty:
                 if data_width != width or data_height != height or data_channels != channels:
                     raise ValueError(f"Elements of image properties must all have the same shape. Got ({data_height},{data_width},{data_channels}). Expected: ({height},{width},{channels}).")
 
-                img = UploadableImage.from_data(self.ctx, view_bytes(frame), usage, width, height, format, usage_flags, name)
+                img = UploadableImage.from_data(self.ctx, view_bytes(frame), layout, width, height, format, usage_flags, name)
                 self.images.append(img)
         else:
             pitch, rows = get_image_pitch_and_rows(width, height, format)
@@ -507,9 +514,9 @@ class GpuImageProperty:
                 self.cpu_pool.use_frame(frame.index, k)
                 if self.upload_method == UploadMethod.GFX:
                     # Upload on gfx queue
-                    frame.cmd.use_image(gpu_buf.resource, ImageUsage.TRANSFER_DST)
+                    frame.cmd.image_barrier(gpu_buf.resource, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST)
                     frame.cmd.copy_buffer_to_image(cpu_buf.buf, gpu_buf.resource)
-                    frame.cmd.use_image(gpu_buf.resource, self.image_usage)
+                    frame.cmd.image_barrier(gpu_buf.resource, self.layout, MemoryUsage.TRANSFER_DST, self.memory_usage)
                     gpu_buf.state = GpuResourceState.RENDER
                 else:
                     assert self.upload_method == UploadMethod.TRANSFER_QUEUE
@@ -518,9 +525,11 @@ class GpuImageProperty:
                     # Upload on copy queue
                     frame.copy_semaphores.append(gpu_buf.use(PipelineStageFlags.TRANSFER))
 
-                    frame.copy_cmd.use_image(gpu_buf.resource, ImageUsage.TRANSFER_DST)
+                    frame.copy_cmd.image_barrier(gpu_buf.resource, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST)
                     frame.copy_cmd.copy_buffer_to_image(cpu_buf.buf, gpu_buf.resource)
-                    frame.copy_cmd.use_image(gpu_buf.resource, self.image_usage, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
+
+                    # Release barrier, uses NONE dst
+                    frame.copy_cmd.image_barrier(gpu_buf.resource, self.layout, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
 
                     gpu_buf.state = GpuResourceState.LOAD
 
@@ -534,9 +543,12 @@ class GpuImageProperty:
             if gpu_buf.state == GpuResourceState.LOAD or gpu_buf.state == GpuResourceState.PREFETCH:
                 if gpu_buf.state == GpuResourceState.PREFETCH:
                     frame.copy_semaphores.append(gpu_buf.use(PipelineStageFlags.TOP_OF_PIPE))
-                    frame.copy_cmd.use_image(gpu_buf.resource, self.image_usage, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
 
-                frame.cmd.use_image(gpu_buf.resource, self.image_usage, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
+                    # Release barrier, uses NONE dst
+                    frame.copy_cmd.image_barrier(gpu_buf.resource, self.layout, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
+
+                # Acquire barrier, uses NONE src
+                frame.cmd.image_barrier(gpu_buf.resource, self.layout, MemoryUsage.NONE, self.memory_usage, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
 
                 frame.additional_semaphores.append(gpu_buf.use(self.pipeline_stage_flags))
                 gpu_buf.state = GpuResourceState.RENDER
@@ -544,7 +556,7 @@ class GpuImageProperty:
             assert gpu_buf.state == GpuResourceState.RENDER, gpu_buf.state
             self.current = gpu_buf.resource
 
-    def prefetch(self, frame: RendererFrame):
+    def prefetch(self):
         if not self.property.upload.preupload:
             if self.property.upload.async_load:
                 # Issue prefetches
@@ -591,7 +603,7 @@ class GpuImageProperty:
                     self.prefetch_states_lookup[gpu_buf] = state
 
                     with state.commands:
-                        state.commands.use_image(gpu_buf.resource, ImageUsage.TRANSFER_DST)
+                        state.commands.image_barrier(gpu_buf.resource, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST)
                         state.commands.copy_buffer_to_image(cpu_next.buf, gpu_buf.resource)
 
                     assert gpu_buf.state == GpuResourceState.EMPTY or GpuResourceState.PREFETCH or gpu_buf.state == GpuResourceState.RENDER, gpu_buf.state

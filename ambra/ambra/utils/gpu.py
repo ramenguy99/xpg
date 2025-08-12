@@ -1,4 +1,4 @@
-from pyxpg import Context, Buffer, BufferUsageFlags, Image, ImageUsage, ImageUsageFlags, Format, AllocType, CommandBuffer, MemoryUsage, DescriptorSet, DescriptorSetEntry, DescriptorType, get_format_info, FormatInfo
+from pyxpg import Context, Buffer, BufferUsageFlags, Image, ImageLayout, ImageUsageFlags, Format, AllocType, CommandBuffer, MemoryUsage, DescriptorSet, DescriptorSetEntry, DescriptorType, get_format_info, FormatInfo
 from typing import Optional, List
 from dataclasses import dataclass
 
@@ -60,26 +60,26 @@ class UploadableImage(Image):
         super().__init__(ctx, width, height, format, usage_flags | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE_DEDICATED if dedicated_alloc else AllocType.DEVICE)
 
     @classmethod
-    def from_data(cls, ctx: Context, data: memoryview, usage: ImageUsage, width: int, height: int, format: Format, usage_flags: ImageUsageFlags, dedicated_alloc: bool = False, name: Optional[str] = None):
+    def from_data(cls, ctx: Context, data: memoryview, layout: ImageLayout, width: int, height: int, format: Format, usage_flags: ImageUsageFlags, dedicated_alloc: bool = False, name: Optional[str] = None):
         buf = cls(ctx, width, height, format, usage_flags, dedicated_alloc, name)
-        buf.upload_sync(data, usage)
+        buf.upload_sync(data, layout)
         return buf
 
-    def upload(self, cmd: CommandBuffer, usage: ImageUsage, data: memoryview):
+    def upload(self, cmd: CommandBuffer, layout: ImageLayout, src_usage: MemoryUsage, dst_usage: MemoryUsage, data: memoryview):
         # Upload to staging buffer
         if len(data.shape) != 1:
             raise ValueError(f"data must be flat array. Got shape: {data.shape}")
         if len(data) != self._staging.size:
             raise ValueError(f"data must be of size {self._staging.size}. Got size: {len(data)}")
         self._staging.data[:] = data
-        cmd.use_image(self, ImageUsage.TRANSFER_DST)
+        cmd.image_barrier(self, ImageLayout.TRANSFER_DST_OPTIMAL, src_usage, MemoryUsage.TRANSFER_DST)
         cmd.copy_buffer_to_image(self._staging, self)
-        if usage != ImageUsage.NONE:
-            cmd.use_image(self, usage)
+        if layout != ImageLayout.UNDEFINED:
+            cmd.image_barrier(self, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.TRANSFER_DST, dst_usage)
 
-    def upload_sync(self, data: memoryview, usage: ImageUsage):
+    def upload_sync(self, data: memoryview, layout: ImageLayout):
         with self.ctx.sync_commands() as cmd:
-            self.upload(cmd, usage, data)
+            self.upload(cmd, layout, MemoryUsage.NONE, MemoryUsage.NONE, data)
 
 @dataclass
 class UniformBlockAllocation:

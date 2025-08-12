@@ -578,13 +578,24 @@ bool has_any_write_access(VkAccessFlags2 flags) {
 enum class MemoryUsage {
     None,
     HostWrite,
-    VertexInput,
+    TransferSrc,
     TransferDst,
+    VertexInput,
     VertexShaderUniform,
     GeometryShaderUniform,
     FragmentShaderUniform,
     ComputeShaderUniform,
     AnyShaderUniform,
+    Image,
+    ImageReadOnly,
+    ImageWriteOnly,
+    ShaderReadOnly,
+    ColorAttachment,
+    ColorAttachmentWriteOnly,
+    DepthStencilAttachment,
+    DepthStencilAttachmentReadOnly,
+    DepthStencilAttachmentWriteOnly,
+    Present,
     Count,
 };
 
@@ -609,6 +620,11 @@ namespace MemoryUsagePresets {
         .first_stage = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
         .access = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,
+    };
+    constexpr MemoryUsageState TransferSrc = {
+        .first_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .access = VK_ACCESS_2_TRANSFER_READ_BIT,
     };
     constexpr MemoryUsageState TransferDst {
         .first_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
@@ -640,129 +656,68 @@ namespace MemoryUsagePresets {
         .last_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
         .access = VK_ACCESS_2_UNIFORM_READ_BIT,
     };
-
+    constexpr MemoryUsageState Image {
+        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+    };
+    constexpr MemoryUsageState ImageReadOnly {
+        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
+    };
+    constexpr MemoryUsageState ImageWriteOnly {
+        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+    };
+    constexpr MemoryUsageState ShaderReadOnly {
+        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_READ_BIT,
+    };
+    constexpr MemoryUsageState ColorAttachment = {
+        .first_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+    };
+    constexpr MemoryUsageState ColorAttachmentWriteOnly = {
+        .first_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+    };
+    constexpr MemoryUsageState DepthStencilAttachment = {
+        .first_stage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        .access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+    };
+    constexpr MemoryUsageState DepthStencilAttachmentReadOnly = {
+        .first_stage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        .access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+    };
+    constexpr MemoryUsageState DepthStencilAttachmentWriteOnly = {
+        .first_stage = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        .access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+    };
+    constexpr MemoryUsageState Present = {
+        .first_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_NONE,
+        .access = 0,
+    };
 
     MemoryUsageState Types[] = {
         None,
         HostWrite,
-        VertexInput,
+        TransferSrc,
         TransferDst,
+        VertexInput,
         VertexShaderUniform,
         GeometryShaderUniform,
         FragmentShaderUniform,
         ComputeShaderUniform,
         AnyShaderUniform,
-    };
-    static_assert(ArrayCount(Types) == (size_t)MemoryUsage::Count, "MemoryUsage count does not match length of Types array");
-};
-
-enum class ImageUsage {
-    None,
-    Image,
-    ImageReadOnly,
-    ImageWriteOnly,
-    ShaderReadOnly,
-    ColorAttachment,
-    ColorAttachmentWriteOnly,
-    DepthStencilAttachment,
-    DepthStencilAttachmentReadOnly,
-    DepthStencilAttachmentWriteOnly,
-    TransferSrc,
-    TransferDst,
-    Present,
-
-    Count,
-};
-
-struct ImageUsageState {
-    VkPipelineStageFlags2 first_stage;
-    VkPipelineStageFlags2 last_stage;
-    VkAccessFlags2 access;
-    VkImageLayout layout;
-};
-
-namespace ImageUsagePresets {
-    constexpr ImageUsageState None {
-        .first_stage = VK_PIPELINE_STAGE_2_NONE,
-        .last_stage = VK_PIPELINE_STAGE_2_NONE,
-        .access = 0,
-        .layout = VK_IMAGE_LAYOUT_UNDEFINED,
-    };
-    constexpr ImageUsageState Image {
-        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        .access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-        .layout = VK_IMAGE_LAYOUT_GENERAL,
-    };
-    constexpr ImageUsageState ImageReadOnly {
-        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        .access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
-        .layout = VK_IMAGE_LAYOUT_GENERAL, // This can potentially be READ_ONLY or even SHADER_READ_ONLY?
-    };
-    constexpr ImageUsageState ImageWriteOnly {
-        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        .access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-        .layout = VK_IMAGE_LAYOUT_GENERAL, // This can potentially be READ_ONLY or even SHADER_READ_ONLY?
-    };
-    constexpr ImageUsageState ShaderReadOnly {
-        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        .access = VK_ACCESS_2_SHADER_READ_BIT,
-        .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    };
-    constexpr ImageUsageState ColorAttachment = {
-        .first_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-    };
-    constexpr ImageUsageState ColorAttachmentWriteOnly = {
-        .first_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-    };
-    constexpr ImageUsageState DepthStencilAttachment = {
-        .first_stage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-        .access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-    };
-    constexpr ImageUsageState DepthStencilAttachmentReadOnly = {
-        .first_stage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-        .access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-    };
-    constexpr ImageUsageState DepthStencilAttachmentWriteOnly = {
-        .first_stage = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-        .access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-    };
-    constexpr ImageUsageState TransferSrc = {
-        .first_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        .access = VK_ACCESS_2_TRANSFER_READ_BIT,
-        .layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-    };
-    constexpr ImageUsageState TransferDst = {
-        .first_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        .access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-        .layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-    };
-    constexpr ImageUsageState Present = {
-        .first_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_NONE,
-        .access = 0,
-        .layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-    };
-
-    ImageUsageState Types[] = {
-        None,
         Image,
         ImageReadOnly,
         ImageWriteOnly,
@@ -772,13 +727,10 @@ namespace ImageUsagePresets {
         DepthStencilAttachment,
         DepthStencilAttachmentReadOnly,
         DepthStencilAttachmentWriteOnly,
-        TransferSrc,
-        TransferDst,
         Present,
     };
-
-    static_assert(ArrayCount(Types) == (size_t)ImageUsage::Count, "ImageUsage count does not match length of Types array");
-}
+    static_assert(ArrayCount(Types) == (size_t)MemoryUsage::Count, "MemoryUsage count does not match length of Types array");
+};
 
 struct Image: GfxObject {
     Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples, std::optional<nb::str> name)
@@ -833,12 +785,9 @@ struct Image: GfxObject {
         }
     }
 
-    static nb::ref<Image> from_data(nb::ref<Context> ctx, nb::object data, ImageUsage usage,
+    static nb::ref<Image> from_data(nb::ref<Context> ctx, nb::object data, VkImageLayout layout,
         u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples, std::optional<nb::str> name)
     {
-        assert((usize)usage < ArrayCount(ImageUsagePresets::Types));
-        ImageUsageState state = ImageUsagePresets::Types[(usize)usage];
-
         Py_buffer view;
         if (PyObject_GetBuffer(data.ptr(), &view, PyBUF_SIMPLE) != 0) {
             throw nb::python_error();
@@ -850,7 +799,7 @@ struct Image: GfxObject {
         }
 
         std::unique_ptr<Image> self = std::make_unique<Image>(ctx, std::move(name));
-        VkResult vkr = gfx::CreateAndUploadImage(&self->image, ctx->vk, ArrayView<u8>((u8*)view.buf, view.len), state.layout, {
+        VkResult vkr = gfx::CreateAndUploadImage(&self->image, ctx->vk, ArrayView<u8>((u8*)view.buf, view.len), layout, {
             .width = width,
             .height = height,
             .format = format,
@@ -871,7 +820,7 @@ struct Image: GfxObject {
         self->height = height;
         self->format = format;
         self->samples = samples;
-        self->current_state.layout = state.layout;
+        self->current_layout = layout;
         self->alloc = new AllocInfo(alloc_info);
 
         DEBUG_UTILS_OBJECT_NAME_WITH_NAME(VK_OBJECT_TYPE_IMAGE, self->image.image, self->name);
@@ -884,8 +833,8 @@ struct Image: GfxObject {
     u32 height;
     VkFormat format;
     u32 samples;
-    ImageUsageState current_state = ImageUsagePresets::Types[(usize)ImageUsage::None];
     nb::ref<AllocInfo> alloc;
+    VkImageLayout current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
 
@@ -1084,7 +1033,7 @@ struct CommandBuffer: GfxObject {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
 
-        // TODO: add state tracking to buffer objects aswell? (only for memory barriers)
+        // TODO: unify with above
         MemoryUsageState src = MemoryUsagePresets::Types[(usize)src_usage];
         MemoryUsageState dst = MemoryUsagePresets::Types[(usize)dst_usage];
 
@@ -1111,38 +1060,42 @@ struct CommandBuffer: GfxObject {
         }
     }
 
-    void use_image(Image& image, ImageUsage usage, u32 src_queue_family_index, u32 dst_queue_family_index, VkImageAspectFlagBits aspect_mask) {
-        assert((usize)usage < ArrayCount(ImageUsagePresets::Types));
-        ImageUsageState new_state = ImageUsagePresets::Types[(usize)usage];
+    void image_barrier(Image& image, VkImageLayout dst_layout, MemoryUsage src_usage, MemoryUsage dst_usage, u32 src_queue_family_index, u32 dst_queue_family_index, VkImageAspectFlagBits aspect_mask) {
+        assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
+        assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
+
+        // TODO: unify with above
+        MemoryUsageState src_state = MemoryUsagePresets::Types[(usize)src_usage];
+        MemoryUsageState dst_state = MemoryUsagePresets::Types[(usize)dst_usage];
 
         // Rules:
         // - If layout transition or queue ownership transfer: always need an image barrier
         // - If one of the uses is a write: memory barrier needed
-        bool layout_transition = image.current_state.layout != new_state.layout;
+        VkImageLayout src_layout = image.current_layout;
+        bool layout_transition = src_layout != dst_layout;
         bool queue_transfer = src_queue_family_index != dst_queue_family_index;
         if (layout_transition || queue_transfer) {
             gfx::CmdImageBarrier(buffer, {
-                .src_stage = image.current_state.last_stage,
-                .src_access = image.current_state.access,
-                .dst_stage = new_state.first_stage,
-                .dst_access = new_state.access,
-                .old_layout= image.current_state.layout,
-                .new_layout = new_state.layout,
-                .src_queue = src_queue_family_index,
-                .dst_queue = dst_queue_family_index,
-                .image = image.image.image,
+                .src_stage   = src_state.last_stage,
+                .src_access  = src_state.access,
+                .dst_stage   = dst_state.first_stage,
+                .dst_access  = dst_state.access,
+                .old_layout  = src_layout,
+                .new_layout  = dst_layout,
+                .src_queue   = src_queue_family_index,
+                .dst_queue   = dst_queue_family_index,
+                .image       = image.image.image,
                 .aspect_mask = (VkImageAspectFlags)aspect_mask,
             });
-        } else if (has_any_write_access(image.current_state.access | new_state.access)) {
+            image.current_layout = dst_layout;
+        } else if (has_any_write_access(src_state.access | dst_state.access)) {
             gfx::CmdMemoryBarrier(buffer, {
-                .src_stage = image.current_state.last_stage,
-                .src_access = image.current_state.access,
-                .dst_stage = new_state.first_stage,
-                .dst_access = new_state.access,
+                .src_stage  = src_state.last_stage,
+                .src_access = src_state.access,
+                .dst_stage  = dst_state.first_stage,
+                .dst_access = dst_state.access,
             });
         }
-
-        image.current_state = new_state;
     }
 
     void begin() {
@@ -1207,7 +1160,7 @@ struct CommandBuffer: GfxObject {
                 .view = color[i].image->image.view,
                 .resolve_mode = color[i].resolve_mode,
                 .resolve_image_view = color[i].resolve_image.has_value() ? color[i].resolve_image.value()->image.view : VK_NULL_HANDLE,
-                .resolve_image_layout = color[i].resolve_image.has_value() ? color[i].resolve_image.value()->current_state.layout : VK_IMAGE_LAYOUT_UNDEFINED,
+                .resolve_image_layout = color[i].resolve_image.has_value() ? color[i].resolve_image.value()->current_layout : VK_IMAGE_LAYOUT_UNDEFINED,
                 .load_op = color[i].load_op,
                 .store_op = color[i].store_op,
                 .clear = clear,
@@ -1342,7 +1295,7 @@ struct CommandBuffer: GfxObject {
 
         gfx::CmdCopyImageToBuffer(buffer, {
             .image = image.image.image,
-            .image_layout = image.current_state.layout,
+            .image_layout = image.current_layout,
             .image_width = image.width,
             .image_height = image.height,
             .buffer = buf.buffer.buffer,
@@ -1355,7 +1308,7 @@ struct CommandBuffer: GfxObject {
 
         gfx::CmdCopyBufferToImage(buffer, {
             .image = image.image.image,
-            .image_layout = image.current_state.layout,
+            .image_layout = image.current_layout,
             .image_width = image.width,
             .image_height = image.height,
             .buffer = buf.buffer.buffer,
@@ -1374,7 +1327,7 @@ struct CommandBuffer: GfxObject {
         range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         range.layerCount = 1;
         range.levelCount = 1;
-        vkCmdClearColorImage(buffer, image.image.image, image.current_state.layout, &clear, 1, &range);
+        vkCmdClearColorImage(buffer, image.image.image, image.current_layout, &clear, 1, &range);
     }
 
     void clear_depth_stencil_image(Image& image, std::optional<float> depth, std::optional<u32> stencil) {
@@ -1386,7 +1339,7 @@ struct CommandBuffer: GfxObject {
         range.aspectMask = (depth.has_value() ? VK_IMAGE_ASPECT_DEPTH_BIT : 0) | (stencil.has_value() ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
         range.layerCount = 1;
         range.levelCount = 1;
-        vkCmdClearDepthStencilImage(buffer, image.image.image, image.current_state.layout, &clear, 1, &range);
+        vkCmdClearDepthStencilImage(buffer, image.image.image, image.current_layout, &clear, 1, &range);
     }
 
 
@@ -1406,7 +1359,7 @@ struct CommandBuffer: GfxObject {
         region.dstOffsets[1].x = dst.width;
         region.dstOffsets[1].y = dst.height;
         region.dstOffsets[1].z = 1;
-        vkCmdBlitImage(buffer, src.image.image, src.current_state.layout, dst.image.image, dst.current_state.layout, 1, &region, VK_FILTER_NEAREST);
+        vkCmdBlitImage(buffer, src.image.image, src.current_layout, dst.image.image, dst.current_layout, 1, &region, VK_FILTER_NEAREST);
     }
 
     void reset_query_pool(const QueryPool& pool) {
@@ -1915,7 +1868,6 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
     , frame(frame)
 {
     image = new Image(window->ctx, frame.current_image, frame.current_image_view, window->window.fb_width, window->window.fb_height, window->window.swapchain_format, 1);
-    image->current_state.last_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     command_buffer = new CommandBuffer(window->ctx, frame.command_pool, frame.command_buffer);
     if (window->ctx->vk.compute_queue) {
         compute_command_buffer = new CommandBuffer(window->ctx, frame.compute_command_pool, frame.compute_command_buffer);
@@ -2102,13 +2054,10 @@ struct DescriptorSet: GfxObject {
         });
     };
 
-    void write_image(const Image& image, ImageUsage usage, VkDescriptorType type, u32 binding, u32 element) {
-        assert((usize)usage < ArrayCount(ImageUsagePresets::Types));
-        ImageUsageState state = ImageUsagePresets::Types[(usize)usage];
-
+    void write_image(const Image& image, VkImageLayout layout, VkDescriptorType type, u32 binding, u32 element) {
         gfx::WriteImageDescriptor(set.set, ctx->vk, {
             .view = image.image.view,
-            .layout = state.layout,
+            .layout = layout,
             .type = type,
             .binding = binding,
             .element = element,
@@ -3346,29 +3295,58 @@ void gfx_create_bindings(nb::module_& m)
     nb::enum_<MemoryUsage>(m, "MemoryUsage")
         .value("NONE", MemoryUsage::None)
         .value("HOST_WRITE", MemoryUsage::HostWrite)
-        .value("VERTEX_INPUT", MemoryUsage::VertexInput)
+        .value("TRANSFER_SRC", MemoryUsage::TransferSrc)
         .value("TRANSFER_DST", MemoryUsage::TransferDst)
+        .value("VERTEX_INPUT", MemoryUsage::VertexInput)
         .value("VERTEX_SHADER_UNIFORM", MemoryUsage::VertexShaderUniform)
         .value("GEOMETRY_SHADER_UNIFORM", MemoryUsage::GeometryShaderUniform)
         .value("FRAGMENT_SHADER_UNIFORM", MemoryUsage::FragmentShaderUniform)
         .value("COMPUTE_SHADER_UNIFORM", MemoryUsage::ComputeShaderUniform)
         .value("ANY_SHADER_UNIFORM", MemoryUsage::AnyShaderUniform)
+        .value("IMAGE", MemoryUsage::Image)
+        .value("IMAGE_READ_ONLY", MemoryUsage::ImageReadOnly)
+        .value("IMAGE_WRITE_ONLY", MemoryUsage::ImageWriteOnly)
+        .value("SHADER_READ_ONLY", MemoryUsage::ShaderReadOnly)
+        .value("COLOR_ATTACHMENT", MemoryUsage::ColorAttachment)
+        .value("COLOR_ATTACHMENT_WRITE_ONLY", MemoryUsage::ColorAttachmentWriteOnly)
+        .value("DEPTH_STENCIL_ATTACHMENT", MemoryUsage::DepthStencilAttachment)
+        .value("DEPTH_STENCIL_ATTACHMENT_READ_ONLY", MemoryUsage::DepthStencilAttachmentReadOnly)
+        .value("DEPTH_STENCIL_ATTACHMENT_WRITE_ONLY", MemoryUsage::DepthStencilAttachmentWriteOnly)
+        .value("PRESENT", MemoryUsage::Present)
     ;
 
-    nb::enum_<ImageUsage>(m, "ImageUsage")
-        .value("NONE", ImageUsage::None)
-        .value("IMAGE", ImageUsage::Image)
-        .value("IMAGE_READ_ONLY", ImageUsage::ImageReadOnly)
-        .value("IMAGE_WRITE_ONLY", ImageUsage::ImageWriteOnly)
-        .value("SHADER_READ_ONLY", ImageUsage::ShaderReadOnly)
-        .value("COLOR_ATTACHMENT", ImageUsage::ColorAttachment)
-        .value("COLOR_ATTACHMENT_WRITE_ONLY", ImageUsage::ColorAttachmentWriteOnly)
-        .value("DEPTH_STENCIL_ATTACHMENT", ImageUsage::DepthStencilAttachment)
-        .value("DEPTH_STENCIL_ATTACHMENT_READ_ONLY", ImageUsage::DepthStencilAttachmentReadOnly)
-        .value("DEPTH_STENCIL_ATTACHMENT_WRITE_ONLY", ImageUsage::DepthStencilAttachmentWriteOnly)
-        .value("TRANSFER_SRC", ImageUsage::TransferSrc)
-        .value("TRANSFER_DST", ImageUsage::TransferDst)
-        .value("PRESENT", ImageUsage::Present)
+    nb::enum_<VkImageLayout>(m, "ImageLayout")
+        .value("UNDEFINED"                                     , VK_IMAGE_LAYOUT_UNDEFINED)
+        .value("GENERAL"                                       , VK_IMAGE_LAYOUT_GENERAL)
+        .value("COLOR_ATTACHMENT_OPTIMAL"                      , VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+        .value("DEPTH_STENCIL_ATTACHMENT_OPTIMAL"              , VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        .value("DEPTH_STENCIL_READ_ONLY_OPTIMAL"               , VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL)
+        .value("SHADER_READ_ONLY_OPTIMAL"                      , VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        .value("TRANSFER_SRC_OPTIMAL"                          , VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+        .value("TRANSFER_DST_OPTIMAL"                          , VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+        .value("PREINITIALIZED"                                , VK_IMAGE_LAYOUT_PREINITIALIZED)
+        .value("DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL"    , VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL)
+        .value("DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL"    , VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL)
+        .value("DEPTH_ATTACHMENT_OPTIMAL"                      , VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
+        .value("DEPTH_READ_ONLY_OPTIMAL"                       , VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL)
+        .value("STENCIL_ATTACHMENT_OPTIMAL"                    , VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL)
+        .value("STENCIL_READ_ONLY_OPTIMAL"                     , VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL)
+        .value("READ_ONLY_OPTIMAL"                             , VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL)
+        .value("ATTACHMENT_OPTIMAL"                            , VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL)
+        .value("RENDERING_LOCAL_READ"                          , VK_IMAGE_LAYOUT_RENDERING_LOCAL_READ)
+        .value("PRESENT_SRC"                                   , VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+        .value("VIDEO_DECODE_DST"                              , VK_IMAGE_LAYOUT_VIDEO_DECODE_DST_KHR)
+        .value("VIDEO_DECODE_SRC"                              , VK_IMAGE_LAYOUT_VIDEO_DECODE_SRC_KHR)
+        .value("VIDEO_DECODE_DPB"                              , VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR)
+        .value("SHARED_PRESENT"                                , VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR)
+        .value("FRAGMENT_DENSITY_MAP_OPTIMAL_EXT"              , VK_IMAGE_LAYOUT_FRAGMENT_DENSITY_MAP_OPTIMAL_EXT)
+        .value("FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL"      , VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR)
+        .value("VIDEO_ENCODE_DST"                              , VK_IMAGE_LAYOUT_VIDEO_ENCODE_DST_KHR)
+        .value("VIDEO_ENCODE_SRC"                              , VK_IMAGE_LAYOUT_VIDEO_ENCODE_SRC_KHR)
+        .value("VIDEO_ENCODE_DPB"                              , VK_IMAGE_LAYOUT_VIDEO_ENCODE_DPB_KHR)
+        .value("ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT"          , VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT)
+        .value("VIDEO_ENCODE_QUANTIZATION_MAP"                 , VK_IMAGE_LAYOUT_VIDEO_ENCODE_QUANTIZATION_MAP_KHR)
+        .value("SHADING_RATE_OPTIMAL"                          , VK_IMAGE_LAYOUT_SHADING_RATE_OPTIMAL_NV)
     ;
 
     nb::enum_<VkResolveModeFlagBits>(m, "ResolveMode")
@@ -3461,7 +3439,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("end", &CommandBuffer::end)
         .def("memory_barrier", &CommandBuffer::memory_barrier, nb::arg("src"), nb::arg("dst"))
         .def("buffer_barrier", &CommandBuffer::buffer_barrier, nb::arg("buffer"), nb::arg("src"), nb::arg("dst"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED)
-        .def("use_image", &CommandBuffer::use_image, nb::arg("image"), nb::arg("usage"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("aspect_mask") = VK_IMAGE_ASPECT_COLOR_BIT)
+        .def("image_barrier", &CommandBuffer::image_barrier, nb::arg("image"), nb::arg("dst_layout"), nb::arg("src_usage"), nb::arg("dst_usage"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("aspect_mask") = VK_IMAGE_ASPECT_COLOR_BIT)
         .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("render_area"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
         .def("end_rendering", &CommandBuffer::end_rendering)
         .def("rendering", &CommandBuffer::rendering, nb::arg("render_area"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())

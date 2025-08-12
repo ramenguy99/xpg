@@ -143,7 +143,7 @@ def draw():
             if updated:
                 u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM, buf.view(np.uint8).data)
 
-            cmd.use_image(frame.image, ImageUsage.COLOR_ATTACHMENT)
+            cmd.image_barrier(frame.image, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.COLOR_ATTACHMENT)
 
             viewport = [0, 0, window.fb_width, window.fb_height]
             with cmd.rendering(viewport,
@@ -171,7 +171,7 @@ def draw():
                 # Render gui
                 gui.render(cmd)
 
-            cmd.use_image(frame.image, ImageUsage.PRESENT)
+            cmd.image_barrier(frame.image, ImageLayout.PRESENT_SRC, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.PRESENT)
 
 window.set_callbacks(draw)
 

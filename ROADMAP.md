@@ -55,6 +55,9 @@ Python:
     - [x] Barriers
         - [x] Memory barrier for buffers?
         - [x] Queue transfer barriers
+        - [x] Transition to using memory barrier + layout for images. This is needed
+              because when using the transfer queue only certain stages are allowed
+              and we need finer control on what stages are set in barriers.
     - [x] Helpers for buffer upload with fallback, think about differnt allocation use cases
         Preferred solutions:
         - One time upload at start:

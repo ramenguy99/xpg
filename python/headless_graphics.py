@@ -88,7 +88,7 @@ pipeline = GraphicsPipeline(
 # Record commands
 print("Rendering...")
 with ctx.sync_commands() as cmd:
-    cmd.use_image(img, ImageUsage.COLOR_ATTACHMENT)
+    cmd.image_barrier(img, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.NONE, MemoryUsage.COLOR_ATTACHMENT)
     viewport = [0, 0, W, H]
     with cmd.rendering(viewport,
         color_attachments=[
@@ -106,7 +106,7 @@ with ctx.sync_commands() as cmd:
                 vertex_buffers=[ v_buf ],
             )
             cmd.draw(3)
-    cmd.use_image(img, ImageUsage.TRANSFER_SRC)
+    cmd.image_barrier(img, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.TRANSFER_SRC)
     cmd.copy_image_to_buffer(img, buf)
 
 # Interpret buffer as image and save it to a file
