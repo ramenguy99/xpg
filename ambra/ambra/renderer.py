@@ -99,7 +99,7 @@ class Renderer:
         # Upload method for images
         if config.force_image_upload_method is not None:
             if config.force_image_upload_method == UploadMethod.CPU_BUF or config.force_image_upload_method == UploadMethod.BAR:
-                raise RuntimeError(f"Upload method for images must be {UploadMethod.GFX} or {UploadMethod.TRANSFER_QUEUE}")
+                raise RuntimeError(f"Upload method for images must be {UploadMethod.GFX} or {UploadMethod.TRANSFER_QUEUE}. Got {config.force_image_upload_method} in config.force_image_upload_method.")
             self.image_upload_method = config.force_image_upload_method
             if self.image_upload_method == UploadMethod.TRANSFER_QUEUE:
                 if not ctx.has_transfer_queue:

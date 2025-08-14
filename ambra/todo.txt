@@ -8,7 +8,7 @@ Viewer:
     - [x] 2D Lines
     - [ ] Spheres
     - [ ] Cilinders (with/without caps)
-    - [ ] Meshes
+    - [-] Meshes
     - [x] 2D Images
     - [x] 3D Images (e.g. textured quads)
 - [ ] Renderer architecture / path tracer support
@@ -127,7 +127,7 @@ Features:
     [x] prefetching
             -> likely make a simple mesh class and recreate sequence
             -> this means also porting some GUI, likey making some helpers, ideally also adding the profiler
-    [ ] unify GpuBufferProperty and GpuImageProperty
+    [x] unify GpuBufferProperty and GpuImageProperty
 [ ] Camera movement
 [ ] Viewport:
     [x] resize

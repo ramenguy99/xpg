@@ -282,7 +282,7 @@ class Viewer:
                     imgui.unindent()
 
                 drawpool("CPU", self.gui_selected_gpu_property.cpu_pool, len(self.gui_selected_gpu_property.cpu_buffers))
-                drawpool("GPU", self.gui_selected_gpu_property.gpu_pool, len(self.gui_selected_gpu_property.gpu_buffers))
+                drawpool("GPU", self.gui_selected_gpu_property.gpu_pool, len(self.gui_selected_gpu_property.gpu_resources))
 
                 if self.gui_selected_gpu_property.cpu_pool or self.gui_selected_gpu_property.gpu_pool:
                     imgui.separator()
