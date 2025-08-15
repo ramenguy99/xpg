@@ -3,7 +3,7 @@ from queue import Queue, Empty
 from time import perf_counter_ns
 import logging
 
-from pyglm.glm import ivec2, vec2
+from pyglm.glm import ivec2, vec2, vec3
 from pyxpg import Context, Window, Gui, DeviceFeatures, Key, MouseButton, Action, Modifiers, SwapchainStatus, process_events, imgui, LogCapture, LogLevel, set_log_level
 import numpy as np
 
@@ -70,10 +70,11 @@ class Viewer:
         # Renderer
         self.renderer = Renderer(self.ctx, self.window, config.renderer)
 
+        camera_from_world = RigidTransform3D.look_at(vec3(config.camera_position), vec3(config.camera_target), vec3(config.camera_up))
         if config.camera_type == CameraType.PERSPECTIVE:
-            camera = PerspectiveCamera(RigidTransform3D.identity(), CameraDepth(config.z_min, config.z_max), self.window.fb_width / self.window.fb_height, config.perspective_vertical_fov)
+            camera = PerspectiveCamera(camera_from_world, CameraDepth(config.z_min, config.z_max), self.window.fb_width / self.window.fb_height, config.perspective_vertical_fov)
         elif config.camera_type == CameraType.ORTHOGRAPHIC:
-            camera = OrthographicCamera(RigidTransform3D.identity(), CameraDepth(config.z_min, config.z_max), self.window.fb_width / self.window.fb_height, vec2(config.ortho_center), vec2(config.ortho_half_extents))
+            camera = OrthographicCamera(camera_from_world, CameraDepth(config.z_min, config.z_max), self.window.fb_width / self.window.fb_height, vec2(config.ortho_center), vec2(config.ortho_half_extents))
         else:
             raise RuntimeError(f"Unhandled camera type {config.camera_type}")
 

@@ -213,10 +213,10 @@ class DataProperty(Property):
 
     # Images
     def width(self) -> int:
-        return self.data[0].shape[0]
+        return self.data[0].shape[1]
 
     def height(self) -> int:
-        return self.data[0].shape[1]
+        return self.data[0].shape[0]
 
     def channels(self) -> int:
         return self.data[0].shape[2]
@@ -237,21 +237,21 @@ class StreamingProperty(Property):
 
     # For buffers
     def max_size(self) -> int:
-        return NotImplemented()
+        raise NotImplemented()
 
     # For images
     def width(self) -> int:
-        return NotImplemented()
+        raise NotImplemented()
 
     def height(self) -> int:
-        return NotImplemented()
+        raise NotImplemented()
 
     def channels(self) -> int:
-        return NotImplemented()
+        raise NotImplemented()
 
     # def get_frame_by_index_into(self, frame_index: int, out: memoryview) -> int:
     def get_frame_by_index(self, frame: int, thread_index: int = -1) -> T:
-        return NotImplemented()
+        raise NotImplemented()
 
 
 class ShapeException(Exception):

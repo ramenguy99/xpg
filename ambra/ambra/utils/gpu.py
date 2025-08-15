@@ -74,8 +74,10 @@ class UploadableImage(Image):
         self._staging.data[:] = data
         cmd.image_barrier(self, ImageLayout.TRANSFER_DST_OPTIMAL, src_usage, MemoryUsage.TRANSFER_DST)
         cmd.copy_buffer_to_image(self._staging, self)
-        if layout != ImageLayout.UNDEFINED:
-            cmd.image_barrier(self, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.TRANSFER_DST, dst_usage)
+        if layout == ImageLayout.UNDEFINED or layout == ImageLayout.TRANSFER_DST_OPTIMAL:
+            cmd.memory_barrier(self, MemoryUsage.TRANSFER_DST, dst_usage)
+        else:
+            cmd.image_barrier(self, layout, MemoryUsage.TRANSFER_DST, dst_usage)
 
     def upload_sync(self, data: memoryview, layout: ImageLayout):
         with self.ctx.sync_commands() as cmd:

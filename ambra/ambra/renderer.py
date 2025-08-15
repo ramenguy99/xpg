@@ -126,8 +126,8 @@ class Renderer:
         self.gpu_properties.append(prop)
         return prop
 
-    def add_gpu_image_property(self, property: Property[np.ndarray], usage_flags: ImageUsageFlags, layout: ImageLayout, memory_usage: MemoryUsage, pipeline_stage_flags: PipelineStageFlags, name: str):
-        prop = GpuImageProperty(self.ctx, self.window.num_frames, self.image_upload_method, self.thread_pool, property, usage_flags, layout, memory_usage, pipeline_stage_flags, name)
+    def add_gpu_image_property(self, property: Property[np.ndarray], format: Format, usage_flags: ImageUsageFlags, layout: ImageLayout, memory_usage: MemoryUsage, pipeline_stage_flags: PipelineStageFlags, name: str):
+        prop = GpuImageProperty(self.ctx, self.window.num_frames, self.image_upload_method, self.thread_pool, property, format, usage_flags, layout, memory_usage, pipeline_stage_flags, name)
         self.gpu_properties.append(prop)
         return prop
 

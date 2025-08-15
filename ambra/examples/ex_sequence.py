@@ -1,14 +1,19 @@
 from ambra.scene import StreamingProperty, UploadSettings
 from ambra.viewer import Viewer
-from ambra.primitives3d import Mesh, Lines
-from ambra.transform3d import RigidTransform3D
-from ambra.config import Config, PlaybackConfig, RendererConfig, UploadMethod, GuiConfig
+from ambra.primitives3d import Mesh
+from ambra.config import Config, PlaybackConfig, RendererConfig, GuiConfig
 from ambra.utils.io import read_exact, read_exact_at_offset_into, read_exact_at_offset
-from pyglm.glm import vec3
 
 import numpy as np
 import struct
 from pathlib import Path
+
+import logging
+
+logging.basicConfig(level=logging.NOTSET,
+    format='[%(asctime)s.%(msecs)03d] %(levelname)-6s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 viewer = Viewer("primitives", 1900, 1000, config=Config(
     # vsync = False,
@@ -26,7 +31,10 @@ viewer = Viewer("primitives", 1900, 1000, config=Config(
         playback=True,
         inspector=True,
         renderer=True,
-    )
+    ),
+    camera_position=(10, -10, 10),
+    camera_target=(0, 0, 0),
+    camera_up=(0, -1, 0),
 ))
 
 path = Path("N:\\scenes\\smpl\\all_frames_20.bin")
@@ -65,7 +73,6 @@ positions = FileStreamingProperty(N, np.float32, (-1, 3), upload=UploadSettings(
 ))
 
 mesh = Mesh(positions, indices=indices)
-viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(10, -10, 10), vec3(0), vec3(0, -1, 0))
 viewer.viewport.scene.objects.append(mesh)
 
 viewer.run()

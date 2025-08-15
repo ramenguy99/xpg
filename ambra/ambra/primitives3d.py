@@ -80,6 +80,7 @@ class Lines(Object3D):
 class Image(Object3D):
     def __init__(self,
                  image: Property[np.ndarray],
+                 format: Format,
                  name: Optional[str] = None,
                  translation: Optional[Property[np.ndarray]] = None,
                  rotation: Optional[Property[float]] = None,
@@ -87,9 +88,10 @@ class Image(Object3D):
                 ):
         super().__init__(name, translation, rotation, scale)
         self.image: Property[np.ndarray] = self.add_property(image, shape=(-1, -1, -1), name="image")
+        self.format = format
 
     def create(self, r: Renderer):
-        self.images = r.add_gpu_image_property(self.image, ImageUsageFlags.SAMPLED, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.SHADER_READ_ONLY, PipelineStageFlags.FRAGMENT_SHADER, name=f"{self.name}-image")
+        self.images = r.add_gpu_image_property(self.image, self.format, ImageUsageFlags.SAMPLED, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.SHADER_READ_ONLY, PipelineStageFlags.FRAGMENT_SHADER, name=f"{self.name}-image")
         self.sampler = Sampler(r.ctx, min_filter=Filter.LINEAR, mag_filter=Filter.LINEAR, u=SamplerAddressMode.CLAMP_TO_EDGE, v=SamplerAddressMode.CLAMP_TO_EDGE)
 
         constants_dtype = np.dtype ({

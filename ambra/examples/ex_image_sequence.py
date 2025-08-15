@@ -1,8 +1,8 @@
 from ambra.scene import StreamingProperty, UploadSettings
 from ambra.viewer import Viewer
-from ambra.primitives3d import Image
-from ambra.transform3d import RigidTransform3D
-from ambra.config import Config, PlaybackConfig, RendererConfig, UploadMethod, GuiConfig, CameraType
+from ambra.primitives2d import Image
+from ambra.config import Config, PlaybackConfig, RendererConfig, GuiConfig, CameraType
+from ambra.utils.gpu import Format
 
 from pyglm.glm import vec3
 import numpy as np
@@ -53,8 +53,7 @@ image_gen = GeneratedStreamingProperty(N, np.uint8, (H, W, C), upload=UploadSett
     gpu_prefetch_count=2,
 ))
 
-image = Image(image_gen)
-viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(0, 0, -2), vec3(0, 0, 0), vec3(0, 1, 0))
+image = Image(image_gen, Format.R8G8B8A8_UNORM)
 viewer.viewport.scene.objects.append(image)
 
 viewer.run()

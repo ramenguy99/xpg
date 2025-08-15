@@ -64,6 +64,11 @@ class Config:
 
     # Scene
     camera_type: CameraType = CameraType.PERSPECTIVE
+
+    camera_position: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    camera_target: Tuple[float, float, float] = (0.0, 0.0, 1.0)
+    camera_up: Tuple[float, float, float] = (0.0, 1.0, 0.0)
+
     z_min: float = 0.001
     z_max: float = 1000.0
     perspective_vertical_fov: float = 45.0

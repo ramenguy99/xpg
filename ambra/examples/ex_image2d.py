@@ -1,9 +1,8 @@
 from ambra.scene import FrameAnimation, as_property, AnimationBoundary
 from ambra.viewer import Viewer
 from ambra.primitives2d import Image
-from ambra.transform3d import RigidTransform3D
 from ambra.config import Config, PlaybackConfig, CameraType
-from pyglm.glm import vec3
+from ambra.utils.gpu import Format
 
 import numpy as np
 
@@ -34,11 +33,9 @@ for i in range(H):
         end[i, j, 0] = (j + 0.5) / W
         end[i, j, 2] = (i + 0.5) / H
         end[i, j, 3] = 0
+
 image = (np.linspace(start, end, 100) * 255).astype(np.uint8)
+img = Image(image, Format.R8G8B8A8_UNORM, translation=translation, rotation=rotation, scale=(1, H / W))
 
-img = Image(image, translation=translation, rotation=rotation, scale=(1, W / H))
-
-viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(0, 0, -1), vec3(0, 0, 0), vec3(0, -1, 0))
 viewer.viewport.scene.objects.extend([img])
-
 viewer.run()

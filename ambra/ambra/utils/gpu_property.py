@@ -13,67 +13,6 @@ from .lru_pool import LRUPool
 from ..config import UploadMethod
 
 
-_channels_dtype_int_to_format_table = {
-    # normalized formats
-    (1, np.dtype(np.uint8),  False): Format.R8_UNORM,
-    (2, np.dtype(np.uint8),  False): Format.R8G8_UNORM,
-    (3, np.dtype(np.uint8),  False): Format.R8G8B8_UNORM,
-    (4, np.dtype(np.uint8),  False): Format.R8G8B8A8_UNORM,
-    (1, np.dtype(np.int8),   False): Format.R8_SNORM,
-    (2, np.dtype(np.int8),   False): Format.R8G8_SNORM,
-    (3, np.dtype(np.int8),   False): Format.R8G8B8_SNORM,
-    (4, np.dtype(np.int8),   False): Format.R8G8B8A8_SNORM,
-    (1, np.dtype(np.uint16), False): Format.R16_UNORM,
-    (2, np.dtype(np.uint16), False): Format.R16G16_UNORM,
-    (3, np.dtype(np.uint16), False): Format.R16G16B16_UNORM,
-    (4, np.dtype(np.uint16), False): Format.R16G16B16A16_UNORM,
-    (1, np.dtype(np.int16),  False): Format.R16_SNORM,
-    (2, np.dtype(np.int16),  False): Format.R16G16_SNORM,
-    (3, np.dtype(np.int16),  False): Format.R16G16B16_SNORM,
-    (4, np.dtype(np.int16),  False): Format.R16G16B16A16_SNORM,
-
-    # integer formats
-    (1, np.dtype(np.uint8),  True): Format.R8_UINT,
-    (2, np.dtype(np.uint8),  True): Format.R8G8_UINT,
-    (3, np.dtype(np.uint8),  True): Format.R8G8B8_UINT,
-    (4, np.dtype(np.uint8),  True): Format.R8G8B8A8_UINT,
-    (1, np.dtype(np.int8),   True): Format.R8_SINT,
-    (2, np.dtype(np.int8),   True): Format.R8G8_SINT,
-    (3, np.dtype(np.int8),   True): Format.R8G8B8_SINT,
-    (4, np.dtype(np.int8),   True): Format.R8G8B8A8_SINT,
-    (1, np.dtype(np.uint16), True): Format.R16_UINT,
-    (2, np.dtype(np.uint16), True): Format.R16G16_UINT,
-    (3, np.dtype(np.uint16), True): Format.R16G16B16_UINT,
-    (4, np.dtype(np.uint16), True): Format.R16G16B16A16_UINT,
-    (1, np.dtype(np.int16),  True): Format.R16_SINT,
-    (2, np.dtype(np.int16),  True): Format.R16G16_SINT,
-    (3, np.dtype(np.int16),  True): Format.R16G16B16_SINT,
-    (4, np.dtype(np.int16),  True): Format.R16G16B16A16_SINT,
-    (1, np.dtype(np.uint32), True): Format.R32_UINT,
-    (2, np.dtype(np.uint32), True): Format.R32G32_UINT,
-    (3, np.dtype(np.uint32), True): Format.R32G32B32_UINT,
-    (4, np.dtype(np.uint32), True): Format.R32G32B32A32_UINT,
-    (1, np.dtype(np.int32),  True): Format.R32_SINT,
-    (2, np.dtype(np.int32),  True): Format.R32G32_SINT,
-    (3, np.dtype(np.int32),  True): Format.R32G32B32_SINT,
-    (4, np.dtype(np.int32),  True): Format.R32G32B32A32_SINT,
-
-    # float formats
-    (1, np.dtype(np.float16), False): Format.R16_SFLOAT,
-    (2, np.dtype(np.float16), False): Format.R16G16_SFLOAT,
-    (3, np.dtype(np.float16), False): Format.R16G16B16_SFLOAT,
-    (4, np.dtype(np.float16), False): Format.R16G16B16A16_SFLOAT,
-    (1, np.dtype(np.float32), False): Format.R32_SFLOAT,
-    (2, np.dtype(np.float32), False): Format.R32G32_SFLOAT,
-    (3, np.dtype(np.float32), False): Format.R32G32B32_SFLOAT,
-    (4, np.dtype(np.float32), False): Format.R32G32B32A32_SFLOAT,
-    (1, np.dtype(np.float64), False): Format.R64_SFLOAT,
-    (2, np.dtype(np.float64), False): Format.R64G64_SFLOAT,
-    (3, np.dtype(np.float64), False): Format.R64G64B64_SFLOAT,
-    (4, np.dtype(np.float64), False): Format.R64G64B64A64_SFLOAT,
-}
-
-
 class CpuBuffer:
     def __init__(self, buffer: Buffer):
         self.buf = buffer
@@ -455,6 +394,7 @@ class GpuImageProperty(GpuResourceProperty):
                  upload_method: UploadMethod,
                  thread_pool: ThreadPool,
                  property: Property[np.ndarray],
+                 format: Format,
                  usage_flags: ImageUsageFlags,
                  layout: ImageLayout,
                  memory_usage: MemoryUsage,
@@ -470,14 +410,9 @@ class GpuImageProperty(GpuResourceProperty):
         self.channels = property.channels()
         self.height = property.height()
         self.width = property.width()
-
-        try:
-            self.format = _channels_dtype_int_to_format_table[(self.channels, np.dtype(property.dtype), False)]
-        except KeyError:
-            raise ValueError(f"Combination of channels ({self.channels}) and dtype ({property.dtype}) does not match any supported image format")
+        self.format = format
 
         self.pitch, self.rows = get_image_pitch_and_rows(self.width, self.height, self.format)
-
         super().__init__(ctx, num_frames_in_flight, upload_method, thread_pool, property, pipeline_stage_flags, name)
 
     def _create_uploaded_resource(self, frame: np.ndarray, name: str):
