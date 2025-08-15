@@ -8,7 +8,7 @@ import numpy as np
 
 from pyxpg import Format
 
-viewer = Viewer("primitives", 1280, 720, config=Config(
+viewer = Viewer("primitives", config=Config(
     playback=PlaybackConfig(
         enabled=True,
         playing=True,

@@ -7,7 +7,7 @@ from ambra.utils.gpu import Format
 from pyglm.glm import vec3
 import numpy as np
 
-viewer = Viewer("primitives", 1900, 1000, config=Config(
+viewer = Viewer("primitives", config=Config(
     # vsync = False,
     # preferred_frames_in_flight=3,
     playback=PlaybackConfig(

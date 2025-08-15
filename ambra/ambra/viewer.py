@@ -29,7 +29,7 @@ def _log(level: LogLevel, c: str, s: str):
     logging.log(_log_levels[level], f"[{c}] {s}")
 
 class Viewer:
-    def __init__(self, title: str = "ambra", width: Optional[int] = None, height: Optional[int] = None, config: Optional[Config] = None):
+    def __init__(self, title: str = "ambra", config: Optional[Config] = None):
         config = config if config is not None else Config()
 
         self.log_capture = LogCapture(_log)
@@ -52,7 +52,7 @@ class Viewer:
         )
 
         # Window
-        self.window = Window(self.ctx, title, width, height)
+        self.window = Window(self.ctx, title, config.window_width, config.window_height, x=config.window_x, y=config.window_y)
         self.window.set_callbacks(
             draw=self.on_draw,
             key_event=self.on_key,

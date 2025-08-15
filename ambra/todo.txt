@@ -147,4 +147,4 @@ Features:
 Config:
 [x] Improve camera initialization (especially ortho for 2D case)
 [x] vulkan validation options
-[ ] add a way to set viewer position in addition to size? (expose glfw for this)
+[x] add a way to set viewer position in addition to size? (expose glfw for this)

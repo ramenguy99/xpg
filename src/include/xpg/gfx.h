@@ -45,6 +45,8 @@ namespace gfx {
 //     [x] writes
 //     [ ] bindless descriptors management helpers
 
+const uint32_t ANY_POSITION = GLFW_ANY_POSITION;
+
 struct Window;
 
 enum class Result
@@ -465,7 +467,7 @@ struct Window
     ObjArray<StaleSwapchain> stale_swapchains;
 };
 
-Result CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 width, u32 height);
+Result CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 width, u32 height, u32 x = ANY_POSITION, u32 y = ANY_POSITION);
 void DestroyWindowWithSwapchain(Window* w, const Context& vk);
 void CloseWindow(const Window& window);
 

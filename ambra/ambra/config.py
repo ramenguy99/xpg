@@ -58,6 +58,10 @@ class Config:
     log_level: LogLevel = LogLevel.DISABLED
 
     # Window
+    window_x: Optional[int] = None
+    window_y: Optional[int] = None
+    window_width: int = 1280
+    window_height: int = 720
     wait_events: bool = False
     vsync: bool = True
     preferred_frames_in_flight: int = 2

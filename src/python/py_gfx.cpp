@@ -1556,10 +1556,10 @@ struct Window: nb::intrusive_base {
         return new FrameManager(this, std::move(additional_wait_semaphores), std::move(additional_wait_timeline_values), std::move(additional_signal_semaphores), std::move(additional_signal_timeline_values));
     }
 
-    Window(nb::ref<Context> ctx, const std::string& name, u32 width, u32 height)
+    Window(nb::ref<Context> ctx, const std::string& name, u32 width, u32 height, std::optional<u32> x, std::optional<u32> y)
         : ctx(ctx)
     {
-        if (CreateWindowWithSwapchain(&window, ctx->vk, name.c_str(), width, height) != gfx::Result::SUCCESS) {
+        if (CreateWindowWithSwapchain(&window, ctx->vk, name.c_str(), width, height, x.value_or(xpg::gfx::ANY_POSITION), y.value_or(xpg::gfx::ANY_POSITION)) != gfx::Result::SUCCESS) {
             throw std::runtime_error("Failed to create window");
         }
     }
@@ -2790,7 +2790,7 @@ void gfx_create_bindings(nb::module_& m)
     nb::class_<Window>(m, "Window",
         nb::type_slots(window_tp_slots),
         nb::intrusive_ptr<Window>([](Window *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<nb::ref<Context>, const::std::string&, u32, u32>(), nb::arg("ctx"), nb::arg("title"), nb::arg("width"), nb::arg("height"))
+        .def(nb::init<nb::ref<Context>, const::std::string&, u32, u32, std::optional<u32>, std::optional<u32>>(), nb::arg("ctx"), nb::arg("title"), nb::arg("width"), nb::arg("height"), nb::arg("x") = nb::none(), nb::arg("y") = nb::none())
         .def("should_close", &Window::should_close)
         .def("set_callbacks", &Window::set_callbacks,
             nb::arg("draw"),

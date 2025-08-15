@@ -15,7 +15,11 @@ logging.basicConfig(level=logging.NOTSET,
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-viewer = Viewer("primitives", 1900, 1000, config=Config(
+viewer = Viewer("primitives",  config=Config(
+    window_x=10,
+    window_y=50,
+    window_width=1900,
+    window_height=1000,
     # vsync = False,
     preferred_frames_in_flight=3,
     playback=PlaybackConfig(

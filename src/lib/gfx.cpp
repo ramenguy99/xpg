@@ -1552,10 +1552,12 @@ VkResult PresentFrame(Window* w, Frame* frame, const Context& vk) {
 }
 
 Result
-CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 width, u32 height)
+CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 width, u32 height, u32 x, u32 y)
 {
     // Create window.
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_POSITION_X, x);
+    glfwWindowHint(GLFW_POSITION_Y, y);
     GLFWwindow* window = glfwCreateWindow(width, height, name, NULL, NULL);
     if (!window) {
         logging::error("gfx/window", "Failed to create GLFW window");
