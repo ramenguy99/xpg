@@ -1,9 +1,10 @@
 from typing import Optional, Union
 from queue import Queue, Empty
 from time import perf_counter_ns
+import logging
 
 from pyglm.glm import ivec2, vec2
-from pyxpg import Context, Window, Gui, DeviceFeatures, Key, MouseButton, Action, Modifiers, SwapchainStatus, process_events, imgui
+from pyxpg import Context, Window, Gui, DeviceFeatures, Key, MouseButton, Action, Modifiers, SwapchainStatus, process_events, imgui, LogCapture, LogLevel, set_log_level
 import numpy as np
 
 from .config import Config, CameraType
@@ -16,9 +17,23 @@ from .camera import PerspectiveCamera, OrthographicCamera, CameraDepth
 from .transform3d import RigidTransform3D
 from .viewport import Viewport, Playback, Rect
 
+_log_levels = {
+    LogLevel.TRACE: logging.DEBUG,
+    LogLevel.DEBUG: logging.DEBUG,
+    LogLevel.INFO: logging.INFO,
+    LogLevel.WARN: logging.WARN,
+    LogLevel.ERROR: logging.ERROR,
+}
+
+def _log(level: LogLevel, c: str, s: str):
+    logging.log(_log_levels[level], f"[{c}] {s}")
+
 class Viewer:
     def __init__(self, title: str = "ambra", width: Optional[int] = None, height: Optional[int] = None, config: Optional[Config] = None):
         config = config if config is not None else Config()
+
+        self.log_capture = LogCapture(_log)
+        set_log_level(LogLevel(config.log_level.value))
 
         # Viewer
         self.running = False

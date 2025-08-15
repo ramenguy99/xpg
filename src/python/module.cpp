@@ -104,6 +104,8 @@ NB_MODULE(_pyxpg, m) {
         .value("DISABLED", xpg::logging::LogLevel::Disabled)
     ;
 
+    m.def("set_log_level", xpg::logging::set_log_level, nb::arg("level"));
+
     gfx_create_bindings(m);
 
     nb::module_ mod_imgui = m.def_submodule("imgui", "ImGui bindings for XPG");

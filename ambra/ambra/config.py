@@ -2,6 +2,14 @@ from dataclasses import dataclass, field
 from typing import Tuple, Optional
 from enum import Enum
 
+class LogLevel(Enum):
+    TRACE = 0
+    DEBUG = 1
+    INFO = 2
+    WARN = 3
+    ERROR = 4
+    DISABLED = 5
+
 @dataclass
 class ServerConfig:
     enabled: bool = False
@@ -46,6 +54,9 @@ class GuiConfig:
 
 @dataclass
 class Config:
+    # Logging
+    log_level: LogLevel = LogLevel.DISABLED
+
     # Window
     wait_events: bool = False
     vsync: bool = True

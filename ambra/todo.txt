@@ -142,7 +142,7 @@ Features:
     [ ] cache
     [ ] export to spirv during package
     [ ] hot reloading
-[ ] Hook pyxpg logging into python logging
+[x] Hook pyxpg logging into python logging
 
 Config:
 [ ] vulkan validation options
