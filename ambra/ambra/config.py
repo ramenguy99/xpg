@@ -62,6 +62,13 @@ class Config:
     vsync: bool = True
     preferred_frames_in_flight: int = 2
 
+    # Vulkan
+    force_physical_device_index: Optional[int] = None
+    prefer_discrete_gpu: bool = True
+    enable_validation_layer: bool = True
+    enable_synchronization_validation: bool = True
+    enable_gpu_based_validation: bool = False
+
     # Scene
     camera_type: CameraType = CameraType.PERSPECTIVE
 

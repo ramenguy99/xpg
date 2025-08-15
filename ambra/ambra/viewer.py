@@ -42,10 +42,13 @@ class Viewer:
         self.ctx = Context(
             required_features=DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.DYNAMIC_RENDERING,
             optional_features=DeviceFeatures.RAY_QUERY | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.WIDE_LINES | DeviceFeatures.TIMELINE_SEMAPHORES,
-            enable_validation_layer=True,
-            enable_synchronization_validation=True,
             preferred_frames_in_flight=config.preferred_frames_in_flight,
             vsync=config.vsync,
+            force_physical_device_index=0xFFFFFFFF if config.force_physical_device_index is None else config.force_physical_device_index,
+            prefer_discrete_gpu=config.prefer_discrete_gpu,
+            enable_validation_layer=config.enable_validation_layer,
+            enable_synchronization_validation=config.enable_synchronization_validation,
+            enable_gpu_based_validation=config.enable_gpu_based_validation,
         )
 
         # Window
