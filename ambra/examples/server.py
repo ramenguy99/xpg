@@ -27,7 +27,7 @@ class Viewer(ambra.Viewer):
             f"Message received from: {client.name} ({client.address}, {client.port}): {raw_message.id} {raw_message.format} {MessageId.USER.value}"
         )
         if raw_message.id == MessageId.USER.value:
-            print(f"Decoding..")
+            print("Decoding..")
             self.messages.append(raw_message.data.decode("utf-8"))
         else:
             super().on_raw_message(client, raw_message)

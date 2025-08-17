@@ -1,6 +1,6 @@
 from threading import Event, Thread
 from queue import Queue
-from typing import Callable, TypeVar, Generic, Tuple, List, Dict, Any, Optional
+from typing import Callable, TypeVar, Generic, Tuple, Dict, Any, Optional
 import atexit
 
 O = TypeVar("O")

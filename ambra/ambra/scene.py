@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 
 from enum import Enum, auto
-from typing import Optional, TypeVar, Generic, Union, List, Tuple, Callable
+from typing import Optional, Union, List, Tuple, Callable
 import numpy as np
-import sys
 from pyglm.glm import vec3, vec2, quat, mat3, mat4
 from .transform2d import Transform2D
 from .transform3d import Transform3D
@@ -396,18 +395,18 @@ class Object2D(Object):
             translation if translation is not None else np.array([0, 0]),
             np.float32,
             (2,),
-            name=f"translation",
+            name="translation",
         )
         self.rotation = self.add_property(
             rotation if rotation is not None else np.array([0]),
             np.float32,
-            name=f"rotation",
+            name="rotation",
         )
         self.scale = self.add_property(
             scale if scale is not None else np.array([1, 1]),
             np.float32,
             (2,),
-            name=f"scale",
+            name="scale",
         )
         self.update_transform(None)
 
@@ -437,19 +436,19 @@ class Object3D(Object):
             translation if translation is not None else np.array([0, 0, 0]),
             np.float32,
             (3,),
-            name=f"translation",
+            name="translation",
         )
         self.rotation = self.add_property(
             rotation if rotation is not None else np.array([1, 0, 0, 0]),
             np.float32,
             (4,),
-            name=f"rotation",
+            name="rotation",
         )
         self.scale = self.add_property(
             scale if scale is not None else np.array([1, 1, 1]),
             np.float32,
             (3,),
-            name=f"scale",
+            name="scale",
         )
 
         self.update_transform(None)

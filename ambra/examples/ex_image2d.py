@@ -6,8 +6,6 @@ from ambra.utils.gpu import Format
 
 import numpy as np
 
-from pyxpg import Format
-
 viewer = Viewer(
     "primitives",
     config=Config(

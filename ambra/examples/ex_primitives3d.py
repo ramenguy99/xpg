@@ -1,6 +1,5 @@
 from ambra.scene import (
     FrameAnimation,
-    DataProperty,
     as_property,
     AnimationBoundary,
 )

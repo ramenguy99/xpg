@@ -10,7 +10,6 @@ from ambra.config import (
 )
 from ambra.utils.gpu import Format
 
-from pyglm.glm import vec3
 import numpy as np
 
 viewer = Viewer(

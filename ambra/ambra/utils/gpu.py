@@ -13,7 +13,6 @@ from pyxpg import (
     DescriptorSetEntry,
     DescriptorType,
     get_format_info,
-    FormatInfo,
 )
 from typing import Optional, List, Union, Tuple
 from dataclasses import dataclass

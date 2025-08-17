@@ -4,7 +4,6 @@ from platformdirs import user_cache_path
 import hashlib
 import pickle
 import shutil
-from typing import Tuple
 
 from pyxpg import slang
 

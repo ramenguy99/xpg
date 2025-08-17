@@ -5,7 +5,6 @@ from typing import (
     Dict,
     Tuple,
     TypeVar,
-    Collection,
     Generic,
     Sequence,
 )

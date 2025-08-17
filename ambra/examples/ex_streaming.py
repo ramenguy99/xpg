@@ -1,7 +1,4 @@
 from ambra.scene import (
-    FrameAnimation,
-    AnimationBoundary,
-    StreamingProperty,
     UploadSettings,
     as_property,
 )

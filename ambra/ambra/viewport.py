@@ -1,12 +1,10 @@
 import math
 from dataclasses import dataclass
-from enum import Enum
-from pyglm.glm import ivec2, vec3
+from pyglm.glm import ivec2
 
 from .scene import Scene
 from .camera import Camera
 from .config import PlaybackConfig
-from .transform3d import RigidTransform3D
 
 
 class Playback:

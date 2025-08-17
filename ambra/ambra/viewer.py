@@ -339,36 +339,36 @@ class Viewer:
                     if pool is None:
                         return
                     imgui.separator_text(name)
-                    imgui.text(f"Map")
+                    imgui.text("Map")
                     imgui.indent()
                     for lu_k, lu_v in pool.lookup.items():
                         imgui.text(f"{lu_k:03d} {lu_v}")
                     imgui.unindent()
 
-                    imgui.text(f"LRU")
+                    imgui.text("LRU")
                     imgui.indent()
                     i = 0
                     for lru_k, lru_v in pool.lru.items():
                         imgui.text(f"{lru_k} {lru_v}")
                         i += 1
                     for _ in range(i, count):
-                        imgui.text(f"<EMPTY>")
+                        imgui.text("<EMPTY>")
                     imgui.unindent()
 
-                    imgui.text(f"In Flight")
+                    imgui.text("In Flight")
                     imgui.indent()
                     for if_v in pool.in_flight:
                         imgui.text(f"{if_v}")
                     imgui.unindent()
 
-                    imgui.text(f"Prefetching")
+                    imgui.text("Prefetching")
                     imgui.indent()
                     i = 0
                     for pre_k, pre_v in pool.prefetch_store.items():
                         imgui.text(f"{pre_k} {pre_v}")
                         i += 1
                     for _ in range(i, pool.max_prefetch):
-                        imgui.text(f"<EMPTY>")
+                        imgui.text("<EMPTY>")
                     imgui.unindent()
 
                 drawpool(
