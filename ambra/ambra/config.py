@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Tuple, Optional
 from enum import Enum
 
+
 class LogLevel(Enum):
     TRACE = 0
     DEBUG = 1
@@ -10,6 +11,7 @@ class LogLevel(Enum):
     ERROR = 4
     DISABLED = 5
 
+
 @dataclass
 class ServerConfig:
     enabled: bool = False
@@ -17,11 +19,13 @@ class ServerConfig:
     port: int = 9168
     max_connections: int = 4
 
+
 class UploadMethod(Enum):
     GFX = 0
     TRANSFER_QUEUE = 1
     CPU_BUF = 2
     BAR = 3
+
 
 @dataclass
 class RendererConfig:
@@ -32,6 +36,7 @@ class RendererConfig:
     force_buffer_upload_method: Optional[UploadMethod] = None
     force_image_upload_method: Optional[UploadMethod] = None
 
+
 @dataclass
 class PlaybackConfig:
     enabled: bool = True
@@ -41,9 +46,19 @@ class PlaybackConfig:
     initial_frame: Optional[int] = None
     max_time: Optional[float] = None
 
+
 class CameraType(Enum):
     PERSPECTIVE = 0
     ORTHOGRAPHIC = 1
+
+
+class CameraControlMode(Enum):
+    NONE = 0
+    ORBIT = 1
+    TRACKBALL = 2
+    FPV = 3
+    PAN = 4
+
 
 @dataclass
 class GuiConfig:
@@ -51,6 +66,7 @@ class GuiConfig:
     playback: bool = False
     inspector: bool = False
     renderer: bool = False
+
 
 @dataclass
 class Config:
@@ -75,6 +91,7 @@ class Config:
 
     # Scene
     camera_type: CameraType = CameraType.PERSPECTIVE
+    camera_control_mode: CameraControlMode = CameraControlMode.ORBIT
 
     camera_position: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     camera_target: Tuple[float, float, float] = (0.0, 0.0, 1.0)
@@ -89,6 +106,7 @@ class Config:
     # Stats
     stats_frame_time_count: int = 32
 
+    # Sub-configs
     renderer: RendererConfig = field(default_factory=RendererConfig)
     playback: PlaybackConfig = field(default_factory=PlaybackConfig)
     server: ServerConfig = field(default_factory=ServerConfig)

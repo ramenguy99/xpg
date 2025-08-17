@@ -10,8 +10,14 @@ build-backend = "setuptools.build_meta"
 name = "ambra"
 version = "0.0.1"
 dependencies = [
-    "numpy>=1",
+    "numpy>=1.20",      # Required for numpy.typing
     "pyglm>=2,<3",
     "watchfiles>=1,<2",
 #   "pyxpg==0.0.3",
 ]
+
+[tool.mypy]
+# Python <=3.9 has issues with numpy shapes
+# Python <=3.11 has issues with assignment from memoryview to Buffer
+python_version = "3.12"
+strict = true

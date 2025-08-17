@@ -7,13 +7,13 @@ class RigidTransform3D:
     rotation: quat
 
     @classmethod
-    def look_at(cls, position: vec3, target: vec3, up: vec3):
+    def look_at(cls, position: vec3, target: vec3, up: vec3) -> "RigidTransform3D":
         d = normalize(target - position)
         rot = inverse(quatLookAtRH(d, up))
 
         return cls(
-            translation = rot * -position,
-            rotation = rot,
+            translation = rot * -position, # type: ignore
+            rotation = rot, # type: ignore
         )
 
     def as_mat4(self) -> mat4:
@@ -24,7 +24,7 @@ class RigidTransform3D:
         return m
 
     @classmethod
-    def identity(cls):
+    def identity(cls) -> "RigidTransform3D":
         return cls(
             translation=vec3(0),
             rotation=quat(1, 0, 0, 0),
@@ -37,7 +37,7 @@ class Transform3D:
     scale: vec3
 
     @classmethod
-    def identity(cls):
+    def identity(cls) -> "Transform3D":
         return cls(
             translation=vec3(0),
             rotation=quat(1, 0, 0, 0),

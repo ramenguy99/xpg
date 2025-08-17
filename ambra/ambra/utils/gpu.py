@@ -1,8 +1,10 @@
 from pyxpg import Context, Buffer, BufferUsageFlags, Image, ImageLayout, ImageUsageFlags, Format, AllocType, CommandBuffer, MemoryUsage, DescriptorSet, DescriptorSetEntry, DescriptorType, get_format_info, FormatInfo
-from typing import Optional, List
+from typing import Optional, List, Union, Tuple
 from dataclasses import dataclass
 
 from .ring_buffer import RingBuffer
+
+import numpy as np
 
 class UploadableBuffer(Buffer):
     def __init__(self, ctx: Context, size: int, usage_flags: BufferUsageFlags, name: Optional[str] = None):
@@ -17,12 +19,12 @@ class UploadableBuffer(Buffer):
             self._staging = Buffer(ctx, size, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST_WRITE_COMBINING, name)
 
     @classmethod
-    def from_data(cls, ctx: Context, data: memoryview, usage_flags: BufferUsageFlags, name: Optional[str] = None):
+    def from_data(cls, ctx: Context, data: memoryview, usage_flags: BufferUsageFlags, name: Optional[str] = None) -> "UploadableBuffer": # type: ignore
         buf = cls(ctx, len(data), usage_flags, name=name)
         buf.upload_sync(data)
         return buf
 
-    def upload(self, cmd: CommandBuffer, usage: MemoryUsage, data: memoryview, offset: int = 0):
+    def upload(self, cmd: CommandBuffer, usage: MemoryUsage, data: Union[memoryview, np.ndarray], offset: int = 0) -> None:
         if self.is_mapped:
             # print(self.data.c_contiguous, data.c_contiguous )
             # print(self.data.shape       , data.shape        )
@@ -35,14 +37,14 @@ class UploadableBuffer(Buffer):
             if usage != MemoryUsage.NONE:
                 cmd.memory_barrier(MemoryUsage.TRANSFER_DST, usage)
 
-    def upload_sync(self, data: memoryview, offset: int = 0):
+    def upload_sync(self, data: Union[memoryview, np.ndarray], offset: int = 0) -> None:
         with self.ctx.sync_commands() as cmd:
             self.upload(cmd, MemoryUsage.NONE, data, offset)
 
-def div_ceil(n, d):
+def div_ceil(n: int, d: int) -> int:
     return (n + d - 1) // d
 
-def get_image_pitch_and_rows(width: int, height: int, format: Format):
+def get_image_pitch_and_rows(width: int, height: int, format: Format) -> Tuple[int, int]:
     info = get_format_info(format)
     if info.size_of_block_in_bytes > 0:
         pitch = div_ceil(width, info.block_side_in_pixels) * info.size_of_block_in_bytes
@@ -60,14 +62,14 @@ class UploadableImage(Image):
         super().__init__(ctx, width, height, format, usage_flags | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE_DEDICATED if dedicated_alloc else AllocType.DEVICE)
 
     @classmethod
-    def from_data(cls, ctx: Context, data: memoryview, layout: ImageLayout, width: int, height: int, format: Format, usage_flags: ImageUsageFlags, dedicated_alloc: bool = False, name: Optional[str] = None):
+    def from_data(cls, ctx: Context, data: memoryview, layout: ImageLayout, width: int, height: int, format: Format, usage_flags: ImageUsageFlags, dedicated_alloc: bool = False, name: Optional[str] = None) -> "UploadableImage": # type: ignore
         buf = cls(ctx, width, height, format, usage_flags, dedicated_alloc, name)
         buf.upload_sync(data, layout)
         return buf
 
-    def upload(self, cmd: CommandBuffer, layout: ImageLayout, src_usage: MemoryUsage, dst_usage: MemoryUsage, data: memoryview):
+    def upload(self, cmd: CommandBuffer, layout: ImageLayout, src_usage: MemoryUsage, dst_usage: MemoryUsage, data: Union[memoryview, np.ndarray]) -> None:
         # Upload to staging buffer
-        if len(data.shape) != 1:
+        if data.shape is None or len(data.shape) != 1:
             raise ValueError(f"data must be flat array. Got shape: {data.shape}")
         if len(data) != self._staging.size:
             raise ValueError(f"data must be of size {self._staging.size}. Got size: {len(data)}")
@@ -75,11 +77,11 @@ class UploadableImage(Image):
         cmd.image_barrier(self, ImageLayout.TRANSFER_DST_OPTIMAL, src_usage, MemoryUsage.TRANSFER_DST)
         cmd.copy_buffer_to_image(self._staging, self)
         if layout == ImageLayout.UNDEFINED or layout == ImageLayout.TRANSFER_DST_OPTIMAL:
-            cmd.memory_barrier(self, MemoryUsage.TRANSFER_DST, dst_usage)
+            cmd.memory_barrier(MemoryUsage.TRANSFER_DST, dst_usage)
         else:
             cmd.image_barrier(self, layout, MemoryUsage.TRANSFER_DST, dst_usage)
 
-    def upload_sync(self, data: memoryview, layout: ImageLayout):
+    def upload_sync(self, data: Union[memoryview, np.ndarray], layout: ImageLayout) -> None:
         with self.ctx.sync_commands() as cmd:
             self.upload(cmd, layout, MemoryUsage.NONE, MemoryUsage.NONE, data)
 
@@ -90,7 +92,7 @@ class UniformBlockAllocation:
     offset: int
     size: int
 
-    def upload(self, cmd: CommandBuffer, data: memoryview):
+    def upload(self, cmd: CommandBuffer, data: Union[memoryview, np.ndarray]) -> None:
         if self.size < len(data):
             raise IndexError("data is larger than buffer allocation")
         self.buffer.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM, data, self.offset)
@@ -98,7 +100,7 @@ class UniformBlockAllocation:
 @dataclass
 class UniformBlock:
     descriptor_sets: RingBuffer[DescriptorSet]
-    buffers: RingBuffer[Buffer]
+    buffers: RingBuffer[UploadableBuffer]
     size: int
     used: int = 0
 
@@ -108,7 +110,7 @@ class UniformBlock:
         self.used += (size + alignment - 1) & ~(alignment - 1)
         return alloc
 
-    def advance(self):
+    def advance(self) -> None:
         self.descriptor_sets.advance()
         self.buffers.advance()
         self.used = 0
@@ -128,7 +130,7 @@ class UniformPool:
         # Grab a descriptor set for pipeline layouts
         self.descriptor_set = self.blocks[0].descriptor_sets.get_current()
 
-    def _alloc_block(self, min_size: int):
+    def _alloc_block(self, min_size: int) -> UniformBlock:
         size = max(min_size, self.block_size)
         block_idx = len(self.blocks)
         block = UniformBlock(
@@ -167,7 +169,7 @@ class UniformPool:
         # No space left, alloc a new block
         return self._alloc_block(size).alloc(size, self.alignment)
 
-    def advance(self):
+    def advance(self) -> None:
         for b in self.blocks:
             b.advance()
 

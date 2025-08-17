@@ -2776,14 +2776,14 @@ void gfx_create_bindings(nb::module_& m)
                 nb::raise("Device does not support compute queue. Check Context.has_compute_queue to know if it's supported.");
             }
             return new CommandsManager(frame.compute_command_buffer.value(), frame.window->ctx->vk.compute_queue, std::move(wait_semaphores), std::move(wait_timeline_values), std::move(signal_semaphores), std::move(signal_timeline_values), VK_NULL_HANDLE, false);
-        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("wait_timeline_values") = nb::list(), nb::arg("signal_semaphores") = nb::list(), nb::arg("wait_timeline_values") = nb::list())
+        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("wait_timeline_values") = nb::list(), nb::arg("signal_semaphores") = nb::list(), nb::arg("signal_timeline_values") = nb::list())
         .def_ro("compute_command_buffer", &Frame::compute_command_buffer)
         .def("transfer_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<u64> wait_timeline_values, std::vector<nb::ref<Semaphore>> signal_semaphores, std::vector<u64> signal_timeline_values) {
             if (!frame.transfer_command_buffer.has_value()) {
                 nb::raise("Device does not support transfer queue. Check Context.has_transfer_queue to know if it's supported.");
             }
             return new CommandsManager(frame.transfer_command_buffer.value(), frame.window->ctx->vk.copy_queue, std::move(wait_semaphores), std::move(wait_timeline_values), std::move(signal_semaphores), std::move(signal_timeline_values), VK_NULL_HANDLE, false);
-        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("wait_timeline_values") = nb::list(), nb::arg("signal_semaphores") = nb::list(), nb::arg("wait_timeline_values") = nb::list())
+        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("wait_timeline_values") = nb::list(), nb::arg("signal_semaphores") = nb::list(), nb::arg("signal_timeline_values") = nb::list())
         .def_ro("transfer_command_buffer", &Frame::transfer_command_buffer)
     ;
 
@@ -2986,6 +2986,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::enum_<gfx::Modifiers>(m, "Modifiers", nb::is_flag(), nb::is_arithmetic())
+        .value("NONE", gfx::Modifiers::None)
         .value("SHIFT", gfx::Modifiers::Shift)
         .value("CTRL", gfx::Modifiers::Ctrl)
         .value("ALT", gfx::Modifiers::Alt)

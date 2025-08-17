@@ -52,7 +52,7 @@ class Renderer:
             "view":            (np.dtype((np.float32, (4, 4))), 0),
             "projection":      (np.dtype((np.float32, (4, 4))), 64),
             "camera_position": (np.dtype((np.float32, (3,))), 128),
-        })
+        }) # type: ignore
 
         self.constants = np.zeros((1,), constants_dtype)
         self.uniform_buffers = RingBuffer([UploadableBuffer(ctx, 64 * 2 + 12, BufferUsageFlags.UNIFORM) for _ in range(window.num_frames)])
@@ -61,10 +61,6 @@ class Renderer:
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         self.uniform_pool = UniformPool(ctx, window.num_frames, config.uniform_pool_block_size)
-        self.depth_buffer: Image = None
-        self.depth_format = Format.D32_SFLOAT
-        self.depth_clear_value = 1.0
-        self.depth_compare_op = CompareOp.LESS
 
         if config.thread_pool_workers is not None:
             self.num_workers = config.thread_pool_workers
@@ -75,7 +71,7 @@ class Renderer:
             else:
                 self.num_workers = DEFAULT_WORKERS
 
-        self.thread_pool = ThreadPool(self.num_workers)
+        self.thread_pool: ThreadPool[None] = ThreadPool(self.num_workers)
         self.total_frame_index = 0
 
         # Upload method for buffers
@@ -114,19 +110,24 @@ class Renderer:
 
         self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
 
+        # Will be populated in self.resize(), and will never be None after that
+        self.depth_buffer: Image = None # type: ignore
+        self.depth_format = Format.D32_SFLOAT
+        self.depth_clear_value = 1.0
+        self.depth_compare_op = CompareOp.LESS
         self.resize(window.fb_width, window.fb_height)
 
-    def resize(self, width: int, height: int):
+    def resize(self, width: int, height: int) -> None:
         if self.depth_buffer is not None:
             self.depth_buffer.destroy()
         self.depth_buffer = Image(self.ctx, width, height, self.depth_format, ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE_DEDICATED, name="depth")
 
-    def add_gpu_buffer_property(self, property: Property[np.ndarray], usage_flags: BufferUsageFlags, memory_usage: MemoryUsage, pipeline_stage_flags: PipelineStageFlags, name: str):
+    def add_gpu_buffer_property(self, property: Property, usage_flags: BufferUsageFlags, memory_usage: MemoryUsage, pipeline_stage_flags: PipelineStageFlags, name: str) -> GpuBufferProperty:
         prop = GpuBufferProperty(self.ctx, self.window.num_frames, self.buffer_upload_method, self.thread_pool, property, usage_flags, memory_usage, pipeline_stage_flags, name)
         self.gpu_properties.append(prop)
         return prop
 
-    def add_gpu_image_property(self, property: Property[np.ndarray], format: Format, usage_flags: ImageUsageFlags, layout: ImageLayout, memory_usage: MemoryUsage, pipeline_stage_flags: PipelineStageFlags, name: str):
+    def add_gpu_image_property(self, property: Property, format: Format, usage_flags: ImageUsageFlags, layout: ImageLayout, memory_usage: MemoryUsage, pipeline_stage_flags: PipelineStageFlags, name: str) -> GpuImageProperty:
         prop = GpuImageProperty(self.ctx, self.window.num_frames, self.image_upload_method, self.thread_pool, property, format, usage_flags, layout, memory_usage, pipeline_stage_flags, name)
         self.gpu_properties.append(prop)
         return prop
@@ -136,7 +137,7 @@ class Renderer:
         path = SHADERS_PATH.joinpath(name)
         return compile(path, entry)
 
-    def render(self, viewport: Viewport, gui: Gui):
+    def render(self, viewport: Viewport, gui: Gui) -> None:
         frame = self.window.begin_frame()
         with frame.command_buffer as cmd:
             viewport_rect = (viewport.rect.x, viewport.rect.y + viewport.rect.height, viewport.rect.width, viewport.rect.y - viewport.rect.height)

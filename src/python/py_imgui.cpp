@@ -44,10 +44,10 @@ void imgui_create_bindings(nb::module_& mod_imgui)
     ;
     nb::implicitly_convertible<nb::tuple, ImVec2>();
     nb::implicitly_convertible<nb::list, ImVec2>();
-    
+
     nb::class_<ImVec4>(mod_imgui, "Vec4")
         .def(nb::init<>())
-        .def(nb::init<float, float, float, float>(), nb::arg("x"), nb::arg("y"), nb::arg("w"), nb::arg("w"))
+        .def(nb::init<float, float, float, float>(), nb::arg("x"), nb::arg("y"), nb::arg("z"), nb::arg("w"))
         .def_rw("x", &ImVec4::x)
         .def_rw("y", &ImVec4::y)
         .def_rw("z", &ImVec4::z)
@@ -71,14 +71,14 @@ void imgui_create_bindings(nb::module_& mod_imgui)
     #include "generated_imgui.inc"
 
     drawlist_class.def("add_rect_batch",
-        [](DrawList& self, 
+        [](DrawList& self,
            nb::ndarray<float, nb::shape<-1, 2>> p_min,
            nb::ndarray<float, nb::shape<-1, 2>> p_max,
            nb::ndarray<uint32_t, nb::shape<-1>> col,
            nb::ndarray<float, nb::shape<-1>> rounding,
            nb::ndarray<float, nb::shape<-1>> thickness
         ) {
-            
+
             bool col_per_object = col.shape(0) != 1;
             bool rounding_per_object = rounding.shape(0) != 1;
             bool thickness_per_object = thickness.shape(0) != 1;
@@ -100,13 +100,13 @@ void imgui_create_bindings(nb::module_& mod_imgui)
     );
 
     drawlist_class.def("add_rect_filled_batch",
-        [](DrawList& self, 
+        [](DrawList& self,
            nb::ndarray<float, nb::shape<-1, 2>> p_min,
            nb::ndarray<float, nb::shape<-1, 2>> p_max,
            nb::ndarray<uint32_t, nb::shape<-1>> col,
            nb::ndarray<float, nb::shape<-1>> rounding
         ) {
-            
+
             bool col_per_object = col.shape(0) != 1;
             bool rounding_per_object = rounding.shape(0) != 1;
             for (size_t i = 0; i < p_min.shape(0); i++) {

@@ -7,7 +7,7 @@ class RigidTransform2D:
     rotation: float
 
     @classmethod
-    def identity(cls):
+    def identity(cls) -> "RigidTransform2D":
         return cls(
             translation=vec2(0),
             rotation=0,
@@ -20,7 +20,7 @@ class Transform2D:
     scale: vec2
 
     @classmethod
-    def identity(cls):
+    def identity(cls) -> "Transform2D":
         return cls(
             translation=vec2(0),
             rotation=0,

@@ -1,27 +1,34 @@
-from pyxpg import *
+from pyxpg import (
+    BufferUsageFlags, Shader, GraphicsPipeline, PipelineStage, Stage, MemoryUsage, VertexAttribute,
+    VertexBinding, VertexInputRate, Rasterization, InputAssembly, Format,
+    PrimitiveTopology, Attachment, DeviceFeatures, RenderingAttachment,
+    ImageUsageFlags, ImageLayout, Filter, Sampler, PipelineStageFlags,
+    SamplerAddressMode, DescriptorSet, DescriptorSetEntry, DescriptorType,
+    CullMode, FrontFace, Depth, DepthAttachment
+)
 from .scene import Property, Object3D
 from .renderer import Renderer, RendererFrame
 from .utils.gpu import RingBuffer
 
-from typing import Optional
+from typing import Optional, Union
 import numpy as np
 
 class Lines(Object3D):
     def __init__(self,
-                 lines: Property[np.ndarray],
-                 colors: Property[np.ndarray],
-                 line_width: Property[float] = 1.0,
+                 lines: Union[Property, np.ndarray],
+                 colors: Union[Property, np.ndarray],
+                 line_width: Union[Property, float] = 1.0,
                  is_strip = False,
                  name: Optional[str] = None,
-                 translation: Optional[Property[np.ndarray]] = None,
-                 rotation: Optional[Property[np.ndarray]] = None,
-                 scale: Optional[Property[np.ndarray]] = None
+                 translation: Optional[Property] = None,
+                 rotation: Optional[Property] = None,
+                 scale: Optional[Property] = None
                 ):
         super().__init__(name, translation, rotation, scale)
         self.is_strip = is_strip
-        self.lines: Property[np.ndarray] = self.add_property(lines, np.float32, (-1, 3), name="lines")
-        self.colors: Property[np.ndarray] = self.add_property(colors, np.uint32, (-1,), name="colors")
-        self.line_width: Property[float] = self.add_property(line_width, np.float32, name="line_width")
+        self.lines = self.add_property(lines, np.float32, (-1, 3), name="lines")
+        self.colors = self.add_property(colors, np.uint32, (-1,), name="colors")
+        self.line_width = self.add_property(line_width, np.float32, name="line_width")
 
     def create(self, r: Renderer):
         self.lines_buffer = r.add_gpu_buffer_property(self.lines, BufferUsageFlags.VERTEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-lines-3d")
@@ -29,7 +36,7 @@ class Lines(Object3D):
 
         constants_dtype = np.dtype ({
             "transform": (np.dtype((np.float32, (4, 4))), 0),
-        })
+        }) # type: ignore
         self.constants = np.zeros((1,), constants_dtype)
 
         vert = r.get_builtin_shader("3d/basic.slang", "vertex_main")
@@ -72,22 +79,22 @@ class Lines(Object3D):
             descriptor_sets = [ frame.descriptor_set, constants_alloc.descriptor_set ],
             dynamic_offsets = [ constants_alloc.offset ]
         )
-        frame.cmd.set_line_width(self.line_width.get_current() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0)
+        frame.cmd.set_line_width(self.line_width.get_current().item() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0)
 
         with frame.cmd.rendering(frame.rect, color_attachments=[ RenderingAttachment(frame.image) ]):
             frame.cmd.draw(self.lines.get_current().shape[0])
 
 class Image(Object3D):
     def __init__(self,
-                 image: Property[np.ndarray],
+                 image: Property,
                  format: Format,
                  name: Optional[str] = None,
-                 translation: Optional[Property[np.ndarray]] = None,
-                 rotation: Optional[Property[float]] = None,
-                 scale: Optional[Property[np.ndarray]] = None
+                 translation: Optional[Property] = None,
+                 rotation: Optional[Property] = None,
+                 scale: Optional[Property] = None
                 ):
         super().__init__(name, translation, rotation, scale)
-        self.image: Property[np.ndarray] = self.add_property(image, shape=(-1, -1, -1), name="image")
+        self.image = self.add_property(image, shape=(-1, -1, -1), name="image")
         self.format = format
 
     def create(self, r: Renderer):
@@ -96,7 +103,7 @@ class Image(Object3D):
 
         constants_dtype = np.dtype ({
             "transform": (np.dtype((np.float32, (4, 4))), 0),
-        })
+        }) # type: ignore
         self.constants = np.zeros((1,), constants_dtype)
         self.descriptor_sets = RingBuffer([
             DescriptorSet(r.ctx, [
@@ -144,21 +151,21 @@ class Image(Object3D):
 
 class Mesh(Object3D):
     def __init__(self,
-                 positions: Property[np.ndarray],
+                 positions: Property,
                 #  normals: Property[np.ndarray],
-                 indices: Optional[Property[np.ndarray]] = None,
+                 indices: Optional[Property] = None,
                  primitive_topology: PrimitiveTopology = PrimitiveTopology.TRIANGLE_LIST,
                  cull_mode: CullMode = CullMode.NONE,
                  front_face: FrontFace = FrontFace.COUNTER_CLOCKWISE,
                  name: Optional[str] = None,
-                 translation: Optional[Property[np.ndarray]] = None,
-                 rotation: Optional[Property[np.ndarray]] = None,
-                 scale: Optional[Property[np.ndarray]] = None
+                 translation: Optional[Property] = None,
+                 rotation: Optional[Property] = None,
+                 scale: Optional[Property] = None
                 ):
         super().__init__(name, translation, rotation, scale)
-        self.positions: Property[np.ndarray] = self.add_property(positions, np.float32, (-1, 3), name="positions")
-        # self.normals: Property[np.ndarray] = self.add_property(normals, np.float32, (-1, 3), name="normals")
-        self.indices: Optional[Property[np.ndarray]] = self.add_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
+        self.positions = self.add_property(positions, np.float32, (-1, 3), name="positions")
+        # self.normals: Property = self.add_property(normals, np.float32, (-1, 3), name="normals")
+        self.indices = self.add_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
         self.primitive_topology = primitive_topology
         self.cull_mode = cull_mode
         self.front_face = front_face
@@ -170,7 +177,7 @@ class Mesh(Object3D):
 
         constants_dtype = np.dtype ({
             "transform": (np.dtype((np.float32, (4, 4))), 0),
-        })
+        }) # type: ignore
         self.constants = np.zeros((1,), constants_dtype)
 
         vert = r.get_builtin_shader("3d/mesh.slang", "vertex_main")

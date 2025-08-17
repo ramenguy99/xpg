@@ -21,7 +21,7 @@ CACHE_VERSION_MINOR = 1
 CACHE_VERSION_PATCH = 1
 CACHE_VERSION = f"{CACHE_VERSION_MAJOR}.{CACHE_VERSION_MINOR}.{CACHE_VERSION_PATCH}"
 
-def clear_cache():
+def clear_cache() -> None:
     shutil.rmtree(CACHE_DIR, ignore_errors=True)
 
 def vulkan_version_to_minimum_supported_spirv_version(version: Tuple[int, int]) -> str:

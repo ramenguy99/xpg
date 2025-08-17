@@ -64,18 +64,18 @@ class DescriptorSetsReflection:
         #     print(f"{k}: {v} {to_descriptor_type(v.resource.binding_type)}")
 
 scalar_to_np = {
-    slang.ScalarKind.Bool: bool,
-    slang.ScalarKind.Int8: np.int8,
-    slang.ScalarKind.UInt8: np.uint8,
-    slang.ScalarKind.Int16: np.int16,
-    slang.ScalarKind.UInt16: np.uint16,
-    slang.ScalarKind.Int32: np.int32,
-    slang.ScalarKind.UInt32: np.uint32,
-    slang.ScalarKind.Int64: np.int64,
-    slang.ScalarKind.UInt64: np.uint64,
-    slang.ScalarKind.Float16: np.float16,
-    slang.ScalarKind.Float32: np.float32,
-    slang.ScalarKind.Float64: np.float64,
+    slang.ScalarKind.BOOL: bool,
+    slang.ScalarKind.INT8: np.int8,
+    slang.ScalarKind.UINT8: np.uint8,
+    slang.ScalarKind.INT16: np.int16,
+    slang.ScalarKind.UINT16: np.uint16,
+    slang.ScalarKind.INT32: np.int32,
+    slang.ScalarKind.UINT32: np.uint32,
+    slang.ScalarKind.INT64: np.int64,
+    slang.ScalarKind.UINT64: np.uint64,
+    slang.ScalarKind.FLOAT16: np.float16,
+    slang.ScalarKind.FLOAT32: np.float32,
+    slang.ScalarKind.FLOAT64: np.float64,
 }
 
 def to_dtype(typ: slang.Type) -> np.dtype:

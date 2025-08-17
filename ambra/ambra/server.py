@@ -2,7 +2,7 @@ import asyncio
 import atexit
 from dataclasses import dataclass
 import struct
-from typing import Callable, Union, Optional, TypeAlias, Dict, Tuple
+from typing import Callable, Union, Optional, Dict, Tuple
 from threading import Thread
 from enum import Enum
 
@@ -40,14 +40,14 @@ class Format(Enum):
 class RawMessage:
     id: int
     format: int
-    data: bytearray
+    data: bytes
 
 class Server:
     def __init__(self, on_raw_message_async: Callable[[Client, RawMessage], None], config: ServerConfig):
         self.connections: Dict[Tuple[str, int], asyncio.StreamWriter] = {}
 
-        def entry():
-            async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        def entry() -> None:
+            async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
                 try:
                     client_address = writer.get_extra_info("peername")
                     self.connections[client_address] = writer
@@ -85,7 +85,7 @@ class Server:
                 writer.close()
                 await writer.wait_closed()
 
-            async def main():
+            async def main() -> None:
                 server = await asyncio.start_server(handle, config.address, config.port)
 
                 async with server:
@@ -113,7 +113,7 @@ class Server:
             self.thread.start()
             atexit.register(self.shutdown)
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         if self.enabled and not self.stop.done():
             self.loop.call_soon_threadsafe(self.stop.set_result, None)
             self.thread.join()
@@ -124,23 +124,21 @@ class InputMessage:
     num: int
 
     @classmethod
-    def from_raw(cls, data: bytearray):
+    def from_raw(cls, data: bytes) -> "InputMessage":
         return InputMessage(0)
 
     @classmethod
-    def from_json(cls, obj: object):
+    def from_json(cls, obj: object) -> "InputMessage":
         return InputMessage(0)
 
 @dataclass
 class ObjectMessage:
-    name: str
-
     @classmethod
-    def from_raw(cls, data: bytearray):
+    def from_raw(cls, data: bytes) -> "ObjectMessage":
         return ObjectMessage()
 
     @classmethod
-    def from_json(cls, obj: object):
+    def from_json(cls, obj: object) -> "ObjectMessage":
         return ObjectMessage()
 
 Message = Union[
@@ -148,12 +146,12 @@ Message = Union[
     ObjectMessage,
 ]
 
-_binary_dispatch = {
+_binary_dispatch: Dict[int, Callable[[bytes], Message]] = {
     MessageId.INPUT.value: InputMessage.from_raw,
     MessageId.OBJECT.value: ObjectMessage.from_raw,
 }
 
-_json_dispatch = {
+_json_dispatch: Dict[int, Callable[[object], Message]] = {
     MessageId.INPUT.value: InputMessage.from_json,
     MessageId.OBJECT.value: ObjectMessage.from_json,
 }
@@ -162,7 +160,7 @@ def _parse_builtin_messages_binary(raw: RawMessage) -> Optional[Message]:
     fn = _binary_dispatch.get(raw.id)
     if not fn:
         return None
-    return fn(raw)
+    return fn(raw.data)
 
 def _parse_builtin_messages_json(raw: RawMessage) -> Optional[Message]:
     fn = _json_dispatch.get(raw.id)
@@ -172,7 +170,7 @@ def _parse_builtin_messages_json(raw: RawMessage) -> Optional[Message]:
     return fn(obj)
 
 def _parse_builtin_messages_pickle(raw: RawMessage) -> Optional[Message]:
-    return pickle.loads(raw.data)
+    return pickle.loads(raw.data) # type: ignore
 
 _dispatch = {
     Format.BINARY.value: _parse_builtin_messages_binary,

@@ -36,7 +36,7 @@ class OrthographicCamera(Camera):
     half_extents: vec2
 
     @classmethod
-    def look_at(cls, position: vec3, target: vec3, up: vec3, z_min: float, z_max: float, center: vec2, half_extents: vec2, ar: float):
+    def look_at(cls, position: vec3, target: vec3, up: vec3, z_min: float, z_max: float, center: vec2, half_extents: vec2, ar: float) -> "OrthographicCamera":
         return cls(
             camera_from_world = RigidTransform3D.look_at(position, target, up),
             depth = CameraDepth(z_min, z_max),
@@ -45,7 +45,7 @@ class OrthographicCamera(Camera):
             half_extents = half_extents,
         )
 
-    def projection(self):
+    def projection(self) -> mat4:
         half_extents = self.half_extents * vec2(self.ar, 1)
         top_left = self.center - half_extents
         bottom_right = self.center + half_extents
@@ -58,7 +58,7 @@ class PerspectiveCamera(Camera):
     """Vertical field of view in radians"""
 
     @classmethod
-    def look_at(cls, position: vec3, target: vec3, up: vec3, z_min: float, z_max: float, fov: float, ar: float):
+    def look_at(cls, position: vec3, target: vec3, up: vec3, z_min: float, z_max: float, fov: float, ar: float) -> "PerspectiveCamera":
         return cls(
             camera_from_world = RigidTransform3D.look_at(position, target, up),
             depth = CameraDepth(z_min, z_max),
@@ -66,32 +66,5 @@ class PerspectiveCamera(Camera):
             fov = fov,
         )
 
-    def projection(self):
+    def projection(self) -> mat4:
         return perspectiveRH_ZO(self.fov, self.ar, self.depth.z_min, self.depth.z_max)
-
-
-class CameraControl:
-    pass
-
-@dataclass
-class FpvControl(CameraControl):
-    up: vec3
-    linear_speed: float
-    horizontal_angular_speed: float
-    vertical_angular_speed: float
-
-
-@dataclass
-class OrbitControl(CameraControl):
-    up: vec3
-    linear_speed: float
-    horizontal_angular_speed: float
-    vertical_angular_speed: float
-    distance: float
-
-
-@dataclass
-class TrackballControl(CameraControl):
-    linear_speed: float
-    angular_speed: float
-    distance: float

@@ -257,6 +257,7 @@ enum class Action: u32 {
 };
 
 enum class Modifiers: u32 {
+    None = 0,
     Shift = GLFW_MOD_SHIFT,
     Ctrl = GLFW_MOD_CONTROL,
     Alt = GLFW_MOD_ALT,

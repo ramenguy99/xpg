@@ -60,18 +60,18 @@ class DescriptorSetsReflection:
                 self.descriptors[r.name] = r
 
 _scalar_to_np = {
-    slang.ScalarKind.Bool: bool,
-    slang.ScalarKind.Int8: np.int8,
-    slang.ScalarKind.UInt8: np.uint8,
-    slang.ScalarKind.Int16: np.int16,
-    slang.ScalarKind.UInt16: np.uint16,
-    slang.ScalarKind.Int32: np.int32,
-    slang.ScalarKind.UInt32: np.uint32,
-    slang.ScalarKind.Int64: np.int64,
-    slang.ScalarKind.UInt64: np.uint64,
-    slang.ScalarKind.Float16: np.float16,
-    slang.ScalarKind.Float32: np.float32,
-    slang.ScalarKind.Float64: np.float64,
+    slang.ScalarKind.BOOL:    np.dtype(bool),
+    slang.ScalarKind.INT8:    np.dtype(np.int8),
+    slang.ScalarKind.UINT8:   np.dtype(np.uint8),
+    slang.ScalarKind.INT16:   np.dtype(np.int16),
+    slang.ScalarKind.UINT16:  np.dtype(np.uint16),
+    slang.ScalarKind.INT32:   np.dtype(np.int32),
+    slang.ScalarKind.UINT32:  np.dtype(np.uint32),
+    slang.ScalarKind.INT64:   np.dtype(np.int64),
+    slang.ScalarKind.UINT64:  np.dtype(np.uint64),
+    slang.ScalarKind.FLOAT16: np.dtype(np.float16),
+    slang.ScalarKind.FLOAT32: np.dtype(np.float32),
+    slang.ScalarKind.FLOAT64: np.dtype(np.float64),
 }
 
 def to_dtype(typ: slang.Type) -> np.dtype:
@@ -87,7 +87,7 @@ def to_dtype(typ: slang.Type) -> np.dtype:
         d = {}
         for f in typ.fields:
             d[f.name] = (to_dtype(f.type), f.offset)
-        return np.dtype(d)
+        return np.dtype(d) # type: ignore
     else:
         raise TypeError(f"Unknown slang.Type: {type(typ)}")
 

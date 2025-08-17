@@ -15,7 +15,7 @@ viewer = Viewer("primitives", config=Config(
     camera_type=CameraType.ORTHOGRAPHIC,
     ortho_half_extents=(10, 10),
     renderer=RendererConfig(
-        force_upload_method=UploadMethod.GFX,
+        force_buffer_upload_method=UploadMethod.GFX,
     )
 ))
 

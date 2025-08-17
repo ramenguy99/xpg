@@ -1,4 +1,4 @@
-from typing import Callable, List, Optional, Dict, Tuple, TypeVar, Collection
+from typing import Callable, List, Optional, Dict, Tuple, TypeVar, Collection, Generic, Sequence
 from collections import OrderedDict
 from dataclasses import dataclass
 
@@ -6,37 +6,37 @@ class _RefCount:
     def __init__(self, initial_count: int = 0):
         self.count = initial_count
 
-    def inc(self):
+    def inc(self) -> None:
         self.count += 1
 
     def dec(self) -> bool:
         self.count -= 1
         return self.count == 0
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"RC({self.count})"
 
 K = TypeVar("K")
 O = TypeVar("O")
 
 @dataclass
-class _Entry:
+class _Entry(Generic[O]):
     obj: O
     refcount: _RefCount
     prefetching: bool
 
-class LRUPool:
+class LRUPool(Generic[K, O]):
     def __init__(self, objs: List[O], num_frames: int, max_prefetch: int = 0):
         self.lru: OrderedDict[O, Optional[K]] = OrderedDict()
         for b in objs:
             self.lru[b] = None
-        self.lookup: OrderedDict[K, _Entry] = OrderedDict()
-        self.in_flight: List[Optional[Tuple[K, _Entry]]] = [None] * num_frames
+        self.lookup: OrderedDict[K, _Entry[O]] = OrderedDict()
+        self.in_flight: List[Optional[Tuple[K, _Entry[O]]]] = [None] * num_frames
 
         self.max_prefetch: int = max_prefetch
         self.prefetch_store: Dict[O, K] = {}
 
-    def get(self, key: K, load: Callable[[K, O], None], ensure_fetched: Optional[Callable[[O], None]] = None) -> O:
+    def get(self, key: K, load: Callable[[K, O], None], ensure_fetched: Optional[Callable[[K, O], None]] = None) -> O:
         cached = self.lookup.get(key)
 
         # Check if already loaded
@@ -73,21 +73,21 @@ class LRUPool:
 
     def is_available(self, key: K) -> bool:
         cached = self.lookup.get(key)
-        return cached and not cached.prefetching
+        return cached is not None and not cached.prefetching
 
     def is_available_or_prefetching(self, key: K) -> bool:
         return key in self.lookup
 
-    def use_frame(self, frame_index: int, key: K):
+    def use_frame(self, frame_index: int, key: K) -> None:
         entry = self.lookup[key]
         entry.refcount.inc()
         self.in_flight[frame_index] = (key, entry)
 
-    def use_manual(self, key: K):
+    def use_manual(self, key: K) -> None:
         entry = self.lookup[key]
         entry.refcount.inc()
 
-    def release_manual(self, key: K):
+    def release_manual(self, key: K) -> None:
         entry = self.lookup[key]
 
         # Decrement refcount
@@ -95,7 +95,7 @@ class LRUPool:
             # If refcount is 0 add buffer back to LRU
             self.lru[entry.obj] = key
 
-    def release_frame(self, frame_index: int):
+    def release_frame(self, frame_index: int) -> None:
         if old := self.in_flight[frame_index]:
             key, entry = old
 
@@ -107,10 +107,10 @@ class LRUPool:
             # Mark nothing in flight yet for this frame.
             self.in_flight[frame_index] = None
 
-    def give_back(self, k: K, obj: O):
+    def give_back(self, k: K, obj: O) -> None:
         self.lru[obj] = k
 
-    def prefetch(self, useful_range: Collection, cleanup: Callable[[O], bool], submit_load: Callable[[K, O], None]):
+    def prefetch(self, useful_range: Sequence[K], cleanup: Callable[[K, O], bool], submit_load: Callable[[K, O], None]) -> None:
         if self.max_prefetch <= 0:
             return
 
@@ -160,7 +160,7 @@ class LRUPool:
             except KeyError:
                 pass
 
-    def clear(self):
+    def clear(self) -> None:
         self.lru.clear()
         self.lookup.clear()
         self.in_flight.clear()

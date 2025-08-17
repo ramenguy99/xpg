@@ -2,6 +2,11 @@
     -> wrap things that care in a separate module, make different default symbols base on config ?
     -> maybe math and camera utils should expose both, and viewer use config to pick
 
+Trivia:
+[x] add mypy
+[ ] isort / black for autoformatting
+[ ] run on CI once we have automated build / tests
+
 Viewer:
 - [ ] Primitives
     - [ ] 2D Points
@@ -129,6 +134,14 @@ Features:
             -> this means also porting some GUI, likey making some helpers, ideally also adding the profiler
     [x] unify GpuBufferProperty and GpuImageProperty
 [ ] Camera movement
+    [x] Define interface / config / keybindings
+    [ ] Initialize camera controls with up / distance from config
+    [ ] Implement getters for front, up, right vectors from camera
+    [ ] Drag start / end detection
+    [ ] Camera mode dependent rotate/pan
+    [ ] Scroll zoom (how to handle moving the target (or reducing the distance)?)
+    Extra:
+    [ ] 2D controls -> pan only and change zoom mode to modify ortho size?
 [ ] Viewport:
     [x] resize
     [ ] multiple viewports
@@ -138,6 +151,8 @@ Features:
     [x] Playback UI
     [x] Fps display for debug
     [ ] Port built-in profiler
+    [ ] Expose imgui.get_io for things like want_capture_mouse (or add helper for that)
+    [ ] Configurable keybindings
 [ ] Shaders
     [ ] cache
     [ ] export to spirv during package

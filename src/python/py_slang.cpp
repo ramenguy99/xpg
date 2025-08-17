@@ -125,13 +125,13 @@ struct Reflection_Resource: Reflection_Obj {
 struct Reflection_Field: Reflection_Obj {
     nb::str name;
     nb::ref<Reflection_Obj> type;
-    
+
     // If type is a constant
     u32 offset;
     // u32 size;
 
     // If type is a resource
-    u32 binding; 
+    u32 binding;
     u32 set;
     SlangImageFormat image_format;
 
@@ -615,19 +615,19 @@ void slang_create_bindings(nb::module_& mod_slang)
     mod_slang.def("compile_str", slang_compile_str, nb::arg("source"), nb::arg("entry") = "main", nb::arg("target") = "spirv_1_3", nb::arg("filename") = "");
 
     nb::enum_<slang::TypeReflection::ScalarType>(mod_slang, "ScalarKind")
-        .value("None", slang::TypeReflection::ScalarType::None)
-        .value("Void", slang::TypeReflection::ScalarType::Void)
-        .value("Bool", slang::TypeReflection::ScalarType::Bool)
-        .value("Int32", slang::TypeReflection::ScalarType::Int32)
-        .value("UInt32", slang::TypeReflection::ScalarType::UInt32)
-        .value("Int64", slang::TypeReflection::ScalarType::Int64)
-        .value("UInt64", slang::TypeReflection::ScalarType::UInt64)
-        .value("Float16", slang::TypeReflection::ScalarType::Float16)
-        .value("Float32", slang::TypeReflection::ScalarType::Float32)
-        .value("Float64", slang::TypeReflection::ScalarType::Float64)
-        .value("Int8", slang::TypeReflection::ScalarType::Int8)
-        .value("UInt8", slang::TypeReflection::ScalarType::UInt8)
-        .value("Int16", slang::TypeReflection::ScalarType::Int16)
-        .value("UInt16", slang::TypeReflection::ScalarType::UInt16)
+        .value("NONE", slang::TypeReflection::ScalarType::None)
+        .value("VOID", slang::TypeReflection::ScalarType::Void)
+        .value("BOOL", slang::TypeReflection::ScalarType::Bool)
+        .value("INT32", slang::TypeReflection::ScalarType::Int32)
+        .value("UINT32", slang::TypeReflection::ScalarType::UInt32)
+        .value("INT64", slang::TypeReflection::ScalarType::Int64)
+        .value("UINT64", slang::TypeReflection::ScalarType::UInt64)
+        .value("FLOAT16", slang::TypeReflection::ScalarType::Float16)
+        .value("FLOAT32", slang::TypeReflection::ScalarType::Float32)
+        .value("FLOAT64", slang::TypeReflection::ScalarType::Float64)
+        .value("INT8", slang::TypeReflection::ScalarType::Int8)
+        .value("UINT8", slang::TypeReflection::ScalarType::UInt8)
+        .value("INT16", slang::TypeReflection::ScalarType::Int16)
+        .value("UINT16", slang::TypeReflection::ScalarType::UInt16)
     ;
 }

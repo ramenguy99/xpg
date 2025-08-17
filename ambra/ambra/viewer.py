@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Optional, Union, Tuple, Any
 from queue import Queue, Empty
 from time import perf_counter_ns
 import logging
@@ -16,6 +16,7 @@ from .scene import Object, Scene
 from .camera import PerspectiveCamera, OrthographicCamera, CameraDepth
 from .transform3d import RigidTransform3D
 from .viewport import Viewport, Playback, Rect
+from .keybindings import KeyMap
 
 _log_levels = {
     LogLevel.TRACE: logging.DEBUG,
@@ -25,13 +26,17 @@ _log_levels = {
     LogLevel.ERROR: logging.ERROR,
 }
 
-def _log(level: LogLevel, c: str, s: str):
+def _log(level: LogLevel, c: str, s: str) -> None:
     logging.log(_log_levels[level], f"[{c}] {s}")
 
 class Viewer:
-    def __init__(self, title: str = "ambra", config: Optional[Config] = None):
+    def __init__(self, title: str = "ambra", config: Optional[Config] = None, key_map: Optional[KeyMap] = None):
         config = config if config is not None else Config()
 
+        # Key bindings
+        self.key_map = key_map if key_map is not None else KeyMap()
+
+        # Logging
         self.log_capture = LogCapture(_log)
         set_log_level(LogLevel(config.log_level.value))
 
@@ -74,6 +79,8 @@ class Viewer:
         self.renderer = Renderer(self.ctx, self.window, config.renderer)
 
         camera_from_world = RigidTransform3D.look_at(vec3(config.camera_position), vec3(config.camera_target), vec3(config.camera_up))
+
+        camera: Union[PerspectiveCamera, OrthographicCamera]
         if config.camera_type == CameraType.PERSPECTIVE:
             camera = PerspectiveCamera(camera_from_world, CameraDepth(config.z_min, config.z_max), self.window.fb_width / self.window.fb_height, config.perspective_vertical_fov)
         elif config.camera_type == CameraType.ORTHOGRAPHIC:
@@ -99,38 +106,40 @@ class Viewer:
 
         # Server
         self.server = Server(self.on_raw_message_async, config.server)
-        self.server_message_queue = Queue()
+        self.server_message_queue: Queue[Tuple[Client, RawMessage]] = Queue()
 
         # Config
         self.wait_events = config.wait_events
 
 
-    def on_key(self, key: Key, action: Action, modifiers: Modifiers):
+    def on_key(self, key: Key, action: Action, modifiers: Modifiers) -> None:
+        # Press
         if action == Action.PRESS:
-            if key == Key.SPACE:
+            if self.key_map.toggle_play_pause.is_active(key, modifiers):
                 self.playback.toggle_play_pause()
-            elif key == Key.ESCAPE:
+            if self.key_map.exit.is_active(key, modifiers):
                 self.running = False
+
+        # Press + repeat
         if action == Action.PRESS or action == Action.REPEAT:
-            if key == Key.PERIOD:
+            if self.key_map.next_frame.is_active(key, modifiers):
                 self.playback.set_frame(self.playback.current_frame + 1)
-            elif key == Key.COMMA:
+            if self.key_map.previous_frame.is_active(key, modifiers):
                 self.playback.set_frame(self.playback.current_frame - 1)
+
+    def on_mouse_button(self, position: ivec2, button: MouseButton, action: Action, modifiers: Modifiers) -> None:
         pass
 
-    def on_mouse_button(self, position: ivec2, button: MouseButton, action: Action, modifiers: Modifiers):
+    def on_mouse_move(self, position: ivec2) -> None:
         pass
 
-    def on_mouse_move(self, position: ivec2):
+    def on_scroll(self, position: ivec2, scroll: ivec2) -> None:
         pass
 
-    def on_scroll(self, position: ivec2, scroll: ivec2):
+    def on_resize(self, width: int, height: int) -> None:
         pass
 
-    def on_resize(self, width: int, height: int):
-        pass
-
-    def on_draw(self):
+    def on_draw(self) -> None:
         # Compute dt
         timestamp = perf_counter_ns()
         dt = (timestamp - self.last_frame_timestamp) * 1e-9
@@ -168,20 +177,20 @@ class Viewer:
 
         self.frame_time_index = (self.frame_time_index + 1) % self.frame_times.size
 
-    def on_raw_message_async(self, client: Client, raw_message: RawMessage):
+    def on_raw_message_async(self, client: Client, raw_message: RawMessage) -> None:
         self.server_message_queue.put((client, raw_message))
         self.window.post_empty_event()
 
-    def on_raw_message(self, client: Client, raw_message: RawMessage):
+    def on_raw_message(self, client: Client, raw_message: RawMessage) -> None:
         message = parse_builtin_messages(raw_message)
         if message is not None:
             self.on_message(client, message)
 
-    def on_message(self, client: Client, message: Message):
+    def on_message(self, client: Client, message: Message) -> None:
         pass
 
-    def gui_stats(self):
-        imgui.set_next_window_pos((10, 10))
+    def gui_stats(self) -> None:
+        imgui.set_next_window_pos(imgui.Vec2(10, 10))
         imgui.set_next_window_bg_alpha(0.3)
         if imgui.begin(
             "Stats",
@@ -204,7 +213,7 @@ class Viewer:
             imgui.text(f"Frame time (ms): {avg_dt * 1000.0:6.2f} ({last_dt * 1000.0:6.2f})")
         imgui.end()
 
-    def gui_playback(self):
+    def gui_playback(self) -> None:
         if imgui.begin("Playback")[0]:
             _, self.playback.playing = imgui.checkbox("Playing", self.playback.playing)
             imgui.text(f"Time (s): {self.playback.current_time:7.3f} / {self.playback.max_time: 7.3f}")
@@ -213,9 +222,9 @@ class Viewer:
                 self.playback.set_frame(frame)
         imgui.end()
 
-    def gui_inspector(self):
+    def gui_inspector(self) -> None:
         if imgui.begin("Inspector")[0]:
-            def pre(o: Object):
+            def pre(o: Object) -> bool:
                 flags = imgui.TreeNodeFlags.OPEN_ON_ARROW | imgui.TreeNodeFlags.FRAME_PADDING
                 if o.gui_expanded:
                     flags |= imgui.TreeNodeFlags.DEFAULT_OPEN
@@ -225,7 +234,7 @@ class Viewer:
                     flags |= imgui.TreeNodeFlags.LEAF
                     flags |= imgui.TreeNodeFlags.BULLET
 
-                imgui.push_style_var_im_vec2(imgui.StyleVar.FRAME_PADDING, (0, 1))
+                imgui.push_style_var_im_vec2(imgui.StyleVar.FRAME_PADDING, imgui.Vec2(0, 1))
                 o.gui_expanded = imgui.tree_node_ex(f"{o.name}##tree_node_{o.uid}", flags)
                 imgui.pop_style_var()
 
@@ -237,7 +246,7 @@ class Viewer:
 
                 return o.gui_expanded
 
-            def post(o: Object):
+            def post(o: Object) -> None:
                 imgui.tree_pop()
 
             self.viewport.scene.visit_objects_pre_post(pre, post)
@@ -249,7 +258,7 @@ class Viewer:
 
         imgui.end()
 
-    def gui_renderer(self):
+    def gui_renderer(self) -> None:
         if imgui.begin("Renderer")[0]:
             imgui.text("GPU properties:")
             imgui.indent(5)
@@ -264,21 +273,21 @@ class Viewer:
 
             imgui.separator()
             if self.gui_selected_gpu_property is not None:
-                def drawpool(name: str, pool: LRUPool, count: int):
+                def drawpool(name: str, pool: Optional[LRUPool[int, Any]], count: int) -> None:
                     if pool is None:
                         return
                     imgui.separator_text(name)
                     imgui.text(f"Map")
                     imgui.indent()
-                    for k, v in pool.lookup.items():
-                        imgui.text(f"{k:03d} {v}")
+                    for lu_k, lu_v in pool.lookup.items():
+                        imgui.text(f"{lu_k:03d} {lu_v}")
                     imgui.unindent()
 
                     imgui.text(f"LRU")
                     imgui.indent()
                     i = 0
-                    for k, v in pool.lru.items():
-                        imgui.text(f"{k} {v}")
+                    for lru_k, lru_v in pool.lru.items():
+                        imgui.text(f"{lru_k} {lru_v}")
                         i += 1
                     for _ in range(i, count):
                         imgui.text(f"<EMPTY>")
@@ -286,15 +295,15 @@ class Viewer:
 
                     imgui.text(f"In Flight")
                     imgui.indent()
-                    for v in pool.in_flight:
-                        imgui.text(f"{v}")
+                    for if_v in pool.in_flight:
+                        imgui.text(f"{if_v}")
                     imgui.unindent()
 
                     imgui.text(f"Prefetching")
                     imgui.indent()
                     i = 0
-                    for k, v in pool.prefetch_store.items():
-                        imgui.text(f"{k} {v}")
+                    for pre_k, pre_v in pool.prefetch_store.items():
+                        imgui.text(f"{pre_k} {pre_v}")
                         i += 1
                     for _ in range(i, pool.max_prefetch):
                         imgui.text(f"<EMPTY>")
@@ -322,11 +331,11 @@ class Viewer:
                         p_max[:, 1] = start.y + 20
                         dl.add_rect_batch(p_min, p_max, np.array((0xFFFFFFFF,), np.uint32), np.array((0.0,), np.float32), np.array((1.0,), np.float32))
 
-                        for k, v in self.gui_selected_gpu_property.cpu_pool.lookup.items():
-                            cursor = imgui.Vec2(start.x + 5 * k, start.y)
-                            color = 0xFF00FF00 if k >= current_frame else 0xFF0000FF
-                            color = color if not v.prefetching else 0xFF00FFFF
-                            dl.add_rect_filled((cursor.x + 1, cursor.y + 1), (cursor.x + 5, cursor.y + 19), color)
+                        for c_k, c_v in self.gui_selected_gpu_property.cpu_pool.lookup.items():
+                            cursor = imgui.Vec2(start.x + 5 * c_k, start.y)
+                            color = 0xFF00FF00 if c_k >= current_frame else 0xFF0000FF
+                            color = color if not c_v.prefetching else 0xFF00FFFF
+                            dl.add_rect_filled(imgui.Vec2(cursor.x + 1, cursor.y + 1), imgui.Vec2(cursor.x + 5, cursor.y + 19), color)
                         imgui.spacing()
                         imgui.spacing()
                         imgui.spacing()
@@ -338,11 +347,11 @@ class Viewer:
                         p_max[:, 1] = start.y + 42
                         dl.add_rect_batch(p_min, p_max, np.array((0xFFFFFFFF,), np.uint32), np.array((0.0,), np.float32), np.array((1.0,), np.float32))
 
-                        for k, v in self.gui_selected_gpu_property.gpu_pool.lookup.items():
-                            cursor = imgui.Vec2(start.x + 5 * k, start.y)
-                            color = 0xFF00FF00 if k >= current_frame else 0xFF0000FF
-                            color = color if not v.prefetching else 0xFF00FFFF
-                            dl.add_rect_filled((cursor.x + 1, cursor.y +23), (cursor.x + 5, cursor.y + 41), color)
+                        for g_k, g_v in self.gui_selected_gpu_property.gpu_pool.lookup.items():
+                            cursor = imgui.Vec2(start.x + 5 * g_k, start.y)
+                            color = 0xFF00FF00 if g_k >= current_frame else 0xFF0000FF
+                            color = color if not g_v.prefetching else 0xFF00FFFF
+                            dl.add_rect_filled(imgui.Vec2(cursor.x + 1, cursor.y +23), imgui.Vec2(cursor.x + 5, cursor.y + 41), color)
                         imgui.spacing()
                         imgui.spacing()
                         imgui.spacing()
@@ -350,7 +359,7 @@ class Viewer:
                         imgui.spacing()
         imgui.end()
 
-    def on_gui(self):
+    def on_gui(self) -> None:
         imgui.dock_space_over_viewport(flags=imgui.DockNodeFlags.PASSTHRU_CENTRAL_NODE)
 
         if self.gui_show_stats:
@@ -362,7 +371,7 @@ class Viewer:
         if self.gui_show_renderer:
             self.gui_renderer()
 
-    def run(self):
+    def run(self) -> None:
         self.last_frame_timestamp = perf_counter_ns()
 
         self.running = True

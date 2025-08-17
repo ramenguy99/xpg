@@ -1,6 +1,7 @@
 .vs
 .vscode
 __pycache__
+.mypy_cache
 .cache
 
 *.svg
