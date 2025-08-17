@@ -3,6 +3,7 @@ from typing import TypeVar, List, Generic, Iterator
 
 R = TypeVar("R")
 
+
 class RingBuffer(Generic[R]):
     def __init__(self, items: List[R]):
         self.items = items

@@ -5,8 +5,10 @@ import atexit
 
 O = TypeVar("O")
 
+
 class PromiseException(RuntimeError):
     pass
+
 
 class Promise(Generic[O]):
     def __init__(self) -> None:
@@ -35,10 +37,22 @@ class Promise(Generic[O]):
         else:
             return self.obj
 
+
 class ThreadPool(Generic[O]):
     def __init__(self, num_workers: int):
-        self.queue: Queue[Optional[Tuple[Promise[O], Callable[[Tuple[Any, ...], Dict[str, Any]], O], Tuple[Any, ...], Dict[str, Any]]]] = Queue()
-        self.workers = [Thread(None, self.__entry, f"ThreadPool.worker{i}", (i,), daemon=True) for i in range(num_workers) ]
+        self.queue: Queue[
+            Optional[
+                Tuple[
+                    Promise[O],
+                    Callable[[Tuple[Any, ...], Dict[str, Any]], O],
+                    Tuple[Any, ...],
+                    Dict[str, Any],
+                ]
+            ]
+        ] = Queue()
+        self.workers = [
+            Thread(None, self.__entry, f"ThreadPool.worker{i}", (i,), daemon=True) for i in range(num_workers)
+        ]
         for w in self.workers:
             w.start()
         atexit.register(self.stop)
@@ -52,12 +66,18 @@ class ThreadPool(Generic[O]):
             promise, func, args, kwargs = elem
             try:
                 # HACK: having this special thread_index variable here is a bit messy and mypy complains about it, maybe we can do something cleaner
-                obj = func(*args, **kwargs, thread_index=thread_index) # type: ignore
+                obj = func(*args, **kwargs, thread_index=thread_index)  # type: ignore
                 promise.set(obj)
             except Exception as e:
                 promise.set_exception(e)
 
-    def submit(self, promise: Promise[O], func: Callable[[Tuple[Any, ...], Dict[str, Any]], O], *args: Any, **kwargs: Any) -> None:
+    def submit(
+        self,
+        promise: Promise[O],
+        func: Callable[[Tuple[Any, ...], Dict[str, Any]], O],
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         promise.event.clear()
         self.queue.put((promise, func, args, kwargs))
 

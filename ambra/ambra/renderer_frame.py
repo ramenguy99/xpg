@@ -1,7 +1,14 @@
-from pyxpg import CommandBuffer, Image, DescriptorSet, PipelineStageFlags, TimelineSemaphore
+from pyxpg import (
+    CommandBuffer,
+    Image,
+    DescriptorSet,
+    PipelineStageFlags,
+    TimelineSemaphore,
+)
 
 from typing import Tuple, Optional, List
 from dataclasses import dataclass
+
 
 @dataclass
 class SemaphoreInfo:
@@ -9,6 +16,7 @@ class SemaphoreInfo:
     wait_stage: PipelineStageFlags
     wait_value: int
     signal_value: int
+
 
 @dataclass
 class RendererFrame:
@@ -25,4 +33,3 @@ class RendererFrame:
 
     copy_cmd: Optional[CommandBuffer]
     copy_semaphores: List[SemaphoreInfo]
-

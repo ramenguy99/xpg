@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pyglm.glm import vec2, mat3, rotate
 
+
 @dataclass
 class RigidTransform2D:
     translation: vec2
@@ -12,6 +13,7 @@ class RigidTransform2D:
             translation=vec2(0),
             rotation=0,
         )
+
 
 @dataclass
 class Transform2D:

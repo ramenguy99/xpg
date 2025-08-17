@@ -10,6 +10,7 @@ from .transform3d import RigidTransform3D
 #      -> setter issues where we want to know if parameters change, but do not want to recompute after every change
 #         -> V / P can be recomputed once per frame, seems reasonable
 
+
 @dataclass
 class CameraDepth:
     z_min: float
@@ -36,20 +37,37 @@ class OrthographicCamera(Camera):
     half_extents: vec2
 
     @classmethod
-    def look_at(cls, position: vec3, target: vec3, up: vec3, z_min: float, z_max: float, center: vec2, half_extents: vec2, ar: float) -> "OrthographicCamera":
+    def look_at(
+        cls,
+        position: vec3,
+        target: vec3,
+        up: vec3,
+        z_min: float,
+        z_max: float,
+        center: vec2,
+        half_extents: vec2,
+        ar: float,
+    ) -> "OrthographicCamera":
         return cls(
-            camera_from_world = RigidTransform3D.look_at(position, target, up),
-            depth = CameraDepth(z_min, z_max),
-            ar = ar,
-            center = center,
-            half_extents = half_extents,
+            camera_from_world=RigidTransform3D.look_at(position, target, up),
+            depth=CameraDepth(z_min, z_max),
+            ar=ar,
+            center=center,
+            half_extents=half_extents,
         )
 
     def projection(self) -> mat4:
         half_extents = self.half_extents * vec2(self.ar, 1)
         top_left = self.center - half_extents
         bottom_right = self.center + half_extents
-        return orthoRH_ZO(top_left.x, bottom_right.x, bottom_right.y, top_left.y, self.depth.z_min, self.depth.z_max)
+        return orthoRH_ZO(
+            top_left.x,
+            bottom_right.x,
+            bottom_right.y,
+            top_left.y,
+            self.depth.z_min,
+            self.depth.z_max,
+        )
 
 
 @dataclass
@@ -58,12 +76,21 @@ class PerspectiveCamera(Camera):
     """Vertical field of view in radians"""
 
     @classmethod
-    def look_at(cls, position: vec3, target: vec3, up: vec3, z_min: float, z_max: float, fov: float, ar: float) -> "PerspectiveCamera":
+    def look_at(
+        cls,
+        position: vec3,
+        target: vec3,
+        up: vec3,
+        z_min: float,
+        z_max: float,
+        fov: float,
+        ar: float,
+    ) -> "PerspectiveCamera":
         return cls(
-            camera_from_world = RigidTransform3D.look_at(position, target, up),
-            depth = CameraDepth(z_min, z_max),
-            ar = ar,
-            fov = fov,
+            camera_from_world=RigidTransform3D.look_at(position, target, up),
+            depth=CameraDepth(z_min, z_max),
+            ar=ar,
+            fov=fov,
         )
 
     def projection(self) -> mat4:

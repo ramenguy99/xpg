@@ -21,10 +21,14 @@ CACHE_VERSION_MINOR = 1
 CACHE_VERSION_PATCH = 1
 CACHE_VERSION = f"{CACHE_VERSION_MAJOR}.{CACHE_VERSION_MINOR}.{CACHE_VERSION_PATCH}"
 
+
 def clear_cache() -> None:
     shutil.rmtree(CACHE_DIR, ignore_errors=True)
 
-def vulkan_version_to_minimum_supported_spirv_version(version: Tuple[int, int]) -> str:
+
+def vulkan_version_to_minimum_supported_spirv_version(
+    version: Tuple[int, int],
+) -> str:
     if version[0] == 0:
         raise ValueError("Unsupported Vulkan version < 1")
     if version[0] == 1:
@@ -37,6 +41,7 @@ def vulkan_version_to_minimum_supported_spirv_version(version: Tuple[int, int]) 
         elif version[1] == 3 or version[1] == 4:
             return "spirv_1_6"
     return "spirv_1_6"
+
 
 def compile(file: Path, entry: str = "main", target: str = "spirv_1_3") -> slang.Shader:
     name = f"{hashlib.sha256(file.read_bytes()).digest().hex()}_{entry}_{target}_{CACHE_VERSION}.shdr"
@@ -52,7 +57,7 @@ def compile(file: Path, entry: str = "main", target: str = "spirv_1_3") -> slang
             # Check if any of the dependent files changed from when the shader
             # was serialized.
             assert len(prog.dependencies) == len(old_hashes)
-            new_hashes = [ hashlib.sha256(Path(d).read_bytes()).digest().hex() for d in sorted(prog.dependencies) ]
+            new_hashes = [hashlib.sha256(Path(d).read_bytes()).digest().hex() for d in sorted(prog.dependencies)]
             if new_hashes == old_hashes:
                 print(f"Cache hit: {file}")
                 return prog
@@ -63,7 +68,7 @@ def compile(file: Path, entry: str = "main", target: str = "spirv_1_3") -> slang
     # Create prog
     print(f"Shader cache miss: {file}")
     prog = slang.compile(str(file), entry, target)
-    hashes = [ hashlib.sha256(Path(d).read_bytes()).digest().hex() for d in sorted(prog.dependencies) ]
+    hashes = [hashlib.sha256(Path(d).read_bytes()).digest().hex() for d in sorted(prog.dependencies)]
 
     # Populate cache
     CACHE_DIR.mkdir(parents=True, exist_ok=True)

@@ -3,7 +3,20 @@ from dataclasses import dataclass
 from enum import Enum, auto
 import numpy as np
 
-from pyxpg import BufferUsageFlags, ImageUsageFlags, Format, ImageLayout, TimelineSemaphore, PipelineStageFlags, AllocType, Context, Buffer, MemoryUsage, CommandBuffer, Image
+from pyxpg import (
+    BufferUsageFlags,
+    ImageUsageFlags,
+    Format,
+    ImageLayout,
+    TimelineSemaphore,
+    PipelineStageFlags,
+    AllocType,
+    Context,
+    Buffer,
+    MemoryUsage,
+    CommandBuffer,
+    Image,
+)
 
 from .threadpool import Promise, ThreadPool
 from ..scene import Property, view_bytes
@@ -35,6 +48,7 @@ class GpuResourceState(Enum):
 
 R = TypeVar("R", bound=Union[Buffer, Image])
 
+
 class GpuResource(Generic[R]):
     def __init__(self, resource: R, semaphore: Optional[TimelineSemaphore]):
         self.resource = resource
@@ -44,7 +58,12 @@ class GpuResource(Generic[R]):
 
     def use(self, stage: PipelineStageFlags) -> SemaphoreInfo:
         assert self.semaphore is not None
-        info = SemaphoreInfo(self.semaphore, stage, self.semaphore_value, self.semaphore_value + 1)
+        info = SemaphoreInfo(
+            self.semaphore,
+            stage,
+            self.semaphore_value,
+            self.semaphore_value + 1,
+        )
         self.semaphore_value += 1
         return info
 
@@ -64,14 +83,16 @@ class PrefetchState:
 
 
 class GpuResourceProperty(Generic[R]):
-    def __init__(self,
-                 ctx: Context,
-                 num_frames_in_flight: int,
-                 upload_method: UploadMethod,
-                 thread_pool: ThreadPool[None],
-                 property: Property,
-                 pipeline_stage_flags: PipelineStageFlags,
-                 name: str):
+    def __init__(
+        self,
+        ctx: Context,
+        num_frames_in_flight: int,
+        upload_method: UploadMethod,
+        thread_pool: ThreadPool[None],
+        property: Property,
+        pipeline_stage_flags: PipelineStageFlags,
+        name: str,
+    ):
         self.ctx = ctx
         self.upload_method = upload_method
         self.thread_pool = thread_pool
@@ -99,12 +120,16 @@ class GpuResourceProperty(Generic[R]):
                 self.resources.append(res)
         else:
             cpu_prefetch_count = self.property.upload.cpu_prefetch_count
-            gpu_prefetch_count = self.property.upload.gpu_prefetch_count if upload_method == UploadMethod.TRANSFER_QUEUE else 0
+            gpu_prefetch_count = (
+                self.property.upload.gpu_prefetch_count if upload_method == UploadMethod.TRANSFER_QUEUE else 0
+            )
 
             cpu_buffers_count = num_frames_in_flight + cpu_prefetch_count + gpu_prefetch_count
             gpu_resources_count = num_frames_in_flight + gpu_prefetch_count
 
-            self.cpu_buffers = [CpuBuffer(self._create_cpu_buffer(f"cpubuf-{name}-{i}")) for i in range(cpu_buffers_count)]
+            self.cpu_buffers = [
+                CpuBuffer(self._create_cpu_buffer(f"cpubuf-{name}-{i}")) for i in range(cpu_buffers_count)
+            ]
             self.cpu_pool = LRUPool(self.cpu_buffers, num_frames_in_flight, cpu_prefetch_count)
 
             if upload_method != UploadMethod.CPU_BUF:
@@ -115,14 +140,23 @@ class GpuResourceProperty(Generic[R]):
                     else:
                         semaphore = None
                     self.gpu_resources.append(GpuResource(res, semaphore))
-                self.gpu_pool = LRUPool(self.gpu_resources, num_frames_in_flight, gpu_prefetch_count)
+                self.gpu_pool = LRUPool(
+                    self.gpu_resources,
+                    num_frames_in_flight,
+                    gpu_prefetch_count,
+                )
 
             if upload_method == UploadMethod.TRANSFER_QUEUE:
                 self.prefetch_states = [
                     PrefetchState(
-                        commands=CommandBuffer(ctx, queue_family_index=ctx.transfer_queue_family_index, name=f"gpu-prefetch-commands-{name}-{i}"),
+                        commands=CommandBuffer(
+                            ctx,
+                            queue_family_index=ctx.transfer_queue_family_index,
+                            name=f"gpu-prefetch-commands-{name}-{i}",
+                        ),
                         prefetch_done_value=0,
-                    ) for i in range(gpu_prefetch_count)
+                    )
+                    for i in range(gpu_prefetch_count)
                 ]
 
     def _load_async(self, i: int, buf: CpuBuffer, thread_index: int) -> None:
@@ -137,13 +171,15 @@ class GpuResourceProperty(Generic[R]):
 
             def cpu_load(k: int, buf: CpuBuffer) -> None:
                 if self.property.upload.async_load:
-                    self.thread_pool.submit(buf.promise, self._load_async, k, buf) # type: ignore
+                    self.thread_pool.submit(buf.promise, self._load_async, k, buf)  # type: ignore
                 else:
                     buf.used_size = self.property.get_frame_by_index_into(k, buf.buf.data)
 
             property_frame_index = self.property.current_frame_index
 
-            if self.upload_method == UploadMethod.CPU_BUF or (self.gpu_pool is not None and not self.gpu_pool.is_available_or_prefetching(property_frame_index)):
+            if self.upload_method == UploadMethod.CPU_BUF or (
+                self.gpu_pool is not None and not self.gpu_pool.is_available_or_prefetching(property_frame_index)
+            ):
                 self.current_cpu_buf = self.cpu_pool.get(property_frame_index, cpu_load)
 
     def upload(self, frame: RendererFrame) -> None:
@@ -175,9 +211,10 @@ class GpuResourceProperty(Generic[R]):
                 self.cpu_pool.use_frame(frame.index, property_frame_index)
 
                 # NOTE: only works for buffers for now, which is why we get a type error here.
-                self.current = cpu_buf.buf # type: ignore
+                self.current = cpu_buf.buf  # type: ignore
             else:
                 assert self.gpu_pool is not None
+
                 def gpu_load(k: int, gpu_res: GpuResource[R]) -> None:
                     assert self.cpu_pool is not None
                     assert self.current_cpu_buf is not None
@@ -191,7 +228,7 @@ class GpuResourceProperty(Generic[R]):
 
                     if self.upload_method == UploadMethod.BAR:
                         # NOTE: only works for buffers for now, which is why we get a type error here.
-                        gpu_res.resource.data[:cpu_buf.used_size] = cpu_buf.buf.data[:cpu_buf.used_size] # type: ignore
+                        gpu_res.resource.data[: cpu_buf.used_size] = cpu_buf.buf.data[: cpu_buf.used_size]  # type: ignore
 
                         # Buffer is immediately not in use anymore. Add back to the LRU.
                         # This moves back the buffer to the front of the LRU queue.
@@ -207,7 +244,11 @@ class GpuResourceProperty(Generic[R]):
                             gpu_res.state = GpuResourceState.RENDER
                         else:
                             assert self.upload_method == UploadMethod.TRANSFER_QUEUE
-                            assert gpu_res.state == GpuResourceState.EMPTY or gpu_res.state == GpuResourceState.RENDER or GpuResourceState.PREFETCH, gpu_res.state
+                            assert (
+                                gpu_res.state == GpuResourceState.EMPTY
+                                or gpu_res.state == GpuResourceState.RENDER
+                                or GpuResourceState.PREFETCH
+                            ), gpu_res.state
                             assert frame.copy_cmd is not None
 
                             frame.copy_semaphores.append(gpu_res.use(PipelineStageFlags.TRANSFER))
@@ -250,7 +291,7 @@ class GpuResourceProperty(Generic[R]):
                     return False
 
                 def cpu_prefetch(k: int, buf: CpuBuffer) -> None:
-                    self.thread_pool.submit(buf.promise, self._load_async, k, buf) # type: ignore
+                    self.thread_pool.submit(buf.promise, self._load_async, k, buf)  # type: ignore
 
                 # TODO: can likely improve prefetch logic, and should probably allow
                 # this to be hooked / configured somehow
@@ -297,14 +338,18 @@ class GpuResourceProperty(Generic[R]):
                     with state.commands:
                         self._cmd_upload(state.commands, cpu_next, gpu_res)
 
-                    assert gpu_res.state == GpuResourceState.EMPTY or GpuResourceState.PREFETCH or gpu_res.state == GpuResourceState.RENDER, gpu_res.state
+                    assert (
+                        gpu_res.state == GpuResourceState.EMPTY
+                        or GpuResourceState.PREFETCH
+                        or gpu_res.state == GpuResourceState.RENDER
+                    ), gpu_res.state
                     info = gpu_res.use(PipelineStageFlags.TRANSFER)
                     self.ctx.transfer_queue.submit(
                         state.commands,
-                        wait_semaphores = [ (info.sem, info.wait_stage) ],
-                        wait_timeline_values = [ info.wait_value ],
-                        signal_semaphores = [ info.sem ],
-                        signal_timeline_values = [ info.signal_value ],
+                        wait_semaphores=[(info.sem, info.wait_stage)],
+                        wait_timeline_values=[info.wait_value],
+                        signal_semaphores=[info.sem],
+                        signal_timeline_values=[info.signal_value],
                     )
                     state.prefetch_done_value = info.signal_value
                     gpu_res.state = GpuResourceState.PREFETCH
@@ -313,7 +358,11 @@ class GpuResourceProperty(Generic[R]):
                 prefetch_start = self.property.current_frame_index + 1
                 prefetch_end = prefetch_start + self.property.upload.gpu_prefetch_count
                 prefetch_range = [self.property.get_frame_index(0, i) for i in range(prefetch_start, prefetch_end)]
-                self.gpu_pool.prefetch([i for i in prefetch_range if self.cpu_pool.is_available(i)], gpu_prefetch_cleanup, gpu_prefetch)
+                self.gpu_pool.prefetch(
+                    [i for i in prefetch_range if self.cpu_pool.is_available(i)],
+                    gpu_prefetch_cleanup,
+                    gpu_prefetch,
+                )
 
     def get_current(self) -> R:
         assert self.current
@@ -360,16 +409,18 @@ class GpuResourceProperty(Generic[R]):
 
 
 class GpuBufferProperty(GpuResourceProperty[Buffer]):
-    def __init__(self,
-                 ctx: Context,
-                 num_frames_in_flight: int,
-                 upload_method: UploadMethod,
-                 thread_pool: ThreadPool[None],
-                 property: Property,
-                 usage_flags: BufferUsageFlags,
-                 memory_usage: MemoryUsage,
-                 pipeline_stage_flags: PipelineStageFlags,
-                 name: str):
+    def __init__(
+        self,
+        ctx: Context,
+        num_frames_in_flight: int,
+        upload_method: UploadMethod,
+        thread_pool: ThreadPool[None],
+        property: Property,
+        usage_flags: BufferUsageFlags,
+        memory_usage: MemoryUsage,
+        pipeline_stage_flags: PipelineStageFlags,
+        name: str,
+    ):
         self.usage_flags = usage_flags
         self.memory_usage = memory_usage
         self.size = property.max_size()
@@ -386,46 +437,86 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
             self.gpu_alloc_type = AllocType.DEVICE
             self.gpu_usage_flags = usage_flags | BufferUsageFlags.TRANSFER_DST
 
-        super().__init__(ctx, num_frames_in_flight, upload_method, thread_pool, property, pipeline_stage_flags, name)
+        super().__init__(
+            ctx,
+            num_frames_in_flight,
+            upload_method,
+            thread_pool,
+            property,
+            pipeline_stage_flags,
+            name,
+        )
 
     def _create_uploaded_resource(self, frame: np.ndarray, name: str) -> Buffer:
         return UploadableBuffer.from_data(self.ctx, view_bytes(frame), self.usage_flags, name=name)
 
     def _create_cpu_buffer(self, name: str) -> Buffer:
-        return Buffer(self.ctx, self.size, self.cpu_usage_flags, AllocType.HOST, name=name)
+        return Buffer(
+            self.ctx,
+            self.size,
+            self.cpu_usage_flags,
+            AllocType.HOST,
+            name=name,
+        )
 
     def _create_gpu_resource(self, name: str) -> Buffer:
-        return Buffer(self.ctx, self.size, self.gpu_usage_flags, self.gpu_alloc_type, name=name)
+        return Buffer(
+            self.ctx,
+            self.size,
+            self.gpu_usage_flags,
+            self.gpu_alloc_type,
+            name=name,
+        )
 
-    def _cmd_upload(self, cmd: CommandBuffer, cpu_buf: CpuBuffer, gpu_res: GpuResource[Buffer]) -> None:
+    def _cmd_upload(
+        self,
+        cmd: CommandBuffer,
+        cpu_buf: CpuBuffer,
+        gpu_res: GpuResource[Buffer],
+    ) -> None:
         cmd.copy_buffer_range(cpu_buf.buf, gpu_res.resource, cpu_buf.used_size)
 
     def _cmd_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Buffer]) -> None:
         cmd.memory_barrier(MemoryUsage.TRANSFER_DST, self.memory_usage)
 
     def _cmd_acquire_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Buffer]) -> None:
-        cmd.buffer_barrier(gpu_res.resource, MemoryUsage.NONE, self.memory_usage, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
+        cmd.buffer_barrier(
+            gpu_res.resource,
+            MemoryUsage.NONE,
+            self.memory_usage,
+            self.ctx.transfer_queue_family_index,
+            self.ctx.graphics_queue_family_index,
+        )
 
     def _cmd_release_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Buffer]) -> None:
-        cmd.buffer_barrier(gpu_res.resource, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
+        cmd.buffer_barrier(
+            gpu_res.resource,
+            MemoryUsage.TRANSFER_DST,
+            MemoryUsage.NONE,
+            self.ctx.transfer_queue_family_index,
+            self.ctx.graphics_queue_family_index,
+        )
 
 
 class GpuImageProperty(GpuResourceProperty[Image]):
-    def __init__(self,
-                 ctx: Context,
-                 num_frames_in_flight: int,
-                 upload_method: UploadMethod,
-                 thread_pool: ThreadPool[None],
-                 property: Property,
-                 format: Format,
-                 usage_flags: ImageUsageFlags,
-                 layout: ImageLayout,
-                 memory_usage: MemoryUsage,
-                 pipeline_stage_flags: PipelineStageFlags,
-                 name: str):
-
+    def __init__(
+        self,
+        ctx: Context,
+        num_frames_in_flight: int,
+        upload_method: UploadMethod,
+        thread_pool: ThreadPool[None],
+        property: Property,
+        format: Format,
+        usage_flags: ImageUsageFlags,
+        layout: ImageLayout,
+        memory_usage: MemoryUsage,
+        pipeline_stage_flags: PipelineStageFlags,
+        name: str,
+    ):
         if upload_method != UploadMethod.GFX and upload_method != UploadMethod.TRANSFER_QUEUE:
-            raise ValueError(f"GpuImageProperty supports only {UploadMethod.GFX} and {UploadMethod.TRANSFER_QUEUE} upload methods. Got {upload_method}.")
+            raise ValueError(
+                f"GpuImageProperty supports only {UploadMethod.GFX} and {UploadMethod.TRANSFER_QUEUE} upload methods. Got {upload_method}."
+            )
         self.usage_flags = usage_flags
         self.layout = layout
         self.memory_usage = memory_usage
@@ -436,26 +527,86 @@ class GpuImageProperty(GpuResourceProperty[Image]):
         self.format = format
 
         self.pitch, self.rows = get_image_pitch_and_rows(self.width, self.height, self.format)
-        super().__init__(ctx, num_frames_in_flight, upload_method, thread_pool, property, pipeline_stage_flags, name)
+        super().__init__(
+            ctx,
+            num_frames_in_flight,
+            upload_method,
+            thread_pool,
+            property,
+            pipeline_stage_flags,
+            name,
+        )
 
     def _create_uploaded_resource(self, frame: np.ndarray, name: str) -> Image:
-        return UploadableImage.from_data(self.ctx, view_bytes(frame), self.layout, self.width, self.height, self.format, self.usage_flags, name=name)
+        return UploadableImage.from_data(
+            self.ctx,
+            view_bytes(frame),
+            self.layout,
+            self.width,
+            self.height,
+            self.format,
+            self.usage_flags,
+            name=name,
+        )
 
     def _create_cpu_buffer(self, name: str) -> Buffer:
-        return Buffer(self.ctx, self.pitch * self.rows, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST, name=name)
+        return Buffer(
+            self.ctx,
+            self.pitch * self.rows,
+            BufferUsageFlags.TRANSFER_SRC,
+            AllocType.HOST,
+            name=name,
+        )
 
     def _create_gpu_resource(self, name: str) -> Image:
-        return Image(self.ctx, self.width, self.height, self.format, self.usage_flags | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE, name=name)
+        return Image(
+            self.ctx,
+            self.width,
+            self.height,
+            self.format,
+            self.usage_flags | ImageUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+            name=name,
+        )
 
-    def _cmd_upload(self, cmd: CommandBuffer, cpu_buf: CpuBuffer, gpu_res: GpuResource[Image]) -> None:
-        cmd.image_barrier(gpu_res.resource, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST)
+    def _cmd_upload(
+        self,
+        cmd: CommandBuffer,
+        cpu_buf: CpuBuffer,
+        gpu_res: GpuResource[Image],
+    ) -> None:
+        cmd.image_barrier(
+            gpu_res.resource,
+            ImageLayout.TRANSFER_DST_OPTIMAL,
+            MemoryUsage.NONE,
+            MemoryUsage.TRANSFER_DST,
+        )
         cmd.copy_buffer_to_image(cpu_buf.buf, gpu_res.resource)
 
     def _cmd_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Image]) -> None:
-        cmd.image_barrier(gpu_res.resource, self.layout, MemoryUsage.TRANSFER_DST, self.memory_usage)
+        cmd.image_barrier(
+            gpu_res.resource,
+            self.layout,
+            MemoryUsage.TRANSFER_DST,
+            self.memory_usage,
+        )
 
     def _cmd_acquire_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Image]) -> None:
-        cmd.image_barrier(gpu_res.resource, self.layout, MemoryUsage.NONE, self.memory_usage, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
+        cmd.image_barrier(
+            gpu_res.resource,
+            self.layout,
+            MemoryUsage.NONE,
+            self.memory_usage,
+            self.ctx.transfer_queue_family_index,
+            self.ctx.graphics_queue_family_index,
+        )
 
     def _cmd_release_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Image]) -> None:
-        cmd.image_barrier(gpu_res.resource, self.layout, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE, self.ctx.transfer_queue_family_index, self.ctx.graphics_queue_family_index)
+        cmd.image_barrier(
+            gpu_res.resource,
+            self.layout,
+            MemoryUsage.TRANSFER_DST,
+            MemoryUsage.NONE,
+            self.ctx.transfer_queue_family_index,
+            self.ctx.graphics_queue_family_index,
+        )

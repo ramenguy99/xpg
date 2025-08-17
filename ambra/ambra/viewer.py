@@ -4,7 +4,22 @@ from time import perf_counter_ns
 import logging
 
 from pyglm.glm import ivec2, vec2, vec3
-from pyxpg import Context, Window, Gui, DeviceFeatures, Key, MouseButton, Action, Modifiers, SwapchainStatus, process_events, imgui, LogCapture, LogLevel, set_log_level
+from pyxpg import (
+    Context,
+    Window,
+    Gui,
+    DeviceFeatures,
+    Key,
+    MouseButton,
+    Action,
+    Modifiers,
+    SwapchainStatus,
+    process_events,
+    imgui,
+    LogCapture,
+    LogLevel,
+    set_log_level,
+)
 import numpy as np
 
 from .config import Config, CameraType
@@ -26,11 +41,18 @@ _log_levels = {
     LogLevel.ERROR: logging.ERROR,
 }
 
+
 def _log(level: LogLevel, c: str, s: str) -> None:
     logging.log(_log_levels[level], f"[{c}] {s}")
 
+
 class Viewer:
-    def __init__(self, title: str = "ambra", config: Optional[Config] = None, key_map: Optional[KeyMap] = None):
+    def __init__(
+        self,
+        title: str = "ambra",
+        config: Optional[Config] = None,
+        key_map: Optional[KeyMap] = None,
+    ):
         config = config if config is not None else Config()
 
         # Key bindings
@@ -46,10 +68,15 @@ class Viewer:
         # Context
         self.ctx = Context(
             required_features=DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.DYNAMIC_RENDERING,
-            optional_features=DeviceFeatures.RAY_QUERY | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.WIDE_LINES | DeviceFeatures.TIMELINE_SEMAPHORES,
+            optional_features=DeviceFeatures.RAY_QUERY
+            | DeviceFeatures.HOST_QUERY_RESET
+            | DeviceFeatures.WIDE_LINES
+            | DeviceFeatures.TIMELINE_SEMAPHORES,
             preferred_frames_in_flight=config.preferred_frames_in_flight,
             vsync=config.vsync,
-            force_physical_device_index=0xFFFFFFFF if config.force_physical_device_index is None else config.force_physical_device_index,
+            force_physical_device_index=0xFFFFFFFF
+            if config.force_physical_device_index is None
+            else config.force_physical_device_index,
             prefer_discrete_gpu=config.prefer_discrete_gpu,
             enable_validation_layer=config.enable_validation_layer,
             enable_synchronization_validation=config.enable_synchronization_validation,
@@ -57,11 +84,20 @@ class Viewer:
         )
 
         # Window
-        self.window = Window(self.ctx, title, config.window_width, config.window_height, x=config.window_x, y=config.window_y)
+        self.window = Window(
+            self.ctx,
+            title,
+            config.window_width,
+            config.window_height,
+            x=config.window_x,
+            y=config.window_y,
+        )
         self.window.set_callbacks(
             draw=self.on_draw,
             key_event=self.on_key,
-            mouse_button_event=lambda pos, button, action, modifiers: self.on_mouse_button(ivec2(pos), button, action, modifiers),
+            mouse_button_event=lambda pos, button, action, modifiers: self.on_mouse_button(
+                ivec2(pos), button, action, modifiers
+            ),
             mouse_move_event=lambda pos: self.on_mouse_move(ivec2(pos)),
             mouse_scroll_event=lambda pos, scroll: self.on_scroll(ivec2(pos), ivec2(scroll)),
         )
@@ -78,13 +114,28 @@ class Viewer:
         # Renderer
         self.renderer = Renderer(self.ctx, self.window, config.renderer)
 
-        camera_from_world = RigidTransform3D.look_at(vec3(config.camera_position), vec3(config.camera_target), vec3(config.camera_up))
+        camera_from_world = RigidTransform3D.look_at(
+            vec3(config.camera_position),
+            vec3(config.camera_target),
+            vec3(config.camera_up),
+        )
 
         camera: Union[PerspectiveCamera, OrthographicCamera]
         if config.camera_type == CameraType.PERSPECTIVE:
-            camera = PerspectiveCamera(camera_from_world, CameraDepth(config.z_min, config.z_max), self.window.fb_width / self.window.fb_height, config.perspective_vertical_fov)
+            camera = PerspectiveCamera(
+                camera_from_world,
+                CameraDepth(config.z_min, config.z_max),
+                self.window.fb_width / self.window.fb_height,
+                config.perspective_vertical_fov,
+            )
         elif config.camera_type == CameraType.ORTHOGRAPHIC:
-            camera = OrthographicCamera(camera_from_world, CameraDepth(config.z_min, config.z_max), self.window.fb_width / self.window.fb_height, vec2(config.ortho_center), vec2(config.ortho_half_extents))
+            camera = OrthographicCamera(
+                camera_from_world,
+                CameraDepth(config.z_min, config.z_max),
+                self.window.fb_width / self.window.fb_height,
+                vec2(config.ortho_center),
+                vec2(config.ortho_half_extents),
+            )
         else:
             raise RuntimeError(f"Unhandled camera type {config.camera_type}")
 
@@ -101,7 +152,7 @@ class Viewer:
             rect=Rect(0, 0, self.window.fb_width, self.window.fb_height),
             camera=camera,
             scene=Scene("scene"),
-            playback=self.playback
+            playback=self.playback,
         )
 
         # Server
@@ -110,7 +161,6 @@ class Viewer:
 
         # Config
         self.wait_events = config.wait_events
-
 
     def on_key(self, key: Key, action: Action, modifiers: Modifiers) -> None:
         # Press
@@ -127,7 +177,13 @@ class Viewer:
             if self.key_map.previous_frame.is_active(key, modifiers):
                 self.playback.set_frame(self.playback.current_frame - 1)
 
-    def on_mouse_button(self, position: ivec2, button: MouseButton, action: Action, modifiers: Modifiers) -> None:
+    def on_mouse_button(
+        self,
+        position: ivec2,
+        button: MouseButton,
+        action: Action,
+        modifiers: Modifiers,
+    ) -> None:
         pass
 
     def on_mouse_move(self, position: ivec2) -> None:
@@ -194,14 +250,13 @@ class Viewer:
         imgui.set_next_window_bg_alpha(0.3)
         if imgui.begin(
             "Stats",
-            flags=
-                imgui.WindowFlags.NO_TITLE_BAR |
-                imgui.WindowFlags.ALWAYS_AUTO_RESIZE |
-                imgui.WindowFlags.NO_RESIZE |
-                imgui.WindowFlags.NO_SAVED_SETTINGS |
-                imgui.WindowFlags.NO_MOVE |
-                imgui.WindowFlags.NO_FOCUS_ON_APPEARING |
-                imgui.WindowFlags.NO_NAV
+            flags=imgui.WindowFlags.NO_TITLE_BAR
+            | imgui.WindowFlags.ALWAYS_AUTO_RESIZE
+            | imgui.WindowFlags.NO_RESIZE
+            | imgui.WindowFlags.NO_SAVED_SETTINGS
+            | imgui.WindowFlags.NO_MOVE
+            | imgui.WindowFlags.NO_FOCUS_ON_APPEARING
+            | imgui.WindowFlags.NO_NAV,
         )[0]:
             avg_dt = self.frame_times.mean()
             avg_fps = 1.0 / avg_dt
@@ -217,13 +272,19 @@ class Viewer:
         if imgui.begin("Playback")[0]:
             _, self.playback.playing = imgui.checkbox("Playing", self.playback.playing)
             imgui.text(f"Time (s): {self.playback.current_time:7.3f} / {self.playback.max_time: 7.3f}")
-            u, frame = imgui.slider_int("Frame", self.playback.current_frame, 0, self.playback.num_frames - 1)
+            u, frame = imgui.slider_int(
+                "Frame",
+                self.playback.current_frame,
+                0,
+                self.playback.num_frames - 1,
+            )
             if u:
                 self.playback.set_frame(frame)
         imgui.end()
 
     def gui_inspector(self) -> None:
         if imgui.begin("Inspector")[0]:
+
             def pre(o: Object) -> bool:
                 flags = imgui.TreeNodeFlags.OPEN_ON_ARROW | imgui.TreeNodeFlags.FRAME_PADDING
                 if o.gui_expanded:
@@ -273,6 +334,7 @@ class Viewer:
 
             imgui.separator()
             if self.gui_selected_gpu_property is not None:
+
                 def drawpool(name: str, pool: Optional[LRUPool[int, Any]], count: int) -> None:
                     if pool is None:
                         return
@@ -309,8 +371,16 @@ class Viewer:
                         imgui.text(f"<EMPTY>")
                     imgui.unindent()
 
-                drawpool("CPU", self.gui_selected_gpu_property.cpu_pool, len(self.gui_selected_gpu_property.cpu_buffers))
-                drawpool("GPU", self.gui_selected_gpu_property.gpu_pool, len(self.gui_selected_gpu_property.gpu_resources))
+                drawpool(
+                    "CPU",
+                    self.gui_selected_gpu_property.cpu_pool,
+                    len(self.gui_selected_gpu_property.cpu_buffers),
+                )
+                drawpool(
+                    "GPU",
+                    self.gui_selected_gpu_property.gpu_pool,
+                    len(self.gui_selected_gpu_property.gpu_resources),
+                )
 
                 if self.gui_selected_gpu_property.cpu_pool or self.gui_selected_gpu_property.gpu_pool:
                     imgui.separator()
@@ -329,13 +399,26 @@ class Viewer:
                         p_min[:, 1] = start.y
                         p_max[:, 0] = (start.x + 6) + delta_x
                         p_max[:, 1] = start.y + 20
-                        dl.add_rect_batch(p_min, p_max, np.array((0xFFFFFFFF,), np.uint32), np.array((0.0,), np.float32), np.array((1.0,), np.float32))
+                        dl.add_rect_batch(
+                            p_min,
+                            p_max,
+                            np.array((0xFFFFFFFF,), np.uint32),
+                            np.array((0.0,), np.float32),
+                            np.array((1.0,), np.float32),
+                        )
 
-                        for c_k, c_v in self.gui_selected_gpu_property.cpu_pool.lookup.items():
+                        for (
+                            c_k,
+                            c_v,
+                        ) in self.gui_selected_gpu_property.cpu_pool.lookup.items():
                             cursor = imgui.Vec2(start.x + 5 * c_k, start.y)
                             color = 0xFF00FF00 if c_k >= current_frame else 0xFF0000FF
                             color = color if not c_v.prefetching else 0xFF00FFFF
-                            dl.add_rect_filled(imgui.Vec2(cursor.x + 1, cursor.y + 1), imgui.Vec2(cursor.x + 5, cursor.y + 19), color)
+                            dl.add_rect_filled(
+                                imgui.Vec2(cursor.x + 1, cursor.y + 1),
+                                imgui.Vec2(cursor.x + 5, cursor.y + 19),
+                                color,
+                            )
                         imgui.spacing()
                         imgui.spacing()
                         imgui.spacing()
@@ -345,13 +428,26 @@ class Viewer:
                     if self.gui_selected_gpu_property.gpu_pool:
                         p_min[:, 1] = start.y + 22
                         p_max[:, 1] = start.y + 42
-                        dl.add_rect_batch(p_min, p_max, np.array((0xFFFFFFFF,), np.uint32), np.array((0.0,), np.float32), np.array((1.0,), np.float32))
+                        dl.add_rect_batch(
+                            p_min,
+                            p_max,
+                            np.array((0xFFFFFFFF,), np.uint32),
+                            np.array((0.0,), np.float32),
+                            np.array((1.0,), np.float32),
+                        )
 
-                        for g_k, g_v in self.gui_selected_gpu_property.gpu_pool.lookup.items():
+                        for (
+                            g_k,
+                            g_v,
+                        ) in self.gui_selected_gpu_property.gpu_pool.lookup.items():
                             cursor = imgui.Vec2(start.x + 5 * g_k, start.y)
                             color = 0xFF00FF00 if g_k >= current_frame else 0xFF0000FF
                             color = color if not g_v.prefetching else 0xFF00FFFF
-                            dl.add_rect_filled(imgui.Vec2(cursor.x + 1, cursor.y +23), imgui.Vec2(cursor.x + 5, cursor.y + 41), color)
+                            dl.add_rect_filled(
+                                imgui.Vec2(cursor.x + 1, cursor.y + 23),
+                                imgui.Vec2(cursor.x + 5, cursor.y + 41),
+                                color,
+                            )
                         imgui.spacing()
                         imgui.spacing()
                         imgui.spacing()

@@ -11,14 +11,16 @@ import pickle
 
 from .config import ServerConfig
 
+
 @dataclass
 class Client:
     address: str
     port: int
     name: str
 
+
 class MessageId(Enum):
-    NONE = 0 # Reserved for end of connection
+    NONE = 0  # Reserved for end of connection
 
     # Default message ids
     INPUT = 1
@@ -26,6 +28,7 @@ class MessageId(Enum):
 
     # Starting id available for users
     USER = 1 << 20
+
 
 class Format(Enum):
     # Default formats
@@ -36,14 +39,20 @@ class Format(Enum):
     # Starting id available for users
     USER = 1 << 20
 
+
 @dataclass
 class RawMessage:
     id: int
     format: int
     data: bytes
 
+
 class Server:
-    def __init__(self, on_raw_message_async: Callable[[Client, RawMessage], None], config: ServerConfig):
+    def __init__(
+        self,
+        on_raw_message_async: Callable[[Client, RawMessage], None],
+        config: ServerConfig,
+    ):
         self.connections: Dict[Tuple[str, int], asyncio.StreamWriter] = {}
 
         def entry() -> None:
@@ -61,10 +70,12 @@ class Server:
                     client_name_length = struct.unpack("<I", await reader.readexactly(4))[0]
                     if client_name_length > 0:
                         pass
-                    client_name = (await reader.readexactly(client_name_length)).decode(encoding="utf-8", errors="ignore")
+                    client_name = (await reader.readexactly(client_name_length)).decode(
+                        encoding="utf-8", errors="ignore"
+                    )
                     client = Client(client_address[0], client_address[1], client_name)
 
-                    print(f"Server: client {client_address[0]}:{client_address[1]} registered as \"{client_name}\"")
+                    print(f'Server: client {client_address[0]}:{client_address[1]} registered as "{client_name}"')
 
                     # Messages
                     while True:
@@ -77,7 +88,9 @@ class Server:
 
                         on_raw_message_async(client, RawMessage(id, format, data))
                 except asyncio.exceptions.IncompleteReadError:
-                    print(f"Server: client {client_address[0]}:{client_address[1]} unexpected EOF before closing connection")
+                    print(
+                        f"Server: client {client_address[0]}:{client_address[1]} unexpected EOF before closing connection"
+                    )
                 except Exception as e:
                     print(f"Server: exception while handling client connection {e}")
 
@@ -131,6 +144,7 @@ class InputMessage:
     def from_json(cls, obj: object) -> "InputMessage":
         return InputMessage(0)
 
+
 @dataclass
 class ObjectMessage:
     @classmethod
@@ -140,6 +154,7 @@ class ObjectMessage:
     @classmethod
     def from_json(cls, obj: object) -> "ObjectMessage":
         return ObjectMessage()
+
 
 Message = Union[
     InputMessage,
@@ -156,11 +171,13 @@ _json_dispatch: Dict[int, Callable[[object], Message]] = {
     MessageId.OBJECT.value: ObjectMessage.from_json,
 }
 
+
 def _parse_builtin_messages_binary(raw: RawMessage) -> Optional[Message]:
     fn = _binary_dispatch.get(raw.id)
     if not fn:
         return None
     return fn(raw.data)
+
 
 def _parse_builtin_messages_json(raw: RawMessage) -> Optional[Message]:
     fn = _json_dispatch.get(raw.id)
@@ -169,14 +186,17 @@ def _parse_builtin_messages_json(raw: RawMessage) -> Optional[Message]:
     obj = json.loads(raw.data)
     return fn(obj)
 
+
 def _parse_builtin_messages_pickle(raw: RawMessage) -> Optional[Message]:
-    return pickle.loads(raw.data) # type: ignore
+    return pickle.loads(raw.data)  # type: ignore
+
 
 _dispatch = {
     Format.BINARY.value: _parse_builtin_messages_binary,
     Format.JSON.value: _parse_builtin_messages_json,
     Format.PICKLE.value: _parse_builtin_messages_pickle,
 }
+
 
 def parse_builtin_messages(raw: RawMessage) -> Optional[Message]:
     format_fn = _dispatch.get(raw.format)

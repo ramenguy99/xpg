@@ -1,6 +1,7 @@
 from time import perf_counter_ns
 from contextlib import contextmanager
 
+
 @contextmanager
 def profile(name: str):
     print(f"{name}: ", end="")

@@ -23,9 +23,11 @@ SHADERS_PATH = Path(__file__).parent.joinpath("shaders")
 MAX_WORKERS = 16
 DEFAULT_WORKERS = 4
 if sys.version_info >= (3, 13):
+
     def get_cpu_count() -> Optional[int]:
         return os.process_cpu_count()
 else:
+
     def get_cpu_count() -> Optional[int]:
         return os.cpu_count()
 
@@ -41,21 +43,30 @@ class Renderer:
         self.background_color = config.background_color
 
         # Scene descriptors
-        self.descriptor_sets = RingBuffer([
-            DescriptorSet(ctx, [
-                DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
-            ])
-            for _ in range(window.num_frames)
-        ])
+        self.descriptor_sets = RingBuffer(
+            [
+                DescriptorSet(
+                    ctx,
+                    [
+                        DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
+                    ],
+                )
+                for _ in range(window.num_frames)
+            ]
+        )
 
-        constants_dtype = np.dtype ({
-            "view":            (np.dtype((np.float32, (4, 4))), 0),
-            "projection":      (np.dtype((np.float32, (4, 4))), 64),
-            "camera_position": (np.dtype((np.float32, (3,))), 128),
-        }) # type: ignore
+        constants_dtype = np.dtype(
+            {
+                "view": (np.dtype((np.float32, (4, 4))), 0),
+                "projection": (np.dtype((np.float32, (4, 4))), 64),
+                "camera_position": (np.dtype((np.float32, (3,))), 128),
+            }
+        )  # type: ignore
 
         self.constants = np.zeros((1,), constants_dtype)
-        self.uniform_buffers = RingBuffer([UploadableBuffer(ctx, 64 * 2 + 12, BufferUsageFlags.UNIFORM) for _ in range(window.num_frames)])
+        self.uniform_buffers = RingBuffer(
+            [UploadableBuffer(ctx, 64 * 2 + 12, BufferUsageFlags.UNIFORM) for _ in range(window.num_frames)]
+        )
 
         for set, buf in zip(self.descriptor_sets.items, self.uniform_buffers.items):
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
@@ -81,29 +92,49 @@ class Renderer:
                 if not ctx.has_transfer_queue:
                     raise RuntimeError("Transfer queue not available on picked device")
                 if not ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES:
-                    raise RuntimeError("Transfer queue upload requires timeline semaphores which are not available on picked device")
+                    raise RuntimeError(
+                        "Transfer queue upload requires timeline semaphores which are not available on picked device"
+                    )
         else:
-            if ctx.device_properties.device_type == PhysicalDeviceType.INTEGRATED_GPU or ctx.device_properties.device_type == PhysicalDeviceType.CPU:
+            if (
+                ctx.device_properties.device_type == PhysicalDeviceType.INTEGRATED_GPU
+                or ctx.device_properties.device_type == PhysicalDeviceType.CPU
+            ):
                 self.buffer_upload_method = UploadMethod.CPU_BUF
-            elif False: # TODO: Check if has resizable bar and if is configured to use it
+            elif False:  # TODO: Check if has resizable bar and if is configured to use it
                 self.buffer_upload_method = UploadMethod.BAR
-            elif config.use_transfer_queue_if_available and ctx.has_transfer_queue and ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES:
+            elif (
+                config.use_transfer_queue_if_available
+                and ctx.has_transfer_queue
+                and ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES
+            ):
                 self.buffer_upload_method = UploadMethod.TRANSFER_QUEUE
             else:
                 self.buffer_upload_method = UploadMethod.GFX
 
         # Upload method for images
         if config.force_image_upload_method is not None:
-            if config.force_image_upload_method == UploadMethod.CPU_BUF or config.force_image_upload_method == UploadMethod.BAR:
-                raise RuntimeError(f"Upload method for images must be {UploadMethod.GFX} or {UploadMethod.TRANSFER_QUEUE}. Got {config.force_image_upload_method} in config.force_image_upload_method.")
+            if (
+                config.force_image_upload_method == UploadMethod.CPU_BUF
+                or config.force_image_upload_method == UploadMethod.BAR
+            ):
+                raise RuntimeError(
+                    f"Upload method for images must be {UploadMethod.GFX} or {UploadMethod.TRANSFER_QUEUE}. Got {config.force_image_upload_method} in config.force_image_upload_method."
+                )
             self.image_upload_method = config.force_image_upload_method
             if self.image_upload_method == UploadMethod.TRANSFER_QUEUE:
                 if not ctx.has_transfer_queue:
                     raise RuntimeError("Transfer queue not available on picked device")
                 if not ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES:
-                    raise RuntimeError("Transfer queue upload requires timeline semaphores which are not available on picked device")
+                    raise RuntimeError(
+                        "Transfer queue upload requires timeline semaphores which are not available on picked device"
+                    )
         else:
-            if config.use_transfer_queue_if_available and ctx.has_transfer_queue and ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES:
+            if (
+                config.use_transfer_queue_if_available
+                and ctx.has_transfer_queue
+                and ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES
+            ):
                 self.image_upload_method = UploadMethod.TRANSFER_QUEUE
             else:
                 self.image_upload_method = UploadMethod.GFX
@@ -111,7 +142,7 @@ class Renderer:
         self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
 
         # Will be populated in self.resize(), and will never be None after that
-        self.depth_buffer: Image = None # type: ignore
+        self.depth_buffer: Image = None  # type: ignore
         self.depth_format = Format.D32_SFLOAT
         self.depth_clear_value = 1.0
         self.depth_compare_op = CompareOp.LESS
@@ -120,15 +151,61 @@ class Renderer:
     def resize(self, width: int, height: int) -> None:
         if self.depth_buffer is not None:
             self.depth_buffer.destroy()
-        self.depth_buffer = Image(self.ctx, width, height, self.depth_format, ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE_DEDICATED, name="depth")
+        self.depth_buffer = Image(
+            self.ctx,
+            width,
+            height,
+            self.depth_format,
+            ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT | ImageUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE_DEDICATED,
+            name="depth",
+        )
 
-    def add_gpu_buffer_property(self, property: Property, usage_flags: BufferUsageFlags, memory_usage: MemoryUsage, pipeline_stage_flags: PipelineStageFlags, name: str) -> GpuBufferProperty:
-        prop = GpuBufferProperty(self.ctx, self.window.num_frames, self.buffer_upload_method, self.thread_pool, property, usage_flags, memory_usage, pipeline_stage_flags, name)
+    def add_gpu_buffer_property(
+        self,
+        property: Property,
+        usage_flags: BufferUsageFlags,
+        memory_usage: MemoryUsage,
+        pipeline_stage_flags: PipelineStageFlags,
+        name: str,
+    ) -> GpuBufferProperty:
+        prop = GpuBufferProperty(
+            self.ctx,
+            self.window.num_frames,
+            self.buffer_upload_method,
+            self.thread_pool,
+            property,
+            usage_flags,
+            memory_usage,
+            pipeline_stage_flags,
+            name,
+        )
         self.gpu_properties.append(prop)
         return prop
 
-    def add_gpu_image_property(self, property: Property, format: Format, usage_flags: ImageUsageFlags, layout: ImageLayout, memory_usage: MemoryUsage, pipeline_stage_flags: PipelineStageFlags, name: str) -> GpuImageProperty:
-        prop = GpuImageProperty(self.ctx, self.window.num_frames, self.image_upload_method, self.thread_pool, property, format, usage_flags, layout, memory_usage, pipeline_stage_flags, name)
+    def add_gpu_image_property(
+        self,
+        property: Property,
+        format: Format,
+        usage_flags: ImageUsageFlags,
+        layout: ImageLayout,
+        memory_usage: MemoryUsage,
+        pipeline_stage_flags: PipelineStageFlags,
+        name: str,
+    ) -> GpuImageProperty:
+        prop = GpuImageProperty(
+            self.ctx,
+            self.window.num_frames,
+            self.image_upload_method,
+            self.thread_pool,
+            property,
+            format,
+            usage_flags,
+            layout,
+            memory_usage,
+            pipeline_stage_flags,
+            name,
+        )
         self.gpu_properties.append(prop)
         return prop
 
@@ -140,8 +217,18 @@ class Renderer:
     def render(self, viewport: Viewport, gui: Gui) -> None:
         frame = self.window.begin_frame()
         with frame.command_buffer as cmd:
-            viewport_rect = (viewport.rect.x, viewport.rect.y + viewport.rect.height, viewport.rect.width, viewport.rect.y - viewport.rect.height)
-            rect = (viewport.rect.x, viewport.rect.y, viewport.rect.width, viewport.rect.height)
+            viewport_rect = (
+                viewport.rect.x,
+                viewport.rect.y + viewport.rect.height,
+                viewport.rect.width,
+                viewport.rect.y - viewport.rect.height,
+            )
+            rect = (
+                viewport.rect.x,
+                viewport.rect.y,
+                viewport.rect.width,
+                viewport.rect.height,
+            )
 
             set: DescriptorSet = self.descriptor_sets.get_current_and_advance()
             buf: UploadableBuffer = self.uniform_buffers.get_current_and_advance()
@@ -149,18 +236,44 @@ class Renderer:
             self.constants["projection"] = viewport.camera.projection()
             self.constants["view"] = viewport.camera.view()
             self.constants["camera_position"] = -viewport.camera.camera_from_world.translation
-            buf.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM, self.constants.view(np.uint8))
+            buf.upload(
+                cmd,
+                MemoryUsage.ANY_SHADER_UNIFORM,
+                self.constants.view(np.uint8),
+            )
 
             cmd.set_viewport(viewport_rect)
             cmd.set_scissors(rect)
 
-            cmd.image_barrier(frame.image, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.TRANSFER_DST)
+            cmd.image_barrier(
+                frame.image,
+                ImageLayout.TRANSFER_DST_OPTIMAL,
+                MemoryUsage.COLOR_ATTACHMENT,
+                MemoryUsage.TRANSFER_DST,
+            )
             cmd.clear_color_image(frame.image, self.background_color)
-            cmd.image_barrier(frame.image, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.TRANSFER_DST, MemoryUsage.COLOR_ATTACHMENT)
+            cmd.image_barrier(
+                frame.image,
+                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                MemoryUsage.TRANSFER_DST,
+                MemoryUsage.COLOR_ATTACHMENT,
+            )
 
-            cmd.image_barrier(self.depth_buffer, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.DEPTH_STENCIL_ATTACHMENT, MemoryUsage.TRANSFER_DST, aspect_mask=ImageAspectFlags.DEPTH)
+            cmd.image_barrier(
+                self.depth_buffer,
+                ImageLayout.TRANSFER_DST_OPTIMAL,
+                MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
+                MemoryUsage.TRANSFER_DST,
+                aspect_mask=ImageAspectFlags.DEPTH,
+            )
             cmd.clear_depth_stencil_image(self.depth_buffer, depth=self.depth_clear_value)
-            cmd.image_barrier(self.depth_buffer, ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL, MemoryUsage.TRANSFER_DST, MemoryUsage.DEPTH_STENCIL_ATTACHMENT, aspect_mask=ImageAspectFlags.DEPTH)
+            cmd.image_barrier(
+                self.depth_buffer,
+                ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                MemoryUsage.TRANSFER_DST,
+                MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
+                aspect_mask=ImageAspectFlags.DEPTH,
+            )
 
             if frame.transfer_command_buffer:
                 frame.transfer_command_buffer.begin()
@@ -178,7 +291,6 @@ class Renderer:
                 [],
             )
 
-
             # Create new objects, if any
             viewport.scene.create_if_needed(self)
 
@@ -193,7 +305,8 @@ class Renderer:
             viewport.scene.render(self, f)
 
             # Render GUI
-            with cmd.rendering(rect,
+            with cmd.rendering(
+                rect,
                 color_attachments=[
                     RenderingAttachment(
                         frame.image,
@@ -201,9 +314,15 @@ class Renderer:
                         store_op=StoreOp.STORE,
                         clear=self.background_color,
                     ),
-                ]):
+                ],
+            ):
                 gui.render(cmd)
-            cmd.image_barrier(frame.image, ImageLayout.PRESENT_SRC, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.PRESENT)
+            cmd.image_barrier(
+                frame.image,
+                ImageLayout.PRESENT_SRC,
+                MemoryUsage.COLOR_ATTACHMENT,
+                MemoryUsage.PRESENT,
+            )
 
             if frame.transfer_command_buffer:
                 frame.transfer_command_buffer.end()

@@ -1,6 +1,17 @@
-from typing import Callable, List, Optional, Dict, Tuple, TypeVar, Collection, Generic, Sequence
+from typing import (
+    Callable,
+    List,
+    Optional,
+    Dict,
+    Tuple,
+    TypeVar,
+    Collection,
+    Generic,
+    Sequence,
+)
 from collections import OrderedDict
 from dataclasses import dataclass
+
 
 class _RefCount:
     def __init__(self, initial_count: int = 0):
@@ -16,14 +27,17 @@ class _RefCount:
     def __repr__(self) -> str:
         return f"RC({self.count})"
 
+
 K = TypeVar("K")
 O = TypeVar("O")
+
 
 @dataclass
 class _Entry(Generic[O]):
     obj: O
     refcount: _RefCount
     prefetching: bool
+
 
 class LRUPool(Generic[K, O]):
     def __init__(self, objs: List[O], num_frames: int, max_prefetch: int = 0):
@@ -36,7 +50,12 @@ class LRUPool(Generic[K, O]):
         self.max_prefetch: int = max_prefetch
         self.prefetch_store: Dict[O, K] = {}
 
-    def get(self, key: K, load: Callable[[K, O], None], ensure_fetched: Optional[Callable[[K, O], None]] = None) -> O:
+    def get(
+        self,
+        key: K,
+        load: Callable[[K, O], None],
+        ensure_fetched: Optional[Callable[[K, O], None]] = None,
+    ) -> O:
         cached = self.lookup.get(key)
 
         # Check if already loaded
@@ -110,7 +129,12 @@ class LRUPool(Generic[K, O]):
     def give_back(self, k: K, obj: O) -> None:
         self.lru[obj] = k
 
-    def prefetch(self, useful_range: Sequence[K], cleanup: Callable[[K, O], bool], submit_load: Callable[[K, O], None]) -> None:
+    def prefetch(
+        self,
+        useful_range: Sequence[K],
+        cleanup: Callable[[K, O], bool],
+        submit_load: Callable[[K, O], None],
+    ) -> None:
         if self.max_prefetch <= 0:
             return
 

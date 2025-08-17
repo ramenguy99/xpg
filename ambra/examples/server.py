@@ -5,6 +5,7 @@ from ambra.config import Config
 from ambra.server import Client, RawMessage, MessageId
 from ambra.utils.hook import hook
 
+
 class Viewer(ambra.Viewer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -16,18 +17,21 @@ class Viewer(ambra.Viewer):
             for message in self.messages:
                 imgui.text(message)
         imgui.end()
-    
+
     @hook
     def on_key(self, key: Key, action: Action, modifiers: Modifiers):
         pass
 
     def on_raw_message(self, client: Client, raw_message: RawMessage):
-        print(f"Message received from: {client.name} ({client.address}, {client.port}): {raw_message.id} {raw_message.format} {MessageId.USER.value}")
+        print(
+            f"Message received from: {client.name} ({client.address}, {client.port}): {raw_message.id} {raw_message.format} {MessageId.USER.value}"
+        )
         if raw_message.id == MessageId.USER.value:
             print(f"Decoding..")
             self.messages.append(raw_message.data.decode("utf-8"))
         else:
             super().on_raw_message(client, raw_message)
+
 
 config = Config(
     server_enabled=True,

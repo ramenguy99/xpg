@@ -84,4 +84,3 @@ class Viewport:
 
     def on_scroll(sself, scroll: ivec2) -> None:
         pass
-

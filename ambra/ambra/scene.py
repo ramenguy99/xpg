@@ -26,6 +26,7 @@ PropertyData = Union[List[np.ndarray], np.ndarray]
 #     NLERP = auto()
 #     SLERP = auto()
 
+
 class AnimationBoundary(Enum):
     HOLD = auto()
     REPEAT = auto()
@@ -45,6 +46,7 @@ class AnimationBoundary(Enum):
         else:
             raise ValueError(f"Unhandled enum variant: {self.boundary}")
 
+
 @dataclass
 class Animation:
     # interpolation = AnimationInterpolation.NEAREST
@@ -56,6 +58,7 @@ class Animation:
     def max_animation_time(self, n: int, fps: float) -> float:
         return 0
 
+
 # @dataclass
 # class SampledAnimation(Animation):
 #     samples: np.typing.ArrayLike[float] # list of animation samples in seconds
@@ -66,10 +69,11 @@ class Animation:
 
 @dataclass
 class ConstantSpeedAnimation(Animation):
-    frames_per_second: float # frame time in seconds
+    frames_per_second: float  # frame time in seconds
 
     def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
-        if n == 0: return -1
+        if n == 0:
+            return -1
         return self.boundary.map(int(time * self.frames_per_second), n)
 
     def max_animation_time(self, n: int, fps: float) -> float:
@@ -78,8 +82,9 @@ class ConstantSpeedAnimation(Animation):
 
 @dataclass
 class FrameAnimation(Animation):
-    def get_frame_index(self, n:int, time: float, frame_index: int) -> int:
-        if n == 0: return -1
+    def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
+        if n == 0:
+            return -1
         return self.boundary.map(frame_index, n)
 
     def max_animation_time(self, n: int, frames_per_second: float) -> float:
@@ -93,14 +98,17 @@ class UploadSettings:
     cpu_prefetch_count: int = 0
     gpu_prefetch_count: int = 0
 
+
 class Property:
-    def __init__(self,
-                 num_frames: int,
-                 dtype: Optional[DTypeLike] = None,
-                 shape: Optional[Tuple[int, ...]] = None,
-                 animation: Optional[Animation] = None,
-                 upload: Optional[UploadSettings] = None,
-                 name: str = ""):
+    def __init__(
+        self,
+        num_frames: int,
+        dtype: Optional[DTypeLike] = None,
+        shape: Optional[Tuple[int, ...]] = None,
+        animation: Optional[Animation] = None,
+        upload: Optional[UploadSettings] = None,
+        name: str = "",
+    ):
         self.num_frames = num_frames
         self.dtype = dtype
         self.shape = shape
@@ -155,7 +163,10 @@ def view_bytes(a: np.ndarray) -> memoryview:
     return a.reshape((-1,), copy=False).view(np.uint8).data
 
 
-def shape_match(expected_shape: Optional[Tuple[int, ...]], got_shape: Optional[Tuple[int, ...]]) -> bool:
+def shape_match(
+    expected_shape: Optional[Tuple[int, ...]],
+    got_shape: Optional[Tuple[int, ...]],
+) -> bool:
     if expected_shape is None:
         return got_shape is None
     else:
@@ -171,13 +182,15 @@ def shape_match(expected_shape: Optional[Tuple[int, ...]], got_shape: Optional[T
 
 
 class DataProperty(Property):
-    def __init__(self,
-                 in_data: Union[PropertyData, int, float],
-                 dtype: Optional[DTypeLike] = None,
-                 shape: Optional[Tuple[int, ...]] = None,
-                 animation: Optional[Animation] = None,
-                 upload: Optional[UploadSettings] = None,
-                 name: str = ""):
+    def __init__(
+        self,
+        in_data: Union[PropertyData, int, float],
+        dtype: Optional[DTypeLike] = None,
+        shape: Optional[Tuple[int, ...]] = None,
+        animation: Optional[Animation] = None,
+        upload: Optional[UploadSettings] = None,
+        name: str = "",
+    ):
         data: Union[List[np.ndarray], np.ndarray]
         if shape is None:
             data = np.atleast_1d(np.asarray(in_data, dtype, order="C"))
@@ -208,32 +221,34 @@ class DataProperty(Property):
     # Buffers
     def max_size(self) -> int:
         if isinstance(self.data, List):
-            return max([d.itemsize * np.prod(d.shape, dtype=np.int64) for d in self.data]) # type: ignore
+            return max([d.itemsize * np.prod(d.shape, dtype=np.int64) for d in self.data])  # type: ignore
         else:
-            return self.data.itemsize * np.prod(self.data.shape[1:], dtype=np.int64) # type: ignore
+            return self.data.itemsize * np.prod(self.data.shape[1:], dtype=np.int64)  # type: ignore
 
     # Images
     def width(self) -> int:
-        return self.data[0].shape[1] # type: ignore
+        return self.data[0].shape[1]  # type: ignore
 
     def height(self) -> int:
-        return self.data[0].shape[0] # type: ignore
+        return self.data[0].shape[0]  # type: ignore
 
     def channels(self) -> int:
-        return self.data[0].shape[2] # type: ignore
+        return self.data[0].shape[2]  # type: ignore
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         return self.data[frame_index]
 
 
 class StreamingProperty(Property):
-    def __init__(self,
-                 num_frames: int,
-                 dtype: Optional[DTypeLike] = None,
-                 shape: Optional[Tuple[int, ...]] = None,
-                 animation: Optional[Animation] = None,
-                 upload: Optional[UploadSettings] = None,
-                 name: str = ""):
+    def __init__(
+        self,
+        num_frames: int,
+        dtype: Optional[DTypeLike] = None,
+        shape: Optional[Tuple[int, ...]] = None,
+        animation: Optional[Animation] = None,
+        upload: Optional[UploadSettings] = None,
+        name: str = "",
+    ):
         super().__init__(num_frames, dtype, shape, animation, upload, name)
 
     # For buffers
@@ -256,19 +271,26 @@ class StreamingProperty(Property):
 
 
 class ShapeException(Exception):
-    def __init__(self, expected: Optional[Tuple[int, ...]], got: Optional[Tuple[int, ...]]):
+    def __init__(
+        self,
+        expected: Optional[Tuple[int, ...]],
+        got: Optional[Tuple[int, ...]],
+    ):
         self.expected = expected
         self.got = got
 
     def __str__(self) -> str:
         return f"Shape mismatch. Expected: {self.expected}. Got: {self.got}"
 
-def as_property(value: Union[Property, PropertyData, int, float],
-                dtype: Optional[DTypeLike] = None,
-                shape: Optional[Tuple[int, ...]] = None,
-                animation: Optional[Animation] = None,
-                upload: Optional[UploadSettings] = None,
-                name: str = "") -> Property:
+
+def as_property(
+    value: Union[Property, PropertyData, int, float],
+    dtype: Optional[DTypeLike] = None,
+    shape: Optional[Tuple[int, ...]] = None,
+    animation: Optional[Animation] = None,
+    upload: Optional[UploadSettings] = None,
+    name: str = "",
+) -> Property:
     if isinstance(value, Property):
         if not shape_match(shape, value.shape):
             raise ShapeException(shape, value.shape)
@@ -286,6 +308,7 @@ def as_property(value: Union[Property, PropertyData, int, float],
 
 
 _counter = 0
+
 
 class Object:
     def __init__(self, name: Optional[str] = None):
@@ -305,17 +328,25 @@ class Object:
         _counter += 1
         return _counter
 
-    def add_property(self, prop: Union[Property, PropertyData, int, float], dtype: Optional[DTypeLike] = None, shape: Optional[Tuple[int, ...]] = None, animation: Optional[Animation] = None, upload: Optional[UploadSettings] = None, name: str = "") -> Property:
+    def add_property(
+        self,
+        prop: Union[Property, PropertyData, int, float],
+        dtype: Optional[DTypeLike] = None,
+        shape: Optional[Tuple[int, ...]] = None,
+        animation: Optional[Animation] = None,
+        upload: Optional[UploadSettings] = None,
+        name: str = "",
+    ) -> Property:
         property = as_property(prop, dtype, shape, animation, upload, name)
         self.properties.append(property)
         return property
 
-    def create_if_needed(self, renderer): #type: ignore
+    def create_if_needed(self, renderer):  # type: ignore
         if not self.created:
-            self.create(renderer) # type: ignore
+            self.create(renderer)  # type: ignore
             self.created = True
 
-    def create(self, renderer): #type: ignore
+    def create(self, renderer):  # type: ignore
         pass
 
     def update(self, time: float, frame: int) -> None:
@@ -330,7 +361,7 @@ class Object:
         # TODO: can merge with udpate? Where to find parent? With link?
         pass
 
-    def render(self, renderer, frame): #type: ignore
+    def render(self, renderer, frame):  # type: ignore
         pass
 
     def destroy(self) -> None:
@@ -351,50 +382,90 @@ class Object:
                 imgui.indent(-10)
         imgui.indent(-5)
 
+
 class Object2D(Object):
-    def __init__(self,
-                 name: Optional[str],
-                 translation: Optional[Property] = None,
-                 rotation: Optional[Property] = None,
-                 scale: Optional[Property] = None):
+    def __init__(
+        self,
+        name: Optional[str],
+        translation: Optional[Property] = None,
+        rotation: Optional[Property] = None,
+        scale: Optional[Property] = None,
+    ):
         super().__init__(name)
-        self.translation = self.add_property(translation if translation is not None else np.array([0, 0]), np.float32, (2,), name=f"translation")
-        self.rotation = self.add_property(rotation if rotation is not None else np.array([0]), np.float32, name=f"rotation")
-        self.scale = self.add_property(scale if scale is not None else np.array([1, 1]), np.float32, (2,), name=f"scale")
+        self.translation = self.add_property(
+            translation if translation is not None else np.array([0, 0]),
+            np.float32,
+            (2,),
+            name=f"translation",
+        )
+        self.rotation = self.add_property(
+            rotation if rotation is not None else np.array([0]),
+            np.float32,
+            name=f"rotation",
+        )
+        self.scale = self.add_property(
+            scale if scale is not None else np.array([1, 1]),
+            np.float32,
+            (2,),
+            name=f"scale",
+        )
         self.update_transform(None)
 
     def update_transform(self, parent: Optional[Object]) -> None:
         assert parent is None or isinstance(parent, Object2D)
 
-        self.current_relative_transform = Transform2D (
+        self.current_relative_transform = Transform2D(
             vec2(self.translation.get_current()),
             self.rotation.get_current().item(),
-            vec2(self.scale.get_current())
+            vec2(self.scale.get_current()),
         )
-        self.current_transform_matrix: mat3 = (parent.current_transform_matrix if parent is not None else np.eye(3)) @ self.current_relative_transform.as_mat3() # type: ignore
+        self.current_transform_matrix: mat3 = (
+            parent.current_transform_matrix if parent is not None else np.eye(3)
+        ) @ self.current_relative_transform.as_mat3()  # type: ignore
+
 
 class Object3D(Object):
-    def __init__(self,
-                 name: Optional[str] = None,
-                 translation: Optional[Property] = None,
-                 rotation: Optional[Property] = None,
-                 scale: Optional[Property] = None):
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        translation: Optional[Property] = None,
+        rotation: Optional[Property] = None,
+        scale: Optional[Property] = None,
+    ):
         super().__init__(name)
-        self.translation = self.add_property(translation if translation is not None else np.array([0, 0, 0]), np.float32, (3,), name=f"translation")
-        self.rotation = self.add_property(rotation if rotation is not None else np.array([1, 0, 0, 0]), np.float32, (4,), name=f"rotation")
-        self.scale = self.add_property(scale if scale is not None else np.array([1, 1, 1]), np.float32, (3,), name=f"scale")
+        self.translation = self.add_property(
+            translation if translation is not None else np.array([0, 0, 0]),
+            np.float32,
+            (3,),
+            name=f"translation",
+        )
+        self.rotation = self.add_property(
+            rotation if rotation is not None else np.array([1, 0, 0, 0]),
+            np.float32,
+            (4,),
+            name=f"rotation",
+        )
+        self.scale = self.add_property(
+            scale if scale is not None else np.array([1, 1, 1]),
+            np.float32,
+            (3,),
+            name=f"scale",
+        )
 
         self.update_transform(None)
 
     def update_transform(self, parent: Optional[Object]) -> None:
         assert parent is None or isinstance(parent, Object3D)
 
-        self.current_relative_transform = Transform3D (
+        self.current_relative_transform = Transform3D(
             vec3(self.translation.get_current()),
             quat(self.rotation.get_current()),
-            vec3(self.scale.get_current())
+            vec3(self.scale.get_current()),
         )
-        self.current_transform_matrix: mat4 = (parent.current_transform_matrix if parent is not None else np.eye(4)) @ self.current_relative_transform.as_mat4() # type: ignore
+        self.current_transform_matrix: mat4 = (
+            parent.current_transform_matrix if parent is not None else np.eye(4)
+        ) @ self.current_relative_transform.as_mat4()  # type: ignore
+
 
 class Scene:
     def __init__(self, name: str):
@@ -432,9 +503,14 @@ class Scene:
 
     def max_animation_time(self, frames_per_second: float) -> float:
         time = 0.0
+
         def visit(o: Object) -> None:
             nonlocal time
-            time = max(time, max(p.max_animation_time(frames_per_second) for p in o.properties))
+            time = max(
+                time,
+                max(p.max_animation_time(frames_per_second) for p in o.properties),
+            )
+
         self.visit_objects(visit)
         return time
 
@@ -442,14 +518,17 @@ class Scene:
         def visit(p: Optional[Object], o: Object) -> None:
             o.update(time, frame)
             o.update_transform(p)
+
         self.visit_objects_with_parent(visit)
 
-    def create_if_needed(self, renderer) -> None: # type: ignore
+    def create_if_needed(self, renderer) -> None:  # type: ignore
         def visit(o: Object) -> None:
-            o.create_if_needed(renderer) # type: ignore
+            o.create_if_needed(renderer)  # type: ignore
+
         self.visit_objects(visit)
 
-    def render(self, renderer, frame) -> None: # type: ignore
+    def render(self, renderer, frame) -> None:  # type: ignore
         def visit(o: Object) -> None:
-            o.render(renderer, frame) # type: ignore
+            o.render(renderer, frame)  # type: ignore
+
         self.visit_objects(visit)

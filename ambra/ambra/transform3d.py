@@ -1,5 +1,14 @@
 from dataclasses import dataclass
-from pyglm.glm import vec3, quat, mat4, quatLookAtRH, normalize, mat4_cast, inverse
+from pyglm.glm import (
+    vec3,
+    quat,
+    mat4,
+    quatLookAtRH,
+    normalize,
+    mat4_cast,
+    inverse,
+)
+
 
 @dataclass
 class RigidTransform3D:
@@ -12,8 +21,8 @@ class RigidTransform3D:
         rot = inverse(quatLookAtRH(d, up))
 
         return cls(
-            translation = rot * -position, # type: ignore
-            rotation = rot, # type: ignore
+            translation=rot * -position,  # type: ignore
+            rotation=rot,  # type: ignore
         )
 
     def as_mat4(self) -> mat4:
@@ -29,6 +38,7 @@ class RigidTransform3D:
             translation=vec3(0),
             rotation=quat(1, 0, 0, 0),
         )
+
 
 @dataclass
 class Transform3D:

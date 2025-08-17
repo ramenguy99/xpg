@@ -21,3 +21,6 @@ dependencies = [
 # Python <=3.11 has issues with assignment from memoryview to Buffer
 python_version = "3.12"
 strict = true
+
+[tool.ruff]
+line-length = 119

@@ -6,17 +6,25 @@ from ambra.utils.gpu import Format
 
 import numpy as np
 
-viewer = Viewer("primitives", config=Config(
-    playback=PlaybackConfig(
-        enabled=True,
-        playing=True,
+viewer = Viewer(
+    "primitives",
+    config=Config(
+        playback=PlaybackConfig(
+            enabled=True,
+            playing=True,
+        ),
+        camera_position=(0.5, 0.5, -2),
+        camera_target=(0, 0, 0),
+        camera_up=(0, 1, 0),
     ),
-    camera_position=(0.5, 0.5, -2),
-    camera_target=(0, 0, 0),
-    camera_up=(0, 1, 0),
-))
+)
 
-translation = as_property(np.linspace(np.array([0, 0, 0]), np.array([5, 0, 0]), 100), np.float32, (3,), FrameAnimation(AnimationBoundary.HOLD))
+translation = as_property(
+    np.linspace(np.array([0, 0, 0]), np.array([5, 0, 0]), 100),
+    np.float32,
+    (3,),
+    FrameAnimation(AnimationBoundary.HOLD),
+)
 
 H, W = 32, 64
 start = np.zeros((H, W, 4))

@@ -3,6 +3,7 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Dict, List
 
+
 @dataclass
 class DescriptorInfo:
     name: str
@@ -10,44 +11,67 @@ class DescriptorInfo:
     set: int
     resource: slang.Resource
     image_format: slang.ImageFormat
-    count: int = 1 # 1 for single element, 0 for unbounded
+    count: int = 1  # 1 for single element, 0 for unbounded
+
 
 def to_descriptor_type(binding_type: slang.BindingType) -> DescriptorType:
-    if   binding_type == slang.BindingType.SAMPLER:                           return DescriptorType.SAMPLER
-    elif binding_type == slang.BindingType.COMBINED_TEXTURE_SAMPLER:          return DescriptorType.COMBINED_IMAGE_SAMPLER
-    elif binding_type == slang.BindingType.TEXTURE:                           return DescriptorType.SAMPLED_IMAGE
-    elif binding_type == slang.BindingType.MUTABLE_TEXTURE:                   return DescriptorType.STORAGE_IMAGE
-    elif binding_type == slang.BindingType.TYPED_BUFFER:                      return DescriptorType.UNIFORM_TEXEL_BUFFER
-    elif binding_type == slang.BindingType.MUTABLE_TYPED_BUFFER:              return DescriptorType.STORAGE_TEXEL_BUFFER
-    elif binding_type == slang.BindingType.RAW_BUFFER:                        return DescriptorType.STORAGE_BUFFER
-    elif binding_type == slang.BindingType.MUTABLE_RAW_BUFFER:                return DescriptorType.STORAGE_BUFFER
-    elif binding_type == slang.BindingType.INPUT_RENDER_TARGET:               return DescriptorType.INPUT_ATTACHMENT
-    elif binding_type == slang.BindingType.INLINE_UNIFORM_DATA:               return DescriptorType.INLINE_UNIFORM_BLOCK
-    elif binding_type == slang.BindingType.RAYTRACING_ACCELERATION_STRUCTURE: return DescriptorType.ACCELERATION_STRUCTURE
-    elif binding_type == slang.BindingType.CONSTANT_BUFFER:                   return DescriptorType.UNIFORM_BUFFER
+    if binding_type == slang.BindingType.SAMPLER:
+        return DescriptorType.SAMPLER
+    elif binding_type == slang.BindingType.COMBINED_TEXTURE_SAMPLER:
+        return DescriptorType.COMBINED_IMAGE_SAMPLER
+    elif binding_type == slang.BindingType.TEXTURE:
+        return DescriptorType.SAMPLED_IMAGE
+    elif binding_type == slang.BindingType.MUTABLE_TEXTURE:
+        return DescriptorType.STORAGE_IMAGE
+    elif binding_type == slang.BindingType.TYPED_BUFFER:
+        return DescriptorType.UNIFORM_TEXEL_BUFFER
+    elif binding_type == slang.BindingType.MUTABLE_TYPED_BUFFER:
+        return DescriptorType.STORAGE_TEXEL_BUFFER
+    elif binding_type == slang.BindingType.RAW_BUFFER:
+        return DescriptorType.STORAGE_BUFFER
+    elif binding_type == slang.BindingType.MUTABLE_RAW_BUFFER:
+        return DescriptorType.STORAGE_BUFFER
+    elif binding_type == slang.BindingType.INPUT_RENDER_TARGET:
+        return DescriptorType.INPUT_ATTACHMENT
+    elif binding_type == slang.BindingType.INLINE_UNIFORM_DATA:
+        return DescriptorType.INLINE_UNIFORM_BLOCK
+    elif binding_type == slang.BindingType.RAYTRACING_ACCELERATION_STRUCTURE:
+        return DescriptorType.ACCELERATION_STRUCTURE
+    elif binding_type == slang.BindingType.CONSTANT_BUFFER:
+        return DescriptorType.UNIFORM_BUFFER
     else:
         raise ValueError("Unknown slang.BindingType {}", binding_type)
 
-def _flatten_descriptor_sets(sets: Dict[int, List[DescriptorInfo]], typ: slang.Type, name: str, binding: int, set: int, image_format: slang.ImageFormat):
-    if (isinstance(typ, slang.Scalar)
-        or isinstance(typ, slang.Vector)
-        or isinstance(typ, slang.Matrix)):
+
+def _flatten_descriptor_sets(
+    sets: Dict[int, List[DescriptorInfo]],
+    typ: slang.Type,
+    name: str,
+    binding: int,
+    set: int,
+    image_format: slang.ImageFormat,
+):
+    if isinstance(typ, slang.Scalar) or isinstance(typ, slang.Vector) or isinstance(typ, slang.Matrix):
         pass
     elif isinstance(typ, slang.Array):
         child_typ = typ.type
         if isinstance(child_typ, slang.Resource):
-            sets.setdefault(set, []).append(DescriptorInfo(
-                name, binding, set, child_typ, image_format, typ.count
-            ))
+            sets.setdefault(set, []).append(DescriptorInfo(name, binding, set, child_typ, image_format, typ.count))
     elif isinstance(typ, slang.Struct):
         for f in typ.fields:
-            _flatten_descriptor_sets(sets, f.type, f"{name}.{f.name}" if name else f.name, binding + f.binding, set + f.set, f.image_format)
+            _flatten_descriptor_sets(
+                sets,
+                f.type,
+                f"{name}.{f.name}" if name else f.name,
+                binding + f.binding,
+                set + f.set,
+                f.image_format,
+            )
     elif isinstance(typ, slang.Resource):
-        sets.setdefault(set, []).append(DescriptorInfo(
-            name, binding, set, typ, image_format
-        ))
+        sets.setdefault(set, []).append(DescriptorInfo(name, binding, set, typ, image_format))
     else:
         raise TypeError(f"Unknown slang.Type: {type(typ)}")
+
 
 class DescriptorSetsReflection:
     def __init__(self, refl: slang.Reflection):
@@ -59,23 +83,25 @@ class DescriptorSetsReflection:
             for r in s:
                 self.descriptors[r.name] = r
 
+
 _scalar_to_np = {
-    slang.ScalarKind.BOOL:    np.dtype(bool),
-    slang.ScalarKind.INT8:    np.dtype(np.int8),
-    slang.ScalarKind.UINT8:   np.dtype(np.uint8),
-    slang.ScalarKind.INT16:   np.dtype(np.int16),
-    slang.ScalarKind.UINT16:  np.dtype(np.uint16),
-    slang.ScalarKind.INT32:   np.dtype(np.int32),
-    slang.ScalarKind.UINT32:  np.dtype(np.uint32),
-    slang.ScalarKind.INT64:   np.dtype(np.int64),
-    slang.ScalarKind.UINT64:  np.dtype(np.uint64),
+    slang.ScalarKind.BOOL: np.dtype(bool),
+    slang.ScalarKind.INT8: np.dtype(np.int8),
+    slang.ScalarKind.UINT8: np.dtype(np.uint8),
+    slang.ScalarKind.INT16: np.dtype(np.int16),
+    slang.ScalarKind.UINT16: np.dtype(np.uint16),
+    slang.ScalarKind.INT32: np.dtype(np.int32),
+    slang.ScalarKind.UINT32: np.dtype(np.uint32),
+    slang.ScalarKind.INT64: np.dtype(np.int64),
+    slang.ScalarKind.UINT64: np.dtype(np.uint64),
     slang.ScalarKind.FLOAT16: np.dtype(np.float16),
     slang.ScalarKind.FLOAT32: np.dtype(np.float32),
     slang.ScalarKind.FLOAT64: np.dtype(np.float64),
 }
 
+
 def to_dtype(typ: slang.Type) -> np.dtype:
-    if   isinstance(typ, slang.Scalar):
+    if isinstance(typ, slang.Scalar):
         return _scalar_to_np[typ.base]
     elif isinstance(typ, slang.Vector):
         return np.dtype((_scalar_to_np[typ.base], (typ.count,)))
@@ -87,12 +113,13 @@ def to_dtype(typ: slang.Type) -> np.dtype:
         d = {}
         for f in typ.fields:
             d[f.name] = (to_dtype(f.type), f.offset)
-        return np.dtype(d) # type: ignore
+        return np.dtype(d)  # type: ignore
     else:
         raise TypeError(f"Unknown slang.Type: {type(typ)}")
 
-def print_type(typ: slang.Type, indent = 0):
-    if   isinstance(typ, slang.Scalar):
+
+def print_type(typ: slang.Type, indent=0):
+    if isinstance(typ, slang.Scalar):
         print(" " * indent + f"{typ.base}")
     elif isinstance(typ, slang.Vector):
         print(" " * indent + f"{typ.base}_{typ.count}")
@@ -107,7 +134,10 @@ def print_type(typ: slang.Type, indent = 0):
     elif isinstance(typ, slang.Struct):
         print(" " * indent + "Struct")
         for f in typ.fields:
-            print(" " * (indent + 4) + f"{f.offset:3d} ({f.binding}, {f.set}) | {f.image_format} | {f.name}: ", end="")
+            print(
+                " " * (indent + 4) + f"{f.offset:3d} ({f.binding}, {f.set}) | {f.image_format} | {f.name}: ",
+                end="",
+            )
             print_type(f.type, indent + 4)
     elif isinstance(typ, slang.Resource):
         print(" " * indent + f"Resource[{typ.kind}]")

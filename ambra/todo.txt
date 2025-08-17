@@ -7,6 +7,15 @@ Trivia:
 [ ] isort / black for autoformatting
 [ ] run on CI once we have automated build / tests
 
+Tools:
+    mypy:
+        # configured in tool.mypy
+        pip install mypy
+        mypy -m ambra
+    ruff:
+        # configured in tool.ruff.*
+        pip install ruff
+
 Viewer:
 - [ ] Primitives
     - [ ] 2D Points
