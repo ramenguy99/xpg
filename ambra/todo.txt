@@ -1,29 +1,4 @@
-[ ] Think about clean way to handle handedness / zy up conventions.
-    -> wrap things that care in a separate module, make different default symbols base on config ?
-    -> maybe math and camera utils should expose both, and viewer use config to pick
-
-Trivia:
-[x] add mypy
-[ ] isort / black for autoformatting
-[ ] run on CI once we have automated build / tests
-
-Tools:
-    mypy:
-        # configured in tool.mypy
-        pip install mypy
-        mypy -m ambra
-    ruff:
-        # configured in tool.ruff.*
-        pip install ruff
-        # Lint (not including examples)
-        ruff check --exclude examples
-        ruff check --exclude examples --fix
-        # Sort imports
-        ruff check --select I --fix
-        # Format
-        ruff format
-
-Viewer:
+TODO:
 - [ ] Primitives
     - [ ] 2D Points
     - [x] 2D Lines
@@ -34,9 +9,9 @@ Viewer:
     - [x] 3D Images (e.g. textured quads)
 - [ ] Renderer architecture / path tracer support
 - [-] Server
-- [ ] Gui helpers
-- [ ] Viewports
-- [ ] Strong focus on extensions
+    - [ ] Test design and finish implementing
+    - [ ] Client python package
+    - [ ] C/C++ and rust lib
 - [x] Frame helpers (ideally at object level, shared across all primitives)
     - Fixed framerate
     - Variable rate
@@ -44,6 +19,83 @@ Viewer:
     - Repeat vs hold vs disappear at end of sequence
     -> think about how this fits together with streaming/prefetching/animated properties
     -> also think about how to visualize this in a timeline viewer
+- [x] Transform properties, kinematic trees and node descriptor for constants
+    - [x] Transform 2D
+    - [x] Cleanup constants dup
+- [x] Uniform pool helper
+- [x] Images and upload
+- [x] .create currently has to be called manually on primitives
+- [x] Streaming properties
+    - [x] lines with list instead of np array
+    - [x] heterogeneous size with max_size
+    - [x] streaming prop
+    - [x] trigger all uploads before blocking for rendering -> made properties managed by renderer
+    - [x] prefetching
+            -> likely make a simple mesh class and recreate sequence
+            -> this means also porting some GUI, likey making some helpers, ideally also adding the profiler
+    - [x] unify GpuBufferProperty and GpuImageProperty
+    - [ ] More viewer playback controls (e.g. timeline view, property inspectors)
+    - [ ] Think about getter/setters to update properties and explicit redraw to update properties
+- [ ] Camera movement
+    - [x] Define interface / config / keybindings
+    - [ ] Initialize camera controls with up / distance from config
+    - [ ] Implement getters for front, up, right vectors from camera
+    - [ ] Drag start / end detection
+    - [ ] Camera mode dependent rotate/pan
+    - [ ] Scroll zoom (how to handle moving the target (or reducing the distance)?)
+    Extra:
+    - [ ] 2D controls -> pan only and change zoom mode to modify ortho size?
+- [ ] Viewport:
+    - [x] resize
+    - [ ] multiple viewports
+    - [ ] related to UI if decide to do viewports in ImGui windows, not clear how to do default placement (check docs)
+- [ ] UI: -> likely in common ui place that can be customized / modified (helpers for things like default layout as well, likely configurable)
+    - [x] Scene tree and property view -> custom widget callback per property?
+    - [x] Playback UI
+    - [x] Fps display for debug
+    - [ ] Port built-in profiler
+    - [ ] Expose imgui.get_io for things like want_capture_mouse (or add helper for that)
+    - [ ] Configurable keybindings
+- [ ] Shaders
+    - [ ] cache
+    - [ ] export to spirv during package
+    - [ ] hot reloading
+- [x] Config:
+    - [x] Improve camera initialization (especially ortho for 2D case)
+    - [x] vulkan validation options
+    - [x] add a way to set viewer position in addition to size? (expose glfw for this)
+    - [ ] load from disk / yaml + default locations (e.g. home? cwd?)
+    - [ ] Think about clean way to handle handedness / zy up conventions.
+        -> wrap things that care in a separate module, make different default symbols base on config ?
+        -> maybe math and camera utils should expose both, and viewer use config to pick
+- [x] Hook pyxpg logging into python logging
+- [ ] Extra Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
+    - [ ] Meshoptimizer + meshlets
+    - [ ] Gaussian splats
+    - [ ] Ray marching / octrees
+    - [ ] Marching cubes
+    - [ ] Pointclouds
+    - [ ] Framegraph
+
+Tools:
+- [x] mypy:
+    # configured in tool.mypy
+    pip install mypy
+    mypy -m ambra
+- [x] ruff:
+    # configured in tool.ruff.*
+    pip install ruff
+    # Lint (not including examples)
+    ruff check --exclude examples
+    ruff check --exclude examples --fix
+    # Sort imports
+    ruff check --select I --fix
+    # Format
+    ruff format
+- [ ] run on CI once we have automated build / tests
+
+
+Notes:
 
 Rendering features:
     - Raster (normal viewer):
@@ -75,14 +127,6 @@ Rendering features:
             - Single frame viewer
             - Sequence viewer
 
-Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
-- [ ] Meshoptimizer + meshlets
-- [ ] Gaussian splats
-- [ ] Ray marching / octrees
-- [ ] Marching cubes
-- [ ] Pointclouds
-- [ ] Framegraph
-
 Server:
 -> 3 layers
     -> raw message (format, type, length, data)
@@ -100,27 +144,6 @@ Renderer:
 -> think about what is the best way to support different types of rendering, and how to not duplicate a huge amount of code
 -> 2D vs 3D, raster vs raytrace vs path trace (e.g. accumulation), quality mode (e.g. depth peeling, MSAA, etc..)
 -> how does this play out with implicit prefetching / scene stepping? ideally orthogonal?
-[ ] Maybe outputs also defined by viewer in a way that is
-
-
-Properties:
-[x] Find incremental steps:
-    [x] Single frame
-    [x] Viewer playback controls
-    [x] CPU multi-frame (e.g. line width)
-    [x] GPU multi-frame (e.g. line positions / colors)
-    [ ] More viewer playback controls (e.g. timeline view, property inspectors)
-[x] Frame-by-frame vs time-based playback -> likely should be handled at viewer level
-[x] Freeing in-use buffers -> maybe also can be part of cache? Maybe we really want refcounted buffers for everything?
-[x] Dynamic upload vs pre-upload of everything -> just implement through sequence-like cache? -> explicitly settable, fine for most properties
-[ ] Think about getter/setters to update properties and explicit redraw to update properties
-
-[x] Types of animated properties:
-    -> CPU only (e.g. line width, transforms)
-    -> GPU resources (e.g. positions / colors / textures)
-    -> GPU anymated resources (e.g. skeletal anymation -> this maybe special case enough to think later / bypass the system?)
-[x] How does this play out with disk streaming and prefetching?
-    -> maybe can have a special property type that can be streamed? and then user can pass that in?
 
 Thoughts:
 -> Lets have the interface always be CPU objects, the distinction between data and streaming properties makes sense to
@@ -132,50 +155,3 @@ Thoughts:
     -> can properties be shared across objects? since animation is on the property, i dont see any issue with this
     -> If properties are shared, how to handle their GPU counterparts? Are those owned by objects?
        Are they part of the property itself but optional? How does the user configure prefetching vs preload?
-
-Features:
-[x] Transform properties, kinematic trees and node descriptor for constants
-    [x] Transform 2D
-    [x] Cleanup constants dup
-[x] Uniform pool helper
-[x] Images and upload
-[x] .create currently has to be called manually on primitives
-[x] Streaming properties
-    [x] lines with list instead of np array
-    [x] heterogeneous size with max_size
-    [x] streaming prop
-    [x] trigger all uploads before blocking for rendering -> made properties managed by renderer
-    [x] prefetching
-            -> likely make a simple mesh class and recreate sequence
-            -> this means also porting some GUI, likey making some helpers, ideally also adding the profiler
-    [x] unify GpuBufferProperty and GpuImageProperty
-[ ] Camera movement
-    [x] Define interface / config / keybindings
-    [ ] Initialize camera controls with up / distance from config
-    [ ] Implement getters for front, up, right vectors from camera
-    [ ] Drag start / end detection
-    [ ] Camera mode dependent rotate/pan
-    [ ] Scroll zoom (how to handle moving the target (or reducing the distance)?)
-    Extra:
-    [ ] 2D controls -> pan only and change zoom mode to modify ortho size?
-[ ] Viewport:
-    [x] resize
-    [ ] multiple viewports
-    [ ] related to UI if decide to do viewports in ImGui windows, not clear how to do default placement (check docs)
-[ ] UI: -> likely in common ui place that can be customized / modified (helpers for things like default layout as well, likely configurable)
-    [x] Scene tree and property view -> custom widget callback per property?
-    [x] Playback UI
-    [x] Fps display for debug
-    [ ] Port built-in profiler
-    [ ] Expose imgui.get_io for things like want_capture_mouse (or add helper for that)
-    [ ] Configurable keybindings
-[ ] Shaders
-    [ ] cache
-    [ ] export to spirv during package
-    [ ] hot reloading
-[x] Hook pyxpg logging into python logging
-
-Config:
-[x] Improve camera initialization (especially ortho for 2D case)
-[x] vulkan validation options
-[x] add a way to set viewer position in addition to size? (expose glfw for this)
