@@ -1,4 +1,4 @@
-class hook:
+class hook: # noqa: N801
     def __init__(self, fn):
         self.fn = fn
 
@@ -17,7 +17,7 @@ class hook:
         raise AssertionError("@hook_after decorator object should never be called directly. This can happen if you apply this decorator to a function that is not a method.")
 
 
-class hook_before:
+class hook_before: # noqa: N801
     def __init__(self, fn):
         self.fn = fn
 

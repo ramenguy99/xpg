@@ -29,5 +29,78 @@ line-length = 119
 target-version = "py38"
 
 [tool.ruff.lint]
-select = ["E", "F", "B"]
-ignore = [ "E741", "E501", "B019" ] # Ambigous variable name, I l O variable names
+select = ["ALL" ]
+ignore = [
+# TODO:
+    # Enable also for examples
+
+    # Prints
+    "T201", # remove prints
+
+    # Documentation
+    "D", # missing documentation
+
+# Disabled:
+    # Errors
+    "E501", # line too long
+    "E741", # ambigous variable name, I l O variable names
+
+    # Bugbear
+    "B019", # use of lru_cache or cache
+
+    # Complexity
+    "ERA001",  # commented out code
+    "C901",    # too many statements
+    "PLR0911", # too many return statements
+    "PLR0912", # too many branches
+    "PLR0913", # too many arguments
+    "PLR0915", # too many statements
+    "PLR1714", # merge comparisons in set
+    "PLR2004", # magic constant
+    "PLR5501", # use elif instead of else then if
+    "FBT",     # boolean as arguments and parameters
+    "RET505",  # unnecessary else after return
+    "PLW3301", # nested max calls
+    "PLW0603", # statement modifying globals
+    "SIM110",  # replace for with all
+    "SIM114",  # combine if using or
+
+    # Commas
+    "COM812", # missing trailing comma (conflicts with formatter)
+
+    # Comments fixes and todos
+    "FIX002", # comment contains TODO
+    "FIX004", # comment contains HACK
+    "TD",     # comment contains TODO
+    "PGH003", # type ignore without code
+
+    # Annotations
+    "ANN", # missing type annotations
+    "FA100", # from __future__ import annotations
+    "PYI041", # redundant int | float type
+    "TC001", # import only used for type-checking
+
+    # Imports
+    "TID252", # prefer absolute imports
+
+    # Arguments
+    "ARG001", # unused function argument
+    "ARG002", # unused method argument
+    "ARG003", # unused class method argument
+
+    # Builtin shadowing
+    "A001", # variable shadowing builtin
+    "A002", # function shadowing builtin
+    "A004", # import shadowing builtin
+
+    # Security
+    "S101", # assert
+    "S301", # pickle load
+
+    # Exceptions
+    "EM101", # exception must not use string literal
+    "EM102", # exception must not use f-string literal
+    "TRY003", # exception with long message
+    "BLE001", # do not catch blind exception
+    "SIM105", # use contextlib suppress
+]

@@ -15,9 +15,9 @@ Tools:
     ruff:
         # configured in tool.ruff.*
         pip install ruff
-        # Lint
-        ruff check
-        ruff check --fix
+        # Lint (not including examples)
+        ruff check --exclude examples
+        ruff check --exclude examples --fix
         # Sort imports
         ruff check --select I --fix
         # Format
