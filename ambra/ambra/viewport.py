@@ -81,5 +81,5 @@ class Viewport:
     def on_move(self, position: ivec2) -> None:
         pass
 
-    def on_scroll(sself, scroll: ivec2) -> None:
+    def on_scroll(self, scroll: ivec2) -> None:
         pass

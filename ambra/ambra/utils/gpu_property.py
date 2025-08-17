@@ -286,9 +286,7 @@ class GpuResourceProperty(Generic[R]):
             if self.property.upload.async_load:
                 # Issue prefetches
                 def cpu_prefetch_cleanup(k: int, buf: CpuBuffer) -> bool:
-                    if buf.promise.is_set():
-                        return True
-                    return False
+                    return buf.promise.is_set()
 
                 def cpu_prefetch(k: int, buf: CpuBuffer) -> None:
                     self.thread_pool.submit(buf.promise, self._load_async, k, buf)  # type: ignore
@@ -387,25 +385,25 @@ class GpuResourceProperty(Generic[R]):
                 self.gpu_pool.clear()
 
     def _create_uploaded_resource(self, frame: np.ndarray, name: str) -> R:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def _create_cpu_buffer(self, name: str) -> Buffer:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def _create_gpu_resource(self, name: str) -> R:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def _cmd_upload(self, cmd: CommandBuffer, cpu_buf: CpuBuffer, gpu_res: GpuResource[R]) -> None:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def _cmd_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[R]) -> None:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def _cmd_acquire_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[R]) -> None:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def _cmd_release_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[R]) -> None:
-        raise NotImplementedError()
+        raise NotImplementedError
 
 
 class GpuBufferProperty(GpuResourceProperty[Buffer]):

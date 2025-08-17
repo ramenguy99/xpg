@@ -37,13 +37,14 @@ _log_levels = {
     LogLevel.TRACE: logging.DEBUG,
     LogLevel.DEBUG: logging.DEBUG,
     LogLevel.INFO: logging.INFO,
-    LogLevel.WARN: logging.WARN,
+    LogLevel.WARN: logging.WARNING,
     LogLevel.ERROR: logging.ERROR,
 }
 
 
+_logger = logging.getLogger(__name__)
 def _log(level: LogLevel, c: str, s: str) -> None:
-    logging.log(_log_levels[level], f"[{c}] {s}")
+    _logger.log(_log_levels[level], f"[{c}] {s}")
 
 
 class Viewer:
@@ -388,13 +389,13 @@ class Viewer:
                     start = imgui.get_cursor_screen_pos()
                     dl = imgui.get_window_draw_list()
 
-                    N = self.gui_selected_gpu_property.property.num_frames
+                    num_frames = self.gui_selected_gpu_property.property.num_frames
                     current_frame = self.gui_selected_gpu_property.property.current_frame_index
 
                     if self.gui_selected_gpu_property.cpu_pool:
-                        p_min = np.empty((N, 2), np.float32)
-                        p_max = np.empty((N, 2), np.float32)
-                        delta_x = 5 * np.arange(N, dtype=np.float32)
+                        p_min = np.empty((num_frames, 2), np.float32)
+                        p_max = np.empty((num_frames, 2), np.float32)
+                        delta_x = 5 * np.arange(num_frames, dtype=np.float32)
                         p_min[:, 0] = start.x + delta_x
                         p_min[:, 1] = start.y
                         p_max[:, 0] = (start.x + 6) + delta_x

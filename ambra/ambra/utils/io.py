@@ -6,9 +6,8 @@ def read_exact_into(file: io.FileIO, view: memoryview):
     while bread < len(view):
         n = file.readinto(view[bread:])
         if n == 0:
-            raise EOFError()
-        else:
-            bread += n
+            raise EOFError
+        bread += n
 
 
 def read_exact(file: io.FileIO, size: int):

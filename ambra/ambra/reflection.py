@@ -52,7 +52,7 @@ def _flatten_descriptor_sets(
     set: int,
     image_format: slang.ImageFormat,
 ):
-    if isinstance(typ, slang.Scalar) or isinstance(typ, slang.Vector) or isinstance(typ, slang.Matrix):
+    if isinstance(typ, (slang.Scalar, slang.Vector, slang.Matrix)):
         pass
     elif isinstance(typ, slang.Array):
         child_typ = typ.type

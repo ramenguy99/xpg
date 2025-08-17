@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, Generic, Optional, Tuple, TypeVar
 O = TypeVar("O")
 
 
-class PromiseException(RuntimeError):
+class PromiseError(RuntimeError):
     pass
 
 
@@ -33,9 +33,8 @@ class Promise(Generic[O]):
     def get(self) -> Optional[O]:
         self.event.wait()
         if self.exception is not None:
-            raise PromiseException() from self.exception
-        else:
-            return self.obj
+            raise PromiseError from self.exception
+        return self.obj
 
 
 class ThreadPool(Generic[O]):

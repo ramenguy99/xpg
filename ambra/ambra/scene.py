@@ -123,20 +123,19 @@ class Property:
         return self.get_frame_by_index(self.current_frame_index)
 
     def max_animation_time(self, fps: float) -> float:
-        a = self.animation.max_animation_time(self.num_frames, fps)
-        return a
+        return self.animation.max_animation_time(self.num_frames, fps)
 
     def max_size(self) -> int:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def width(self) -> int:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def height(self) -> int:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def channels(self) -> int:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def get_frame_index(self, time: float, playback_frame: int) -> int:
         return self.animation.get_frame_index(self.num_frames, time, playback_frame)
@@ -154,7 +153,7 @@ class Property:
         return size
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
-        raise NotImplementedError()
+        raise NotImplementedError
 
 
 def view_bytes(a: np.ndarray) -> memoryview:
@@ -193,14 +192,14 @@ class DataProperty(Property):
         if shape is None:
             data = np.atleast_1d(np.asarray(in_data, dtype, order="C"))
             if len(data.shape) > 1:
-                raise ShapeException((1,), data.shape[1:])
+                raise ShapeError((1,), data.shape[1:])
         else:
             if isinstance(in_data, List):
                 data = in_data
                 for i in range(len(in_data)):
                     a = np.asarray(in_data[i], dtype)
                     if not shape_match(shape, a.shape):
-                        raise ShapeException(shape, a.shape)
+                        raise ShapeError(shape, a.shape)
                     data[i] = a
             else:
                 data = np.asarray(in_data, dtype, order="C")
@@ -211,7 +210,7 @@ class DataProperty(Property):
                     # Shape already matches
                     pass
                 else:
-                    raise ShapeException(shape, data.shape)
+                    raise ShapeError(shape, data.shape)
 
         super().__init__(len(data), dtype, shape, animation, upload, name)
         self.data: PropertyData = data
@@ -251,24 +250,24 @@ class StreamingProperty(Property):
 
     # For buffers
     def max_size(self) -> int:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     # For images
     def width(self) -> int:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def height(self) -> int:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def channels(self) -> int:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     # def get_frame_by_index_into(self, frame_index: int, out: memoryview) -> int:
     def get_frame_by_index(self, frame: int, thread_index: int = -1) -> PropertyItem:
-        raise NotImplementedError()
+        raise NotImplementedError
 
 
-class ShapeException(Exception):
+class ShapeError(Exception):
     def __init__(
         self,
         expected: Optional[Tuple[int, ...]],
@@ -291,7 +290,7 @@ def as_property(
 ) -> Property:
     if isinstance(value, Property):
         if not shape_match(shape, value.shape):
-            raise ShapeException(shape, value.shape)
+            raise ShapeError(shape, value.shape)
         if dtype is not None and not np.dtype(dtype) == value.dtype:
             raise TypeError(f"dtype mismatch. Expected: {dtype}. Got: {value.dtype}")
         if animation is not None:
@@ -312,7 +311,7 @@ class Object:
     def __init__(self, name: Optional[str] = None):
         self.uid = Object.next_id()
         self.name = name or f"{type(self).__name__} - {self.uid}"
-        self.children: List["Object"] = []
+        self.children: List[Object] = []
         self.properties: List[Property] = []
 
         self.created = False

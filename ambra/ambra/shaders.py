@@ -33,43 +33,44 @@ def vulkan_version_to_minimum_supported_spirv_version(
     if version[0] == 1:
         if version[1] == 0:
             return "spirv_1_0"
-        elif version[1] == 1:
+        if version[1] == 1:
             return "spirv_1_3"
-        elif version[1] == 2:
+        if version[1] == 2:
             return "spirv_1_5"
-        elif version[1] == 3 or version[1] == 4:
+        if version[1] == 3 or version[1] == 4:
             return "spirv_1_6"
     return "spirv_1_6"
 
 
 def compile(file: Path, entry: str = "main", target: str = "spirv_1_3") -> slang.Shader:
-    name = f"{hashlib.sha256(file.read_bytes()).digest().hex()}_{entry}_{target}_{CACHE_VERSION}.shdr"
+    name = f"{hashlib.sha256(file.read_bytes()).hexdigest()}_{entry}_{target}_{CACHE_VERSION}.shdr"
 
     # Check cache
     path = Path(CACHE_DIR, name)
     if path.exists():
         try:
-            pkl = pickle.load(open(path, "rb"))
+            with path.open("rb") as f:
+                pkl = pickle.load(f)
             prog: slang.Shader = pkl[0]
             old_hashes: List[str] = pkl[1]
 
             # Check if any of the dependent files changed from when the shader
             # was serialized.
             assert len(prog.dependencies) == len(old_hashes)
-            new_hashes = [hashlib.sha256(Path(d).read_bytes()).digest().hex() for d in sorted(prog.dependencies)]
+            new_hashes = [hashlib.sha256(Path(d).read_bytes()).hexdigest() for d in sorted(prog.dependencies)]
             if new_hashes == old_hashes:
                 print(f"Cache hit: {file}")
                 return prog
         except Exception as e:
             print(f"Shader cache hit invalid: {e}")
-            pass
 
     # Create prog
     print(f"Shader cache miss: {file}")
     prog = slang.compile(str(file), entry, target)
-    hashes = [hashlib.sha256(Path(d).read_bytes()).digest().hex() for d in sorted(prog.dependencies)]
+    hashes = [hashlib.sha256(Path(d).read_bytes()).hexdigest() for d in sorted(prog.dependencies)]
 
     # Populate cache
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    pickle.dump((prog, hashes), open(path, "wb"))
+    with path.open("wb") as f:
+        pickle.dump((prog, hashes), f)
     return prog
