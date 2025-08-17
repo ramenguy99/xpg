@@ -1,29 +1,29 @@
-from typing import Optional, List, Dict, Union, Generic, TypeVar
 from dataclasses import dataclass
 from enum import Enum, auto
-import numpy as np
+from typing import Dict, Generic, List, Optional, TypeVar, Union
 
+import numpy as np
 from pyxpg import (
-    BufferUsageFlags,
-    ImageUsageFlags,
-    Format,
-    ImageLayout,
-    TimelineSemaphore,
-    PipelineStageFlags,
     AllocType,
-    Context,
     Buffer,
-    MemoryUsage,
+    BufferUsageFlags,
     CommandBuffer,
+    Context,
+    Format,
     Image,
+    ImageLayout,
+    ImageUsageFlags,
+    MemoryUsage,
+    PipelineStageFlags,
+    TimelineSemaphore,
 )
 
-from .threadpool import Promise, ThreadPool
+from ..config import UploadMethod
+from ..renderer_frame import RendererFrame, SemaphoreInfo
 from ..scene import Property, view_bytes
 from .gpu import UploadableBuffer, UploadableImage, get_image_pitch_and_rows
-from ..renderer_frame import RendererFrame, SemaphoreInfo
 from .lru_pool import LRUPool
-from ..config import UploadMethod
+from .threadpool import Promise, ThreadPool
 
 
 class CpuBuffer:

@@ -1,15 +1,14 @@
 from dataclasses import dataclass
-
 from enum import Enum, auto
-from typing import Optional, Union, List, Tuple, Callable
+from typing import Callable, List, Optional, Tuple, Union
+
 import numpy as np
-from pyglm.glm import vec3, vec2, quat, mat3, mat4
+from numpy.typing import DTypeLike
+from pyglm.glm import mat3, mat4, quat, vec2, vec3
+from pyxpg import imgui
+
 from .transform2d import Transform2D
 from .transform3d import Transform3D
-
-from numpy.typing import DTypeLike
-
-from pyxpg import imgui
 
 PropertyItem = np.ndarray
 PropertyData = Union[List[np.ndarray], np.ndarray]

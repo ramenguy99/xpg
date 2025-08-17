@@ -1,37 +1,37 @@
+from typing import Optional, Union
+
+import numpy as np
 from pyxpg import (
-    BufferUsageFlags,
-    Shader,
-    GraphicsPipeline,
-    PipelineStage,
-    Stage,
-    MemoryUsage,
-    VertexAttribute,
-    VertexBinding,
-    VertexInputRate,
-    Rasterization,
-    InputAssembly,
-    Format,
-    PrimitiveTopology,
     Attachment,
-    DeviceFeatures,
-    RenderingAttachment,
-    ImageUsageFlags,
-    ImageLayout,
-    Filter,
-    Sampler,
-    PipelineStageFlags,
-    SamplerAddressMode,
+    BufferUsageFlags,
     DescriptorSet,
     DescriptorSetEntry,
     DescriptorType,
+    DeviceFeatures,
+    Filter,
+    Format,
+    GraphicsPipeline,
+    ImageLayout,
+    ImageUsageFlags,
+    InputAssembly,
+    MemoryUsage,
+    PipelineStage,
+    PipelineStageFlags,
+    PrimitiveTopology,
+    Rasterization,
+    RenderingAttachment,
+    Sampler,
+    SamplerAddressMode,
+    Shader,
+    Stage,
+    VertexAttribute,
+    VertexBinding,
+    VertexInputRate,
 )
-from .scene import Property, Object2D
-from .renderer import Renderer, RendererFrame
-from .utils.ring_buffer import RingBuffer
-from typing import Union
 
-from typing import Optional
-import numpy as np
+from .renderer import Renderer, RendererFrame
+from .scene import Object2D, Property
+from .utils.ring_buffer import RingBuffer
 
 
 class Lines(Object2D):

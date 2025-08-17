@@ -1,16 +1,16 @@
-from ambra.scene import StreamingProperty, UploadSettings
-from ambra.viewer import Viewer
-from ambra.primitives2d import Image
+import numpy as np
+
 from ambra.config import (
+    CameraType,
     Config,
+    GuiConfig,
     PlaybackConfig,
     RendererConfig,
-    GuiConfig,
-    CameraType,
 )
+from ambra.primitives2d import Image
+from ambra.scene import StreamingProperty, UploadSettings
 from ambra.utils.gpu import Format
-
-import numpy as np
+from ambra.viewer import Viewer
 
 viewer = Viewer(
     "primitives",

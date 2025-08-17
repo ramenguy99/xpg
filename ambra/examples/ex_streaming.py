@@ -1,20 +1,20 @@
+import numpy as np
+from pyglm.glm import vec3
+
+from ambra.config import (
+    CameraType,
+    Config,
+    PlaybackConfig,
+    RendererConfig,
+    UploadMethod,
+)
+from ambra.primitives2d import Lines
 from ambra.scene import (
     UploadSettings,
     as_property,
 )
-from ambra.viewer import Viewer
-from ambra.primitives2d import Lines
 from ambra.transform3d import RigidTransform3D
-from ambra.config import (
-    Config,
-    PlaybackConfig,
-    CameraType,
-    RendererConfig,
-    UploadMethod,
-)
-from pyglm.glm import vec3
-
-import numpy as np
+from ambra.viewer import Viewer
 
 viewer = Viewer(
     "primitives",

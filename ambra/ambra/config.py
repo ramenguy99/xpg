@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Tuple, Optional
 from enum import Enum
+from typing import Optional, Tuple
 
 
 class LogLevel(Enum):

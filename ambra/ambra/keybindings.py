@@ -1,5 +1,6 @@
-from pyxpg import Key, Modifiers, MouseButton
 from dataclasses import dataclass
+
+from pyxpg import Key, Modifiers, MouseButton
 
 
 @dataclass(frozen=True)

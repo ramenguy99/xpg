@@ -1,40 +1,41 @@
+from typing import Optional, Union
+
+import numpy as np
 from pyxpg import (
-    BufferUsageFlags,
-    Shader,
-    GraphicsPipeline,
-    PipelineStage,
-    Stage,
-    MemoryUsage,
-    VertexAttribute,
-    VertexBinding,
-    VertexInputRate,
-    Rasterization,
-    InputAssembly,
-    Format,
-    PrimitiveTopology,
     Attachment,
-    DeviceFeatures,
-    RenderingAttachment,
-    ImageUsageFlags,
-    ImageLayout,
-    Filter,
-    Sampler,
-    PipelineStageFlags,
-    SamplerAddressMode,
+    BufferUsageFlags,
+    CullMode,
+    Depth,
+    DepthAttachment,
     DescriptorSet,
     DescriptorSetEntry,
     DescriptorType,
-    CullMode,
+    DeviceFeatures,
+    Filter,
+    Format,
     FrontFace,
-    Depth,
-    DepthAttachment,
+    GraphicsPipeline,
+    ImageLayout,
+    ImageUsageFlags,
+    InputAssembly,
+    MemoryUsage,
+    PipelineStage,
+    PipelineStageFlags,
+    PrimitiveTopology,
+    Rasterization,
+    RenderingAttachment,
+    Sampler,
+    SamplerAddressMode,
+    Shader,
+    Stage,
+    VertexAttribute,
+    VertexBinding,
+    VertexInputRate,
 )
-from .scene import Property, Object3D
-from .renderer import Renderer, RendererFrame
-from .utils.gpu import RingBuffer
 
-from typing import Optional, Union
-import numpy as np
+from .renderer import Renderer, RendererFrame
+from .scene import Object3D, Property
+from .utils.gpu import RingBuffer
 
 
 class Lines(Object3D):

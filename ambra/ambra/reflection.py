@@ -1,7 +1,8 @@
-from pyxpg import slang, DescriptorType
-import numpy as np
 from dataclasses import dataclass
 from typing import Dict, List
+
+import numpy as np
+from pyxpg import DescriptorType, slang
 
 
 @dataclass

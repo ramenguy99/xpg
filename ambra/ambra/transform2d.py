@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from pyglm.glm import vec2, mat3, rotate
+
+from pyglm.glm import mat3, rotate, vec2
 
 
 @dataclass

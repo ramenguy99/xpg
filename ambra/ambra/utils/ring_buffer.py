@@ -1,5 +1,4 @@
-from typing import TypeVar, List, Generic, Iterator
-
+from typing import Generic, Iterator, List, TypeVar
 
 R = TypeVar("R")
 

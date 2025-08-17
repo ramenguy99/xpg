@@ -29,4 +29,5 @@ line-length = 119
 target-version = "py38"
 
 [tool.ruff.lint]
-ignore = [ "E741" ] # Ambigous variable name, I l O variable names
+select = ["E", "F", "B"]
+ignore = [ "E741", "E501", "B019" ] # Ambigous variable name, I l O variable names

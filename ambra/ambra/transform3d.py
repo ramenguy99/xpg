@@ -1,12 +1,13 @@
 from dataclasses import dataclass
+
 from pyglm.glm import (
-    vec3,
-    quat,
-    mat4,
-    quatLookAtRH,
-    normalize,
-    mat4_cast,
     inverse,
+    mat4,
+    mat4_cast,
+    normalize,
+    quat,
+    quatLookAtRH,
+    vec3,
 )
 
 

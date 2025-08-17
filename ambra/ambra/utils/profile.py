@@ -1,5 +1,5 @@
-from time import perf_counter_ns
 from contextlib import contextmanager
+from time import perf_counter_ns
 
 
 @contextmanager

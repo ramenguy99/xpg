@@ -14,9 +14,7 @@ class hook:
         setattr(owner, name, _decorator)
 
     def __call__(self):
-        assert False, (
-            "@hook_after decorator object should never be called directly. This can happen if you apply this decorator to a function that is not a method."
-        )
+        raise AssertionError("@hook_after decorator object should never be called directly. This can happen if you apply this decorator to a function that is not a method.")
 
 
 class hook_before:
@@ -36,6 +34,4 @@ class hook_before:
         setattr(owner, name, _decorator)
 
     def __call__(self):
-        assert False, (
-            "@hook decorator object should never be called directly. This can happen if you apply this decorator to a function that is not a method."
-        )
+        raise AssertionError("@hook decorator object should never be called directly. This can happen if you apply this decorator to a function that is not a method.")

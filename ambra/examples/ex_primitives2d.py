@@ -1,15 +1,15 @@
-from ambra.scene import (
-    FrameAnimation,
-    as_property,
-    AnimationBoundary,
-)
-from ambra.viewer import Viewer
-from ambra.primitives2d import Lines
-from ambra.transform3d import RigidTransform3D
-from ambra.config import Config, PlaybackConfig, CameraType
+import numpy as np
 from pyglm.glm import vec3
 
-import numpy as np
+from ambra.config import CameraType, Config, PlaybackConfig
+from ambra.primitives2d import Lines
+from ambra.scene import (
+    AnimationBoundary,
+    FrameAnimation,
+    as_property,
+)
+from ambra.transform3d import RigidTransform3D
+from ambra.viewer import Viewer
 
 viewer = Viewer(
     "primitives",

@@ -1,8 +1,8 @@
-from pyxpg import imgui, Key, Action, Modifiers
-import ambra
+from pyxpg import Action, Key, Modifiers, imgui
 
+import ambra
 from ambra.config import Config
-from ambra.server import Client, RawMessage, MessageId
+from ambra.server import Client, MessageId, RawMessage
 from ambra.utils.hook import hook
 
 

@@ -1,37 +1,37 @@
-from typing import Optional, Union, Tuple, Any
-from queue import Queue, Empty
-from time import perf_counter_ns
 import logging
+from queue import Empty, Queue
+from time import perf_counter_ns
+from typing import Any, Optional, Tuple, Union
 
+import numpy as np
 from pyglm.glm import ivec2, vec2, vec3
 from pyxpg import (
-    Context,
-    Window,
-    Gui,
-    DeviceFeatures,
-    Key,
-    MouseButton,
     Action,
-    Modifiers,
-    SwapchainStatus,
-    process_events,
-    imgui,
+    Context,
+    DeviceFeatures,
+    Gui,
+    Key,
     LogCapture,
     LogLevel,
+    Modifiers,
+    MouseButton,
+    SwapchainStatus,
+    Window,
+    imgui,
+    process_events,
     set_log_level,
 )
-import numpy as np
 
-from .config import Config, CameraType
-from .server import Server, Client, RawMessage, Message, parse_builtin_messages
+from .camera import CameraDepth, OrthographicCamera, PerspectiveCamera
+from .config import CameraType, Config
+from .keybindings import KeyMap
 from .renderer import Renderer
+from .scene import Object, Scene
+from .server import Client, Message, RawMessage, Server, parse_builtin_messages
+from .transform3d import RigidTransform3D
 from .utils.gpu_property import GpuBufferProperty, GpuImageProperty
 from .utils.lru_pool import LRUPool
-from .scene import Object, Scene
-from .camera import PerspectiveCamera, OrthographicCamera, CameraDepth
-from .transform3d import RigidTransform3D
-from .viewport import Viewport, Playback, Rect
-from .keybindings import KeyMap
+from .viewport import Playback, Rect, Viewport
 
 _log_levels = {
     LogLevel.TRACE: logging.DEBUG,

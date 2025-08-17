@@ -1,15 +1,15 @@
-from typing import (
-    Callable,
-    List,
-    Optional,
-    Dict,
-    Tuple,
-    TypeVar,
-    Generic,
-    Sequence,
-)
 from collections import OrderedDict
 from dataclasses import dataclass
+from typing import (
+    Callable,
+    Dict,
+    Generic,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    TypeVar,
+)
 
 
 class _RefCount:

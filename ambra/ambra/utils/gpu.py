@@ -1,25 +1,25 @@
+from dataclasses import dataclass
+from typing import List, Optional, Tuple, Union
+
+import numpy as np
 from pyxpg import (
-    Context,
+    AllocType,
     Buffer,
     BufferUsageFlags,
-    Image,
-    ImageLayout,
-    ImageUsageFlags,
-    Format,
-    AllocType,
     CommandBuffer,
-    MemoryUsage,
+    Context,
     DescriptorSet,
     DescriptorSetEntry,
     DescriptorType,
+    Format,
+    Image,
+    ImageLayout,
+    ImageUsageFlags,
+    MemoryUsage,
     get_format_info,
 )
-from typing import Optional, List, Union, Tuple
-from dataclasses import dataclass
 
 from .ring_buffer import RingBuffer
-
-import numpy as np
 
 
 class UploadableBuffer(Buffer):

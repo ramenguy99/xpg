@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from pyglm.glm import vec2, vec3, mat4, perspectiveRH_ZO, orthoRH_ZO
+
+from pyglm.glm import mat4, orthoRH_ZO, perspectiveRH_ZO, vec2, vec3
+
 from .transform3d import RigidTransform3D
 
 # Users:

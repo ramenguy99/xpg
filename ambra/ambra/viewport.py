@@ -1,10 +1,11 @@
 import math
 from dataclasses import dataclass
+
 from pyglm.glm import ivec2
 
-from .scene import Scene
 from .camera import Camera
 from .config import PlaybackConfig
+from .scene import Scene
 
 
 class Playback:

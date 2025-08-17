@@ -1,18 +1,18 @@
-from ambra.scene import StreamingProperty, UploadSettings
-from ambra.viewer import Viewer
-from ambra.primitives3d import Mesh
-from ambra.config import Config, PlaybackConfig, RendererConfig, GuiConfig
-from ambra.utils.io import (
-    read_exact,
-    read_exact_at_offset_into,
-    read_exact_at_offset,
-)
-
-import numpy as np
+import logging
 import struct
 from pathlib import Path
 
-import logging
+import numpy as np
+
+from ambra.config import Config, GuiConfig, PlaybackConfig, RendererConfig
+from ambra.primitives3d import Mesh
+from ambra.scene import StreamingProperty, UploadSettings
+from ambra.utils.io import (
+    read_exact,
+    read_exact_at_offset,
+    read_exact_at_offset_into,
+)
+from ambra.viewer import Viewer
 
 logging.basicConfig(
     level=logging.NOTSET,

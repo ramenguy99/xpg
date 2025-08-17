@@ -1,10 +1,10 @@
-from ambra.scene import FrameAnimation, as_property, AnimationBoundary
-from ambra.viewer import Viewer
-from ambra.primitives3d import Image
-from ambra.config import Config, PlaybackConfig
-from ambra.utils.gpu import Format
-
 import numpy as np
+
+from ambra.config import Config, PlaybackConfig
+from ambra.primitives3d import Image
+from ambra.scene import AnimationBoundary, FrameAnimation, as_property
+from ambra.utils.gpu import Format
+from ambra.viewer import Viewer
 
 viewer = Viewer(
     "primitives",

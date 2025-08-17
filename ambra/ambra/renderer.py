@@ -1,44 +1,44 @@
-from pyxpg import (
-    Context,
-    Window,
-    DescriptorSet,
-    DescriptorSetEntry,
-    BufferUsageFlags,
-    DeviceFeatures,
-    DescriptorType,
-    PhysicalDeviceType,
-    Image,
-    Format,
-    ImageUsageFlags,
-    CompareOp,
-    MemoryUsage,
-    PipelineStageFlags,
-    AllocType,
-    ImageLayout,
-    slang,
-    Gui,
-    ImageAspectFlags,
-    LoadOp,
-    StoreOp,
-    RenderingAttachment,
-)
-from .config import RendererConfig, UploadMethod
-from .scene import Property
-from .shaders import compile
-from .utils.gpu import UploadableBuffer, UniformPool
-from .utils.gpu_property import GpuBufferProperty, GpuImageProperty
-from .utils.ring_buffer import RingBuffer
-from .viewport import Viewport
-from .utils.threadpool import ThreadPool
-from .renderer_frame import RendererFrame
-
-from pathlib import Path
-from typing import List, Union, Optional
-from functools import cache
-import sys
 import os
+import sys
+from functools import cache
+from pathlib import Path
+from typing import List, Optional, Union
 
 import numpy as np
+from pyxpg import (
+    AllocType,
+    BufferUsageFlags,
+    CompareOp,
+    Context,
+    DescriptorSet,
+    DescriptorSetEntry,
+    DescriptorType,
+    DeviceFeatures,
+    Format,
+    Gui,
+    Image,
+    ImageAspectFlags,
+    ImageLayout,
+    ImageUsageFlags,
+    LoadOp,
+    MemoryUsage,
+    PhysicalDeviceType,
+    PipelineStageFlags,
+    RenderingAttachment,
+    StoreOp,
+    Window,
+    slang,
+)
+
+from .config import RendererConfig, UploadMethod
+from .renderer_frame import RendererFrame
+from .scene import Property
+from .shaders import compile
+from .utils.gpu import UniformPool, UploadableBuffer
+from .utils.gpu_property import GpuBufferProperty, GpuImageProperty
+from .utils.ring_buffer import RingBuffer
+from .utils.threadpool import ThreadPool
+from .viewport import Viewport
 
 SHADERS_PATH = Path(__file__).parent.joinpath("shaders")
 

@@ -15,6 +15,13 @@ Tools:
     ruff:
         # configured in tool.ruff.*
         pip install ruff
+        # Lint
+        ruff check
+        ruff check --fix
+        # Sort imports
+        ruff check --select I --fix
+        # Format
+        ruff format
 
 Viewer:
 - [ ] Primitives
