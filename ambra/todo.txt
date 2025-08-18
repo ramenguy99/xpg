@@ -35,6 +35,9 @@ TODO:
             -> this means also porting some GUI, likey making some helpers, ideally also adding the profiler
     - [x] unify GpuBufferProperty and GpuImageProperty
     - [ ] More viewer playback controls (e.g. timeline view, property inspectors)
+        - Look at imguizmo sequencer, but likely re-implement with custom use-case in mind
+        - Likely want to do most of the ui work in C++ and just offer callbacks for input like click/over/tooltip etc..
+        - Look at rerun timeline for feature ideas
     - [ ] Think about getter/setters to update properties and explicit redraw to update properties
 - [ ] Camera movement
     - [x] Define interface / config / keybindings
@@ -69,6 +72,9 @@ TODO:
         -> wrap things that care in a separate module, make different default symbols base on config ?
         -> maybe math and camera utils should expose both, and viewer use config to pick
 - [x] Hook pyxpg logging into python logging
+- [ ] Cleanup before release:
+    - [ ] Public vs private API (hide / protect internal stuff)
+    - [ ] Unit tests on all python versions (likely with lavapipe on CI)
 - [ ] Extra Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
     - [ ] Meshoptimizer + meshlets
     - [ ] Gaussian splats
@@ -132,6 +138,12 @@ Server:
     -> raw message (format, type, length, data)
     -> per format parser
     -> parsed message
+    Protocols: tcp, http, websockets
+    Formats: binary, json, msgpack, pickle (maybe behind off-by-default flag for better security?)
+    Builtin-messages:
+    - Frame / playback control
+    - camera control
+    - create, update, delete objects
 -> what about REST? it might be convenient to speak with the viewer direclty in rest, different API?
    wrap this API into a rest API? e.g. JSON for body is same as this, and type encoded in endpoint? seems doable
     -> what we have now will be a TcpServer, can also have an  HttpServer and maybe others too?, basically different ways to produce a RawMessage
