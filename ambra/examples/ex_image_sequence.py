@@ -1,7 +1,7 @@
 import numpy as np
 
 from ambra.config import (
-    CameraType,
+    CameraProjection,
     Config,
     GuiConfig,
     PlaybackConfig,
@@ -30,7 +30,7 @@ viewer = Viewer(
             inspector=True,
             renderer=True,
         ),
-        camera_type=CameraType.ORTHOGRAPHIC,
+        camera_type=CameraProjection.ORTHOGRAPHIC,
         ortho_half_extents=(2, 2),
     ),
 )

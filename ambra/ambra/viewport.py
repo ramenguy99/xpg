@@ -1,5 +1,6 @@
 import math
 from dataclasses import dataclass
+from typing import Union
 
 from pyglm.glm import (
     acos,
@@ -8,6 +9,7 @@ from pyglm.glm import (
     distance,
     dot,
     ivec2,
+    mat3,
     mat3_cast,
     mat4,
     normalize,
@@ -20,10 +22,10 @@ from pyglm.glm import (
     vec4,
 )
 
-from .camera import Camera
-from .config import CameraControlMode, Handedness, PlaybackConfig
+from .camera import CameraDepth, OrthographicCamera, PerspectiveCamera
+from .config import Axis, CameraConfig, CameraControlMode, CameraProjection, Handedness, PlaybackConfig
 from .scene import Scene
-from .transform3d import RigidTransform3D
+from .transform3d import RigidTransform3D, axis_to_direction
 
 
 class Playback:
@@ -72,35 +74,68 @@ class Viewport:
     def __init__(
         self,
         rect: Rect,
-        camera: Camera,
-        camera_control_mode: CameraControlMode,
         scene: Scene,
         playback: Playback,
+        camera_config: CameraConfig,
+        world_up_axis: Axis,
+        handedness: Handedness,
     ):
+        world_up_vector = axis_to_direction(world_up_axis)
+        camera_from_world = RigidTransform3D.look_at(
+            vec3(camera_config.position),
+            vec3(camera_config.target),
+            world_up_vector,
+            handedness,
+        )
+
+        camera: Union[PerspectiveCamera, OrthographicCamera]
+        if camera_config.projection == CameraProjection.PERSPECTIVE:
+            camera = PerspectiveCamera(
+                camera_from_world,
+                CameraDepth(camera_config.z_min, camera_config.z_max),
+                rect.width / rect.height,
+                camera_config.perspective_vertical_fov,
+            )
+        elif camera_config.projection == CameraProjection.ORTHOGRAPHIC:
+            camera = OrthographicCamera(
+                camera_from_world,
+                CameraDepth(camera_config.z_min, camera_config.z_max),
+                rect.width / rect.height,
+                vec2(camera_config.ortho_center),
+                vec2(camera_config.ortho_half_extents),
+            )
+        else:
+            raise RuntimeError(f"Unhandled camera type {camera_config.projection}")
+
         self.rect = rect
         self.camera = camera
-        self.camera_control_mode = camera_control_mode
         self.scene = scene
         self.playback = playback
 
-        # config (TODO: pass through)
-        self.camera_target = vec3(0, 0, 0)
-        self.camera_world_up = vec3(0, 1, 0)
-        self.camera_rotation_speed = vec2(0.005)
-        self.camera_pan_distance_speed_scale = 0.1
-        self.camera_pan_min_speed_scale = 0.1
-        self.camera_pan_speed = vec2(0.01)
-        self.camera_zoom_speed = 0.1
-        self.camera_zoom_distance_speed_scale = 1
-        self.camera_zoom_min_speed_scale = 2
-        self.camera_zoom_min_target_distance = 0.01
-        self.handedness = Handedness.RIGHT_HANDED
+        # Config
+        self.handedness = handedness
+        self.camera_world_up = world_up_vector
+        self.camera_target = vec3(camera_config.target)
+        self.camera_control_mode = camera_config.control_mode
+        self.camera_rotation_speed = vec2(camera_config.rotation_speed)
+        self.camera_pan_speed = vec2(camera_config.pan_speed)
+        self.camera_pan_distance_speed_scale = camera_config.pan_distance_speed_scale
+        self.camera_pan_min_speed_scale = camera_config.pan_min_speed_scale
+        self.camera_zoom_speed = camera_config.zoom_speed
+        self.camera_zoom_distance_speed_scale = camera_config.zoom_distance_speed_scale
+        self.camera_zoom_min_speed_scale = camera_config.zoom_min_speed_scale
+        self.camera_zoom_min_target_distance = camera_config.zoom_min_target_distance
 
-        # state
+        # State
         self.rotate_pressed = False
         self.pan_pressed = False
-        self.drag_start_position = ivec2(0, 0)
-        self.drag_start_transform = mat4()
+        self.drag_start_mouse_position = ivec2(0, 0)
+        self.drag_start_camera_inverse_view_rotation = mat3()
+        self.drag_start_camera_position = vec3(0)
+        self.drag_start_camera_target = vec3(0)
+        self.drag_start_camera_right = vec3(0)
+        self.drag_start_camera_up = vec3(0)
+        self.drag_start_camera_pitch = 0.0
 
     def resize(self, width: int, height: int) -> None:
         self.rect.width = width
@@ -108,13 +143,10 @@ class Viewport:
         self.camera.ar = width / height
 
     def start_drag(self, position: ivec2) -> None:
-        # Initial mouse position
-        self.drag_start_position = position
-
-        # Initial camera state
-        self.drag_start_camera_inverse_view_rotation = transpose(mat3_cast(self.camera.camera_from_world.rotation))
+        self.drag_start_mouse_position = position
+        self.drag_start_camera_inverse_view_rotation = transpose(mat3_cast(self.camera.camera_from_world.rotation))  # type: ignore
         self.drag_start_camera_position = self.camera.position()
-        self.drag_start_camera_target = vec3(self.camera_target)
+        self.drag_start_camera_target = self.camera_target
         right, up, front = self.camera.right_up_front()
         self.drag_start_camera_right = right
         self.drag_start_camera_up = up
@@ -139,14 +171,14 @@ class Viewport:
 
     def on_move(self, position: ivec2) -> None:
         if self.pan_pressed:
-            self.pan(self.drag_start_position, position)
+            self.pan(self.drag_start_mouse_position, position)
         if self.rotate_pressed:
             if self.camera_control_mode == CameraControlMode.ORBIT:
-                self.rotate_orbit(self.drag_start_position, position)
+                self.rotate_orbit(self.drag_start_mouse_position, position)
             elif self.camera_control_mode == CameraControlMode.TRACKBALL:
-                self.rotate_trackball(self.drag_start_position, position)
+                self.rotate_trackball(self.drag_start_mouse_position, position)
             elif self.camera_control_mode == CameraControlMode.FIRST_PERSON:
-                self.rotate_first_person(self.drag_start_position, position)
+                self.rotate_first_person(self.drag_start_mouse_position, position)
             elif (
                 # self.camera_control_mode == CameraControlMode.PAN_AND_ZOOM_ORTHO or
                 self.camera_control_mode == CameraControlMode.NONE

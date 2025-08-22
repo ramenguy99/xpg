@@ -47,7 +47,7 @@ class PlaybackConfig:
     max_time: Optional[float] = None
 
 
-class CameraType(Enum):
+class CameraProjection(Enum):
     PERSPECTIVE = 0
     ORTHOGRAPHIC = 1
 
@@ -80,6 +80,34 @@ class GuiConfig:
 
 
 @dataclass
+class CameraConfig:
+    # Inital state
+    projection: CameraProjection = CameraProjection.PERSPECTIVE
+    position: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    target: Tuple[float, float, float] = (0.0, 0.0, 1.0)
+    z_min: float = 0.001
+    z_max: float = 1000.0
+
+    # If type is CameraProjection.PERSPECTIVE
+    perspective_vertical_fov: float = 45.0
+
+    # If type is CameraProjection.ORTHOGRAPHIC
+    ortho_center: Tuple[float, float] = (0.0, 0.0)
+    ortho_half_extents: Tuple[float, float] = (1.0, 1.0)
+
+    # Viewport camera controls
+    control_mode: CameraControlMode = CameraControlMode.ORBIT
+    rotation_speed: Tuple[float, float] = (0.005, 0.005)
+    pan_speed: Tuple[float, float] = (0.01, 0.01)
+    pan_distance_speed_scale: float = 0.1
+    pan_min_speed_scale: float = 0.1
+    zoom_speed: float = 0.1
+    zoom_distance_speed_scale: float = 1.0
+    zoom_min_speed_scale: float = 2.0
+    zoom_min_target_distance: float = 0.01
+
+
+@dataclass
 class Config:
     # Logging
     log_level: LogLevel = LogLevel.DISABLED
@@ -101,19 +129,9 @@ class Config:
     enable_gpu_based_validation: bool = False
 
     # Scene
-    world_up: Axis = Axis.Y
+    world_up_axis: Axis = Axis.Y
     handedness: Handedness = Handedness.RIGHT_HANDED
-
-    camera_type: CameraType = CameraType.PERSPECTIVE
-    camera_control_mode: CameraControlMode = CameraControlMode.ORBIT
-    camera_position: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-    camera_target: Tuple[float, float, float] = (0.0, 0.0, 1.0)
-
-    z_min: float = 0.001
-    z_max: float = 1000.0
-    perspective_vertical_fov: float = 45.0
-    ortho_center: Tuple[float, float] = (0.0, 0.0)
-    ortho_half_extents: Tuple[float, float] = (1, 1)
+    camera: CameraConfig = field(default_factory=CameraConfig)
 
     # Stats
     stats_frame_time_count: int = 32

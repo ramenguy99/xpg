@@ -1,6 +1,6 @@
 import numpy as np
 
-from ambra.config import CameraType, Config, PlaybackConfig
+from ambra.config import CameraProjection, Config, PlaybackConfig
 from ambra.primitives2d import Image
 from ambra.scene import AnimationBoundary, FrameAnimation, as_property
 from ambra.utils.gpu import Format
@@ -13,7 +13,7 @@ viewer = Viewer(
             enabled=True,
             playing=True,
         ),
-        camera_type=CameraType.ORTHOGRAPHIC,
+        camera_type=CameraProjection.ORTHOGRAPHIC,
         ortho_half_extents=(10, 10),
     ),
 )

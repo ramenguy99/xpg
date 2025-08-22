@@ -2,7 +2,7 @@ import numpy as np
 from pyglm.glm import vec3
 
 from ambra.config import (
-    CameraType,
+    CameraProjection,
     Config,
     PlaybackConfig,
     RendererConfig,
@@ -23,7 +23,7 @@ viewer = Viewer(
             enabled=True,
             playing=True,
         ),
-        camera_type=CameraType.ORTHOGRAPHIC,
+        camera_type=CameraProjection.ORTHOGRAPHIC,
         ortho_half_extents=(10, 10),
         renderer=RendererConfig(
             force_buffer_upload_method=UploadMethod.GFX,

@@ -4,7 +4,7 @@ from time import perf_counter_ns
 from typing import Any, Optional, Tuple, Union
 
 import numpy as np
-from pyglm.glm import ivec2, vec2, vec3
+from pyglm.glm import ivec2
 from pyxpg import (
     Action,
     Context,
@@ -22,13 +22,11 @@ from pyxpg import (
     set_log_level,
 )
 
-from .camera import CameraDepth, OrthographicCamera, PerspectiveCamera
-from .config import CameraType, Config
+from .config import Config
 from .keybindings import KeyMap
 from .renderer import Renderer
 from .scene import Object, Scene
 from .server import Client, Message, RawMessage, Server, parse_builtin_messages
-from .transform3d import RigidTransform3D, axis_to_direction
 from .utils.gpu_property import GpuBufferProperty, GpuImageProperty
 from .utils.lru_pool import LRUPool
 from .viewport import Playback, Rect, Viewport
@@ -117,32 +115,6 @@ class Viewer:
         # Renderer
         self.renderer = Renderer(self.ctx, self.window, config.renderer)
 
-        camera_from_world = RigidTransform3D.look_at(
-            vec3(config.camera_position),
-            vec3(config.camera_target),
-            axis_to_direction(config.world_up),
-            config.handedness,
-        )
-
-        camera: Union[PerspectiveCamera, OrthographicCamera]
-        if config.camera_type == CameraType.PERSPECTIVE:
-            camera = PerspectiveCamera(
-                camera_from_world,
-                CameraDepth(config.z_min, config.z_max),
-                self.window.fb_width / self.window.fb_height,
-                config.perspective_vertical_fov,
-            )
-        elif config.camera_type == CameraType.ORTHOGRAPHIC:
-            camera = OrthographicCamera(
-                camera_from_world,
-                CameraDepth(config.z_min, config.z_max),
-                self.window.fb_width / self.window.fb_height,
-                vec2(config.ortho_center),
-                vec2(config.ortho_half_extents),
-            )
-        else:
-            raise RuntimeError(f"Unhandled camera type {config.camera_type}")
-
         # Playback
         self.playback = Playback(config.playback)
         self.last_frame_timestamp = 0
@@ -154,10 +126,11 @@ class Viewer:
         # Viewport
         self.viewport = Viewport(
             rect=Rect(0, 0, self.window.fb_width, self.window.fb_height),
-            camera=camera,
-            camera_control_mode=config.camera_control_mode,
             scene=Scene("scene"),
             playback=self.playback,
+            camera_config=config.camera,
+            handedness=config.handedness,
+            world_up_axis=config.world_up_axis,
         )
 
         # Server
