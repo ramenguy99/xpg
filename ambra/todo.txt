@@ -39,13 +39,13 @@ TODO:
         - Likely want to do most of the ui work in C++ and just offer callbacks for input like click/over/tooltip etc..
         - Look at rerun timeline for feature ideas
     - [ ] Think about getter/setters to update properties and explicit redraw to update properties
-- [ ] Camera movement
+- [x] Camera movement
     - [x] Define interface / config / keybindings
-    - [ ] Initialize camera controls with up / distance from config
-    - [ ] Implement getters for front, up, right vectors from camera
-    - [ ] Drag start / end detection
-    - [ ] Camera mode dependent rotate/pan
-    - [ ] Scroll zoom (how to handle moving the target (or reducing the distance)?)
+    - [x] Initialize camera controls with up / distance from config
+    - [x] Implement getters for front, up, right vectors from camera
+    - [x] Drag start / end detection
+    - [x] Camera mode dependent rotate/pan
+    - [x] Scroll zoom (how to handle moving the target (or reducing the distance)?)
     Extra:
     - [ ] 2D controls -> pan only and change zoom mode to modify ortho size?
 - [ ] Viewport:
@@ -56,9 +56,9 @@ TODO:
     - [x] Scene tree and property view -> custom widget callback per property?
     - [x] Playback UI
     - [x] Fps display for debug
+    - [x] Configurable keybindings
+    - [ ] NEXT: Expose imgui.get_io for things like want_capture_mouse (or add helper for that)
     - [ ] Port built-in profiler
-    - [ ] Expose imgui.get_io for things like want_capture_mouse (or add helper for that)
-    - [ ] Configurable keybindings
 - [ ] Shaders
     - [ ] cache
     - [ ] export to spirv during package

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ambra.config import Config, GuiConfig, PlaybackConfig, RendererConfig
+from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig, RendererConfig
 from ambra.primitives3d import Mesh
 from ambra.scene import StreamingProperty, UploadSettings
 from ambra.utils.io import (
@@ -43,9 +43,11 @@ viewer = Viewer(
             inspector=True,
             renderer=True,
         ),
-        camera_position=(10, -10, 10),
-        camera_target=(0, 0, 0),
-        camera_up=(0, -1, 0),
+        camera=CameraConfig(
+            position=(10, -10, 10),
+            target=(0, 0, 0),
+        ),
+        world_up=(0, -1, 0),
     ),
 )
 

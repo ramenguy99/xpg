@@ -1,6 +1,6 @@
 import numpy as np
 
-from ambra.config import Config, PlaybackConfig
+from ambra.config import CameraConfig, Config, PlaybackConfig
 from ambra.primitives3d import Image
 from ambra.scene import AnimationBoundary, FrameAnimation, as_property
 from ambra.utils.gpu import Format
@@ -13,9 +13,11 @@ viewer = Viewer(
             enabled=True,
             playing=True,
         ),
-        camera_position=(0.5, 0.5, -2),
-        camera_target=(0, 0, 0),
-        camera_up=(0, 1, 0),
+        camera=CameraConfig(
+            position=(0.5, 0.5, -2),
+            target=(0, 0, 0),
+        ),
+        world_up=(0, 1, 0),
     ),
 )
 

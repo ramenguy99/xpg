@@ -60,12 +60,6 @@ class CameraControlMode(Enum):
     # PAN_AND_ZOOM_ORTHO = 4
 
 
-class Axis(Enum):
-    X = 0
-    Y = 1
-    Z = 2
-
-
 class Handedness(Enum):
     LEFT_HANDED = 0
     RIGHT_HANDED = 1
@@ -129,7 +123,7 @@ class Config:
     enable_gpu_based_validation: bool = False
 
     # Scene
-    world_up_axis: Axis = Axis.Y
+    world_up: Tuple[float, float, float] = (0, 1, 0)
     handedness: Handedness = Handedness.RIGHT_HANDED
     camera: CameraConfig = field(default_factory=CameraConfig)
 

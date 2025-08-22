@@ -11,15 +11,7 @@ from pyglm.glm import (
     vec3,
 )
 
-from .config import Axis, Handedness
-
-
-def axis_to_direction(a: Axis) -> vec3:
-    return (
-        vec3(1, 0, 0),
-        vec3(0, 1, 0),
-        vec3(0, 0, 1),
-    )[a.value]
+from .config import Handedness
 
 
 @dataclass

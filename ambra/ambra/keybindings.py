@@ -31,7 +31,7 @@ class KeyMap:
     previous_frame: KeyBinding = KeyBinding(Key.COMMA)
 
     # Camera control
-    camera_rotate: MouseButtonBinding = MouseButtonBinding(MouseButton.RIGHT)
-    camera_pan: MouseButtonBinding = MouseButtonBinding(MouseButton.RIGHT, mods=Modifiers.SHIFT)
+    camera_rotate: MouseButtonBinding = MouseButtonBinding(MouseButton.LEFT)
+    camera_pan: MouseButtonBinding = MouseButtonBinding(MouseButton.RIGHT)
     camera_zoom_modifiers: Modifiers = Modifiers.NONE
     camera_zoom_move_modifiers: Modifiers = Modifiers.SHIFT

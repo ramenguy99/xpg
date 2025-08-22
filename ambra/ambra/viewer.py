@@ -4,7 +4,7 @@ from time import perf_counter_ns
 from typing import Any, Optional, Tuple, Union
 
 import numpy as np
-from pyglm.glm import ivec2
+from pyglm.glm import ivec2, vec3
 from pyxpg import (
     Action,
     Context,
@@ -130,7 +130,7 @@ class Viewer:
             playback=self.playback,
             camera_config=config.camera,
             handedness=config.handedness,
-            world_up_axis=config.world_up_axis,
+            world_up=vec3(config.world_up),
         )
 
         # Server

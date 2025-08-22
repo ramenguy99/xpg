@@ -23,9 +23,9 @@ from pyglm.glm import (
 )
 
 from .camera import CameraDepth, OrthographicCamera, PerspectiveCamera
-from .config import Axis, CameraConfig, CameraControlMode, CameraProjection, Handedness, PlaybackConfig
+from .config import CameraConfig, CameraControlMode, CameraProjection, Handedness, PlaybackConfig
 from .scene import Scene
-from .transform3d import RigidTransform3D, axis_to_direction
+from .transform3d import RigidTransform3D
 
 
 class Playback:
@@ -77,14 +77,13 @@ class Viewport:
         scene: Scene,
         playback: Playback,
         camera_config: CameraConfig,
-        world_up_axis: Axis,
+        world_up: vec3,
         handedness: Handedness,
     ):
-        world_up_vector = axis_to_direction(world_up_axis)
         camera_from_world = RigidTransform3D.look_at(
             vec3(camera_config.position),
             vec3(camera_config.target),
-            world_up_vector,
+            world_up,
             handedness,
         )
 
@@ -114,7 +113,7 @@ class Viewport:
 
         # Config
         self.handedness = handedness
-        self.camera_world_up = world_up_vector
+        self.camera_world_up = world_up
         self.camera_target = vec3(camera_config.target)
         self.camera_control_mode = camera_config.control_mode
         self.camera_rotation_speed = vec2(camera_config.rotation_speed)

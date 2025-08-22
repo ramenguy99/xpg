@@ -1,4 +1,4 @@
 from ambra.viewer import Viewer
 
-viewer = Viewer("Hello World", 1280, 720)
+viewer = Viewer("Hello World")
 viewer.run()

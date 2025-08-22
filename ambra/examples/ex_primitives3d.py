@@ -1,7 +1,7 @@
 import numpy as np
 from pyglm.glm import vec3
 
-from ambra.config import Config, PlaybackConfig
+from ambra.config import CameraConfig, Config, PlaybackConfig
 from ambra.primitives3d import Lines
 from ambra.scene import (
     AnimationBoundary,
@@ -17,8 +17,10 @@ viewer = Viewer(
             enabled=True,
             playing=True,
         ),
-        camera_position=vec3(3),
-        camera_target=vec3(0),
+        camera=CameraConfig(
+            position=vec3(3),
+            target=vec3(0),
+        ),
     ),
 )
 
