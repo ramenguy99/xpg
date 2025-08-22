@@ -1,7 +1,7 @@
 import numpy as np
 from pyglm.glm import vec3
 
-from ambra.config import Config, PlaybackConfig
+from ambra.config import Config, PlaybackConfig, Axis
 from ambra.primitives3d import Lines
 from ambra.scene import (
     AnimationBoundary,
@@ -17,7 +17,9 @@ viewer = Viewer(
         playback=PlaybackConfig(
             enabled=True,
             playing=True,
-        )
+        ),
+        camera_position=vec3(3),
+        camera_target=vec3(0),
     ),
 )
 
@@ -66,8 +68,6 @@ translation = as_property(
     FrameAnimation(AnimationBoundary.MIRROR),
 )
 line2 = Lines(positions, colors, line_width, scale=None, translation=translation)
-
-viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(3), vec3(0), vec3(0, 0, 1))
 viewer.viewport.scene.objects.extend([line, line2])
 
 viewer.run()

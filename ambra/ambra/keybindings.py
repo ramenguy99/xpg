@@ -14,8 +14,11 @@ class KeyBinding:
 
 @dataclass(frozen=True)
 class MouseButtonBinding:
-    key: MouseButton
+    button: MouseButton
     mods: Modifiers = Modifiers.NONE
+
+    def is_active(self, button: MouseButton, mods: Modifiers) -> bool:
+        return self.button == button and self.mods == mods
 
 
 @dataclass

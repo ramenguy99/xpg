@@ -1,8 +1,11 @@
 from dataclasses import dataclass
 
-from pyglm.glm import mat4, orthoRH_ZO, perspectiveRH_ZO, vec2, vec3
+from pyglm.glm import mat4, orthoRH_ZO, perspectiveRH_ZO, vec2, vec3, mat3_cast, row
 
+from .config import Handedness
 from .transform3d import RigidTransform3D
+
+from typing import Tuple
 
 # Users:
 #   - Application code wants minimal effor to describe camera transformations
@@ -32,6 +35,25 @@ class Camera:
     def projection(self) -> mat4:
         return mat4(1.0)
 
+    def position(self):
+        return self.camera_from_world.inverse().translation
+
+    def right(self) -> vec3:
+        r = mat3_cast(self.camera_from_world.rotation)
+        return vec3(row(r, 0))
+
+    def up(self) -> vec3:
+        r = mat3_cast(self.camera_from_world.rotation)
+        return vec3(row(r, 1))
+
+    def front(self) -> vec3:
+        r = mat3_cast(self.camera_from_world.rotation)
+        return vec3(row(r, 2))
+
+    def right_up_front(self) -> Tuple[vec3, vec3, vec3]:
+        r = mat3_cast(self.camera_from_world.rotation)
+        return vec3(row(r, 0)), vec3(row(r, 1)), vec3(row(r, 2))
+
 
 @dataclass
 class OrthographicCamera(Camera):
@@ -49,9 +71,10 @@ class OrthographicCamera(Camera):
         center: vec2,
         half_extents: vec2,
         ar: float,
+        handedness: Handedness,
     ) -> "OrthographicCamera":
         return cls(
-            camera_from_world=RigidTransform3D.look_at(position, target, up),
+            camera_from_world=RigidTransform3D.look_at(position, target, up, handedness),
             depth=CameraDepth(z_min, z_max),
             ar=ar,
             center=center,
@@ -87,9 +110,10 @@ class PerspectiveCamera(Camera):
         z_max: float,
         fov: float,
         ar: float,
+        handedness: Handedness,
     ) -> "PerspectiveCamera":
         return cls(
-            camera_from_world=RigidTransform3D.look_at(position, target, up),
+            camera_from_world=RigidTransform3D.look_at(position, target, up, handedness),
             depth=CameraDepth(z_min, z_max),
             ar=ar,
             fov=fov,

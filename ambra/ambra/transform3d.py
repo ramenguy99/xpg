@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from .config import Axis, Handedness
 
 from pyglm.glm import (
     inverse,
@@ -7,8 +8,16 @@ from pyglm.glm import (
     normalize,
     quat,
     quatLookAtRH,
+    quatLookAtLH,
     vec3,
 )
+
+def axis_to_direction(a: Axis) -> vec3:
+    return (
+        vec3(1, 0, 0),
+        vec3(0, 1, 0),
+        vec3(0, 0, 1),
+    )[a.value]
 
 
 @dataclass
@@ -17,9 +26,13 @@ class RigidTransform3D:
     rotation: quat
 
     @classmethod
-    def look_at(cls, position: vec3, target: vec3, up: vec3) -> "RigidTransform3D":
+    def look_at(cls, position: vec3, target: vec3, up: vec3, handedness: Handedness) -> "RigidTransform3D":
         d = normalize(target - position)
-        rot = inverse(quatLookAtRH(d, up))
+        if handedness == Handedness.RIGHT_HANDED:
+            inv_rot = quatLookAtRH(d, up)
+        else:
+            inv_rot = quatLookAtLH(d, up)
+        rot = inverse(inv_rot)
 
         return cls(
             translation=rot * -position,  # type: ignore
@@ -39,6 +52,10 @@ class RigidTransform3D:
             translation=vec3(0),
             rotation=quat(1, 0, 0, 0),
         )
+
+    def inverse(self):
+        inverse_rotation: quat = inverse(self.rotation) # type:ignore
+        return RigidTransform3D(translation=-(inverse_rotation * self.translation), rotation=inverse_rotation)
 
 
 @dataclass
@@ -64,3 +81,7 @@ class Transform3D:
         m[3, 1] = self.translation.y
         m[3, 2] = self.translation.z
         return m
+
+    def inverse(self):
+        inverse_rotation: quat = inverse(self.rotation) # type:ignore
+        return Transform3D(scale=1.0 / self.scale, rotation=inverse_rotation, translation=-(inverse_rotation * self.translation))

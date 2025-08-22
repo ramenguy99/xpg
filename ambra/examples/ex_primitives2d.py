@@ -77,7 +77,6 @@ translation = as_property(
 )
 line2 = Lines(positions, colors, line_width, scale=None, translation=translation)
 
-viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(0, 0, -1), vec3(0, 0, 0), vec3(0, -1, 0))
 viewer.viewport.scene.objects.extend([line, line2])
 
 viewer.run()

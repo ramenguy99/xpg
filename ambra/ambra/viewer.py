@@ -28,7 +28,7 @@ from .keybindings import KeyMap
 from .renderer import Renderer
 from .scene import Object, Scene
 from .server import Client, Message, RawMessage, Server, parse_builtin_messages
-from .transform3d import RigidTransform3D
+from .transform3d import RigidTransform3D, axis_to_direction
 from .utils.gpu_property import GpuBufferProperty, GpuImageProperty
 from .utils.lru_pool import LRUPool
 from .viewport import Playback, Rect, Viewport
@@ -118,7 +118,8 @@ class Viewer:
         camera_from_world = RigidTransform3D.look_at(
             vec3(config.camera_position),
             vec3(config.camera_target),
-            vec3(config.camera_up),
+            axis_to_direction(config.world_up),
+            config.handedness,
         )
 
         camera: Union[PerspectiveCamera, OrthographicCamera]
@@ -152,6 +153,7 @@ class Viewer:
         self.viewport = Viewport(
             rect=Rect(0, 0, self.window.fb_width, self.window.fb_height),
             camera=camera,
+            camera_control_mode=config.camera_control_mode,
             scene=Scene("scene"),
             playback=self.playback,
         )
@@ -185,10 +187,19 @@ class Viewer:
         action: Action,
         modifiers: Modifiers,
     ) -> None:
-        pass
+        if action == Action.PRESS:
+            if self.key_map.camera_rotate.is_active(button, modifiers):
+                self.viewport.on_rotate_press(position)
+            if self.key_map.camera_pan.is_active(button, modifiers):
+                self.viewport.on_pan_press(position)
+        if action == Action.RELEASE:
+            if self.key_map.camera_rotate.button == button:
+                self.viewport.on_rotate_release()
+            if self.key_map.camera_pan.button == button:
+                self.viewport.on_pan_release()
 
     def on_mouse_move(self, position: ivec2) -> None:
-        pass
+        self.viewport.on_move(position)
 
     def on_scroll(self, position: ivec2, scroll: ivec2) -> None:
         pass

@@ -56,9 +56,17 @@ class CameraControlMode(Enum):
     NONE = 0
     ORBIT = 1
     TRACKBALL = 2
-    FPV = 3
-    PAN = 4
+    FIRST_PERSON = 3
+    PAN_AND_ZOOM_ORTHO = 4
 
+class Axis(Enum):
+    X = 0
+    Y = 1
+    Z = 2
+
+class Handedness(Enum):
+    LEFT_HANDED = 0
+    RIGHT_HANDED = 1
 
 @dataclass
 class GuiConfig:
@@ -90,12 +98,13 @@ class Config:
     enable_gpu_based_validation: bool = False
 
     # Scene
+    world_up: Axis = Axis.Y
+    handedness: Handedness = Handedness.RIGHT_HANDED
+
     camera_type: CameraType = CameraType.PERSPECTIVE
     camera_control_mode: CameraControlMode = CameraControlMode.ORBIT
-
     camera_position: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     camera_target: Tuple[float, float, float] = (0.0, 0.0, 1.0)
-    camera_up: Tuple[float, float, float] = (0.0, 1.0, 0.0)
 
     z_min: float = 0.001
     z_max: float = 1000.0

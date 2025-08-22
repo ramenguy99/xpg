@@ -91,7 +91,6 @@ positions = as_property(positions, np.float32, (-1, 2), upload=UploadSettings(pr
 # positions = as_property(positions, np.float32, (-1, 2), upload=UploadSettings(preupload=False, async_load=True))
 
 line = Lines(positions, colors, line_width)
-viewer.viewport.camera.camera_from_world = RigidTransform3D.look_at(vec3(0, 0, -1), vec3(0, 0, 0), vec3(0, -1, 0))
 viewer.viewport.scene.objects.extend([line])
 
 viewer.run()
