@@ -53,13 +53,13 @@ class UploadableBuffer(Buffer):
             )
 
     @classmethod
-    def from_data(
+    def from_data(  # type: ignore
         cls,
         ctx: Context,
         data: memoryview,
         usage_flags: BufferUsageFlags,
         name: Optional[str] = None,
-    ) -> "UploadableBuffer":  # type: ignore
+    ) -> "UploadableBuffer":
         buf = cls(ctx, len(data), usage_flags, name=name)
         buf.upload_sync(data)
         return buf
@@ -139,7 +139,7 @@ class UploadableImage(Image):
         )
 
     @classmethod
-    def from_data(
+    def from_data(  # type: ignore
         cls,
         ctx: Context,
         data: memoryview,
@@ -150,7 +150,7 @@ class UploadableImage(Image):
         usage_flags: ImageUsageFlags,
         dedicated_alloc: bool = False,
         name: Optional[str] = None,
-    ) -> "UploadableImage":  # type: ignore
+    ) -> "UploadableImage":
         buf = cls(ctx, width, height, format, usage_flags, dedicated_alloc, name)
         buf.upload_sync(data, layout)
         return buf

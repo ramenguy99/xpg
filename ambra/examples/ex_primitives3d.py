@@ -1,14 +1,13 @@
 import numpy as np
 from pyglm.glm import vec3
 
-from ambra.config import Config, PlaybackConfig, Axis
+from ambra.config import Config, PlaybackConfig
 from ambra.primitives3d import Lines
 from ambra.scene import (
     AnimationBoundary,
     FrameAnimation,
     as_property,
 )
-from ambra.transform3d import RigidTransform3D
 from ambra.viewer import Viewer
 
 viewer = Viewer(

@@ -59,14 +59,17 @@ class CameraControlMode(Enum):
     FIRST_PERSON = 3
     PAN_AND_ZOOM_ORTHO = 4
 
+
 class Axis(Enum):
     X = 0
     Y = 1
     Z = 2
 
+
 class Handedness(Enum):
     LEFT_HANDED = 0
     RIGHT_HANDED = 1
+
 
 @dataclass
 class GuiConfig:

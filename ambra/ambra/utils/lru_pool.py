@@ -180,7 +180,7 @@ class LRUPool(Generic[K, O]):
             try:
                 # Refresh entry in LRU cache
                 self.lru.move_to_end(o)
-            except KeyError: # noqa: PERF203
+            except KeyError:  # noqa: PERF203
                 pass
 
     def clear(self) -> None:

@@ -43,8 +43,10 @@ _log_levels = {
 
 
 _logger = logging.getLogger(__name__)
+
+
 def _log(level: LogLevel, c: str, s: str) -> None:
-    _logger.log(_log_levels[level], f"[{c}] {s}") # noqa: G004
+    _logger.log(_log_levels[level], f"[{c}] {s}")  # noqa: G004
 
 
 class Viewer:

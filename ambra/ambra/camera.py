@@ -1,11 +1,10 @@
 from dataclasses import dataclass
+from typing import Tuple
 
-from pyglm.glm import mat4, orthoRH_ZO, perspectiveRH_ZO, vec2, vec3, mat3_cast, row
+from pyglm.glm import mat3_cast, mat4, orthoRH_ZO, perspectiveRH_ZO, row, vec2, vec3
 
 from .config import Handedness
 from .transform3d import RigidTransform3D
-
-from typing import Tuple
 
 # Users:
 #   - Application code wants minimal effor to describe camera transformations
@@ -35,7 +34,7 @@ class Camera:
     def projection(self) -> mat4:
         return mat4(1.0)
 
-    def position(self):
+    def position(self) -> vec3:
         return self.camera_from_world.inverse().translation
 
     def right(self) -> vec3:

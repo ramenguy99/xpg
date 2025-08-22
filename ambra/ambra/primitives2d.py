@@ -29,7 +29,8 @@ from pyxpg import (
     VertexInputRate,
 )
 
-from .renderer import Renderer, RendererFrame
+from .renderer import Renderer
+from .renderer_frame import RendererFrame
 from .scene import Object2D, Property
 from .utils.ring_buffer import RingBuffer
 
@@ -40,7 +41,7 @@ class Lines(Object2D):
         lines: Union[Property, np.ndarray],
         colors: Union[Property, np.ndarray],
         line_width: Union[Property, float] = 1.0,
-        is_strip=False,
+        is_strip: bool = False,
         name: Optional[str] = None,
         translation: Optional[Property] = None,
         rotation: Optional[Property] = None,
@@ -52,7 +53,7 @@ class Lines(Object2D):
         self.colors = self.add_property(colors, np.uint32, (-1,), name="colors")
         self.line_width = self.add_property(line_width, np.float32, name="line_width")
 
-    def create(self, r: Renderer):
+    def create(self, r: Renderer) -> None:
         self.lines_buffer = r.add_gpu_buffer_property(
             self.lines,
             BufferUsageFlags.VERTEX,
@@ -104,7 +105,7 @@ class Lines(Object2D):
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame):
+    def render(self, r: Renderer, frame: RendererFrame) -> None:
         self.constants["transform"][0, :3, :3] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
@@ -143,7 +144,7 @@ class Image(Object2D):
         self.image = self.add_property(image, shape=(-1, -1, -1), name="image")
         self.format = format
 
-    def create(self, r: Renderer):
+    def create(self, r: Renderer) -> None:
         self.images = r.add_gpu_image_property(
             self.image,
             self.format,
@@ -201,7 +202,7 @@ class Image(Object2D):
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame):
+    def render(self, r: Renderer, frame: RendererFrame) -> None:
         self.constants["transform"][0, :3, :3] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))

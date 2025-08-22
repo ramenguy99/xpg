@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from .config import Axis, Handedness
 
 from pyglm.glm import (
     inverse,
@@ -7,10 +6,13 @@ from pyglm.glm import (
     mat4_cast,
     normalize,
     quat,
-    quatLookAtRH,
     quatLookAtLH,
+    quatLookAtRH,
     vec3,
 )
+
+from .config import Axis, Handedness
+
 
 def axis_to_direction(a: Axis) -> vec3:
     return (
@@ -53,9 +55,9 @@ class RigidTransform3D:
             rotation=quat(1, 0, 0, 0),
         )
 
-    def inverse(self):
-        inverse_rotation: quat = inverse(self.rotation) # type:ignore
-        return RigidTransform3D(translation=-(inverse_rotation * self.translation), rotation=inverse_rotation)
+    def inverse(self) -> "RigidTransform3D":
+        inverse_rotation = inverse(self.rotation)
+        return RigidTransform3D(translation=-(inverse_rotation * self.translation), rotation=inverse_rotation)  # type:ignore
 
 
 @dataclass
@@ -82,6 +84,8 @@ class Transform3D:
         m[3, 2] = self.translation.z
         return m
 
-    def inverse(self):
-        inverse_rotation: quat = inverse(self.rotation) # type:ignore
-        return Transform3D(scale=1.0 / self.scale, rotation=inverse_rotation, translation=-(inverse_rotation * self.translation))
+    def inverse(self) -> "Transform3D":
+        inverse_rotation = inverse(self.rotation)
+        return Transform3D(
+            scale=1.0 / self.scale, rotation=inverse_rotation, translation=-(inverse_rotation * self.translation)  # type:ignore
+        )

@@ -51,7 +51,7 @@ def _flatten_descriptor_sets(
     binding: int,
     set: int,
     image_format: slang.ImageFormat,
-):
+) -> None:
     if isinstance(typ, (slang.Scalar, slang.Vector, slang.Matrix)):
         pass
     elif isinstance(typ, slang.Array):
@@ -119,7 +119,7 @@ def to_dtype(typ: slang.Type) -> np.dtype:
         raise TypeError(f"Unknown slang.Type: {type(typ)}")
 
 
-def print_type(typ: slang.Type, indent=0):
+def print_type(typ: slang.Type, indent: int = 0) -> None:
     if isinstance(typ, slang.Scalar):
         print(" " * indent + f"{typ.base}")
     elif isinstance(typ, slang.Vector):

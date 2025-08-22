@@ -62,6 +62,7 @@ ignore = [
     "RET505",  # unnecessary else after return
     "PLW3301", # nested max calls
     "PLW0603", # statement modifying globals
+    "SIM108", # use ternary operator instead of if-else
     "SIM110",  # replace for with all
     "SIM114",  # combine if using or
 

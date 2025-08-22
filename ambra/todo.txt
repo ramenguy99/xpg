@@ -87,17 +87,17 @@ Tools:
 - [x] mypy:
     # configured in tool.mypy
     pip install mypy
-    mypy -m ambra
+    mypy ambra
 - [x] ruff:
     # configured in tool.ruff.*
     pip install ruff
-    # Lint (not including examples)
-    ruff check --exclude examples
-    ruff check --exclude examples --fix
     # Sort imports
     ruff check --select I --fix
     # Format
     ruff format
+    # Lint (not including examples)
+    ruff check --exclude examples
+    ruff check --exclude examples --fix
 - [ ] run on CI once we have automated build / tests
 
 

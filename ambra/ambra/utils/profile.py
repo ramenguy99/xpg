@@ -3,7 +3,7 @@ from time import perf_counter_ns
 
 
 @contextmanager
-def profile(name: str):
+def profile(name: str):  # type: ignore
     print(f"{name}: ", end="")
     begin = perf_counter_ns()
     yield
