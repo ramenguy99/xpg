@@ -204,7 +204,11 @@ class Viewer:
         self.viewport.on_move(position)
 
     def on_scroll(self, position: ivec2, scroll: ivec2) -> None:
-        pass
+        modifiers = self.window.get_modifiers_state()
+        if modifiers == self.key_map.camera_zoom_modifiers:
+            self.viewport.zoom(scroll, False)
+        if modifiers == self.key_map.camera_zoom_move_modifiers:
+            self.viewport.zoom(scroll, True)
 
     def on_resize(self, width: int, height: int) -> None:
         pass

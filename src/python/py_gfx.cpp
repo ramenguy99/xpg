@@ -1724,6 +1724,10 @@ struct Window: nb::intrusive_base {
         return gfx::ShouldClose(window);
     }
 
+    gfx::Modifiers get_modifiers_state() {
+        return gfx::GetModifiersState(window);
+    }
+
     nb::ref<Context> ctx;
     gfx::Window window;
 
@@ -2792,6 +2796,7 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<Window>([](Window *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Context>, const::std::string&, u32, u32, std::optional<u32>, std::optional<u32>>(), nb::arg("ctx"), nb::arg("title"), nb::arg("width"), nb::arg("height"), nb::arg("x") = nb::none(), nb::arg("y") = nb::none())
         .def("should_close", &Window::should_close)
+        .def("get_modifiers_state", &Window::get_modifiers_state)
         .def("set_callbacks", &Window::set_callbacks,
             nb::arg("draw"),
             nb::arg("mouse_move_event") = nb::none(),

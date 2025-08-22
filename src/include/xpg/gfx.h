@@ -480,6 +480,7 @@ void Callback_CursorPos(GLFWwindow* window, double x, double y);
 void SetWindowCallbacks(Window* window, WindowCallbacks&& callbacks);
 void ProcessEvents(bool block);
 bool ShouldClose(const Window& window);
+Modifiers GetModifiersState(const Window& window);
 
 //- Queries
 struct QueryPoolDesc {

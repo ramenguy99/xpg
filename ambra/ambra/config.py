@@ -57,7 +57,7 @@ class CameraControlMode(Enum):
     ORBIT = 1
     TRACKBALL = 2
     FIRST_PERSON = 3
-    PAN_AND_ZOOM_ORTHO = 4
+    # PAN_AND_ZOOM_ORTHO = 4
 
 
 class Axis(Enum):

@@ -87,5 +87,7 @@ class Transform3D:
     def inverse(self) -> "Transform3D":
         inverse_rotation = inverse(self.rotation)
         return Transform3D(
-            scale=1.0 / self.scale, rotation=inverse_rotation, translation=-(inverse_rotation * self.translation)  # type:ignore
+            scale=1.0 / self.scale,
+            rotation=inverse_rotation,  # type:ignore
+            translation=-(inverse_rotation * self.translation),  # type:ignore
         )

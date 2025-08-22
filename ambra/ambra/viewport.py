@@ -86,7 +86,14 @@ class Viewport:
         # config (TODO: pass through)
         self.camera_target = vec3(0, 0, 0)
         self.camera_world_up = vec3(0, 1, 0)
-        self.camera_rotation_speed = vec2(1, 1) * 0.005
+        self.camera_rotation_speed = vec2(0.005)
+        self.camera_pan_distance_speed_scale = 0.1
+        self.camera_pan_min_speed_scale = 0.1
+        self.camera_pan_speed = vec2(0.01)
+        self.camera_zoom_speed = 0.1
+        self.camera_zoom_distance_speed_scale = 1
+        self.camera_zoom_min_speed_scale = 2
+        self.camera_zoom_min_target_distance = 0.01
         self.handedness = Handedness.RIGHT_HANDED
 
         # state
@@ -107,6 +114,7 @@ class Viewport:
         # Initial camera state
         self.drag_start_camera_inverse_view_rotation = transpose(mat3_cast(self.camera.camera_from_world.rotation))
         self.drag_start_camera_position = self.camera.position()
+        self.drag_start_camera_target = vec3(self.camera_target)
         right, up, front = self.camera.right_up_front()
         self.drag_start_camera_right = right
         self.drag_start_camera_up = up
@@ -140,18 +148,20 @@ class Viewport:
             elif self.camera_control_mode == CameraControlMode.FIRST_PERSON:
                 self.rotate_first_person(self.drag_start_position, position)
             elif (
-                self.camera_control_mode == CameraControlMode.PAN_AND_ZOOM_ORTHO
-                or self.camera_control_mode == CameraControlMode.NONE
+                # self.camera_control_mode == CameraControlMode.PAN_AND_ZOOM_ORTHO or
+                self.camera_control_mode == CameraControlMode.NONE
             ):
                 pass
             else:
                 raise RuntimeError(f"Unhandled control mode {self.camera_control_mode}")
 
     def on_zoom(self, scroll: ivec2) -> None:
-        self.zoom(scroll, False)
+        if not self.pan_pressed and not self.rotate_pressed:
+            self.zoom(scroll, False)
 
     def on_zoom_with_movement(self, scroll: ivec2) -> None:
-        self.zoom(scroll, True)
+        if not self.pan_pressed and not self.rotate_pressed:
+            self.zoom(scroll, True)
 
     def rotate_orbit(self, start_pos: ivec2, pos: ivec2) -> None:
         rot = self._rotation_from_mouse_delta(pos - start_pos, self.camera_target)
@@ -196,10 +206,37 @@ class Viewport:
         )
 
     def pan(self, start_pos: ivec2, pos: ivec2) -> None:
-        pass
+        delta = pos - start_pos
+        speed_scale = max(
+            distance(self.camera_target, self.drag_start_camera_position) * self.camera_pan_distance_speed_scale,
+            self.camera_pan_min_speed_scale,
+        )
+        movement = vec2(delta) * self.camera_pan_speed * speed_scale
+        delta_position = -movement.x * self.drag_start_camera_right + movement.y * self.drag_start_camera_up
+
+        self.camera_target = self.drag_start_camera_target + delta_position
+        self.camera.camera_from_world = RigidTransform3D.look_at(
+            self.drag_start_camera_position + delta_position, self.camera_target, self.camera_world_up, self.handedness
+        )
 
     def zoom(self, scroll: ivec2, move: bool) -> None:
-        pass
+        position = self.camera.position()
+        dist = distance(position, self.camera_target)
+        speed_scale = max(dist * self.camera_zoom_distance_speed_scale, self.camera_zoom_min_speed_scale)
+        movement = scroll.y * speed_scale * self.camera_zoom_speed
+        if move:
+            # If moving, also move target
+            delta_position = self.camera.front() * -movement
+            self.camera_target += delta_position
+        else:
+            # If target not moving, clamp movement to keep a minimum distance to the target
+            max_movement = max(dist - self.camera_zoom_min_target_distance, 0.0)
+            movement = min(movement, max_movement)
+            delta_position = self.camera.front() * -movement
+
+        self.camera.camera_from_world = RigidTransform3D.look_at(
+            self.camera.position() + delta_position, self.camera_target, self.camera_world_up, self.handedness
+        )
 
     def _rotation_from_mouse_delta(self, delta: ivec2, center_of_rotation: vec3) -> mat4:
         # Clamp pitch algorithm outline:
@@ -217,7 +254,7 @@ class Viewport:
         )
         delta_pitch = self.drag_start_camera_pitch - new_pitch
         rot_y = rotate(delta_pitch, self.drag_start_camera_right)
-        rot_x = rotate(self.camera_rotation_speed.x * delta.x, self.camera_world_up)
+        rot_x = rotate(-self.camera_rotation_speed.x * delta.x, self.camera_world_up)
         return translate(center_of_rotation) * rot_x * rot_y * translate(-center_of_rotation)  # type: ignore
 
     def intersect_trackball(self, pos: ivec2) -> vec3:

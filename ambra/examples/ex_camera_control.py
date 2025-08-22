@@ -23,7 +23,7 @@ viewer = Viewer(
     ),
     key_map=KeyMap(
         camera_rotate=MouseButtonBinding(MouseButton.LEFT, Modifiers.NONE),
-        camera_pan=MouseButtonBinding(MouseButton.LEFT, Modifiers.SHIFT),
+        camera_pan=MouseButtonBinding(MouseButton.RIGHT, Modifiers.NONE),
     ),
 )
 

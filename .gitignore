@@ -40,3 +40,5 @@ imgui.ini
 
 *.egg-info
 *.tar
+
+lint.bat

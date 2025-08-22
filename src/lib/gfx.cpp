@@ -200,6 +200,15 @@ bool ShouldClose(const Window& window) {
     return glfwWindowShouldClose(window.window);
 }
 
+Modifiers GetModifiersState(const Window& window) {
+    u32 m = 0;
+    m |= glfwGetKey(window.window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(window.window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS ? (u32)Modifiers::Ctrl  : (u32)Modifiers::None;
+    m |= glfwGetKey(window.window, GLFW_KEY_LEFT_SHIFT)   == GLFW_PRESS || glfwGetKey(window.window, GLFW_KEY_RIGHT_SHIFT)   == GLFW_PRESS ? (u32)Modifiers::Shift : (u32)Modifiers::None;
+    m |= glfwGetKey(window.window, GLFW_KEY_LEFT_ALT)     == GLFW_PRESS || glfwGetKey(window.window, GLFW_KEY_RIGHT_ALT)     == GLFW_PRESS ? (u32)Modifiers::Alt   : (u32)Modifiers::None;
+    m |= glfwGetKey(window.window, GLFW_KEY_LEFT_SUPER)   == GLFW_PRESS || glfwGetKey(window.window, GLFW_KEY_RIGHT_SUPER)   == GLFW_PRESS ? (u32)Modifiers::Super : (u32)Modifiers::None;
+    return (Modifiers)m;
+}
+
 void CloseWindow(const Window& window) {
     glfwSetWindowShouldClose(window.window, 1);
 }
