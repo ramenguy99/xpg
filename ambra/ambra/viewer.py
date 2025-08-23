@@ -162,6 +162,9 @@ class Viewer:
         action: Action,
         modifiers: Modifiers,
     ) -> None:
+        if imgui.get_io().want_capture_mouse:
+            return
+
         if action == Action.PRESS:
             if self.key_map.camera_rotate.is_active(button, modifiers):
                 self.viewport.on_rotate_press(position)
@@ -177,6 +180,9 @@ class Viewer:
         self.viewport.on_move(position)
 
     def on_scroll(self, position: ivec2, scroll: ivec2) -> None:
+        if imgui.get_io().want_capture_mouse:
+            return
+
         modifiers = self.window.get_modifiers_state()
         if modifiers == self.key_map.camera_zoom_modifiers:
             self.viewport.zoom(scroll, False)

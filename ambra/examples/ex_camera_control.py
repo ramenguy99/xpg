@@ -1,7 +1,7 @@
 import numpy as np
 from pyglm.glm import vec3
 
-from ambra.config import Axis, CameraConfig, CameraControlMode, Config, GuiConfig, PlaybackConfig
+from ambra.config import CameraConfig, CameraControlMode, Config, GuiConfig, PlaybackConfig
 from ambra.keybindings import KeyMap, Modifiers, MouseButton, MouseButtonBinding
 from ambra.primitives3d import Lines
 from ambra.viewer import Viewer
@@ -17,7 +17,7 @@ viewer = Viewer(
         gui=GuiConfig(
             stats=True,
         ),
-        world_up_axis=Axis.Y,
+        world_up=(0, 1, 0),
         camera=CameraConfig(
             position=(0, 3, 3),
             target=(0, 0, 0),
