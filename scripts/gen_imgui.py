@@ -46,6 +46,7 @@ DEFINES = {
 
 OUT_PYTHON = False
 OUT = True
+PRINT = False
 
 data = json.load(open(sys.argv[1], "r"))
 
@@ -73,6 +74,8 @@ def out(*args, **kwargs):
 cpp_contents = io.StringIO()
 def out_cpp(*args, **kwargs):
     print(*args, **kwargs, file=cpp_contents)
+    if PRINT:
+        print(*args, **kwargs)
     if OUT:
         print(*args, **kwargs, file=out_cpp_file)
 
@@ -185,9 +188,24 @@ for t in data["typedefs"]:
     # print(name, typ)
 
 # Will need to handle structs later
-for s in data["structs"]:
-    pass
-    # print(s["name"])
+enabled_structs = {
+    "ImGuiIO"
+}
+for struct in data["structs"]:
+    if struct["name"] in enabled_structs:
+        struct_name = struct["name"]
+        out_cpp(f'nb::class_<{struct_name}>(mod_imgui, "{struct_name[5:]}")')
+        for field in struct["fields"]:
+            field_name = field["name"]
+            field_type = field["type"]
+            if field["is_array"]:
+                continue
+            # print(field_type["description"])
+            if not field_type["description"]["kind"] == "Builtin":
+                continue
+            out_cpp(" " * 4 + f'.def_rw("{pascal_to_snake_case(field_name)}", &{struct_name}::{field_name})')
+        out_cpp(";")
+        out_cpp("")
 
 class TypeFlag(Flag):
     IS_OUTPUT = auto()
@@ -553,7 +571,7 @@ for f in data["functions"]:
         # Skip protected member functions
         if py_func_name.startswith("list___"):
             continue
-        
+
         out_cpp(" " * 4 + f".def(\"{py_func_name[6:]}\",")
     else:
         if drawlist_started and drawlist_ended == False:
@@ -621,7 +639,7 @@ for f in data["functions"]:
             func_call = "self->list->" + f["original_fully_qualified_name"]
         else:
             func_call = f["original_fully_qualified_name"]
-        
+
         arg_call_names = []
         for arg in args:
             if arg.name == "text_end":

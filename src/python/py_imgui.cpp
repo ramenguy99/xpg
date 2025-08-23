@@ -123,4 +123,7 @@ void imgui_create_bindings(nb::module_& mod_imgui)
         nb::arg("color"),
         nb::arg("rounding")
     );
+
+    // IO
+    mod_imgui.def("get_io", ImGui::GetIO, nb::rv_policy::reference);
 }
