@@ -14,8 +14,7 @@ license = "Apache-2.0"
 dependencies = [
     "numpy>=1.20",      # Required for numpy.typing
     "pyglm>=2,<3",
-    "watchfiles>=1,<2",
-#   "pyxpg==0.0.3",
+    "pyxpg==0.0.4",
 ]
 
 [tool.mypy]

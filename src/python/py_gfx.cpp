@@ -165,7 +165,7 @@ struct Context: public nb::intrusive_base {
 struct GfxObject: public nb::intrusive_base {
     GfxObject() {}
     GfxObject(nb::ref<Context> ctx, bool owned, std::optional<nb::str> name = std::nullopt)
-        : ctx(ctx)
+        : ctx(std::move(ctx))
         , owned(owned)
         , name(std::move(name))
     {}

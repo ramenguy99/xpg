@@ -5,9 +5,20 @@ TODO:
     - [ ] Spheres
     - [ ] Cilinders (with/without caps)
     - [-] Meshes
+        - [ ] Handle optional params for:
+            - normals -> fallback to flat shading with shader derivatives
+            - uvs -> fallback to flat color
+            - tangents and normal maps (?)
+            - joint indices, weights, joints
+        - [ ] Fixup when correctly handling materials and
     - [x] 2D Images
     - [x] 3D Images (e.g. textured quads)
 - [ ] Renderer architecture / path tracer support
+    - [ ] Single object vs batching -> especially relevant for path tracing where you need to batch things in a tlas
+        - [ ] Lights
+        - [ ] Materials
+        - [ ] Instancing
+        - [ ] Support both raster and path tracing with accumulation
 - [-] Server
     - [ ] Test design and finish implementing
     - [ ] Client python package
@@ -57,7 +68,8 @@ TODO:
     - [x] Playback UI
     - [x] Fps display for debug
     - [x] Configurable keybindings
-    - [ ] NEXT: Expose imgui.get_io for things like want_capture_mouse (or add helper for that)
+    - [x] NEXT: Expose imgui.get_io for things like want_capture_mouse (or add helper for that)
+    - [ ] Better/configurable handling of imgui.ini file
     - [ ] Port built-in profiler
 - [ ] Shaders
     - [ ] cache
@@ -82,6 +94,8 @@ TODO:
     - [ ] Marching cubes
     - [ ] Pointclouds
     - [ ] Framegraph
+- [ ] Why does @cache on shader break refcounting on context, especially for an object that does not have any reference to ctx
+      -> investigate further and maybe make minimal repo if it's actually a nanobind issue
 
 Tools:
 - [x] mypy:
@@ -118,6 +132,11 @@ Rendering features:
             - Vignetting
         - Accumulation settings
         - Light sampling with alias tables
+        - Raytracer design:
+            - waverfront -> multi-pass, more complex
+            - compute -> easiest
+            - ray-tracing pipeline ->
+        - Ray tracing pipeline with callable shaders
     - Plans:
         - Lights
             - Point, Directional and area first (maybe also leverage slang type, for path tracer)?
@@ -125,9 +144,15 @@ Rendering features:
         - Materials
             - start with common material model for all objects, or maybe just a few materials with dynamic dispatch (leverage slang types)
         - Emissive:
-            - Not sure if we need this or if better to just do mesh lights at first, we are not building a general purpose path tracer
-
+            - Not sure if we need this or if better to just do mesh lights at first, we are not building a general purpose path tracer (or are we?)
+        - Volumes (?)
 - Ideas:
+    - Should rendering code be per object or per-renderer?
+        -> Per object has a clear path to user extensions, a bit more unclear for
+        -> Per renderer can unlock more "batched" logic
+            -> Can we still get the batch logic with a per-renderer approach?
+    - Can we batch barriers for GPU uploads?
+        - e.g.: instead of copy, barrier, copy, barrier, copy, barrier do copy, copy, copy, (barrier, barrier, barrier)
     - Generic viewer type with just basics + specialized viewer types for specific use cases (careful about composition vs specialization)
         - Scene viewer -> classic scene graph
             - Single frame viewer
@@ -167,3 +192,31 @@ Thoughts:
     -> can properties be shared across objects? since animation is on the property, i dont see any issue with this
     -> If properties are shared, how to handle their GPU counterparts? Are those owned by objects?
        Are they part of the property itself but optional? How does the user configure prefetching vs preload?
+
+Issues found while implementing skeletal animation:
+[ ] if passing [N, 1] instead of [N] we can end up creating LOTS of frames (and therefore LOTS of buffers)
+    -> we can likely check if last dimension is 1 in something that usually is not (e.g. indices) and warn / raise
+    -> We can anyways try to optimize number of buffers that we actually create buy suballocation
+[ ] easy to pass an image as np.float64 if you are doing ops (e.g. dstacking alpha), warn / raise if dtype does not match format
+
+[ ] per frame uploadable property:
+    -> per frame bar memory
+    -> per frame cpu buffer backed by a single GPU buffer
+        -> for some things this is similar to non-preuploaded resources
+        -> similarities:
+            - we already have CPU buffers or BAR buffers for each frame
+        -> differences:
+            - no need for async CPU load logic, data is provided every frame (or same as previous frame)
+            - can be thought as keyed not by animation frame but by a monotonically increasing global frame counter
+            - prefetching does not make sense because we cannot predict future
+        Questions:
+        -> can we create a sort of LiveProperty that implements this?
+        -> or should we instead build the non-preuploaded resources on top of something that supports this?
+    -> I think we are in for a big rewrite here:
+        -> we don't actually need more than 1 GPU buffer unless prefetching:
+            -> BAR + CPU is anyways on CPU buffers that are per-frame buffered (currently BAR is on GPU buffer but maybe should be moved)
+            -> GFX + TRANSFER non-prefetch buffers do not need double buffering because we are not overlapping frames like that
+            -> we can keep treating prefetch buffers separate how we have been doing
+        -> live data is not keyed to a specific frame. If we have invalidation we can have properties with 1 frame (always at frame 0) and update it.
+        -> we actually want a way to invalidate CPU and GPU buffers if the data has changed.
+            -> this will trigger a new upload using the same mechanisms and will cover the

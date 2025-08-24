@@ -231,7 +231,6 @@ class Renderer:
         self.gpu_properties.append(prop)
         return prop
 
-    @cache
     def get_builtin_shader(self, name: str, entry: str) -> slang.Shader:
         path = SHADERS_PATH.joinpath(name)
         return compile(path, entry)
