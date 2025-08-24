@@ -86,7 +86,7 @@ class Pipeline:
         self.__shaders: Dict[str, Union[Path, Tuple[Path, str]]] = { a: getattr(type(self), a) for a in items }
         self.__compiled_shaders: Dict[str, slang.Shader] = {}
         self._update(True)
-    
+
     def init(self, **kwargs):
         pass
 
@@ -99,7 +99,7 @@ class Pipeline:
 
         self.__dirty = True
         return True
-    
+
     def _update(self, init):
         compiled_shaders: Dict[str, slang.Shader] = {}
         for k, v in self.__shaders.items():
@@ -131,7 +131,7 @@ class Pipeline:
             self.init(**self.__compiled_shaders)
         self.create(**self.__compiled_shaders)
         self.__dirty = False
-    
+
 ALIVE_CACHES = []
 
 class PipelineWatch:

@@ -96,6 +96,7 @@ TODO:
     - [ ] Framegraph
 - [ ] Why does @cache on shader break refcounting on context, especially for an object that does not have any reference to ctx
       -> investigate further and maybe make minimal repo if it's actually a nanobind issue
+- [ ] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
 
 Tools:
 - [x] mypy:
@@ -220,3 +221,11 @@ Issues found while implementing skeletal animation:
         -> live data is not keyed to a specific frame. If we have invalidation we can have properties with 1 frame (always at frame 0) and update it.
         -> we actually want a way to invalidate CPU and GPU buffers if the data has changed.
             -> this will trigger a new upload using the same mechanisms and will cover the
+        -> for non-streaming upload, do we lazily alloc upload cpu buffers, can we still opt in when creating custom properties?
+            -> also think about easy way to customize upload settings, e.g. if we don't yet know the wanted dtype shape
+            -> somehow related is also that maybe for some properties multiple dtypes are allowed, and sometimes even shapes:
+                - textures
+                - vertex attribute dtypes
+                - vertex attribute number of joint indices / weights
+                -> do we have a cleaner way to handle those other than (-1, -1, -1) as we do with images now?
+

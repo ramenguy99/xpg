@@ -596,6 +596,7 @@ enum class MemoryUsage {
     DepthStencilAttachmentReadOnly,
     DepthStencilAttachmentWriteOnly,
     Present,
+    All,
     Count,
 };
 
@@ -706,6 +707,11 @@ namespace MemoryUsagePresets {
         .last_stage = VK_PIPELINE_STAGE_2_NONE,
         .access = 0,
     };
+    constexpr MemoryUsageState All = {
+        .first_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .access = 0,
+    };
 
     MemoryUsageState Types[] = {
         None,
@@ -728,6 +734,7 @@ namespace MemoryUsagePresets {
         DepthStencilAttachmentReadOnly,
         DepthStencilAttachmentWriteOnly,
         Present,
+        All,
     };
     static_assert(ArrayCount(Types) == (size_t)MemoryUsage::Count, "MemoryUsage count does not match length of Types array");
 };
@@ -3319,6 +3326,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("DEPTH_STENCIL_ATTACHMENT_READ_ONLY", MemoryUsage::DepthStencilAttachmentReadOnly)
         .value("DEPTH_STENCIL_ATTACHMENT_WRITE_ONLY", MemoryUsage::DepthStencilAttachmentWriteOnly)
         .value("PRESENT", MemoryUsage::Present)
+        .value("ALL", MemoryUsage::All)
     ;
 
     nb::enum_<VkImageLayout>(m, "ImageLayout")

@@ -125,12 +125,12 @@ class Config:
     # Scene
     world_up: Tuple[float, float, float] = (0, 1, 0)
     handedness: Handedness = Handedness.RIGHT_HANDED
-    camera: CameraConfig = field(default_factory=CameraConfig)
 
     # Stats
     stats_frame_time_count: int = 32
 
     # Sub-configs
+    camera: CameraConfig = field(default_factory=CameraConfig)
     renderer: RendererConfig = field(default_factory=RendererConfig)
     playback: PlaybackConfig = field(default_factory=PlaybackConfig)
     server: ServerConfig = field(default_factory=ServerConfig)

@@ -310,7 +310,7 @@ _counter = 0
 class Object:
     def __init__(self, name: Optional[str] = None):
         self.uid = Object.next_id()
-        self.name = name or f"{type(self).__name__} - {self.uid}"
+        self.name = name or f"{type(self).__name__}<{self.uid}>"
         self.children: List[Object] = []
         self.properties: List[Property] = []
 
