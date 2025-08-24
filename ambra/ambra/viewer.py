@@ -483,6 +483,7 @@ class Viewer:
                 break
 
             self.on_draw()
+        self.ctx.wait_idle()
 
         if self.server is not None:
             self.server.shutdown()

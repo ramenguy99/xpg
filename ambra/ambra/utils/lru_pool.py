@@ -36,6 +36,7 @@ class _Entry(Generic[O]):
     obj: O
     refcount: _RefCount
     prefetching: bool
+    valid: bool
 
 
 class LRUPool(Generic[K, O]):
@@ -58,7 +59,7 @@ class LRUPool(Generic[K, O]):
         cached = self.lookup.get(key)
 
         # Check if already loaded
-        if cached is None:
+        if cached is None or not cached.valid:
             # Grab a free buffer
             obj, old_key = self.lru.popitem(last=False)
             if old_key is not None:
@@ -69,7 +70,7 @@ class LRUPool(Generic[K, O]):
             load(key, obj)
 
             # Register buffer as loaded for future use
-            self.lookup[key] = _Entry(obj, _RefCount(), prefetching=False)
+            self.lookup[key] = _Entry(obj, _RefCount(), prefetching=False, valid=True)
         else:
             # If this was a prefetched buffer wait for it to be loaded
             obj = cached.obj
@@ -89,12 +90,18 @@ class LRUPool(Generic[K, O]):
                 pass
         return obj
 
+    def invalidate(self, key: K) -> None:
+        cached = self.lookup.get(key)
+        if cached is not None:
+            cached.valid = False
+
     def is_available(self, key: K) -> bool:
         cached = self.lookup.get(key)
-        return cached is not None and not cached.prefetching
+        return cached is not None and not cached.prefetching and cached.valid
 
     def is_available_or_prefetching(self, key: K) -> bool:
-        return key in self.lookup
+        cached = self.lookup.get(key)
+        return cached is not None and cached.valid
 
     def use_frame(self, frame_index: int, key: K) -> None:
         entry = self.lookup[key]
@@ -171,7 +178,7 @@ class LRUPool(Generic[K, O]):
                 submit_load(key, obj)
 
                 # Register buffer as loading for future use
-                self.lookup[key] = _Entry(obj, _RefCount(), prefetching=True)
+                self.lookup[key] = _Entry(obj, _RefCount(), prefetching=True, valid=True)
                 self.prefetch_store[obj] = key
             else:
                 # If already loaded just bump in front of LRU

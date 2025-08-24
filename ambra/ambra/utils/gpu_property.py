@@ -365,6 +365,15 @@ class GpuResourceProperty(Generic[R]):
         assert self.current
         return self.current
 
+    def invalidate_frame(self, frame_index: int) -> None:
+        # TODO: fix when fixing preupload to use same stuff but lazy
+        assert not self.property.upload.preupload, "Invalidation is currently not supported for preuploaded"
+
+        if not self.property.upload.preupload:
+            self.cpu_pool.invalidate(frame_index)
+            if self.gpu_pool is not None:
+                self.gpu_pool.invalidate(frame_index)
+
     def destroy(self) -> None:
         self.current = None
         if self.property.upload.preupload:

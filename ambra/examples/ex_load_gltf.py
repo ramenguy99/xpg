@@ -11,7 +11,8 @@ from ambra.config import GuiConfig, Config, CameraConfig
 from ambra.primitives3d import AnimatedMesh, Lines
 from ambra.viewer import Viewer, imgui
 from ambra.transform3d import Transform3D
-from pyglm.glm import vec3, quat, mat4, rotate
+from ambra.scene import UploadSettings, as_property
+from pyglm.glm import vec3, quat, mat4, vec4, rotate
 from ambra.utils.gpu import Format
 
 filename = Path(sys.argv[1])
@@ -63,6 +64,7 @@ class Joint:
     transform: Transform3D
     parent_index: int
     inverse_bind_matrix: mat4
+    val: float = 1.0
 
 @dataclass
 class MeshData:
@@ -192,6 +194,42 @@ for md in meshes:
         joints_by_name[j.name] = j
         print(j)
 
+joints_array = np.empty((len(md.joints), 4, 4), np.float32)
+
+def fk():
+    # Forward kinematics
+    for i, j in enumerate(md.joints):
+        if j.parent_index < 0:
+            p = np.eye(4, dtype=np.float32)
+        else:
+            p = joints_array[j.parent_index]
+        c = np.array(j.transform.as_mat4())
+        joints_array[i] = p @ c
+
+    # Inverse bind matrix
+    for i, j in enumerate(md.joints):
+        joints_array[i] = joints_array[i] @ np.array(j.inverse_bind_matrix)
+
+md = meshes[0]
+fk()
+
+joints_prop = as_property(joints_array, np.float32, (-1, 4, 4), upload=UploadSettings(
+    preupload=False,
+))
+
+m = AnimatedMesh(
+    positions=md.positions,
+    normals=md.normals,
+    tangents=md.tangents[:, :3], # TODO: handle sign?
+    uvs=md.uvs,
+    joint_indices=md.joint_indices_0,
+    weights=md.weights_0,
+    indices=md.indices.reshape((-1,)),
+    joints=joints_prop,
+    texture=np.dstack((md.base_color_texture, np.ones(md.base_color_texture.shape[:2], np.uint8))),
+    texture_format=Format.R8G8B8A8_UNORM,
+)
+
 class CustomViewer(Viewer):
     def __init__(self, title = "ambra", config = None, key_map = None):
         super().__init__(title, config, key_map)
@@ -200,7 +238,11 @@ class CustomViewer(Viewer):
     def on_gui(self):
         if imgui.begin("Joints")[0]:
             for k, v in joints_by_name.items():
-                u, val = imgui.slider_float(k, 0, 0, 0)
+                u, v.val = imgui.slider_float(k, v.val, 0, 1)
+                if u:
+                    v.transform.rotation = rotate(quat(1, 0, 0, 0),  0.5 *  np.pi * v.val, vec3(0, 0, 1))
+                    fk()
+                    m.joints_buffer.invalidate_frame(0)
         imgui.end()
 
 v = CustomViewer(config=Config(
@@ -214,55 +256,5 @@ v = CustomViewer(config=Config(
     )
 ))
 
-
-for md in meshes:
-    lines = []
-
-    joints_array = np.empty((len(md.joints), 4, 4), np.float32)
-
-    # Forward kinematics
-    for i, j in enumerate(md.joints):
-        if j.parent_index < 0:
-            p = np.eye(4, dtype=np.float32)
-        else:
-            p = joints_array[j.parent_index]
-        c = np.array(j.transform.as_mat4())
-        joints_array[i] = p @ c
-
-    #     p = vec3(mat4(p) * vec4(0, 0, 0, 1))
-    #     c = vec3(j.transform.as_mat4() * vec4(0, 0, 0, 1))
-    #     lines.append(p)
-    #     lines.append(c)
-
-    # lines = np.array(lines)
-    # colors = np.zeros(lines.shape[0], np.uint32)
-    # l = Lines(lines, colors, scale=vec3(100))
-    # v.viewport.scene.objects.append(l)
-
-    # Inverse bind matrix
-    for i, j in enumerate(md.joints):
-        joints_array[i] = joints_array[i] @ np.array(j.inverse_bind_matrix)
-
-        # joints_array[i] = np.eye(4)
-
-    md.weights_0 = md.weights_0 / md.weights_0.sum(axis=1).reshape((-1, 1))
-    # for i in md.weights_0.sum(axis=1) + md.weights_1.sum(axis=1):
-    #     print(i)
-
-    m = AnimatedMesh(
-        positions=md.positions,
-        normals=md.normals,
-        tangents=md.tangents[:, :3], # TODO: handle sign?
-        uvs=md.uvs,
-        joint_indices=md.joint_indices_0,
-        weights=md.weights_0,
-        indices=md.indices.reshape((-1,)),
-        joints=joints_array,
-        texture=np.dstack((md.base_color_texture, np.ones(md.base_color_texture.shape[:2], np.uint8))),
-        texture_format=Format.R8G8B8A8_UNORM,
-        # scale=(100, 100, 100)
-    )
-
-    v.viewport.scene.objects.append(m)
-
+v.viewport.scene.objects.append(m)
 v.run()
