@@ -100,33 +100,45 @@ class GpuResourceProperty(Generic[R]):
         self.name = name
         self.pipeline_stage_flags = pipeline_stage_flags
 
+        # Current state
         self.current: Optional[R] = None
         self.current_cpu_buf: Optional[CpuBuffer] = None
 
+        # If preupload:
+        self.resources: List[R] = []
+
+        # Otherwise:
         self.cpu_buffers: List[CpuBuffer] = []
+        self.cpu_pool: Optional[LRUPool[int, CpuBuffer]] = None
         self.gpu_resources: List[GpuResource[R]] = []
         self.prefetch_states: List[PrefetchState] = []
         self.prefetch_states_lookup: Dict[GpuResource[R], PrefetchState] = {}
 
-        self.resources: List[R] = []
-
         self.has_owned_upload_buffers = not self.property.upload.preupload
 
         # Upload
-        # for i in range(property.num_frames):
-        #     frame = property.get_frame_by_index(i)
-        #     res = self._create_uploaded_resource(frame, f"{name}-{i}")
-        #     self.resources.append(res)
-
         if self.property.upload.preupload:
-            cpu_prefetch_count = 0
-            gpu_prefetch_count = 0
-            if upload_method == UploadMethod.CPU_BUF or upload_method == UploadMethod.BAR:
-                cpu_buffers_count = 1
-                gpu_resources_count = 0
+            if upload_method == UploadMethod.CPU_BUF:
+                alloc_type = AllocType.HOST
+            elif upload_method == UploadMethod.BAR:
+                alloc_type = AllocType.DEVICE_MAPPED
             else:
-                cpu_buffers_count = 0
-                gpu_resources_count = 1
+                alloc_type = AllocType.DEVICE
+
+            for i in range(property.num_frames):
+                frame = property.get_frame_by_index(i)
+                res = self._create_resource(frame, alloc_type, f"{name}-{i}")
+                if upload_method == UploadMethod.CPU_BUF or upload_method == UploadMethod.BAR:
+                    # TODO: memcpy
+                    pass
+                else:
+                    # TODO: prepare for bulk upload
+                    pass
+                self.resources.append(res)
+
+            if upload_method != UploadMethod.CPU_BUF and upload_method != UploadMethod.BAR:
+                #TODO: trigger bulk upload
+                pass
         else:
             cpu_prefetch_count = self.property.upload.cpu_prefetch_count
             gpu_prefetch_count = (
@@ -135,57 +147,38 @@ class GpuResourceProperty(Generic[R]):
             cpu_buffers_count = num_frames_in_flight + cpu_prefetch_count + gpu_prefetch_count
             gpu_resources_count = 1 + gpu_prefetch_count
 
-        cpu_alloc_type = AllocType.DEVICE_MAPPED if self.upload_method == UploadMethod.BAR else AllocType.HOST
-        self.cpu_buffers = [
-            CpuBuffer(self._create_cpu_buffer(f"cpubuf-{name}-{i}", cpu_alloc_type)) for i in range(cpu_buffers_count)
-        ]
-        self.cpu_pool = LRUPool(self.cpu_buffers, num_frames_in_flight, cpu_prefetch_count)
-
-        for i in range(gpu_resources_count):
-            res = self._create_gpu_resource(f"gpubuf-{name}-{i}")
-            if upload_method == UploadMethod.TRANSFER_QUEUE:
-                semaphore = TimelineSemaphore(ctx, name=f"gpubuf-{name}-{i}-semaphore")
-            else:
-                semaphore = None
-            self.gpu_resources.append(GpuResource(res, semaphore))
-
-        self.gpu_pool = LRUPool(
-            self.gpu_resources,
-            1,
-            gpu_prefetch_count,
-        )
-
-        if upload_method == UploadMethod.TRANSFER_QUEUE:
-            self.prefetch_states = [
-                PrefetchState(
-                    commands=CommandBuffer(
-                        ctx,
-                        queue_family_index=ctx.transfer_queue_family_index,
-                        name=f"gpu-prefetch-commands-{name}-{i}",
-                    ),
-                    prefetch_done_value=0,
-                )
-                for i in range(gpu_prefetch_count)
+            cpu_alloc_type = AllocType.DEVICE_MAPPED if self.upload_method == UploadMethod.BAR else AllocType.HOST
+            self.cpu_buffers = [
+                CpuBuffer(self._create_cpu_buffer(f"cpubuf-{name}-{i}", cpu_alloc_type)) for i in range(cpu_buffers_count)
             ]
+            self.cpu_pool = LRUPool(self.cpu_buffers, num_frames_in_flight, cpu_prefetch_count)
 
-        if self.property.upload.preupload:
-            # TODO: implement a renderer upload buffer that can upload a set
-            # of frames from a preallocated buffer.
-            #
-            # Ideally it has the following features:
-            # - 2 preallocated 32 MB buffer (configurable)
-            # - ping pong upload with the two:
-            #   - fill A
-            #   - trigger A copy
-            #   - fill B
-            #   - trigger B copy
-            #   - wait for A copy to complete with fence
-            #   - ...
-            # - ability to split buffers and images larger than this size
-            #   into multiple uploads
-            #   - might be a bit harder for images and also need to handle layout
-            #   - transitions at the end, but should be possible.
-            pass
+            for i in range(gpu_resources_count):
+                res = self._create_gpu_resource(f"gpubuf-{name}-{i}")
+                if upload_method == UploadMethod.TRANSFER_QUEUE:
+                    semaphore = TimelineSemaphore(ctx, name=f"gpubuf-{name}-{i}-semaphore")
+                else:
+                    semaphore = None
+                self.gpu_resources.append(GpuResource(res, semaphore))
+
+            self.gpu_pool = LRUPool(
+                self.gpu_resources,
+                1,
+                gpu_prefetch_count,
+            )
+
+            if upload_method == UploadMethod.TRANSFER_QUEUE:
+                self.prefetch_states = [
+                    PrefetchState(
+                        commands=CommandBuffer(
+                            ctx,
+                            queue_family_index=ctx.transfer_queue_family_index,
+                            name=f"gpu-prefetch-commands-{name}-{i}",
+                        ),
+                        prefetch_done_value=0,
+                    )
+                    for i in range(gpu_prefetch_count)
+                ]
         # TODO: after invalidation or if configured, allocate owned prealloc buffers
         # and switch to streaming operations
 
@@ -207,8 +200,10 @@ class GpuResourceProperty(Generic[R]):
 
             property_frame_index = self.property.current_frame_index
 
-            if self.upload_method == UploadMethod.CPU_BUF or self.upload_method == UploadMethod.BAR or (
-                self.gpu_pool is not None and not self.gpu_pool.is_available_or_prefetching(property_frame_index)
+            if (
+                self.upload_method == UploadMethod.CPU_BUF
+                or self.upload_method == UploadMethod.BAR
+                or (self.gpu_pool is not None and not self.gpu_pool.is_available_or_prefetching(property_frame_index))
             ):
                 self.current_cpu_buf = self.cpu_pool.get(property_frame_index, cpu_load)
 
@@ -395,10 +390,11 @@ class GpuResourceProperty(Generic[R]):
         return self.current
 
     def invalidate_frame(self, frame_index: int) -> None:
-        # TODO: fix when fixing preupload to use same stuff but lazy
         assert not self.property.upload.preupload, "Invalidation is currently not supported for preuploaded"
-
-        if not self.property.upload.preupload:
+        if self.property.upload.preupload:
+            # TODO: Alloc a pool of buffers usable for uploads. One for each frame in flight.
+            pass
+        else:
             self.cpu_pool.invalidate(frame_index)
             if self.gpu_pool is not None:
                 self.gpu_pool.invalidate(frame_index)
@@ -421,7 +417,7 @@ class GpuResourceProperty(Generic[R]):
             if self.gpu_pool is not None:
                 self.gpu_pool.clear()
 
-    def _create_uploaded_resource(self, frame: np.ndarray, name: str) -> R:
+    def _create_resource(self, frame: np.ndarray, alloc_type: AllocType, name: str) -> R:
         raise NotImplementedError
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:
@@ -478,8 +474,12 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
             name,
         )
 
-    def _create_uploaded_resource(self, frame: np.ndarray, name: str) -> Buffer:
-        return UploadableBuffer.from_data(self.ctx, view_bytes(frame), self.usage_flags, name=name)
+    # TODO: maybe rename _create_preuploaded_resource? or somehow distinguish from before. _create_resource for preupload?
+    def _create_resource(self, frame: np.ndarray, alloc_type: AllocType, name: str) -> Buffer:
+        # TODO: can we unify with _create_gpu_resource?
+        #   - size is not self.size
+        #   - usage_flags actually depend on upload method
+        return Buffer(self.ctx, len(view_bytes(frame)), self.usage_flags, alloc_type, name=name)
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:
         return Buffer(

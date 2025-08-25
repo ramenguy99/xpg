@@ -1323,6 +1323,33 @@ struct CommandBuffer: GfxObject {
         });
     }
 
+    void copy_buffer_to_image_range(
+        Buffer& buf,
+        Image& image,
+        u32 image_width,
+        u32 image_height,
+        u32 image_x,
+        u32 image_y,
+        u64 buffer_offset,
+        u32 buffer_row_stride
+    ) {
+        // TODO: add error checking that image fits into buffer
+        // and that image range range fits into image
+
+        gfx::CmdCopyBufferToImage(buffer, {
+            .image = image.image.image,
+            .image_layout = image.current_layout,
+            .image_x = image_x,
+            .image_y = image_y,
+            .image_width = image_width,
+            .image_height = image_height,
+            .buffer = buf.buffer.buffer,
+            .buffer_offset = buffer_offset,
+            .buffer_row_stride = buffer_row_stride,
+        });
+    }
+
+
     void clear_color_image(Image& image, std::array<float, 4> color) {
         VkClearColorValue clear;
         clear.float32[0] = color[0];
@@ -3511,6 +3538,16 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("buffer"),
             nb::arg("image"),
             nb::arg("buffer_offset") = 0
+        )
+        .def("copy_buffer_to_image_range", &CommandBuffer::copy_buffer_to_image_range,
+            nb::arg("buffer"),
+            nb::arg("image"),
+            nb::arg("image_width"),
+            nb::arg("image_height"),
+            nb::arg("image_x") = 0,
+            nb::arg("image_y") = 0,
+            nb::arg("buffer_offset") = 0,
+            nb::arg("buffer_row_stride") = 0
         )
         .def("clear_color_image", &CommandBuffer::clear_color_image,
             nb::arg("image"),

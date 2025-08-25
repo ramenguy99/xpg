@@ -346,6 +346,7 @@ class Mesh(Object3D):
             else:
                 frame.cmd.draw(self.positions.get_current().shape[0])
 
+
 class AnimatedMesh(Object3D):
     def __init__(
         self,
@@ -388,17 +389,65 @@ class AnimatedMesh(Object3D):
         self.front_face = front_face
 
     def create(self, r: Renderer) -> None:
-        self.positions_buffer = r.add_gpu_buffer_property(self.positions, BufferUsageFlags.VERTEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-positions")
-        self.normals_buffer = r.add_gpu_buffer_property(self.normals, BufferUsageFlags.VERTEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-normals")
-        self.tangents_buffer = r.add_gpu_buffer_property(self.tangents, BufferUsageFlags.VERTEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-tangents")
-        self.uvs_buffer = r.add_gpu_buffer_property(self.uvs, BufferUsageFlags.VERTEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-uvs")
-        self.joint_indices_buffer = r.add_gpu_buffer_property(self.joint_indices, BufferUsageFlags.VERTEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-joint_indices")
-        self.weights_buffer = r.add_gpu_buffer_property(self.weights, BufferUsageFlags.VERTEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-weights")
+        self.positions_buffer = r.add_gpu_buffer_property(
+            self.positions,
+            BufferUsageFlags.VERTEX,
+            MemoryUsage.VERTEX_INPUT,
+            PipelineStageFlags.VERTEX_INPUT,
+            name=f"{self.name}-positions",
+        )
+        self.normals_buffer = r.add_gpu_buffer_property(
+            self.normals,
+            BufferUsageFlags.VERTEX,
+            MemoryUsage.VERTEX_INPUT,
+            PipelineStageFlags.VERTEX_INPUT,
+            name=f"{self.name}-normals",
+        )
+        self.tangents_buffer = r.add_gpu_buffer_property(
+            self.tangents,
+            BufferUsageFlags.VERTEX,
+            MemoryUsage.VERTEX_INPUT,
+            PipelineStageFlags.VERTEX_INPUT,
+            name=f"{self.name}-tangents",
+        )
+        self.uvs_buffer = r.add_gpu_buffer_property(
+            self.uvs,
+            BufferUsageFlags.VERTEX,
+            MemoryUsage.VERTEX_INPUT,
+            PipelineStageFlags.VERTEX_INPUT,
+            name=f"{self.name}-uvs",
+        )
+        self.joint_indices_buffer = r.add_gpu_buffer_property(
+            self.joint_indices,
+            BufferUsageFlags.VERTEX,
+            MemoryUsage.VERTEX_INPUT,
+            PipelineStageFlags.VERTEX_INPUT,
+            name=f"{self.name}-joint_indices",
+        )
+        self.weights_buffer = r.add_gpu_buffer_property(
+            self.weights,
+            BufferUsageFlags.VERTEX,
+            MemoryUsage.VERTEX_INPUT,
+            PipelineStageFlags.VERTEX_INPUT,
+            name=f"{self.name}-weights",
+        )
 
-        self.joints_buffer = r.add_gpu_buffer_property(self.joints, BufferUsageFlags.STORAGE, MemoryUsage.SHADER_READ_ONLY, PipelineStageFlags.VERTEX_SHADER, name=f"{self.name}-joints")
+        self.joints_buffer = r.add_gpu_buffer_property(
+            self.joints,
+            BufferUsageFlags.STORAGE,
+            MemoryUsage.SHADER_READ_ONLY,
+            PipelineStageFlags.VERTEX_SHADER,
+            name=f"{self.name}-joints",
+        )
 
         self.indices_buffer = (
-            r.add_gpu_buffer_property(self.indices, BufferUsageFlags.INDEX, MemoryUsage.VERTEX_INPUT, PipelineStageFlags.VERTEX_INPUT, name=f"{self.name}-indices")
+            r.add_gpu_buffer_property(
+                self.indices,
+                BufferUsageFlags.INDEX,
+                MemoryUsage.VERTEX_INPUT,
+                PipelineStageFlags.VERTEX_INPUT,
+                name=f"{self.name}-indices",
+            )
             if self.indices is not None
             else None
         )
@@ -457,8 +506,8 @@ class AnimatedMesh(Object3D):
                 VertexBinding(0, 12, VertexInputRate.VERTEX),
                 VertexBinding(1, 12, VertexInputRate.VERTEX),
                 VertexBinding(2, 12, VertexInputRate.VERTEX),
-                VertexBinding(3,  8, VertexInputRate.VERTEX),
-                VertexBinding(4,  8, VertexInputRate.VERTEX),
+                VertexBinding(3, 8, VertexInputRate.VERTEX),
+                VertexBinding(4, 8, VertexInputRate.VERTEX),
                 VertexBinding(5, 16, VertexInputRate.VERTEX),
             ],
             vertex_attributes=[
