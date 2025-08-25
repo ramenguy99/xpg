@@ -2,18 +2,21 @@ import os
 import sys
 from functools import cache
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Tuple
 
 import numpy as np
 from pyxpg import (
     AllocType,
+    Buffer,
     BufferUsageFlags,
+    CommandBuffer,
     CompareOp,
     Context,
     DescriptorSet,
     DescriptorSetEntry,
     DescriptorType,
     DeviceFeatures,
+    Fence,
     Format,
     Gui,
     Image,
@@ -34,7 +37,7 @@ from .config import RendererConfig, UploadMethod
 from .renderer_frame import RendererFrame
 from .scene import Property
 from .shaders import compile
-from .utils.gpu import UniformPool, UploadableBuffer
+from .utils.gpu import UniformPool, UploadableBuffer, get_image_pitch_and_rows
 from .utils.gpu_property import GpuBufferProperty, GpuImageProperty
 from .utils.ring_buffer import RingBuffer
 from .utils.threadpool import ThreadPool
@@ -52,6 +55,10 @@ else:
 
     def get_cpu_count() -> Optional[int]:
         return os.cpu_count()
+
+
+def align_up(v, a):
+    return (v + a - 1) & ~(a - 1)
 
 
 class Renderer:
@@ -163,12 +170,100 @@ class Renderer:
 
         self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
 
+        # Allocate buffers for bulk upload
+        self.upload_buffers: List[Buffer] = []
+        self.upload_commands: List[CommandBuffer] = []
+        self.upload_fences: List[Fence] = []
+        self.upload_alignment = max(
+            ctx.device_properties.limits.optimal_buffer_copy_offset_alignment,
+            ctx.device_properties.limits.optimal_buffer_copy_row_pitch_alignment,
+        )
+        for i in range(config.upload_buffer_count):
+            self.upload_buffers.append(
+                Buffer(
+                    ctx,
+                    align_up(config.upload_buffer_size, self.upload_alignment),
+                    BufferUsageFlags.TRANSFER_SRC,
+                    AllocType.HOST,
+                    name=f"upload-buffer-{i}",
+                )
+            )
+            self.upload_commands.append(CommandBuffer(ctx, name=f"upload-commands-{i}"))
+            self.upload_fences.append(Fence(ctx, name=f"upload-fence-{i}"))
+
         # Will be populated in self.resize(), and will never be None after that
         self.depth_buffer: Image = None  # type: ignore
         self.depth_format = Format.D32_SFLOAT
         self.depth_clear_value = 1.0
         self.depth_compare_op = CompareOp.LESS
         self.resize(window.fb_width, window.fb_height)
+
+    def bulk_upload_images(self, uploads: List[Tuple[memoryview, Image]]):
+        i = 0
+        upload_buffer_index = 0
+        offset_alignment = self.ctx.device_properties.limits.optimal_buffer_copy_offset_alignment
+        pitch_alignment = self.ctx.device_properties.limits.optimal_buffer_copy_row_pitch_alignment
+
+        start_row = 0
+        while i < len(uploads):
+            cmd = self.upload_buffers[upload_buffer_index]
+            fence = self.upload_fences[upload_buffer_index]
+
+            # TODO: Find a better way to express this. We expect to enter and leave
+            # always with unsignaled fences. At the end there will always be an extra
+            # fence to wait.
+            if skip_wait:
+                fence.wait_and_reset()
+
+            with cmd:
+                offset = 0
+                upload_buffer = self.upload_buffers[upload_buffer_index]
+
+                while i < len(uploads):
+                    data, image = uploads[i]
+
+                    pitch, rows = get_image_pitch_and_rows(image.width, image.height, image.format)
+
+                    # Adjust rows by number of rows already uploaded and align pitch
+                    rows = rows - start_row
+                    pitch = align_up(pitch, pitch_alignment)
+
+                    # Space left in upload buffer
+                    remaining_size = upload_buffer.size - offset
+
+                    # Stop if we can't fit a single row
+                    if pitch < remaining_size:
+                        break
+
+                    # Compute how many rows we are actually uploading in this command
+                    fitting_rows = min(rows, remaining_size // pitch)
+                    fitting_size = fitting_rows * pitch
+
+                    # Copy image data to staging buffer expanding to correct pitch
+                    upload_buffer_range = upload_buffer.data[offset:offset + fitting_size]
+                    upload_buffer_range.cast("c", shape=(fitting_rows, pitch))[:, :image.width] = data[:fitting_rows, :]
+
+                    # Upload
+                    cmd.copy_buffer_to_image_range(upload_buffer_range, image, buffer_offset=offset)
+
+                    # Advance image and buffer offset
+                    offset += align_up(fitting_size, offset_alignment)
+
+                    if fitting_rows == rows:
+                        i += 1
+                        start_row = 0
+                    else:
+                        start_row += fitting_rows
+
+                # We are not making progress. Throw error
+                if offset == 0:
+                    raise RuntimeError("")
+
+        # Submit batch signaling fence
+        self.ctx.queue.submit(cmd, fence=fence)
+
+        # Advance buffer
+        upload_buffer_index = (upload_buffer_index + 1) % len(self.upload_buffers)
 
     def resize(self, width: int, height: int) -> None:
         if self.depth_buffer is not None:
