@@ -8,6 +8,7 @@ int main(int argc, char** argv) {
     result = gfx::Init();
     if (result != gfx::Result::SUCCESS) {
         logging::error("sync", "Failed to initialize platform\n");
+        exit(100);
     }
 
     gfx::Context vk = {};
@@ -131,7 +132,7 @@ int main(int argc, char** argv) {
         gfx::EndCommands(frame.command_buffer);
 
         VkResult vkr;
-        vkr = gfx::Submit(frame, vk, 
+        vkr = gfx::Submit(frame, vk,
             // VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
         );

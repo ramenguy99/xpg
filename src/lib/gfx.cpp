@@ -87,8 +87,11 @@ Init() {
 #ifdef XPG_MOLTENVK_STATIC
     glfwInitVulkanLoader(vkGetInstanceProcAddr);
 #endif
-    glfwInit();
-    return Result::SUCCESS;
+    if (glfwInit()) {
+        return Result::SUCCESS;
+    } else {
+        return Result::GLFW_INITIALIZATION_FAILED;
+    }
 }
 
 void Callback_WindowRefresh(GLFWwindow* window) {

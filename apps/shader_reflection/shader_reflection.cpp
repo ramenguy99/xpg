@@ -160,6 +160,7 @@ int main(int argc, char** argv) {
     result = gfx::Init();
     if (result != gfx::Result::SUCCESS) {
         logging::error("shader_reflection", "Failed to initialize platform\n");
+        exit(100);
     }
 
     gfx::Context vk = {};

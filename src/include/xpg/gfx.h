@@ -53,6 +53,7 @@ enum class Result
 {
     SUCCESS,
 
+    GLFW_INITIALIZATION_FAILED,
     API_ERROR,
     API_OUT_OF_MEMORY,
     INVALID_VERSION,
