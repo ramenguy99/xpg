@@ -53,11 +53,11 @@ void Draw(App* app) {
     // app->wait_for_events = false;
 
     // Acquire current frame
-    gfx::Frame* opt_frame = gfx::AcquireNextFrame(&window, vk);
-    if (!opt_frame) {
+    gfx::Frame& frame = gfx::WaitForFrame(&window, vk);
+    gfx::Result ok = gfx::AcquireImage(&frame, &window, vk);
+    if (ok != gfx::Result::SUCCESS) {
         return;
     }
-    gfx::Frame& frame = *opt_frame;
 
     gui::BeginFrame();
 

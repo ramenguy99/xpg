@@ -1406,27 +1406,6 @@ Result AcquireImage(Frame* frame, Window* window, const Context& vk)
     return Result::SUCCESS;
 }
 
-// @API(frame): Deprecated in favor of split acquire / wait?
-Frame* AcquireNextFrame(Window* w, const Context& vk) {
-    Frame& frame = w->frames[w->swapchain_frame_index];
-
-    // Wait for frame to be done
-    vkWaitForFences(vk.device, 1, &frame.fence, VK_TRUE, ~0);
-
-    u32 image_index;
-    VkResult vkr = vkAcquireNextImageKHR(vk.device, w->swapchain, ~0ull, frame.acquire_semaphore, 0, &image_index);
-    if (vkr == VK_ERROR_OUT_OF_DATE_KHR) {
-        w->force_swapchain_recreate = true;
-        return 0;
-    }
-
-    frame.current_image_index = image_index;
-    frame.current_image = w->images[image_index];
-    frame.current_image_view = w->image_views[image_index];
-
-    return &frame;
-}
-
 VkResult
 BeginCommands(VkCommandPool pool, VkCommandBuffer buffer, const Context& vk) {
 
@@ -1751,13 +1730,13 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
 
             // Commands
             DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, frame.command_buffer, "xpg-frame-command-buffer");
-            DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL,   frame.command_pool,    "xpg-frame-command-pool");
+            DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL,   frame.command_pool,   "xpg-frame-command-pool");
             if (vk.compute_queue != VK_NULL_HANDLE) {
                 DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, frame.compute_command_buffer, "xpg-frame-compute-command-buffer");
-                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL,   frame.compute_command_pool,    "xpg-frame-compute-command-pool");
+                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL,   frame.compute_command_pool,   "xpg-frame-compute-command-pool");
             }
             if (vk.copy_queue != VK_NULL_HANDLE) {
-                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, frame.copy_command_buffer,    "xpg-frame-transfer-command-buffer");
+                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, frame.copy_command_buffer,  "xpg-frame-transfer-command-buffer");
                 DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL,   frame.copy_command_pool,    "xpg-frame-transfer-command-pool");
             }
 

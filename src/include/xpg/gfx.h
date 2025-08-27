@@ -240,7 +240,6 @@ struct Frame
 
 Frame& WaitForFrame(Window* w, const Context& vk);
 Result AcquireImage(Frame* frame, Window* window, const Context& vk);
-Frame* AcquireNextFrame(Window* w, const Context& vk);
 
 //- Window
 enum class MouseButton: u32 {
