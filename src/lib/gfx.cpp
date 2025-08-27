@@ -1211,13 +1211,13 @@ void WaitIdle(Context& vk) {
 }
 
 Result
-CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize frames, VkPresentModeKHR present_mode, VkSwapchainKHR old_swapchain)
+CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize swapchain_frames, VkPresentModeKHR present_mode, VkSwapchainKHR old_swapchain)
 {
     // Create swapchain.
     u32 queue_family_indices[] = { vk.queue_family_index };
     VkSwapchainCreateInfoKHR swapchain_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
     swapchain_info.surface = surface;
-    swapchain_info.minImageCount = (u32)frames;
+    swapchain_info.minImageCount = (u32)swapchain_frames;
     swapchain_info.imageFormat = format;
     swapchain_info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     swapchain_info.imageExtent.width = fb_width;
@@ -1572,12 +1572,12 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     }
 
     // Compute number of frames in flight.
-    u32 num_frames = Max<u32>(vk.preferred_frames_in_flight, surface_capabilities.minImageCount);
+    u32 swapchain_frames = Max<u32>(vk.preferred_frames_in_flight, surface_capabilities.minImageCount);
     if (surface_capabilities.maxImageCount > 0) {
-        num_frames = Min<u32>(num_frames, surface_capabilities.maxImageCount);
+        swapchain_frames = Min<u32>(swapchain_frames, surface_capabilities.maxImageCount);
     }
     logging::info("gfx/window", "Swapchain Frames: preferred %d, min: %d, max %d, picked: %d", vk.preferred_frames_in_flight,
-	          surface_capabilities.minImageCount, surface_capabilities.maxImageCount, num_frames);
+	          surface_capabilities.minImageCount, surface_capabilities.maxImageCount, swapchain_frames);
 
     // Retrieve supported surface formats.
     // FEATURE: smarter format picking logic (HDR / non sRGB displays).
@@ -1640,13 +1640,14 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     }
     logging::info("gfx/window", "Swapchain present mode: %s", string_VkPresentModeKHR(present_mode));
 
-    Result res = CreateSwapchain(w, vk, surface, format, fb_width, fb_height, num_frames, present_mode, VK_NULL_HANDLE);
+    Result res = CreateSwapchain(w, vk, surface, format, fb_width, fb_height, swapchain_frames, present_mode, VK_NULL_HANDLE);
     if (res != Result::SUCCESS) {
         logging::error("gfx/window", "CreateSwapchain failed: %d", (s32)res);
         return res;
     }
 
     // Create frames
+    u32 num_frames = Min(swapchain_frames, vk.preferred_frames_in_flight);
     Array<Frame> frames(num_frames);
     for (u32 i = 0; i < num_frames; i++) {
         gfx::Frame& frame = frames[i];
