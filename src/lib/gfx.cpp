@@ -1576,7 +1576,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     if (surface_capabilities.maxImageCount > 0) {
         swapchain_frames = Min<u32>(swapchain_frames, surface_capabilities.maxImageCount);
     }
-    logging::info("gfx/window", "Swapchain Frames: preferred %d, min: %d, max %d, picked: %d", vk.preferred_frames_in_flight,
+    logging::info("gfx/window", "Swapchain images: preferred %d, min %d, max %d, picked %d", vk.preferred_frames_in_flight,
 	          surface_capabilities.minImageCount, surface_capabilities.maxImageCount, swapchain_frames);
 
     // Retrieve supported surface formats.
@@ -1646,8 +1646,13 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
         return res;
     }
 
-    // Create frames
+    // We limit the number of frames we create to at most being the number of swapchain images.
+    // Having more frames in flight does not make sense because we would anyway block to wait
+    // for swapchain images to be ready.
     u32 num_frames = Min(swapchain_frames, vk.preferred_frames_in_flight);
+    logging::info("gfx/window", "Frames in flight: preferred %u picked %u", vk.preferred_frames_in_flight, num_frames);
+
+    // Create frames
     Array<Frame> frames(num_frames);
     for (u32 i = 0; i < num_frames; i++) {
         gfx::Frame& frame = frames[i];
@@ -1767,7 +1772,7 @@ DestroyWindowWithSwapchain(Window* w, const Context& vk)
     vkDestroySurfaceKHR(vk.instance, w->surface, 0);
 
     // Frames
-    for (usize i = 0; i < w->image_views.length; i++) {
+    for (usize i = 0; i < w->frames.length; i++) {
         gfx::Frame& frame = w->frames[i];
         vkDestroyFence(vk.device, frame.fence, 0);
 
