@@ -16,10 +16,165 @@ from pyxpg import (
     ImageLayout,
     ImageUsageFlags,
     MemoryUsage,
+    Fence,
     get_format_info,
 )
 
 from .ring_buffer import RingBuffer
+
+
+def align_up(v, a):
+    return (v + a - 1) & ~(a - 1)
+
+
+@dataclass
+class BufferUploadInfo:
+    data: memoryview
+    buffer: Buffer
+
+
+@dataclass
+class ImageUploadInfo:
+    data: memoryview
+    image: Image
+    layout: ImageLayout
+
+
+@dataclass
+class BulkUploadState:
+    buffer: Buffer
+    cmd: CommandBuffer
+    fence: Fence
+    submitted: bool
+
+
+class BulkUploader:
+    def __init__(self, ctx: Context, size: int, count: int):
+        self.ctx = ctx
+
+        self.upload_states: List[BulkUploadState] = []
+        upload_alignment = max(
+            ctx.device_properties.limits.optimal_buffer_copy_offset_alignment,
+            ctx.device_properties.limits.optimal_buffer_copy_row_pitch_alignment,
+        )
+        for i in range(count):
+            self.upload_states.append(
+                BulkUploadState(
+                    buffer=Buffer(
+                        ctx,
+                        align_up(size, upload_alignment),
+                        BufferUsageFlags.TRANSFER_SRC,
+                        AllocType.HOST,
+                        name=f"bulk-upload-buffer-{i}",
+                    ),
+                    cmd=CommandBuffer(ctx, name=f"bulk-upload-commands-{i}"),
+                    fence=Fence(ctx, name=f"bulk-upload-fence-{i}"),
+                    submitted=False,
+                )
+            )
+
+    def bulk_upload(self, uploads: List[Union[BufferUploadInfo, ImageUploadInfo]]):
+        i = 0
+        upload_buffer_index = 0
+        offset_alignment = self.ctx.device_properties.limits.optimal_buffer_copy_offset_alignment
+        pitch_alignment = self.ctx.device_properties.limits.optimal_buffer_copy_row_pitch_alignment
+
+        start_image_row = 0
+        start_buffer_offset = 0
+        while i < len(uploads):
+            state = self.upload_states[upload_buffer_index]
+
+            if state.submitted:
+                state.fence.wait_and_reset()
+                state.submitted = False
+
+            with state.cmd:
+                offset = 0
+
+                while i < len(uploads):
+                    # Space left in upload buffer
+                    remaining_size = state.buffer.size - offset
+
+                    info = uploads[i]
+
+                    if isinstance(info, BufferUploadInfo):
+                        size = len(info.data)
+                        fitting_size = min(remaining_size, size)
+
+                        state.buffer.data[offset : offset + fitting_size] = info.data[start_buffer_offset:start_buffer_offset+fitting_size]
+
+                        if start_buffer_offset + fitting_size == size:
+                            start_buffer_offset = 0
+                            i += 1
+                        else:
+                            start_buffer_offset += fitting_size
+                    elif isinstance(info, ImageUploadInfo):
+                        pitch, rows = get_image_pitch_and_rows(info.image.width, info.image.height, info.image.format)
+
+                        # Adjust rows by number of rows already uploaded and align pitch
+                        rows = rows - start_image_row
+                        pitch = align_up(pitch, pitch_alignment)
+
+                        if pitch > state.buffer.size:
+                            raise RuntimeError(f"Image pitch ({pitch}) is larger than upload buffer size ({state.buffer.size})")
+
+                        # Stop if we can't fit a single row
+                        if pitch < remaining_size:
+                            break
+
+                        # Compute how many rows we are actually uploading in this command
+                        fitting_rows = min(rows, remaining_size // pitch)
+                        fitting_size = fitting_rows * pitch
+
+                        # Copy image data to staging buffer expanding to correct pitch
+                        upload_buffer_range = state.buffer.data[offset : offset + fitting_size]
+                        upload_buffer_2d_view = upload_buffer_range.cast("c", shape=(fitting_rows, pitch))
+
+                        # TODO: correctly handle block formats here, need to think about data shape looks for those
+                        upload_buffer_2d_view[:, : info.image.width] = info.data[start_image_row : start_image_row + fitting_rows, :]
+
+                        # Tranisition to TRANSFER_DST_OPTIMAL if first upload
+                        if start_image_row == 0:
+                            state.cmd.image_barrier(
+                                info.image, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST
+                            )
+
+                        # Upload to image range
+                        state.cmd.copy_buffer_to_image_range(
+                            state.buffer,
+                            info.image,
+                            info.image.width,
+                            fitting_rows,
+                            0,
+                            start_image_row,
+                            offset,
+                            pitch,
+                        )
+
+                        if start_image_row + fitting_rows == rows:
+                            # Transition to final layout if last upload
+                            state.cmd.image_barrier(info.image, info.layout, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE)
+                            i += 1
+                            start_image_row = 0
+                        else:
+                            start_image_row += fitting_rows
+                    else:
+                        raise TypeError(f"Expected BufferUploadInfo or ImageUploadInfo. Got {type(info)}")
+
+                    # Advance image and buffer offset
+                    offset += align_up(fitting_size, offset_alignment)
+
+            # Submit batch signaling fence
+            self.ctx.queue.submit(state.cmd, fence=state.fence)
+            state.submitted = True
+
+            # Advance buffer
+            upload_buffer_index = (upload_buffer_index + 1) % len(self.upload_states)
+
+        for s in self.upload_states:
+            if s.submitted:
+                s.fence.wait_and_reset()
+                s.submitted = False
 
 
 class UploadableBuffer(Buffer):

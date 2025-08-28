@@ -19,6 +19,20 @@ TODO:
         - [ ] Materials
         - [ ] Instancing
         - [ ] Support both raster and path tracing with accumulation
+    - [ ] Get rid of UploadableBuffer and UploadableImage. Currently only used
+          by renderer for bulk uniforms. I think the main issue with this
+          is that it only solves the startup / first time upload issue, which
+          can already be solved by .from_data.
+          It does handle DEVICE_MAPPED_WITH_FALLBACK, but maybe so should .from_data.
+          The fact that it keeps the staging buffer around is not that useful because
+          we cannot re-utilize it during rendering, we would need 1 per-frame.
+          Shapes of upload:
+          - Upload once at creation (-> .from_data)
+          - Upload once but after creation (-> bulk_upload)
+          - Upload per frame with preallocated frames (-> preupload GpuProperty) (lazily allocates staging buffers, shared across frames)
+          - Upload per frame with single frame (and potentially pre-fetch) (-> streaming GpuProperty) (preallocated staging buffers, shared across frames)
+          We are technically missing but we might not need it:
+          - Upload once after creation but without bulk ops -> can do by hand but we might want helpers
 - [-] Server
     - [ ] Test design and finish implementing
     - [ ] Client python package

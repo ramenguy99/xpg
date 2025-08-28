@@ -21,7 +21,7 @@ from pyxpg import (
 from ..config import UploadMethod
 from ..renderer_frame import RendererFrame, SemaphoreInfo
 from ..scene import Property, view_bytes
-from .gpu import UploadableBuffer, UploadableImage, get_image_pitch_and_rows
+from .gpu import BufferUploadInfo, ImageUploadInfo, get_image_pitch_and_rows, BulkUploader
 from .lru_pool import LRUPool
 from .threadpool import Promise, ThreadPool
 
@@ -89,6 +89,7 @@ class GpuResourceProperty(Generic[R]):
         num_frames_in_flight: int,
         upload_method: UploadMethod,
         thread_pool: ThreadPool[None],
+        out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
         property: Property,
         pipeline_stage_flags: PipelineStageFlags,
         name: str,
@@ -127,18 +128,12 @@ class GpuResourceProperty(Generic[R]):
 
             for i in range(property.num_frames):
                 frame = property.get_frame_by_index(i)
-                res = self._create_resource(frame, alloc_type, f"{name}-{i}")
+                res = self._create_resource_for_preupload(frame, alloc_type, f"{name}-{i}")
                 if upload_method == UploadMethod.CPU_BUF or upload_method == UploadMethod.BAR:
-                    # TODO: memcpy
-                    pass
+                    self._upload_mapped_resource(res, frame)
                 else:
-                    # TODO: prepare for bulk upload
-                    pass
+                    out_upload_list.append(self._create_bulk_upload_descriptor(res, frame))
                 self.resources.append(res)
-
-            if upload_method != UploadMethod.CPU_BUF and upload_method != UploadMethod.BAR:
-                #TODO: trigger bulk upload
-                pass
         else:
             cpu_prefetch_count = self.property.upload.cpu_prefetch_count
             gpu_prefetch_count = (
@@ -390,10 +385,9 @@ class GpuResourceProperty(Generic[R]):
         return self.current
 
     def invalidate_frame(self, frame_index: int) -> None:
-        assert not self.property.upload.preupload, "Invalidation is currently not supported for preuploaded"
         if self.property.upload.preupload:
+            assert False, "Invalidation is currently not supported for preuploaded"
             # TODO: Alloc a pool of buffers usable for uploads. One for each frame in flight.
-            pass
         else:
             self.cpu_pool.invalidate(frame_index)
             if self.gpu_pool is not None:
@@ -417,7 +411,13 @@ class GpuResourceProperty(Generic[R]):
             if self.gpu_pool is not None:
                 self.gpu_pool.clear()
 
-    def _create_resource(self, frame: np.ndarray, alloc_type: AllocType, name: str) -> R:
+    def _create_resource_for_preupload(self, frame: np.ndarray, alloc_type: AllocType, name: str) -> R:
+        raise NotImplementedError
+
+    def _upload_mapped_resource(self, resource: R, frame: np.ndarray):
+        raise NotImplementedError
+
+    def _create_bulk_upload_descriptor(self, resource: R, frame: np.ndarray) -> Union[BufferUploadInfo, ImageUploadInfo]:
         raise NotImplementedError
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:
@@ -449,6 +449,7 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
         num_frames_in_flight: int,
         upload_method: UploadMethod,
         thread_pool: ThreadPool[None],
+        out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
         property: Property,
         usage_flags: BufferUsageFlags,
         memory_usage: MemoryUsage,
@@ -471,15 +472,19 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
             thread_pool,
             property,
             pipeline_stage_flags,
+            out_upload_list,
             name,
         )
 
-    # TODO: maybe rename _create_preuploaded_resource? or somehow distinguish from before. _create_resource for preupload?
-    def _create_resource(self, frame: np.ndarray, alloc_type: AllocType, name: str) -> Buffer:
-        # TODO: can we unify with _create_gpu_resource?
-        #   - size is not self.size
-        #   - usage_flags actually depend on upload method
-        return Buffer(self.ctx, len(view_bytes(frame)), self.usage_flags, alloc_type, name=name)
+    def _create_resource_for_preupload(self, frame: np.ndarray, alloc_type: AllocType, name: str) -> Buffer:
+        return Buffer(self.ctx, len(view_bytes(frame)), self.usage_flags | BufferUsageFlags.TRANSFER_DST, alloc_type, name=name)
+
+    def _upload_mapped_resource(self, resource: Buffer, frame: np.ndarray) -> None:
+        # NOTE: here we can assume that the buffer is always the same size as frame data.
+        resource.data[:] = view_bytes(frame)
+
+    def _create_bulk_upload_descriptor(self, resource: Buffer, frame: np.ndarray) -> BufferUploadInfo:
+        return BufferUploadInfo(view_bytes(frame), resource)
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:
         return Buffer(
@@ -539,6 +544,7 @@ class GpuImageProperty(GpuResourceProperty[Image]):
         num_frames_in_flight: int,
         upload_method: UploadMethod,
         thread_pool: ThreadPool[None],
+        out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
         property: Property,
         format: Format,
         usage_flags: ImageUsageFlags,
@@ -568,20 +574,15 @@ class GpuImageProperty(GpuResourceProperty[Image]):
             thread_pool,
             property,
             pipeline_stage_flags,
+            out_upload_list,
             name,
         )
 
-    def _create_uploaded_resource(self, frame: np.ndarray, name: str) -> Image:
-        return UploadableImage.from_data(
-            self.ctx,
-            view_bytes(frame),
-            self.layout,
-            self.width,
-            self.height,
-            self.format,
-            self.usage_flags,
-            name=name,
-        )
+    def _create_resource_for_preupload(self, frame: np.ndarray, alloc_type: AllocType, name: str) -> Image:
+        return Image(self.ctx, self.width, self.height, self.format, self.usage_flags, alloc_type, name=name)
+
+    def _create_bulk_upload_descriptor(self, resource: Image, frame: np.ndarray) -> ImageUploadInfo:
+        return ImageUploadInfo(frame.data, resource, self.layout)
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:
         return Buffer(
