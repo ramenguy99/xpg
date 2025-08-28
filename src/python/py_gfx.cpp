@@ -4049,7 +4049,7 @@ void gfx_create_bindings(nb::module_& m)
         })
         .def("destroy", &DescriptorSet::destroy)
         .def("write_buffer", &DescriptorSet::write_buffer, nb::arg("buffer"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0, nb::arg("offset") = 0, nb::arg("size") = VK_WHOLE_SIZE)
-        .def("write_image", &DescriptorSet::write_image, nb::arg("image"), nb::arg("usage"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0)
+        .def("write_image", &DescriptorSet::write_image, nb::arg("image"), nb::arg("layout"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0)
         .def("write_sampler", &DescriptorSet::write_sampler, nb::arg("sampler"), nb::arg("binding"), nb::arg("element") = 0)
         .def("write_acceleration_structure", &DescriptorSet::write_acceleration_structure, nb::arg("acceleration_structure"), nb::arg("binding"), nb::arg("element") = 0)
     ;

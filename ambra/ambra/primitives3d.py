@@ -452,7 +452,7 @@ class AnimatedMesh(Object3D):
             else None
         )
 
-        self.texture = r.add_gpu_image_property(
+        self.texture_image = r.add_gpu_image_property(
             self.texture,
             self.texture_format,
             ImageUsageFlags.SAMPLED,
@@ -536,7 +536,7 @@ class AnimatedMesh(Object3D):
 
         descriptor_set = self.descriptor_sets.get_current_and_advance()
         descriptor_set.write_image(
-            self.texture.get_current(),
+            self.texture_image.get_current(),
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
             DescriptorType.SAMPLED_IMAGE,
             1,

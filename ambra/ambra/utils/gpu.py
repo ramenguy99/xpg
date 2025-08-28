@@ -11,19 +11,19 @@ from pyxpg import (
     DescriptorSet,
     DescriptorSetEntry,
     DescriptorType,
+    Fence,
     Format,
     Image,
     ImageLayout,
     ImageUsageFlags,
     MemoryUsage,
-    Fence,
     get_format_info,
 )
 
 from .ring_buffer import RingBuffer
 
 
-def align_up(v, a):
+def align_up(v: int, a: int) -> int:
     return (v + a - 1) & ~(a - 1)
 
 
@@ -73,7 +73,7 @@ class BulkUploader:
                 )
             )
 
-    def bulk_upload(self, uploads: List[Union[BufferUploadInfo, ImageUploadInfo]]):
+    def bulk_upload(self, uploads: List[Union[BufferUploadInfo, ImageUploadInfo]]) -> None:
         i = 0
         upload_buffer_index = 0
         offset_alignment = self.ctx.device_properties.limits.optimal_buffer_copy_offset_alignment
@@ -101,7 +101,9 @@ class BulkUploader:
                         size = len(info.data)
                         fitting_size = min(remaining_size, size)
 
-                        state.buffer.data[offset : offset + fitting_size] = info.data[start_buffer_offset:start_buffer_offset+fitting_size]
+                        state.buffer.data[offset : offset + fitting_size] = info.data[
+                            start_buffer_offset : start_buffer_offset + fitting_size
+                        ]
 
                         if start_buffer_offset + fitting_size == size:
                             start_buffer_offset = 0
@@ -116,7 +118,9 @@ class BulkUploader:
                         pitch = align_up(pitch, pitch_alignment)
 
                         if pitch > state.buffer.size:
-                            raise RuntimeError(f"Image pitch ({pitch}) is larger than upload buffer size ({state.buffer.size})")
+                            raise RuntimeError(
+                                f"Image pitch ({pitch}) is larger than upload buffer size ({state.buffer.size})"
+                            )
 
                         # Stop if we can't fit a single row
                         if pitch < remaining_size:
@@ -131,12 +135,17 @@ class BulkUploader:
                         upload_buffer_2d_view = upload_buffer_range.cast("c", shape=(fitting_rows, pitch))
 
                         # TODO: correctly handle block formats here, need to think about data shape looks for those
-                        upload_buffer_2d_view[:, : info.image.width] = info.data[start_image_row : start_image_row + fitting_rows, :]
+                        upload_buffer_2d_view[:, : info.image.width] = info.data[
+                            start_image_row : start_image_row + fitting_rows, :
+                        ]
 
                         # Tranisition to TRANSFER_DST_OPTIMAL if first upload
                         if start_image_row == 0:
                             state.cmd.image_barrier(
-                                info.image, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST
+                                info.image,
+                                ImageLayout.TRANSFER_DST_OPTIMAL,
+                                MemoryUsage.NONE,
+                                MemoryUsage.TRANSFER_DST,
                             )
 
                         # Upload to image range
@@ -153,7 +162,9 @@ class BulkUploader:
 
                         if start_image_row + fitting_rows == rows:
                             # Transition to final layout if last upload
-                            state.cmd.image_barrier(info.image, info.layout, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE)
+                            state.cmd.image_barrier(
+                                info.image, info.layout, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE
+                            )
                             i += 1
                             start_image_row = 0
                         else:

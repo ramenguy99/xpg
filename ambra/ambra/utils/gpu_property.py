@@ -21,7 +21,7 @@ from pyxpg import (
 from ..config import UploadMethod
 from ..renderer_frame import RendererFrame, SemaphoreInfo
 from ..scene import Property, view_bytes
-from .gpu import BufferUploadInfo, ImageUploadInfo, get_image_pitch_and_rows, BulkUploader
+from .gpu import BufferUploadInfo, ImageUploadInfo, get_image_pitch_and_rows
 from .lru_pool import LRUPool
 from .threadpool import Promise, ThreadPool
 
@@ -112,6 +112,7 @@ class GpuResourceProperty(Generic[R]):
         self.cpu_buffers: List[CpuBuffer] = []
         self.cpu_pool: Optional[LRUPool[int, CpuBuffer]] = None
         self.gpu_resources: List[GpuResource[R]] = []
+        self.gpu_pool: Optional[LRUPool[int, GpuResource[R]]] = None
         self.prefetch_states: List[PrefetchState] = []
         self.prefetch_states_lookup: Dict[GpuResource[R], PrefetchState] = {}
 
@@ -144,7 +145,8 @@ class GpuResourceProperty(Generic[R]):
 
             cpu_alloc_type = AllocType.DEVICE_MAPPED if self.upload_method == UploadMethod.BAR else AllocType.HOST
             self.cpu_buffers = [
-                CpuBuffer(self._create_cpu_buffer(f"cpubuf-{name}-{i}", cpu_alloc_type)) for i in range(cpu_buffers_count)
+                CpuBuffer(self._create_cpu_buffer(f"cpubuf-{name}-{i}", cpu_alloc_type))
+                for i in range(cpu_buffers_count)
             ]
             self.cpu_pool = LRUPool(self.cpu_buffers, num_frames_in_flight, cpu_prefetch_count)
 
@@ -386,9 +388,10 @@ class GpuResourceProperty(Generic[R]):
 
     def invalidate_frame(self, frame_index: int) -> None:
         if self.property.upload.preupload:
-            assert False, "Invalidation is currently not supported for preuploaded"
+            raise RuntimeError("Invalidation is currently not supported for preuploaded")
             # TODO: Alloc a pool of buffers usable for uploads. One for each frame in flight.
         else:
+            assert self.cpu_pool is not None
             self.cpu_pool.invalidate(frame_index)
             if self.gpu_pool is not None:
                 self.gpu_pool.invalidate(frame_index)
@@ -414,10 +417,12 @@ class GpuResourceProperty(Generic[R]):
     def _create_resource_for_preupload(self, frame: np.ndarray, alloc_type: AllocType, name: str) -> R:
         raise NotImplementedError
 
-    def _upload_mapped_resource(self, resource: R, frame: np.ndarray):
+    def _upload_mapped_resource(self, resource: R, frame: np.ndarray) -> None:
         raise NotImplementedError
 
-    def _create_bulk_upload_descriptor(self, resource: R, frame: np.ndarray) -> Union[BufferUploadInfo, ImageUploadInfo]:
+    def _create_bulk_upload_descriptor(
+        self, resource: R, frame: np.ndarray
+    ) -> Union[BufferUploadInfo, ImageUploadInfo]:
         raise NotImplementedError
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:
@@ -470,14 +475,16 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
             num_frames_in_flight,
             upload_method,
             thread_pool,
+            out_upload_list,
             property,
             pipeline_stage_flags,
-            out_upload_list,
             name,
         )
 
     def _create_resource_for_preupload(self, frame: np.ndarray, alloc_type: AllocType, name: str) -> Buffer:
-        return Buffer(self.ctx, len(view_bytes(frame)), self.usage_flags | BufferUsageFlags.TRANSFER_DST, alloc_type, name=name)
+        return Buffer(
+            self.ctx, len(view_bytes(frame)), self.usage_flags | BufferUsageFlags.TRANSFER_DST, alloc_type, name=name
+        )
 
     def _upload_mapped_resource(self, resource: Buffer, frame: np.ndarray) -> None:
         # NOTE: here we can assume that the buffer is always the same size as frame data.
@@ -572,9 +579,9 @@ class GpuImageProperty(GpuResourceProperty[Image]):
             num_frames_in_flight,
             upload_method,
             thread_pool,
+            out_upload_list,
             property,
             pipeline_stage_flags,
-            out_upload_list,
             name,
         )
 
@@ -612,7 +619,7 @@ class GpuImageProperty(GpuResourceProperty[Image]):
     ) -> None:
         cmd.copy_buffer_to_image(cpu_buf.buf, gpu_res.resource)
 
-    def _cmd_before_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Buffer]) -> None:
+    def _cmd_before_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Image]) -> None:
         cmd.image_barrier(
             gpu_res.resource,
             ImageLayout.TRANSFER_DST_OPTIMAL,
@@ -620,7 +627,7 @@ class GpuImageProperty(GpuResourceProperty[Image]):
             MemoryUsage.TRANSFER_DST,
         )
 
-    def _cmd_after_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Buffer]) -> None:
+    def _cmd_after_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Image]) -> None:
         cmd.image_barrier(
             gpu_res.resource,
             self.layout,

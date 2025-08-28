@@ -1,22 +1,18 @@
 import os
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Union
 
 import numpy as np
 from pyxpg import (
     AllocType,
-    Buffer,
     BufferUsageFlags,
-    CommandBuffer,
     CompareOp,
     Context,
     DescriptorSet,
     DescriptorSetEntry,
     DescriptorType,
     DeviceFeatures,
-    Fence,
     Format,
     Gui,
     Image,
@@ -37,7 +33,13 @@ from .config import RendererConfig, UploadMethod
 from .renderer_frame import RendererFrame
 from .scene import Property
 from .shaders import compile
-from .utils.gpu import BulkUploader, UniformPool, UploadableBuffer, get_image_pitch_and_rows, BufferUploadInfo, ImageUploadInfo
+from .utils.gpu import (
+    BulkUploader,
+    BufferUploadInfo,
+    ImageUploadInfo,
+    UniformPool,
+    UploadableBuffer,
+)
 from .utils.gpu_property import GpuBufferProperty, GpuImageProperty
 from .utils.ring_buffer import RingBuffer
 from .utils.threadpool import ThreadPool
@@ -55,7 +57,6 @@ else:
 
     def get_cpu_count() -> Optional[int]:
         return os.cpu_count()
-
 
 
 class Renderer:
@@ -169,7 +170,7 @@ class Renderer:
 
         # Allocate buffers for bulk upload
         self.bulk_uploader = BulkUploader(self.ctx, config.upload_buffer_size, config.upload_buffer_count)
-        self.bulk_upload_list = []
+        self.bulk_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]] = []
 
         # Will be populated in self.resize(), and will never be None after that
         self.depth_buffer: Image = None  # type: ignore
@@ -251,7 +252,7 @@ class Renderer:
 
         # Flush synchronous upload buffers after creating new objects
         if len(self.bulk_upload_list) > 0:
-            self.bulk_uploader.bulk_upload()
+            self.bulk_uploader.bulk_upload(self.bulk_upload_list)
             self.bulk_upload_list.clear()
 
         # Render frame
