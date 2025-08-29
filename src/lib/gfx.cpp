@@ -1916,9 +1916,9 @@ void CmdCopyBuffer(VkCommandBuffer cmd, const CopyBufferDesc&& desc)
 void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc)
 {
     VkBufferImageCopy region = {};
-    region.bufferOffset = desc.buffer_offset;
-    region.bufferRowLength = desc.buffer_row_stride;
-    region.bufferImageHeight = desc.buffer_image_height;
+    region.bufferOffset = desc.buffer_offset_in_bytes;
+    region.bufferRowLength = desc.buffer_row_stride_in_texels;
+    region.bufferImageHeight = desc.buffer_image_height_in_texels;
     region.imageSubresource.aspectMask = desc.image_aspect;
     region.imageSubresource.mipLevel = desc.image_mip;
     region.imageSubresource.baseArrayLayer = desc.image_base_layer;
@@ -1935,9 +1935,9 @@ void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc)
 void CmdCopyBufferToImage(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc)
 {
     VkBufferImageCopy region = {};
-    region.bufferOffset = desc.buffer_offset;
-    region.bufferRowLength = desc.buffer_row_stride;
-    region.bufferImageHeight = desc.buffer_image_height;
+    region.bufferOffset = desc.buffer_offset_in_bytes;
+    region.bufferRowLength = desc.buffer_row_stride_in_texels;
+    region.bufferImageHeight = desc.buffer_image_height_in_texels;
     region.imageSubresource.aspectMask = desc.image_aspect;
     region.imageSubresource.mipLevel = desc.image_mip;
     region.imageSubresource.baseArrayLayer = desc.image_base_layer;

@@ -1293,11 +1293,11 @@ struct CommandBuffer: GfxObject {
             .dst = dst.buffer.buffer,
             .src_offset = src_offset,
             .dst_offset = dst_offset,
-            .size = src.size,
+            .size = size,
         });
     }
 
-    void copy_image_to_buffer(Image& image, Buffer& buf, u64 buffer_offset) {
+    void copy_image_to_buffer(Image& image, Buffer& buf, u64 buffer_offset_in_bytes) {
         // TODO: add error checking that image fits into buffer
 
         gfx::CmdCopyImageToBuffer(buffer, {
@@ -1306,11 +1306,11 @@ struct CommandBuffer: GfxObject {
             .image_width = image.width,
             .image_height = image.height,
             .buffer = buf.buffer.buffer,
-            .buffer_offset = buffer_offset,
+            .buffer_offset_in_bytes = buffer_offset_in_bytes,
         });
     }
 
-    void copy_buffer_to_image(Buffer& buf, Image& image, u64 buffer_offset) {
+    void copy_buffer_to_image(Buffer& buf, Image& image, u64 buffer_offset_in_bytes) {
         // TODO: add error checking that image fits into buffer
 
         gfx::CmdCopyBufferToImage(buffer, {
@@ -1319,7 +1319,7 @@ struct CommandBuffer: GfxObject {
             .image_width = image.width,
             .image_height = image.height,
             .buffer = buf.buffer.buffer,
-            .buffer_offset = buffer_offset,
+            .buffer_offset_in_bytes = buffer_offset_in_bytes,
         });
     }
 
@@ -1330,8 +1330,8 @@ struct CommandBuffer: GfxObject {
         u32 image_height,
         u32 image_x,
         u32 image_y,
-        u64 buffer_offset,
-        u32 buffer_row_stride
+        u64 buffer_offset_in_bytes,
+        u32 buffer_row_stride_in_texels
     ) {
         // TODO: add error checking that image fits into buffer
         // and that image range range fits into image
@@ -1344,8 +1344,8 @@ struct CommandBuffer: GfxObject {
             .image_width = image_width,
             .image_height = image_height,
             .buffer = buf.buffer.buffer,
-            .buffer_offset = buffer_offset,
-            .buffer_row_stride = buffer_row_stride,
+            .buffer_offset_in_bytes = buffer_offset_in_bytes,
+            .buffer_row_stride_in_texels = buffer_row_stride_in_texels,
         });
     }
 
@@ -3541,12 +3541,12 @@ void gfx_create_bindings(nb::module_& m)
         .def("copy_image_to_buffer", &CommandBuffer::copy_image_to_buffer,
             nb::arg("image"),
             nb::arg("buffer"),
-            nb::arg("buffer_offset") = 0
+            nb::arg("buffer_offset_in_bytes") = 0
         )
         .def("copy_buffer_to_image", &CommandBuffer::copy_buffer_to_image,
             nb::arg("buffer"),
             nb::arg("image"),
-            nb::arg("buffer_offset") = 0
+            nb::arg("buffer_offset_in_bytes") = 0
         )
         .def("copy_buffer_to_image_range", &CommandBuffer::copy_buffer_to_image_range,
             nb::arg("buffer"),
@@ -3555,8 +3555,8 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("image_height"),
             nb::arg("image_x") = 0,
             nb::arg("image_y") = 0,
-            nb::arg("buffer_offset") = 0,
-            nb::arg("buffer_row_stride") = 0
+            nb::arg("buffer_offset_in_bytes") = 0,
+            nb::arg("buffer_row_stride_in_texels") = 0
         )
         .def("clear_color_image", &CommandBuffer::clear_color_image,
             nb::arg("image"),

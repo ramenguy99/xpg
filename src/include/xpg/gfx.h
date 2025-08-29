@@ -649,9 +649,9 @@ struct CopyImageBufferDesc {
     u32 image_layer_count = 1; // Number of layers in array
 
     VkBuffer buffer;
-    u64 buffer_offset = 0;
-    u32 buffer_row_stride = 0; // 0 means rows are tightly packed
-    u32 buffer_image_height = 0; // 0 means planes are tightly packed (for 3D images)
+    u64 buffer_offset_in_bytes = 0;
+    u32 buffer_row_stride_in_texels = 0; // 0 means rows are tightly packed
+    u32 buffer_image_height_in_texels = 0; // 0 means planes are tightly packed (for 3D images)
 };
 void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc);
 void CmdCopyBufferToImage(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc);

@@ -34,8 +34,8 @@ from .renderer_frame import RendererFrame
 from .scene import Property
 from .shaders import compile
 from .utils.gpu import (
-    BulkUploader,
     BufferUploadInfo,
+    BulkUploader,
     ImageUploadInfo,
     UniformPool,
     UploadableBuffer,

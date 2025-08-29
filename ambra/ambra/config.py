@@ -30,7 +30,7 @@ class UploadMethod(Enum):
 @dataclass
 class RendererConfig:
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
-    uniform_pool_block_size: int = 32 * 1024 * 1024
+    uniform_pool_block_size: int = 4 * 1024 * 1024
     upload_buffer_size: int = 32 * 1024 * 1024
     upload_buffer_count: int = 2
     thread_pool_workers: Optional[int] = None

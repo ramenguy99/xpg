@@ -33,6 +33,9 @@ TODO:
           - Upload per frame with single frame (and potentially pre-fetch) (-> streaming GpuProperty) (preallocated staging buffers, shared across frames)
           We are technically missing but we might not need it:
           - Upload once after creation but without bulk ops -> can do by hand but we might want helpers
+    - [ ] Support buffer suballocation in gpu property for preuplaod and image array to reduce number of resources that we need for a sequence
+    - [ ] Implement invalidation of preuploaded properties. If using mapped buffers (CPU or BAR) we can just alloc the remaining frames_in_flight - 1 buffers and switch to ring buffer.
+    - [ ] Implement smarter logic to pick which upload mode to use. For smaller properties we want bar if available I guess.
 - [-] Server
     - [ ] Test design and finish implementing
     - [ ] Client python package

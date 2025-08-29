@@ -74,48 +74,71 @@ class BulkUploader:
             )
 
     def bulk_upload(self, uploads: List[Union[BufferUploadInfo, ImageUploadInfo]]) -> None:
-        i = 0
-        upload_buffer_index = 0
-        offset_alignment = self.ctx.device_properties.limits.optimal_buffer_copy_offset_alignment
-        pitch_alignment = self.ctx.device_properties.limits.optimal_buffer_copy_row_pitch_alignment
+        # Compute alignment requirements
+        offset_alignment = max(self.ctx.device_properties.limits.optimal_buffer_copy_offset_alignment, 16)
+        pitch_alignment = max(self.ctx.device_properties.limits.optimal_buffer_copy_row_pitch_alignment, 16)
 
+        # State of current upload
         start_image_row = 0
         start_buffer_offset = 0
+
+        # Stats
+        total_bytes_uploaded = 0
+        # print(f"Bulk uploads: {len(uploads)}")
+        # begin_timestamp = perf_counter_ns()
+
+        i = 0
+        upload_buffer_index = 0
         while i < len(uploads):
+            # print(f"Upload index {upload_buffer_index:3}")
             state = self.upload_states[upload_buffer_index]
 
             if state.submitted:
                 state.fence.wait_and_reset()
                 state.submitted = False
 
-            with state.cmd:
+            with state.cmd as cmd:
                 offset = 0
 
-                while i < len(uploads):
+                while i < len(uploads) and offset < state.buffer.size:
+                    state = self.upload_states[upload_buffer_index]
+
                     # Space left in upload buffer
                     remaining_size = state.buffer.size - offset
 
                     info = uploads[i]
 
                     if isinstance(info, BufferUploadInfo):
-                        size = len(info.data)
+                        total_size = len(info.data)
+                        size = total_size - start_buffer_offset
                         fitting_size = min(remaining_size, size)
 
+                        # print(f"    Buffer {i:3} - offset {offset:12} - size {size:12} - remaining_size {remaining_size:12} - fitting size {fitting_size:12} - bufoffset {start_buffer_offset:12}")
                         state.buffer.data[offset : offset + fitting_size] = info.data[
                             start_buffer_offset : start_buffer_offset + fitting_size
                         ]
 
-                        if start_buffer_offset + fitting_size == size:
+                        cmd.copy_buffer_range(state.buffer, info.buffer, fitting_size, offset, start_buffer_offset)
+
+                        if start_buffer_offset + fitting_size == total_size:
                             start_buffer_offset = 0
                             i += 1
+                            total_bytes_uploaded += total_size
                         else:
                             start_buffer_offset += fitting_size
                     elif isinstance(info, ImageUploadInfo):
-                        pitch, rows = get_image_pitch_and_rows(info.image.width, info.image.height, info.image.format)
+                        input_pitch, total_rows, texel_size = get_image_pitch_rows_and_texel_size(
+                            info.image.width, info.image.height, info.image.format
+                        )
+                        if input_pitch * total_rows != len(info.data):
+                            print(type(info.data), info.data.shape)
+                            raise ValueError(
+                                f"ImageUploadInfo data size ({len(info.data)}) does not match pitch and rows ({input_pitch} x {total_rows} = {input_pitch * total_rows})"
+                            )
 
                         # Adjust rows by number of rows already uploaded and align pitch
-                        rows = rows - start_image_row
-                        pitch = align_up(pitch, pitch_alignment)
+                        rows = total_rows - start_image_row
+                        pitch = align_up(input_pitch, pitch_alignment)
 
                         if pitch > state.buffer.size:
                             raise RuntimeError(
@@ -123,25 +146,35 @@ class BulkUploader:
                             )
 
                         # Stop if we can't fit a single row
-                        if pitch < remaining_size:
+                        if pitch > remaining_size:
                             break
 
                         # Compute how many rows we are actually uploading in this command
                         fitting_rows = min(rows, remaining_size // pitch)
                         fitting_size = fitting_rows * pitch
 
+                        # print(f"    Image  {i:3} - offset {offset:12} - pitch {pitch:12} - rows {rows:12} - remaining_size {remaining_size:12} - fitting_rows {fitting_rows:12} - fitting_size {fitting_size:12} - start_image_row {start_image_row:12} - pitch alignment {pitch_alignment}")
+
                         # Copy image data to staging buffer expanding to correct pitch
                         upload_buffer_range = state.buffer.data[offset : offset + fitting_size]
-                        upload_buffer_2d_view = upload_buffer_range.cast("c", shape=(fitting_rows, pitch))
+                        print(upload_buffer_range.shape, info.data.shape)
+                        upload_buffer_2d_view = np.frombuffer(upload_buffer_range, np.uint8).reshape(
+                            (fitting_rows, pitch), copy=False
+                        )
+                        data_buffer_2d_view = np.frombuffer(info.data, np.uint8).reshape(
+                            (total_rows, input_pitch), copy=False
+                        )
+
+                        print(upload_buffer_2d_view.shape, data_buffer_2d_view.shape)
 
                         # TODO: correctly handle block formats here, need to think about data shape looks for those
-                        upload_buffer_2d_view[:, : info.image.width] = info.data[
-                            start_image_row : start_image_row + fitting_rows, :
+                        upload_buffer_2d_view[:, :input_pitch] = data_buffer_2d_view[
+                            start_image_row : start_image_row + fitting_rows, :input_pitch
                         ]
 
                         # Tranisition to TRANSFER_DST_OPTIMAL if first upload
                         if start_image_row == 0:
-                            state.cmd.image_barrier(
+                            cmd.image_barrier(
                                 info.image,
                                 ImageLayout.TRANSFER_DST_OPTIMAL,
                                 MemoryUsage.NONE,
@@ -149,7 +182,7 @@ class BulkUploader:
                             )
 
                         # Upload to image range
-                        state.cmd.copy_buffer_to_image_range(
+                        cmd.copy_buffer_to_image_range(
                             state.buffer,
                             info.image,
                             info.image.width,
@@ -157,16 +190,15 @@ class BulkUploader:
                             0,
                             start_image_row,
                             offset,
-                            pitch,
+                            pitch // texel_size,
                         )
 
-                        if start_image_row + fitting_rows == rows:
+                        if start_image_row + fitting_rows == total_rows:
                             # Transition to final layout if last upload
-                            state.cmd.image_barrier(
-                                info.image, info.layout, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE
-                            )
+                            cmd.image_barrier(info.image, info.layout, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE)
                             i += 1
                             start_image_row = 0
+                            total_bytes_uploaded += total_rows * pitch
                         else:
                             start_image_row += fitting_rows
                     else:
@@ -186,6 +218,9 @@ class BulkUploader:
             if s.submitted:
                 s.fence.wait_and_reset()
                 s.submitted = False
+
+        # elapsed = (perf_counter_ns() - begin_timestamp) * 1e-9
+        # print(f"Bulk upload of {total_bytes_uploaded/(1024 * 1024):.3f}MB in {elapsed * 1e3:6.3f}ms ({total_bytes_uploaded / (1024 * 1024 * 1024) / elapsed:.3f}GB/s)")
 
 
 class UploadableBuffer(Buffer):
@@ -256,23 +291,32 @@ class UploadableBuffer(Buffer):
                 cmd.memory_barrier(MemoryUsage.TRANSFER_DST, usage)
 
     def upload_sync(self, data: Union[memoryview, np.ndarray], offset: int = 0) -> None:
-        with self.ctx.sync_commands() as cmd:
-            self.upload(cmd, MemoryUsage.NONE, data, offset)
+        if self.is_mapped:
+            # print(self.data.c_contiguous, data.c_contiguous )
+            # print(self.data.shape       , data.shape        )
+            # print(self.data.readonly    , data.readonly     )
+            # print(self.data.format    , data.format     )
+            self.data[offset : offset + len(data)] = data
+        else:
+            with self.ctx.sync_commands() as cmd:
+                self.upload(cmd, MemoryUsage.NONE, data, offset)
 
 
 def div_ceil(n: int, d: int) -> int:
     return (n + d - 1) // d
 
 
-def get_image_pitch_and_rows(width: int, height: int, format: Format) -> Tuple[int, int]:
+def get_image_pitch_rows_and_texel_size(width: int, height: int, format: Format) -> Tuple[int, int]:
     info = get_format_info(format)
     if info.size_of_block_in_bytes > 0:
-        pitch = div_ceil(width, info.block_side_in_pixels) * info.size_of_block_in_bytes
+        size = info.size_of_block_in_bytes
+        pitch = div_ceil(width, info.block_side_in_pixels) * size
         rows = div_ceil(height, info.block_side_in_pixels)
     else:
-        pitch = width * info.size
+        size = info.size
+        pitch = width * size
         rows = height
-    return pitch, rows
+    return pitch, rows, size
 
 
 # NOTE: in the future this could use VK_EXT_host_image_copy to do uploads / transitions if available
@@ -287,7 +331,7 @@ class UploadableImage(Image):
         dedicated_alloc: bool = False,
         name: Optional[str] = None,
     ):
-        pitch, rows = get_image_pitch_and_rows(width, height, format)
+        pitch, rows, _ = get_image_pitch_rows_and_texel_size(width, height, format)
         self._staging = Buffer(
             ctx,
             pitch * rows,

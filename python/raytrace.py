@@ -183,7 +183,7 @@ if BATCHED_UPLOAD:
 
                 # Upload
                 cmd.image_barrier(gpu_img, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST)
-                cmd.copy_buffer_to_image(staging, gpu_img, buffer_offset=offset)
+                cmd.copy_buffer_to_image(staging, gpu_img, buffer_offset_in_bytes=offset)
                 cmd.image_barrier(gpu_img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.TRANSFER_DST, MemoryUsage.SHADER_READ_ONLY)
 
                 # Advance image and buffer offset

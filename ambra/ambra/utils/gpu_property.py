@@ -21,7 +21,7 @@ from pyxpg import (
 from ..config import UploadMethod
 from ..renderer_frame import RendererFrame, SemaphoreInfo
 from ..scene import Property, view_bytes
-from .gpu import BufferUploadInfo, ImageUploadInfo, get_image_pitch_and_rows
+from .gpu import BufferUploadInfo, ImageUploadInfo, get_image_pitch_rows_and_texel_size
 from .lru_pool import LRUPool
 from .threadpool import Promise, ThreadPool
 
@@ -461,7 +461,7 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
         pipeline_stage_flags: PipelineStageFlags,
         name: str,
     ):
-        self.usage_flags = usage_flags
+        self.usage_flags = usage_flags | BufferUsageFlags.TRANSFER_DST
         self.memory_usage = memory_usage
         self.size = property.max_size()
 
@@ -482,9 +482,7 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
         )
 
     def _create_resource_for_preupload(self, frame: np.ndarray, alloc_type: AllocType, name: str) -> Buffer:
-        return Buffer(
-            self.ctx, len(view_bytes(frame)), self.usage_flags | BufferUsageFlags.TRANSFER_DST, alloc_type, name=name
-        )
+        return Buffer(self.ctx, len(view_bytes(frame)), self.usage_flags, alloc_type, name=name)
 
     def _upload_mapped_resource(self, resource: Buffer, frame: np.ndarray) -> None:
         # NOTE: here we can assume that the buffer is always the same size as frame data.
@@ -506,7 +504,7 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
         return Buffer(
             self.ctx,
             self.size,
-            self.usage_flags | BufferUsageFlags.TRANSFER_DST,
+            self.usage_flags,
             AllocType.DEVICE,
             name=name,
         )
@@ -564,7 +562,7 @@ class GpuImageProperty(GpuResourceProperty[Image]):
             raise ValueError(
                 f"GpuImageProperty supports only {UploadMethod.GFX} and {UploadMethod.TRANSFER_QUEUE} upload methods. Got {upload_method}."
             )
-        self.usage_flags = usage_flags
+        self.usage_flags = usage_flags | ImageUsageFlags.TRANSFER_DST
         self.layout = layout
         self.memory_usage = memory_usage
 
@@ -573,7 +571,7 @@ class GpuImageProperty(GpuResourceProperty[Image]):
         self.width = property.width()
         self.format = format
 
-        self.pitch, self.rows = get_image_pitch_and_rows(self.width, self.height, self.format)
+        self.pitch, self.rows, _ = get_image_pitch_rows_and_texel_size(self.width, self.height, self.format)
         super().__init__(
             ctx,
             num_frames_in_flight,
@@ -589,7 +587,7 @@ class GpuImageProperty(GpuResourceProperty[Image]):
         return Image(self.ctx, self.width, self.height, self.format, self.usage_flags, alloc_type, name=name)
 
     def _create_bulk_upload_descriptor(self, resource: Image, frame: np.ndarray) -> ImageUploadInfo:
-        return ImageUploadInfo(frame.data, resource, self.layout)
+        return ImageUploadInfo(view_bytes(frame), resource, self.layout)
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:
         return Buffer(
@@ -606,7 +604,7 @@ class GpuImageProperty(GpuResourceProperty[Image]):
             self.width,
             self.height,
             self.format,
-            self.usage_flags | ImageUsageFlags.TRANSFER_DST,
+            self.usage_flags,
             AllocType.DEVICE,
             name=name,
         )
