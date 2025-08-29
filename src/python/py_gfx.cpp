@@ -1549,6 +1549,8 @@ struct Frame: nb::intrusive_base {
     nb::ref<Image> image;
 };
 
+struct SwapchainOutOfDateError: std::exception {};
+
 struct Window: nb::intrusive_base {
     struct FrameManager: nb::intrusive_base {
         FrameManager(nb::ref<Window> window,
@@ -1685,6 +1687,10 @@ struct Window: nb::intrusive_base {
             frame = &gfx::WaitForFrame(&window, ctx->vk);
         }
         gfx::Result ok = gfx::AcquireImage(frame, &window, ctx->vk);
+
+        if (ok == gfx::Result::SWAPCHAIN_OUT_OF_DATE) {
+            throw SwapchainOutOfDateError();
+        }
 
         if (ok != gfx::Result::SUCCESS) {
             throw std::runtime_error("Failed to acquire next image");
@@ -2475,6 +2481,8 @@ void gfx_create_bindings(nb::module_& m)
 #ifdef _WIN32
     SetConsoleCtrlHandler(ctrlc_handler, TRUE);
 #endif
+    nb::exception<SwapchainOutOfDateError>(m, "SwapchainOutOfDateError");
+
     nb::enum_<VkMemoryHeapFlagBits>(m, "MemoryHeapFlags", nb::is_flag())
         .value("VK_MEMORY_HEAP_DEVICE_LOCAL"  , VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
         .value("VK_MEMORY_HEAP_MULTI_INSTANCE", VK_MEMORY_HEAP_MULTI_INSTANCE_BIT)
