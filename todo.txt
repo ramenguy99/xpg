@@ -25,7 +25,7 @@ Python:
         [ ] Handle all cache inputs
     [x] Reflection
         - XPG provides only bindings, usage of reflection up to app
-        - See at least 2 potential use cases from python:   
+        - See at least 2 potential use cases from python:
             - Auto resolve -> use names in python, descriptor set creation and set/binding/offset computation is automatic
             - Python bindings gen -> offline step builds shaders and creates python bindings to call stuff
     - Slang takes around 200ms to initialize in release and (2.5s in debug)...
@@ -90,7 +90,7 @@ Build:
     [ ] cibuildhweel
         [x] Local
             - create venv
-            - 
+            -
         [x] manylinux
         [x] musllinux
         [ ] windows
@@ -321,7 +321,7 @@ Slang global session creation time notes:
 
 Ideas:
 - Probably: not all atoms can be targets and not all atoms can be stages -> simplify those dictionary Atom -> Obj to direct indexed with proper count of possibilities
-- 
+-
 
 Opts:                                           Debug         Release
 - Start ->                                      320ms            90ms
@@ -399,7 +399,7 @@ Shaders:
         u32 regspace = content->getOffset(slang::ParameterCategory::RegisterSpace);
         u32 sub_regspace = content->getOffset(slang::ParameterCategory::SubElementRegisterSpace);
         u32 table = content->getOffset(slang::ParameterCategory::DescriptorTableSlot);
-    
+
     - Logging:
         - Logging is a global concept in XPG, we can use a global callback, but how do we ensure
           this is freed properly? If it's just a module global, what is the best way to expose it?
@@ -431,7 +431,7 @@ Sequence and aysnc upload:
         - closest by chunks in a 2D / 3D scene
     - CPU threadpool:
     - Responsible for loading data to vulkan mapped CPU buffers -> this can also do pre-processing / conversions
-    - Handles keeping track of which buffer are in use 
+    - Handles keeping track of which buffer are in use
     - API:
         - Enqueue load
         - Cancel load
@@ -440,7 +440,7 @@ Sequence and aysnc upload:
     - GPU upload thread:
     - Lives on top of a vulkan queue (ideally transfer, but potentially async compute or graphics)
     - Responsible for submitting upload commands to the queue and signal a GPU semaphore when done
-    - Notifyies rendering thread when the submission started and with what semaphore, rendering thread will use this to wait until it can submit a command and 
+    - Notifyies rendering thread when the submission started and with what semaphore, rendering thread will use this to wait until it can submit a command and
     - Notifies CPU threadpool when the copy is done to release source buffers
     - API:
         - enqueue upload
@@ -453,15 +453,51 @@ Sequence and aysnc upload:
     - compress into reusable pieces
 
     Eviction and prefetch policies:
-    
+
     Eviction:
     LRU -> requires keeping track of usage, can do this whenever we ask for a frame
-    Queue -> evicts 
-    
+    Queue -> evicts
+
     Prefetch:
     Sequence, Spatial
-    
+
     Maybe threadpool API should be agnostic of this, only knows about free buffers and load requests
     Then usecase specific abstractions on top keep track of which buffers are used for what.
     And implement prefetch / eviction policies
 
+Notes on render during resize / move on windows:
+- We prefer to keep main thread drawing because that simplifies things
+- We can trigger extra draws by having a thread spam WM_PAINT to the window, but we would rather do it
+  only when the window is being moved resized, by somehow signaling the spammer thread to start/stop spamming.
+- Technically this is whay WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE is for, but it does not work 100%
+    - It has a delay if you press the bar
+    - Does not detect press + hold of minimize, maximize, close buttons
+- The only solution that seems promising is to capture WM_NCLBUTTONDOWN and implement a state machine
+    Results of running some msg tracing:
+    // On press of bar:
+    //   a1 - WM_NCLBUTTONDOWN     -> mouse button pressed in NC
+    //  112 - WM_SYSCOMMAND        -> with f012 apparently undocumented SC_DRAG (https://stackoverflow.com/questions/3976610/moving-a-caption-less-window-by-using-a-drag-area) -> seems promising
+    //
+    //  -- delay --:
+    //  215 - WM_CAPTURECHANGED    -> hold click anywhere
+    //   24 - WM_GETMINMAXINFO     -> window about to move / resize also promising
+    // 0231 - WM_ENTERSIZEMOVE     -> arrives immediately for resize / move, but later for just press titlebar
+    //
+    // On release of bar:
+    //  215 - WM_CAPTURECHANGED    -> release capture
+    //   46 - WM_WINDOWPOSCHANGING -> pos / size / z about to change, not sure why this happens
+    //  232 - WM_EXITSIZEMOVE      -> arrives instantly in this case
+    //
+    // We could use WM_SYSCOMMAND to detect press of bar. But it does not detect press of minimize, maximize, close buttons. Those
+    // seem to only be detectable through WM_NCLBUTTONDOWN. They also don't trigger anything on release outside other than
+    // WM_CAPTURECHANGED, so we probably need to keep some state and handle WM_CAPTURECHANGED too.
+
+    if (uMsg != 0x7c &&  // WM_STYLECHANGING -> any poll
+        uMsg != 0x7d &&  // WM_STYLECHANGED  -> any poll
+        uMsg != 0x84 &&  // WM_NCHIHITTEST   -> any poll with NC under mouse
+        uMsg != 0x20 &&  // WM_SETCURSOR     -> mouse enter C or NC
+        uMsg != 0xa0 &&  // WM_NCMOUSEMOVE   -> mouse move NC
+        uMsg != 0x2a2 && // WM_NCMOUSELEAVE  -> moues leave
+        1
+    )
+        printf("%p %lx %lx %lx\n", hWnd, uMsg, wParam, lParam);
