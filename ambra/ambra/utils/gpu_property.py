@@ -268,6 +268,7 @@ class GpuResourceProperty(Generic[R]):
                         frame.copy_semaphores.append(gpu_res.use(PipelineStageFlags.TRANSFER))
 
                         # Upload on copy queue
+                        self._cmd_before_barrier(frame.copy_cmd, gpu_res)
                         self._cmd_upload(frame.copy_cmd, cpu_buf, gpu_res)
                         self._cmd_release_barrier(frame.copy_cmd, gpu_res)
 
@@ -359,6 +360,7 @@ class GpuResourceProperty(Generic[R]):
                     self.prefetch_states_lookup[gpu_res] = state
 
                     with state.commands:
+                        self._cmd_before_barrier(state.commands, gpu_res)
                         self._cmd_upload(state.commands, cpu_next, gpu_res)
 
                     info = gpu_res.use(PipelineStageFlags.TRANSFER)
@@ -518,7 +520,7 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
         cmd.copy_buffer_range(cpu_buf.buf, gpu_res.resource, cpu_buf.used_size)
 
     def _cmd_before_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Buffer]) -> None:
-        cmd.memory_barrier(self.memory_usage, MemoryUsage.TRANSFER_DST)
+        cmd.memory_barrier(MemoryUsage.ALL, MemoryUsage.TRANSFER_DST)
 
     def _cmd_after_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Buffer]) -> None:
         cmd.memory_barrier(MemoryUsage.TRANSFER_DST, self.memory_usage)
@@ -621,7 +623,7 @@ class GpuImageProperty(GpuResourceProperty[Image]):
         cmd.image_barrier(
             gpu_res.resource,
             ImageLayout.TRANSFER_DST_OPTIMAL,
-            self.memory_usage,
+            MemoryUsage.ALL,
             MemoryUsage.TRANSFER_DST,
         )
 
