@@ -1609,11 +1609,10 @@ struct Window: nb::intrusive_base {
     )
     {
         this->draw               = std::move(draw);
-        this->mouse_move_event   = mouse_move_event;
-        this->mouse_button_event = mouse_button_event;
-        this->mouse_scroll_event = mouse_scroll_event;
-        this->key_event          = key_event;
-        this->draw               = draw;
+        this->mouse_move_event   = std::move(mouse_move_event);
+        this->mouse_button_event = std::move(mouse_button_event);
+        this->mouse_scroll_event = std::move(mouse_scroll_event);
+        this->key_event          = std::move(key_event);
 
         gfx::SetWindowCallbacks(&window, {
                 .mouse_move_event = [this](glm::ivec2 p) {

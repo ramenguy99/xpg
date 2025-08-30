@@ -58,3 +58,4 @@ while True:
         break
 
     draw()
+ctx.wait_idle()

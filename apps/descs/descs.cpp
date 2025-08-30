@@ -35,8 +35,8 @@ void Draw(App* app) {
     auto& window = *app->window;
 
     u64 timestamp = glfwGetTimerValue();
-
     float dt = (float)((double)(timestamp - app->last_frame_timestamp) / (double)glfwGetTimerFrequency());
+    app->last_frame_timestamp = timestamp;
 
     gfx::SwapchainStatus swapchain_status = UpdateSwapchain(&window, vk);
     if (swapchain_status == gfx::SwapchainStatus::FAILED) {
@@ -189,6 +189,13 @@ void Draw(App* app) {
     app->current_frame += 1;
 }
 
+static void
+Callback_WindowRefresh(GLFWwindow* window) {
+    App* app = (App*)glfwGetWindowUserPointer(window);
+    if (app) {
+        Draw(app);
+    }
+}
 
 
 int main(int argc, char** argv) {
@@ -396,6 +403,7 @@ int main(int argc, char** argv) {
     app.descriptor_set = bindless.set;
 
     glfwSetWindowUserPointer(window.window, &app);
+    glfwSetWindowRefreshCallback(window.window, Callback_WindowRefresh);
 
     while (true) {
         if (app.wait_for_events) {
