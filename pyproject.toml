@@ -47,13 +47,14 @@ archs = ["auto64"]
 build = ["cp38-*", "cp39-*", "cp310-*", "cp311-*", "cp312-*"]
 skip = ["cp38-macosx_arm64"]
 
-# Install dependencies on manylinux
+# Select linux images
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
 musllinux-x86_64-image = "musllinux_1_2"
 musllinux-aarch64-image = "musllinux_1_2"
 
+# Install dependencies on manylinux
 [[tool.cibuildwheel.overrides]]
 select = "*-manylinux*"
 before-all = [ "yum install -y libXcursor-devel libXi-devel libXinerama-devel libXrandr-devel wayland-devel libxkbcommon-devel wayland-protocols-devel" ]
@@ -63,6 +64,6 @@ before-all = [ "yum install -y libXcursor-devel libXi-devel libXinerama-devel li
 select = "*-musllinux*"
 before-all = [ "apk add xorg-server-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev wayland-dev libxkbcommon-dev wayland-protocols" ]
 
-# Needed for full C++17 support on macOS
+# Needed for full C++17 support on intel macOS
 [tool.cibuildwheel.macos.environment]
 MACOSX_DEPLOYMENT_TARGET = "10.14"

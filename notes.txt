@@ -5,7 +5,7 @@ Python:
     Same but force ninja (much faster on windows):
         pip install -C cmake.args=-GNinja -C cmake.build-type=Debug -Ceditable.rebuild=true  --no-build-isolation -ve .
 
-[-] Imgui bindings with dear_bindings:
+- Imgui bindings with dear_bindings:
     -> json file looks straight forward for binding gen, nice that we can match API 1 to 1 with what we use in xpg
     -> not yet clear if we can also do ImPlot with this, or if we need internal stuff too. But good starting point.
     -> also not clear what stuff goes to python and what goes to nanonbind autogenned bindings
@@ -13,95 +13,40 @@ Python:
         -> we probably dont want to do weird cython / ffi stuff in python
         -> we probably want to autogen implementation of the nanobind bindings on the C++ side
         -> we probably want a set of manually generated pythonic helpers for commonly used stuff
-    [ ] Implement IM_ASSERT to throw exception? or maybe even just std::abort / std::assert, probably easier
-        [ ] Avoid asserts based on missing begin / end pairs, either with context manager or with some other
-            workaround to avoid them
-[x] gfx and gui bindings for window / vulkan / gui
-[ ] Slang bindings for compiling and for reflection
-    [x] Compilation
-    [ ] Shader cache
-        [x] Basic
-        [x] Handle multiple files
-        [ ] Handle all cache inputs
-    [x] Reflection
+- Slang:
+    - ReflectioN:
         - XPG provides only bindings, usage of reflection up to app
         - See at least 2 potential use cases from python:
             - Auto resolve -> use names in python, descriptor set creation and set/binding/offset computation is automatic
             - Python bindings gen -> offline step builds shaders and creates python bindings to call stuff
-    - Slang takes around 200ms to initialize in release and (2.5s in debug)...
+    - Slang takes around 200ms to initialize in release and (2.5s in debug) -> fixed by removing glsl support
     - Include files / deps:
         - Use modules for shareable reusable parts (e.g. helper functions, materials, shadows, etc..)
         - Can use include files in shaders to share common types etc.., less prio than modules but still useful e.g. for cpp interop
     - Initialize slang asynchronously on module creation? There is 100ms in release and 300 in debug to save there.
-[ ] Framegraph implementation on top of reflection for easy prototyping of pipelines/shaders
+- Framegraph implementation on top of reflection for easy prototyping of pipelines/shaders
     -> interesting here would be how much perf we can have when sharing data through arrays, e.g. textures, buffers, uniforms
     -> also interesting if we want to have a full python framegraph or if we can somehow leverage python callables
        + some python bindings to reuse at least the synchronization / traversal logic implemented in C++
-[ ] App ideas:
-    [ ] Expose compute and raytracing -> redo raytrace
-    [ ] Try to redo sequence, can i read directly to bufs without gil?
-    [ ] Huge voxel engine
+    -> idea is currently to do this in applications even, if we come with some good implementation at some point we will maybe make
+       it part of it
+- App ideas:
+    - Expose compute and raytracing -> redo raytrace
+    - Try to redo sequence, can i read directly to bufs without gil?
+    - Huge voxel engine
         -> brickmap
         -> packed coords in storage buffers
         -> auto cube trick
         -> gpu frustum culling
         -> SVO traversal?
-[x] Use within conda:
+- Use within conda:
         conda install conda-forge::vulkan-tools
-[ ] Copy / upload / blit utils
-
-Fetaures:
-[ ] Better feature / profile management:
-    [x] Optional debug_log / validation / gpu based validation / synchronization validation
-    [ ] Headless mode
-    [ ] Preferred features with a way to fallback
-    [ ] SYNCHRONIZATION_2 is not actually that widespread, maybe find a way to
-        ship the layer or maybe port the logic from the extension layer in case
-        it's not supported?
-[ ] Object names / debug API (names should be optional on python side, otherwise annoying to specify them during prototyping)
-[ ] Add helpers for timestamp queries
-[ ] Upload helper for buffer that works if device memory cannot be mapped
-    [ ] Also batch uplod helper for small images / buffer instead of copy + sync for each
-[ ] File formats:
-    [ ] Do we need this in python? Or do we keep it there?
-[ ] Meshlet stuff:
-    [ ] Integrate meshoptimizer
-    [ ] Rasterize meshlets
-        [ ] Vertex shader
-        [ ] Mesh shaders
-    [ ] Raytrace CLAS
-    [ ] Python bindings
-
-Build:
-[ ] cmake install double check
-    - Avoid add subdirectory shit
-    - GLFW now is a public dep because we statically link with it and use header files in public headers
-        -> Header files can be made private by copying out constants / forward declare needed stuff
-        -> can it be statically linked privately somehow? e.g. objects target? include source?
-[ ] LZ4 is dynamic on windows, no clue why
-[ ] python builds
-    [x] pyproject.toml
-    [x] test wheel
-        pip wheel . --verbose
-    [ ] sdist:
-        [x] make sdist
-            python -m build --sdist --verbose
-        [ ] build from sdist (???)
-    [ ] cibuildhweel
-        [x] Local
-            - create venv
-            -
-        [x] manylinux
-        [x] musllinux
-        [ ] windows
-        [ ] mac
-        [ ] conda build, likely require xcb dependency (similar to vulkan issue?)
 
 Run python examples:
 cmd /C "set PYTHONPATH=install\python && python python\example.py"
 
 Swapchain:
-[ ] Try resize without waitidle, just recreate swapchain, start using new swapchain, delete old when no more frame is using it.
+- You can technically without waitidle, recreate swapchain, start using new swapchain, delete old when no more frame is using it.
     -> not entirely clear what happens when you have 3 frames in flight, can you potentially have 3 swapchains alive
        at the same time? Or do you end up calling wait idle at that point?
     -> See: https://www.youtube.com/watch?v=mvkHYAu7i6c
@@ -139,7 +84,7 @@ Framegraph:
 - Static vs dynamic graph:
     - Graph built per frame. Can specify all needed params every time -> requires caching, at least for owned resources.
     - Graph built per at startup and then run.
-        [ ] How does the user pass dynamic parameters to the graph?
+        - How does the user pass dynamic parameters to the graph?
             -> Keep handles (either the task object itself or some returned reference)?
             -> Everything through function pointers? Seems messy and hard to get right, control flow will be very weird, almost impossible to do threading then.
             -> Try to design some tasks and see how those could look like: (simple: copy, full screen pass. more comples: ping pong blur, gen mips, draw opaque, gbuffer, shadows).
@@ -166,14 +111,6 @@ Framegraph:
         -> can try to do something a vulkan backend for aitviewer
         -> also want to support more advanced use cases like indirect rendering, batched meshes, per frame upload with triple buffering, gpu driven stuff, raytracing, etc..
 
-Backlog:
-[x] Rename lru cache
-[x] Cleanup project structure:
-    [x] Fix build and cleanup all of them
-    [x] One directory per sample app
-    [x] Normal build instead of unity?
-[ ] minimal app (multiple hooks seem to be needed, e.g. pre-gui, post-gui at least, maybe should just be a single loop one? but then more dup?)
-
 Ideas:
 - Maybe have an internal feature set kind of thing to support multiple hardware types.
   Seem important to support at least:
@@ -181,15 +118,26 @@ Ideas:
     - Basic rendering (required: dynamic rendering?)
     - Raytracing (required: rt + bindless)
 
+- Cleaness and portability:
+    - Statically link on windows and with musl on linux (no idea about macOS)
+    - Get rid of some headers
+    - Maybe split stuff in some cpp files
+
 - New error model for everything:
     - Error on the handle kind of thing
     - Ability to attach context and record call stacks
     - Maybe helpers / macros to check if an handle is errored and collect callstacks / attach additional info.
 
-- Cleaness and portability:
-    - Statically link on windows and with musl on linux (no idea about macOS)
-    - Get rid of some headers
-    - Maybe split stuff in some cpp files
+- File formats:
+    - Do we need this in python? Or do we keep it there?
+
+- Meshlet stuff:
+    - Integrate meshoptimizer
+    - Rasterize meshlets
+        - Vertex shader
+        - Mesh shaders
+    - Raytrace CLAS
+    - Python bindings
 
 Notes:
 - Add python library target and test nanobind + pybind11 stubs generator for generating and packaging python module
@@ -214,7 +162,6 @@ Notes:
     - HLSL/GLSL/SLANG? -> all require toolchain to be installed for development
     - Need introspection?
     - Hot reloading?
-- Test on linux/macos.
 
 
 Project structure:
@@ -321,7 +268,6 @@ Slang global session creation time notes:
 
 Ideas:
 - Probably: not all atoms can be targets and not all atoms can be stages -> simplify those dictionary Atom -> Obj to direct indexed with proper count of possibilities
--
 
 Opts:                                           Debug         Release
 - Start ->                                      320ms            90ms
