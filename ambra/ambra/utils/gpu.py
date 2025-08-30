@@ -307,7 +307,7 @@ def div_ceil(n: int, d: int) -> int:
     return (n + d - 1) // d
 
 
-def get_image_pitch_rows_and_texel_size(width: int, height: int, format: Format) -> Tuple[int, int]:
+def get_image_pitch_rows_and_texel_size(width: int, height: int, format: Format) -> Tuple[int, int, int]:
     info = get_format_info(format)
     if info.size_of_block_in_bytes > 0:
         size = info.size_of_block_in_bytes
