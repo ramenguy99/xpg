@@ -1042,6 +1042,10 @@ struct CommandBuffer: GfxObject {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
 
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+            throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use memory_barrier");
+        }
+
         MemoryUsageState src = MemoryUsagePresets::Types[(usize)src_usage];
         MemoryUsageState dst = MemoryUsagePresets::Types[(usize)dst_usage];
 
@@ -1060,6 +1064,10 @@ struct CommandBuffer: GfxObject {
     void buffer_barrier(nb::ref<Buffer> buf, MemoryUsage src_usage, MemoryUsage dst_usage, u32 src_queue_family_index, u32 dst_queue_family_index) {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
+
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+            throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use buffer_barrier");
+        }
 
         // TODO: unify with above
         MemoryUsageState src = MemoryUsagePresets::Types[(usize)src_usage];
@@ -1091,6 +1099,10 @@ struct CommandBuffer: GfxObject {
     void image_barrier(Image& image, VkImageLayout dst_layout, MemoryUsage src_usage, MemoryUsage dst_usage, u32 src_queue_family_index, u32 dst_queue_family_index, VkImageAspectFlagBits aspect_mask, bool undefined) {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
+
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+            throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
+        }
 
         // TODO: unify with above
         MemoryUsageState src_state = MemoryUsagePresets::Types[(usize)src_usage];
@@ -1176,6 +1188,10 @@ struct CommandBuffer: GfxObject {
     }
 
     void begin_rendering(std::array<u32, 4> render_area, const std::vector<RenderingAttachment>& color, std::optional<DepthAttachment> depth) {
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::DYNAMIC_RENDERING)) {
+            throw std::runtime_error("Device feature DYNAMIC_RENDERING must be set to use begin_rendering");
+        }
+
         Array<gfx::RenderingAttachmentDesc> color_descs(color.size());
         for(usize i = 0; i < color_descs.length; i++) {
             VkClearColorValue clear;
@@ -1214,6 +1230,10 @@ struct CommandBuffer: GfxObject {
     }
 
     void end_rendering() {
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::DYNAMIC_RENDERING)) {
+            throw std::runtime_error("Device feature DYNAMIC_RENDERING must be set to use begin_rendering");
+        }
+
         gfx::CmdEndRendering(buffer);
     }
 
