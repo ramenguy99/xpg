@@ -1067,7 +1067,7 @@ struct CommandBuffer: GfxObject {
         }
     }
 
-    void image_barrier(Image& image, VkImageLayout dst_layout, MemoryUsage src_usage, MemoryUsage dst_usage, u32 src_queue_family_index, u32 dst_queue_family_index, VkImageAspectFlagBits aspect_mask) {
+    void image_barrier(Image& image, VkImageLayout dst_layout, MemoryUsage src_usage, MemoryUsage dst_usage, u32 src_queue_family_index, u32 dst_queue_family_index, VkImageAspectFlagBits aspect_mask, bool undefined) {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
 
@@ -1078,7 +1078,7 @@ struct CommandBuffer: GfxObject {
         // Rules:
         // - If layout transition or queue ownership transfer: always need an image barrier
         // - If one of the uses is a write: memory barrier needed
-        VkImageLayout src_layout = image.current_layout;
+        VkImageLayout src_layout = undefined ? VK_IMAGE_LAYOUT_UNDEFINED : image.current_layout;
         bool layout_transition = src_layout != dst_layout;
         bool queue_transfer = src_queue_family_index != dst_queue_family_index;
         if (layout_transition || queue_transfer) {
@@ -3488,7 +3488,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("end", &CommandBuffer::end)
         .def("memory_barrier", &CommandBuffer::memory_barrier, nb::arg("src"), nb::arg("dst"))
         .def("buffer_barrier", &CommandBuffer::buffer_barrier, nb::arg("buffer"), nb::arg("src"), nb::arg("dst"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED)
-        .def("image_barrier", &CommandBuffer::image_barrier, nb::arg("image"), nb::arg("dst_layout"), nb::arg("src_usage"), nb::arg("dst_usage"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("aspect_mask") = VK_IMAGE_ASPECT_COLOR_BIT)
+        .def("image_barrier", &CommandBuffer::image_barrier, nb::arg("image"), nb::arg("dst_layout"), nb::arg("src_usage"), nb::arg("dst_usage"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("aspect_mask") = VK_IMAGE_ASPECT_COLOR_BIT, nb::arg("undefined") = false)
         .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("render_area"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
         .def("end_rendering", &CommandBuffer::end_rendering)
         .def("rendering", &CommandBuffer::rendering, nb::arg("render_area"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())

@@ -625,6 +625,7 @@ class GpuImageProperty(GpuResourceProperty[Image]):
             ImageLayout.TRANSFER_DST_OPTIMAL,
             MemoryUsage.ALL,
             MemoryUsage.TRANSFER_DST,
+            undefined=True,
         )
 
     def _cmd_after_barrier(self, cmd: CommandBuffer, gpu_res: GpuResource[Image]) -> None:

@@ -179,6 +179,7 @@ class BulkUploader:
                                 ImageLayout.TRANSFER_DST_OPTIMAL,
                                 MemoryUsage.NONE,
                                 MemoryUsage.TRANSFER_DST,
+                                undefined=True,
                             )
 
                         # Upload to image range
@@ -384,6 +385,7 @@ class UploadableImage(Image):
             ImageLayout.TRANSFER_DST_OPTIMAL,
             src_usage,
             MemoryUsage.TRANSFER_DST,
+            undefined=True,
         )
         cmd.copy_buffer_to_image(self._staging, self)
         if layout == ImageLayout.UNDEFINED or layout == ImageLayout.TRANSFER_DST_OPTIMAL:

@@ -291,6 +291,7 @@ class Renderer:
                 ImageLayout.TRANSFER_DST_OPTIMAL,
                 MemoryUsage.COLOR_ATTACHMENT,
                 MemoryUsage.TRANSFER_DST,
+                undefined=True,
             )
             cmd.clear_color_image(frame.image, self.background_color)
             cmd.image_barrier(
@@ -306,6 +307,7 @@ class Renderer:
                 MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
                 MemoryUsage.TRANSFER_DST,
                 aspect_mask=ImageAspectFlags.DEPTH,
+                undefined=True,
             )
             cmd.clear_depth_stencil_image(self.depth_buffer, depth=self.depth_clear_value)
             cmd.image_barrier(
