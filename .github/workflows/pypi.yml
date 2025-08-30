@@ -39,11 +39,11 @@ jobs:
         if: ${{ github.event.inputs.fast == '1'}}
         env:
           CIBW_BUILD: "cp39-*"
-        uses: pypa/cibuildwheel@v2.23.2
+        uses: pypa/cibuildwheel@v3.1.4
 
       - name: Build wheels
         if: ${{ github.event.inputs.fast == '0'}}
-        uses: pypa/cibuildwheel@v2.23.2
+        uses: pypa/cibuildwheel@v3.1.4
 
       - uses: actions/upload-artifact@v4
         with:
