@@ -1006,6 +1006,15 @@ struct DepthAttachment: nb::intrusive_base {
     {}
 };
 
+template<typename T>
+void check_vector_of_ref_for_null(const std::vector<nb::ref<T>>& v, const char* error) {
+    for (size_t i = 0; i < v.size(); i++) {
+        if (!v[i]) {
+            nb::raise(error);
+        }
+    }
+}
+
 struct CommandBuffer: GfxObject {
     CommandBuffer(nb::ref<Context> ctx, std::optional<u32> queue_family_index, std::optional<nb::str> name)
         : GfxObject(ctx, true, std::move(name))
@@ -1191,6 +1200,8 @@ struct CommandBuffer: GfxObject {
         if (!(ctx->vk.device_features & gfx::DeviceFeatures::DYNAMIC_RENDERING)) {
             throw std::runtime_error("Device feature DYNAMIC_RENDERING must be set to use begin_rendering");
         }
+
+        check_vector_of_ref_for_null(color, "elements of \"color\" must not be None");
 
         Array<gfx::RenderingAttachmentDesc> color_descs(color.size());
         for(usize i = 0; i < color_descs.length; i++) {
@@ -1548,6 +1559,13 @@ struct Queue: GfxObject {
         std::vector<u64> signal_timeline_values,
         std::optional<nb::ref<Fence>> fence) {
 
+        check_vector_of_ref_for_null(signal_semaphores, "elements of \"signal_semaphores\" must not be None");
+        for (size_t i = 0; i < wait_semaphores.size(); i++) {
+            if (!std::get<0>(wait_semaphores[i])) {
+                nb::raise("semaphores of \"wait_semaphores\" must not be None");
+            }
+        }
+
         Array<VkSemaphore> vk_wait_semaphores(wait_semaphores.size());
         Array<VkPipelineStageFlags> vk_wait_stages(wait_semaphores.size());
         for(usize i = 0; i < wait_semaphores.size(); i++) {
@@ -1747,6 +1765,13 @@ struct Window: nb::intrusive_base {
         const std::vector<nb::ref<Semaphore>>& additional_signal_semaphores,
         std::vector<u64>& additional_signal_timeline_values)
     {
+        check_vector_of_ref_for_null(additional_signal_semaphores, "elements of \"additional_signal_semaphores\" must not be None");
+        for (size_t i = 0; i < additional_wait_semaphores.size(); i++) {
+            if (!std::get<0>(additional_wait_semaphores[i])) {
+                nb::raise("semaphores of \"additional_wait_semaphores\" must not be None");
+            }
+        }
+
         // TODO: make this throw if not called after begin in the same frame
         VkResult vkr;
         if(additional_wait_semaphores.empty() && additional_signal_semaphores.empty()) {
@@ -1892,6 +1917,12 @@ struct CommandsManager: nb::intrusive_base {
         , fence(fence)
         , wait_and_reset_fence(wait_and_reset_fence)
     {
+        check_vector_of_ref_for_null(signal_semaphores, "elements of \"signal_semaphores\" must not be None");
+        for (size_t i = 0; i < wait_semaphores.size(); i++) {
+            if (!std::get<0>(wait_semaphores[i])) {
+                nb::raise("semaphores of \"wait_semaphores\" must not be None");
+            }
+        }
     }
 
     nb::ref<CommandBuffer> enter() {
@@ -2344,6 +2375,8 @@ struct ComputePipeline: GfxObject {
         )
         : GfxObject(ctx, true, std::move(name))
     {
+        check_vector_of_ref_for_null(descriptor_sets, "elements of \"descriptor_sets\" must not be None");
+
         Array<VkDescriptorSetLayout> d(descriptor_sets.size());
         for(usize i = 0; i < d.length; i++) {
             d[i] = descriptor_sets[i]->set.layout;
@@ -2392,6 +2425,9 @@ struct GraphicsPipeline: GfxObject {
         )
         : GfxObject(ctx, true, std::move(name))
     {
+        check_vector_of_ref_for_null(stages, "elements of \"stages\" must not be None");
+        check_vector_of_ref_for_null(descriptor_sets, "elements of \"descriptor_sets\" must not be None");
+
         Array<gfx::PipelineStageDesc> s(stages.size());
         for(usize i = 0; i < s.length; i++) {
             s[i].shader = stages[i]->shader->shader;
@@ -2469,6 +2505,7 @@ void CommandBuffer::bind_compute_pipeline(
     const std::vector<u32>& dynamic_offsets,
     const std::optional<nb::bytes>& push_constants)
 {
+    check_vector_of_ref_for_null(descriptor_sets, "elements of \"descriptor_sets\" must not be None");
     bind_pipeline_common(VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, dynamic_offsets, push_constants);
 }
 
@@ -2481,6 +2518,8 @@ void CommandBuffer::bind_graphics_pipeline(
     std::optional<nb::ref<Buffer>> index_buffer
 )
 {
+    check_vector_of_ref_for_null(descriptor_sets, "elements of \"descriptor_sets\" must not be None");
+    check_vector_of_ref_for_null(vertex_buffers, "elements of \"vertex_buffers\" must not be None");
     bind_pipeline_common(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, dynamic_offsets, push_constants);
 
     // Vertex buffers
@@ -3566,7 +3605,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("bind_graphics_pipeline", &CommandBuffer::bind_graphics_pipeline,
             nb::arg("pipeline"),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
-            nb::arg("dynamic_offsets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("dynamic_offsets") = std::vector<u32>(),
             nb::arg("push_constants") = std::optional<nb::bytes>(),
             nb::arg("vertex_buffers") = std::vector<nb::ref<Buffer>>(),
             nb::arg("index_buffer") = std::optional<nb::ref<Buffer>>()
@@ -3574,7 +3613,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("bind_compute_pipeline", &CommandBuffer::bind_compute_pipeline,
             nb::arg("pipeline"),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
-            nb::arg("dynamic_offsets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("dynamic_offsets") = std::vector<u32>(),
             nb::arg("push_constants") = std::optional<nb::bytes>()
         )
         .def("dispatch", &CommandBuffer::dispatch,
