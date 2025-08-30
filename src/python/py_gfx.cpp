@@ -33,7 +33,7 @@ using namespace xpg;
 
 #define DEBUG_UTILS_OBJECT_NAME(type, obj) DEBUG_UTILS_OBJECT_NAME_WITH_NAME(type, obj, this->name)
 
-struct MemoryHeap: public nb::intrusive_base {
+struct MemoryHeap: nb::intrusive_base {
     MemoryHeap(const VkMemoryHeap& heap)
         : size(heap.size)
         , flags((VkMemoryHeapFlagBits)heap.flags)
@@ -42,7 +42,7 @@ struct MemoryHeap: public nb::intrusive_base {
     VkMemoryHeapFlagBits    flags;
 };
 
-struct MemoryType: public nb::intrusive_base {
+struct MemoryType: nb::intrusive_base {
     MemoryType(const VkMemoryType& type)
         : property_flags((VkMemoryPropertyFlagBits)type.propertyFlags)
         , heap_index(type.heapIndex)
@@ -51,7 +51,7 @@ struct MemoryType: public nb::intrusive_base {
     uint32_t                 heap_index;
 };
 
-struct MemoryProperties: public nb::intrusive_base {
+struct MemoryProperties: nb::intrusive_base {
     MemoryProperties(const VkPhysicalDeviceMemoryProperties& memory_properties) {
         for(usize i = 0; i < memory_properties.memoryHeapCount; i++) {
             memory_heaps.push_back(new MemoryHeap(memory_properties.memoryHeaps[i]));
@@ -65,17 +65,17 @@ struct MemoryProperties: public nb::intrusive_base {
 };
 
 // Wrapper around VkPhysicalDeviceLimits
-struct DeviceSparseProperties: public nb::intrusive_base {
+struct DeviceSparseProperties: nb::intrusive_base {
     DeviceSparseProperties(const VkPhysicalDeviceSparseProperties& sparse_properties): sparse_properties(sparse_properties) {}
     VkPhysicalDeviceSparseProperties sparse_properties;
 };
 
-struct DeviceLimits: public nb::intrusive_base {
+struct DeviceLimits: nb::intrusive_base {
     DeviceLimits(const VkPhysicalDeviceLimits& limits): limits(limits) {}
     VkPhysicalDeviceLimits limits;
 };
 
-struct HeapStatistics: public nb::intrusive_base {
+struct HeapStatistics: nb::intrusive_base {
     HeapStatistics(const VmaBudget& budget)
         : block_count(budget.statistics.blockCount)
         , allocation_count(budget.statistics.allocationCount)
@@ -97,7 +97,7 @@ struct HeapStatistics: public nb::intrusive_base {
 };
 
 // Wrapper around VkPhysicalDeviceProperties
-struct DeviceProperties: public nb::intrusive_base {
+struct DeviceProperties: nb::intrusive_base {
     DeviceProperties(const VkPhysicalDeviceProperties& properties)
         : api_version(properties.apiVersion)
         , driver_version(properties.driverVersion)
@@ -122,7 +122,7 @@ struct DeviceProperties: public nb::intrusive_base {
     nb::ref<DeviceSparseProperties> sparse_properties;
 };
 
-struct Context: public nb::intrusive_base {
+struct Context: nb::intrusive_base {
     Context(
         std::tuple<u32, u32> version,
         gfx::DeviceFeatures::Flags required_features,
@@ -183,7 +183,7 @@ struct Context: public nb::intrusive_base {
     nb::ref<MemoryProperties> memory_properties;
 };
 
-struct GfxObject: public nb::intrusive_base {
+struct GfxObject: nb::intrusive_base {
     GfxObject() {}
     GfxObject(nb::ref<Context> ctx, bool owned, std::optional<nb::str> name = std::nullopt)
         : ctx(std::move(ctx))
@@ -928,38 +928,6 @@ struct ComputePipeline;
 struct DescriptorSet;
 struct Buffer;
 
-struct RenderingAttachment {
-    nb::ref<Image> image;
-    VkAttachmentLoadOp load_op;
-    VkAttachmentStoreOp store_op;
-    std::array<float, 4> clear;
-    std::optional<nb::ref<Image>> resolve_image;
-    VkResolveModeFlagBits resolve_mode;
-
-    RenderingAttachment(nb::ref<Image> image, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, std::array<float, 4> clear, std::optional<nb::ref<Image>> resolve_image, VkResolveModeFlagBits resolve_mode)
-        : image(image)
-        , load_op(load_op)
-        , store_op(store_op)
-        , clear(clear)
-        , resolve_image(resolve_image)
-        , resolve_mode(resolve_mode)
-    {}
-};
-
-struct DepthAttachment {
-    nb::ref<Image> image;
-    VkAttachmentLoadOp load_op;
-    VkAttachmentStoreOp store_op;
-    float clear;
-
-    DepthAttachment(nb::ref<Image> image, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, float clear)
-        : image(image)
-        , load_op(load_op)
-        , store_op(store_op)
-        , clear(clear)
-    {}
-};
-
 struct QueryPool: GfxObject {
     QueryPool(nb::ref<Context> ctx, VkQueryType type, u32 count, std::optional<nb::str> name)
         : GfxObject(ctx, true, std::move(name))
@@ -1004,6 +972,38 @@ struct QueryPool: GfxObject {
     VkQueryPool pool;
     VkQueryType type;
     u32 count;
+};
+
+struct RenderingAttachment: nb::intrusive_base {
+    nb::ref<Image> image;
+    VkAttachmentLoadOp load_op;
+    VkAttachmentStoreOp store_op;
+    std::array<float, 4> clear;
+    std::optional<nb::ref<Image>> resolve_image;
+    VkResolveModeFlagBits resolve_mode;
+
+    RenderingAttachment(nb::ref<Image> image, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, std::array<float, 4> clear, std::optional<nb::ref<Image>> resolve_image, VkResolveModeFlagBits resolve_mode)
+        : image(image)
+        , load_op(load_op)
+        , store_op(store_op)
+        , clear(clear)
+        , resolve_image(resolve_image)
+        , resolve_mode(resolve_mode)
+    {}
+};
+
+struct DepthAttachment: nb::intrusive_base {
+    nb::ref<Image> image;
+    VkAttachmentLoadOp load_op;
+    VkAttachmentStoreOp store_op;
+    float clear;
+
+    DepthAttachment(nb::ref<Image> image, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, float clear)
+        : image(image)
+        , load_op(load_op)
+        , store_op(store_op)
+        , clear(clear)
+    {}
 };
 
 struct CommandBuffer: GfxObject {
@@ -1162,7 +1162,7 @@ struct CommandBuffer: GfxObject {
     }
 
     struct RenderingManager {
-        RenderingManager(nb::ref<CommandBuffer> cmd, std::array<u32, 4> render_area, std::vector<RenderingAttachment> color, std::optional<DepthAttachment> depth)
+        RenderingManager(nb::ref<CommandBuffer> cmd, std::array<u32, 4> render_area, const std::vector<nb::ref<RenderingAttachment>>& color, std::optional<nb::ref<DepthAttachment>> depth)
             : cmd(cmd)
             , render_area(render_area)
             , color(std::move(color))
@@ -1179,44 +1179,47 @@ struct CommandBuffer: GfxObject {
 
         nb::ref<CommandBuffer> cmd;
         std::array<u32, 4> render_area;
-        std::vector<RenderingAttachment> color;
-        std::optional<DepthAttachment> depth;
+        std::vector<nb::ref<RenderingAttachment>> color;
+        std::optional<nb::ref<DepthAttachment>> depth;
     };
 
-    RenderingManager rendering(std::array<u32, 4> render_area, const std::vector<RenderingAttachment>& color, std::optional<DepthAttachment> depth) {
+    RenderingManager rendering(std::array<u32, 4> render_area, const std::vector<nb::ref<RenderingAttachment>>& color, std::optional<nb::ref<DepthAttachment>> depth) {
         return RenderingManager(this, render_area, std::move(color), depth);
     }
 
-    void begin_rendering(std::array<u32, 4> render_area, const std::vector<RenderingAttachment>& color, std::optional<DepthAttachment> depth) {
+    void begin_rendering(std::array<u32, 4> render_area, const std::vector<nb::ref<RenderingAttachment>>& color, std::optional<nb::ref<DepthAttachment>> depth) {
         if (!(ctx->vk.device_features & gfx::DeviceFeatures::DYNAMIC_RENDERING)) {
             throw std::runtime_error("Device feature DYNAMIC_RENDERING must be set to use begin_rendering");
         }
 
         Array<gfx::RenderingAttachmentDesc> color_descs(color.size());
         for(usize i = 0; i < color_descs.length; i++) {
+            const RenderingAttachment& attachment = *color[i];
+
             VkClearColorValue clear;
-            clear.float32[0] = color[i].clear[0];
-            clear.float32[1] = color[i].clear[1];
-            clear.float32[2] = color[i].clear[2];
-            clear.float32[3] = color[i].clear[3];
+            clear.float32[0] = attachment.clear[0];
+            clear.float32[1] = attachment.clear[1];
+            clear.float32[2] = attachment.clear[2];
+            clear.float32[3] = attachment.clear[3];
 
             color_descs[i] = {
-                .view = color[i].image->image.view,
-                .resolve_mode = color[i].resolve_mode,
-                .resolve_image_view = color[i].resolve_image.has_value() ? color[i].resolve_image.value()->image.view : VK_NULL_HANDLE,
-                .resolve_image_layout = color[i].resolve_image.has_value() ? color[i].resolve_image.value()->current_layout : VK_IMAGE_LAYOUT_UNDEFINED,
-                .load_op = color[i].load_op,
-                .store_op = color[i].store_op,
+                .view = attachment.image->image.view,
+                .resolve_mode = attachment.resolve_mode,
+                .resolve_image_view = attachment.resolve_image.has_value() ? attachment.resolve_image.value()->image.view : VK_NULL_HANDLE,
+                .resolve_image_layout = attachment.resolve_image.has_value() ? attachment.resolve_image.value()->current_layout : VK_IMAGE_LAYOUT_UNDEFINED,
+                .load_op = attachment.load_op,
+                .store_op = attachment.store_op,
                 .clear = clear,
             };
         }
 
         gfx::DepthAttachmentDesc depth_desc = {};
         if(depth.has_value()) {
-            depth_desc.view = depth->image->image.view;
-            depth_desc.load_op = depth->load_op;
-            depth_desc.store_op= depth->store_op;
-            depth_desc.clear = depth->clear;
+            const DepthAttachment& depth_attachment = **depth;
+            depth_desc.view = depth_attachment.image->image.view;
+            depth_desc.load_op = depth_attachment.load_op;
+            depth_desc.store_op= depth_attachment.store_op;
+            depth_desc.clear = depth_attachment.clear;
         }
 
         gfx::CmdBeginRendering(buffer, {
@@ -3510,12 +3513,14 @@ void gfx_create_bindings(nb::module_& m)
         .value("NONE"     , VK_ATTACHMENT_STORE_OP_NONE)
     ;
 
-    nb::class_<RenderingAttachment>(m, "RenderingAttachment")
+    nb::class_<RenderingAttachment>(m, "RenderingAttachment",
+        nb::intrusive_ptr<RenderingAttachment>([](RenderingAttachment *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, std::array<float, 4>, std::optional<nb::ref<Image>>, VkResolveModeFlagBits>(),
             nb::arg("image"), nb::arg("load_op") = VK_ATTACHMENT_LOAD_OP_LOAD, nb::arg("store_op") = VK_ATTACHMENT_STORE_OP_STORE, nb::arg("clear") = std::array<float,4>({0.0f, 0.0f, 0.0f, 0.0f}), nb::arg("resolve_image") = nb::none(), nb::arg("resolve_mode") = VK_RESOLVE_MODE_NONE)
     ;
 
-    nb::class_<DepthAttachment>(m, "DepthAttachment")
+    nb::class_<DepthAttachment>(m, "DepthAttachment",
+        nb::intrusive_ptr<DepthAttachment>([](DepthAttachment *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, float>(),
             nb::arg("image"), nb::arg("load_op") = VK_ATTACHMENT_LOAD_OP_LOAD, nb::arg("store_op") = VK_ATTACHMENT_STORE_OP_STORE, nb::arg("clear") = 0.0f)
     ;
