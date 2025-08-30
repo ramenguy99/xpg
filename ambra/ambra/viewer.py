@@ -13,6 +13,7 @@ from pyxpg import (
     Key,
     LogCapture,
     LogLevel,
+    MemoryHeapFlags,
     Modifiers,
     MouseButton,
     SwapchainStatus,
@@ -263,6 +264,14 @@ class Viewer:
             imgui.text(f"Window size:     [{self.window.fb_width}x{self.window.fb_height}]")
             imgui.text(f"FPS:             {avg_fps:6.2f} ({last_fps:6.2f})")
             imgui.text(f"Frame time (ms): {avg_dt * 1000.0:6.2f} ({last_dt * 1000.0:6.2f})")
+            for i, (heap, stats) in enumerate(zip(self.ctx.memory_properties.memory_heaps, self.ctx.heap_statistics)):
+                if heap.flags & MemoryHeapFlags.VK_MEMORY_HEAP_DEVICE_LOCAL:
+                    kind = "GPU"
+                else:
+                    kind = "CPU"
+                imgui.text(
+                    f"Heap {i} - {kind}: {stats.allocation_bytes / (1024 * 1024 * 1024):4.02f} / {heap.size / (1024 * 1024 * 1024):4.02f} GB"
+                )
         imgui.end()
 
     def gui_playback(self) -> None:

@@ -75,6 +75,27 @@ struct DeviceLimits: public nb::intrusive_base {
     VkPhysicalDeviceLimits limits;
 };
 
+struct HeapStatistics: public nb::intrusive_base {
+    HeapStatistics(const VmaBudget& budget)
+        : block_count(budget.statistics.blockCount)
+        , allocation_count(budget.statistics.allocationCount)
+        , block_bytes(budget.statistics.blockBytes)
+        , allocation_bytes(budget.statistics.allocationBytes)
+        , usage(budget.usage)
+        , budget(budget.budget)
+    {}
+
+    // See VmaStatistics
+    u32 block_count;
+    u32 allocation_count;
+    u32 block_bytes;
+    u32 allocation_bytes;
+
+    // See VmaBudget
+    VkDeviceSize usage;
+    VkDeviceSize budget;
+};
+
 // Wrapper around VkPhysicalDeviceProperties
 struct DeviceProperties: public nb::intrusive_base {
     DeviceProperties(const VkPhysicalDeviceProperties& properties)
@@ -2526,6 +2547,19 @@ void gfx_create_bindings(nb::module_& m)
         })
     ;
 
+    nb::class_<HeapStatistics>(m, "HeapStatistics",
+        nb::intrusive_ptr<HeapStatistics>([](HeapStatistics *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_ro("block_count",      &HeapStatistics::block_count)
+        .def_ro("allocation_count", &HeapStatistics::allocation_count)
+        .def_ro("block_bytes",      &HeapStatistics::block_bytes)
+        .def_ro("allocation_bytes", &HeapStatistics::allocation_bytes)
+        .def_ro("usage",            &HeapStatistics::usage)
+        .def_ro("budget",           &HeapStatistics::budget)
+        .def("__repr__", [](HeapStatistics& stats) {
+            return nb::str("HeapStatistics(block_count={}, allocation_count={}, block_bytes={}, allocation_bytes={}, usage={}, budget={})").format(stats.block_count, stats.allocation_count, stats.block_bytes, stats.allocation_bytes, stats.usage, stats.budget);
+        })
+    ;
+
     nb::enum_<gfx::DeviceFeatures::Flags>(m, "DeviceFeatures", nb::is_flag(), nb::is_arithmetic())
         .value("NONE",                  gfx::DeviceFeatures::NONE)
         .value("DYNAMIC_RENDERING",     gfx::DeviceFeatures::DYNAMIC_RENDERING)
@@ -2725,10 +2759,20 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("device_features", [](Context& ctx) {
             return ctx.vk.device_features.flags;
         })
-        .def_prop_ro("device_properties", [](Context& ctx) {
-            return ctx.device_properties;
-        })
+        .def_ro("device_properties", &Context::device_properties)
         .def_ro("memory_properties", &Context::memory_properties)
+        .def_prop_ro("heap_statistics", [](Context& ctx) {
+            VmaBudget budgets[VK_MAX_MEMORY_HEAPS];
+            vmaGetHeapBudgets(ctx.vk.vma, budgets);
+
+            usize heap_count = ctx.memory_properties->memory_heaps.size();
+            std::vector<nb::ref<HeapStatistics>> statistics;
+            statistics.reserve(heap_count);
+            for (size_t i = 0; i < heap_count; i++) {
+                statistics.push_back(new HeapStatistics(budgets[i]));
+            }
+            return statistics;
+        }, nb::rv_policy::move)
         .def_prop_ro("has_compute_queue", [](Context& ctx) {
             return ctx.vk.compute_queue != VK_NULL_HANDLE;
         })

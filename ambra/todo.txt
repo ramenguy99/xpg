@@ -19,20 +19,23 @@ TODO:
         - [ ] Materials
         - [ ] Instancing
         - [ ] Support both raster and path tracing with accumulation
-    - [ ] Get rid of UploadableBuffer and UploadableImage. Currently only used
+- [ ] Buffer and image management:
+    - [ ] UploadableBuffer and UploadableImage are currently only used
           by renderer for bulk uniforms. I think the main issue with this
           is that it only solves the startup / first time upload issue, which
           can already be solved by .from_data.
-          It does handle DEVICE_MAPPED_WITH_FALLBACK, but maybe so should .from_data.
+          It does handle DEVICE_MAPPED_WITH_FALLBACK but .from_data also does.
           The fact that it keeps the staging buffer around is not that useful because
-          we cannot re-utilize it during rendering, we would need 1 per-frame.
+          we can re-utilize it during rendering only if we alloc 1 per frame.
           Shapes of upload:
-          - Upload once at creation (-> .from_data)
-          - Upload once but after creation (-> bulk_upload)
-          - Upload per frame with preallocated frames (-> preupload GpuProperty) (lazily allocates staging buffers, shared across frames)
-          - Upload per frame with single frame (and potentially pre-fetch) (-> streaming GpuProperty) (preallocated staging buffers, shared across frames)
+          - Sync upload once at creation                               -> .from_data
+          - Sync upload once after creation (batched)                  -> bulk_upload
+          - Per frame upload with one GPU buffer per sequence frame    -> preupload GpuProperty (lazily allocates staging buffers, shared across frames)
+          - Per frame upload with single GPU buffer for whole sequence -> streaming GpuProperty (preallocated staging buffers, shared across frames, also supports prefetching with additional staging and GPU buffers)
           We are technically missing but we might not need it:
-          - Upload once after creation but without bulk ops -> can do by hand but we might want helpers
+          - Per frame upload without a sequence (e.g. bulk uniforms) -> this is in spirit the same as streaming GpuProperty but without relying on it (maybe GpuProperty should rely on this?)
+            - For GPU resources (non-mappable buffers or images)
+            - For buffers we should check if BAR memory is available and if we want to use and alloc per-frame mappable buffers, otherwise alloc per-frame staging and 1 device resource.
     - [ ] Support buffer suballocation in gpu property for preuplaod and image array to reduce number of resources that we need for a sequence
     - [ ] Implement invalidation of preuploaded properties. If using mapped buffers (CPU or BAR) we can just alloc the remaining frames_in_flight - 1 buffers and switch to ring buffer.
     - [ ] Implement smarter logic to pick which upload mode to use. For smaller properties we want bar if available I guess.
@@ -86,8 +89,10 @@ TODO:
     - [x] Fps display for debug
     - [x] Configurable keybindings
     - [x] NEXT: Expose imgui.get_io for things like want_capture_mouse (or add helper for that)
+    - [x] Show memory usage in stats
     - [ ] Better/configurable handling of imgui.ini file
     - [ ] Port built-in profiler
+    - [ ] Memory breakdown view -> also plot of usage per-frame to spot mid-frame allocs
 - [ ] Shaders
     - [ ] cache
     - [ ] export to spirv during package
@@ -104,6 +109,11 @@ TODO:
 - [ ] Cleanup before release:
     - [ ] Public vs private API (hide / protect internal stuff)
     - [ ] Unit tests on all python versions (likely with lavapipe on CI)
+    - [ ] Rename some badly named things:
+        - UploadMethod constants
+        - BIT in CullMode flags
+    - [ ] Is StreamingProperty any useful? Should users instead just subclass Property?
+    - [ ] Re-organize utils directory, what really is a util anyway?
 - [ ] Extra Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
     - [ ] Meshoptimizer + meshlets
     - [ ] Gaussian splats
@@ -113,7 +123,8 @@ TODO:
     - [ ] Framegraph
 - [ ] Why does @cache on shader break refcounting on context, especially for an object that does not have any reference to ctx
       -> investigate further and maybe make minimal repo if it's actually a nanobind issue
-- [ ] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
+- [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
+
 
 Tools:
 - [x] mypy:
