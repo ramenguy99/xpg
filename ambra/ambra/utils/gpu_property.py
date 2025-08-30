@@ -88,7 +88,7 @@ class GpuResourceProperty(Generic[R]):
         ctx: Context,
         num_frames_in_flight: int,
         upload_method: UploadMethod,
-        thread_pool: ThreadPool[None],
+        thread_pool: ThreadPool,
         out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
         property: Property,
         pipeline_stage_flags: PipelineStageFlags,
@@ -127,8 +127,24 @@ class GpuResourceProperty(Generic[R]):
             else:
                 alloc_type = AllocType.DEVICE
 
+            # NOTE: In the async_load case we could also do mapped upload in
+            # threads here, but we first need to know the size of the frame.
+            # This makes things more complicated because we could run into
+            # issues using the context from multiple threads. It's not
+            # clear where is the best case to ensure this is thread safe so
+            # for now we don't do it.
+            if property.upload.async_load:
+                promises: List[Promise[np.ndarray]] = []
+                for i in range(property.num_frames):
+                    promise: Promise[np.ndarray] = Promise()
+                    self.thread_pool.submit(promise, self._load_async, i)  # type: ignore
+                    promises.append(promise)
+
             for i in range(property.num_frames):
-                frame = property.get_frame_by_index(i)
+                if property.upload.async_load:
+                    frame = promises[i].get()
+                else:
+                    frame = property.get_frame_by_index(i)
                 res = self._create_resource_for_preupload(frame, alloc_type, f"{name}-{i}")
                 if upload_method == UploadMethod.CPU_BUF or upload_method == UploadMethod.BAR:
                     self._upload_mapped_resource(res, frame)
@@ -179,7 +195,10 @@ class GpuResourceProperty(Generic[R]):
         # TODO: after invalidation or if configured, allocate owned prealloc buffers
         # and switch to streaming operations
 
-    def _load_async(self, i: int, buf: CpuBuffer, thread_index: int) -> None:
+    def _load_async(self, i: int, thread_index: int) -> np.ndarray:
+        return self.property.get_frame_by_index(i, thread_index)
+
+    def _load_async_into(self, i: int, buf: CpuBuffer, thread_index: int) -> None:
         buf.used_size = self.property.get_frame_by_index_into(i, buf.buf.data, thread_index)
 
     def load(self, frame: RendererFrame) -> None:
@@ -191,7 +210,7 @@ class GpuResourceProperty(Generic[R]):
 
             def cpu_load(k: int, buf: CpuBuffer) -> None:
                 if self.property.upload.async_load:
-                    self.thread_pool.submit(buf.promise, self._load_async, k, buf)  # type: ignore
+                    self.thread_pool.submit(buf.promise, self._load_async_into, k, buf)  # type: ignore
                 else:
                     buf.used_size = self.property.get_frame_by_index_into(k, buf.buf.data)
 
@@ -310,7 +329,7 @@ class GpuResourceProperty(Generic[R]):
                     return buf.promise.is_set()
 
                 def cpu_prefetch(k: int, buf: CpuBuffer) -> None:
-                    self.thread_pool.submit(buf.promise, self._load_async, k, buf)  # type: ignore
+                    self.thread_pool.submit(buf.promise, self._load_async_into, k, buf)  # type: ignore
 
                 # TODO: can likely improve prefetch logic, and should probably allow
                 # this to be hooked / configured somehow
@@ -455,7 +474,7 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
         ctx: Context,
         num_frames_in_flight: int,
         upload_method: UploadMethod,
-        thread_pool: ThreadPool[None],
+        thread_pool: ThreadPool,
         out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
         property: Property,
         usage_flags: BufferUsageFlags,
@@ -550,7 +569,7 @@ class GpuImageProperty(GpuResourceProperty[Image]):
         ctx: Context,
         num_frames_in_flight: int,
         upload_method: UploadMethod,
-        thread_pool: ThreadPool[None],
+        thread_pool: ThreadPool,
         out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
         property: Property,
         format: Format,

@@ -109,7 +109,7 @@ class Renderer:
             else:
                 self.num_workers = DEFAULT_WORKERS
 
-        self.thread_pool: ThreadPool[None] = ThreadPool(self.num_workers)
+        self.thread_pool: ThreadPool = ThreadPool(self.num_workers)
         self.total_frame_index = 0
 
         # Upload method for buffers

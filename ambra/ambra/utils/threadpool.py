@@ -30,20 +30,20 @@ class Promise(Generic[O]):
         self.exception = e
         self.event.set()
 
-    def get(self) -> Optional[O]:
+    def get(self) -> O:
         self.event.wait()
         if self.exception is not None:
             raise PromiseError from self.exception
-        return self.obj
+        return self.obj  # type: ignore
 
 
-class ThreadPool(Generic[O]):
+class ThreadPool:
     def __init__(self, num_workers: int):
         self.queue: Queue[
             Optional[
                 Tuple[
-                    Promise[O],
-                    Callable[[Tuple[Any, ...], Dict[str, Any]], O],
+                    Promise[Any],
+                    Callable[[Tuple[Any, ...], Dict[str, Any]], Any],
                     Tuple[Any, ...],
                     Dict[str, Any],
                 ]
@@ -72,8 +72,8 @@ class ThreadPool(Generic[O]):
 
     def submit(
         self,
-        promise: Promise[O],
-        func: Callable[[Tuple[Any, ...], Dict[str, Any]], O],
+        promise: Promise[Any],
+        func: Callable[[Tuple[Any, ...], Dict[str, Any]], Any],
         *args: Any,
         **kwargs: Any,
     ) -> None:

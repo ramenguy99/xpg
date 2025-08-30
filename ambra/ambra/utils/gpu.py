@@ -57,6 +57,14 @@ class BulkUploader:
             ctx.device_properties.limits.optimal_buffer_copy_offset_alignment,
             ctx.device_properties.limits.optimal_buffer_copy_row_pitch_alignment,
         )
+
+        if ctx.has_transfer_queue:
+            self.queue = ctx.transfer_queue
+            self.queue_family_index = ctx.transfer_queue_family_index
+        else:
+            self.queue = ctx.queue
+            self.queue_family_index = ctx.graphics_queue_family_index
+
         for i in range(count):
             self.upload_states.append(
                 BulkUploadState(
@@ -67,7 +75,7 @@ class BulkUploader:
                         AllocType.HOST,
                         name=f"bulk-upload-buffer-{i}",
                     ),
-                    cmd=CommandBuffer(ctx, name=f"bulk-upload-commands-{i}"),
+                    cmd=CommandBuffer(ctx, self.queue_family_index, name=f"bulk-upload-commands-{i}"),
                     fence=Fence(ctx, name=f"bulk-upload-fence-{i}"),
                     submitted=False,
                 )
@@ -209,7 +217,7 @@ class BulkUploader:
                     offset += align_up(fitting_size, offset_alignment)
 
             # Submit batch signaling fence
-            self.ctx.queue.submit(state.cmd, fence=state.fence)
+            self.queue.submit(state.cmd, fence=state.fence)
             state.submitted = True
 
             # Advance buffer
