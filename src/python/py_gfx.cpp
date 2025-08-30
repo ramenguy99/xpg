@@ -9,6 +9,7 @@
 #include <nanobind/stl/array.h>
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/tuple.h>
+#include <nanobind/stl/variant.h>
 #include <nanobind/ndarray.h>
 
 #include <nanobind/intrusive/counter.h>
@@ -1292,7 +1293,7 @@ struct CommandBuffer: GfxObject {
         const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
         const std::vector<u32>& dynamic_offsets,
         const std::optional<nb::bytes>& push_constants,
-        const std::vector<nb::ref<Buffer>> vertex_buffers,
+        const std::vector<std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>>> vertex_buffers,
         std::optional<nb::ref<Buffer>> index_buffer
     );
 
@@ -2250,16 +2251,11 @@ struct PipelineStage: nb::intrusive_base {
 };
 
 struct VertexBinding: gfx::VertexBindingDesc {
-    enum class InputRate {
-        Vertex,
-        Instance,
-    };
-
-    VertexBinding(u32 binding, u32 stride, InputRate input_rate)
+    VertexBinding(u32 binding, u32 stride, VkVertexInputRate input_rate)
         : gfx::VertexBindingDesc {
             .binding = binding,
             .stride = stride,
-            .input_rate = (VkVertexInputRate)input_rate,
+            .input_rate = input_rate,
         } {}
 };
 static_assert(sizeof(VertexBinding) == sizeof(gfx::VertexBindingDesc));
@@ -2514,12 +2510,11 @@ void CommandBuffer::bind_graphics_pipeline(
     const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
     const std::vector<u32>& dynamic_offsets,
     const std::optional<nb::bytes>& push_constants,
-    const std::vector<nb::ref<Buffer>> vertex_buffers,
+    const std::vector<std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>>> vertex_buffers,
     std::optional<nb::ref<Buffer>> index_buffer
 )
 {
     check_vector_of_ref_for_null(descriptor_sets, "elements of \"descriptor_sets\" must not be None");
-    check_vector_of_ref_for_null(vertex_buffers, "elements of \"vertex_buffers\" must not be None");
     bind_pipeline_common(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, dynamic_offsets, push_constants);
 
     // Vertex buffers
@@ -2527,8 +2522,22 @@ void CommandBuffer::bind_graphics_pipeline(
         Array<VkDeviceSize> offsets(vertex_buffers.size());
         Array<VkBuffer> buffers(vertex_buffers.size());
         for(usize i = 0; i < vertex_buffers.size(); i++) {
-            offsets[i] = 0;
-            buffers[i] = vertex_buffers[i]->buffer.buffer;
+            if (std::holds_alternative<nb::ref<Buffer>>(vertex_buffers[i])) {
+                nb::ref<Buffer> ref = std::get<nb::ref<Buffer>>(vertex_buffers[i]);
+                if (!ref) {
+                    nb::raise("elements of vertex_buffers must not be None");
+                }
+                offsets[i] = 0;
+                buffers[i] = ref->buffer.buffer;
+            } else {
+                std::tuple<nb::ref<Buffer>, VkDeviceSize> tuple = std::get<std::tuple<nb::ref<Buffer>, VkDeviceSize>>(vertex_buffers[i]);
+                nb::ref<Buffer> ref = std::get<0>(tuple);
+                if (!ref) {
+                    nb::raise("buffer elements of vertex_buffers must not be None");
+                }
+                offsets[i] = std::get<1>(tuple);
+                buffers[i] = ref->buffer.buffer;
+            }
         }
         vkCmdBindVertexBuffers(buffer, 0, buffers.length, buffers.data, offsets.data);
     }
@@ -3722,13 +3731,13 @@ void gfx_create_bindings(nb::module_& m)
         .def(nb::init<nb::ref<Shader>, VkShaderStageFlagBits, std::string>(), nb::arg("shader"), nb::arg("stage"), nb::arg("entry") = "main")
     ;
 
-    nb::enum_<VertexBinding::InputRate>(m, "VertexInputRate")
-        .value("VERTEX", VertexBinding::InputRate::Vertex)
-        .value("INSTANCE", VertexBinding::InputRate::Instance)
+    nb::enum_<VkVertexInputRate>(m, "VertexInputRate")
+        .value("VERTEX", VK_VERTEX_INPUT_RATE_VERTEX)
+        .value("INSTANCE", VK_VERTEX_INPUT_RATE_VERTEX)
     ;
 
     nb::class_<VertexBinding>(m, "VertexBinding")
-        .def(nb::init<u32, u32, VertexBinding::InputRate>(), nb::arg("binding"), nb::arg("stride"), nb::arg("input_rate") = VertexBinding::InputRate::Vertex)
+        .def(nb::init<u32, u32, VkVertexInputRate>(), nb::arg("binding"), nb::arg("stride"), nb::arg("input_rate") = VK_VERTEX_INPUT_RATE_VERTEX)
     ;
 
     nb::enum_<VkIndexType>(m, "IndexType")

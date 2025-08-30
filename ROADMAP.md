@@ -1,8 +1,6 @@
 # Roadmap
 
 ## Current
-- Make bind_graphics_pipeline accept offsets for vertex buffers
-    - Maybe even split everything into separate cmds (or give option to do separate too)
 - ImGui error handling
 
 ## Features needed for 0.1.0:
@@ -100,6 +98,8 @@ Python:
         - [x] Use vulkan API to add debug names, if debug layer is enabled
         - [x] Add names to builtin objects (context, frames, swapchain images)
         - [x] Expose debug markers API on queues and on command buffers
+    - [x] Vertex buffer offset
+    - [ ] Fine grained pipeline binding
     - [ ] blit cmds
 - [ ] Clean examples
     - [x] Headless graphics and compute
