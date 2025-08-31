@@ -201,7 +201,9 @@ for struct in data["structs"]:
             if field["is_array"]:
                 continue
             # print(field_type["description"])
-            if not field_type["description"]["kind"] == "Builtin":
+            if not field_type["description"]["kind"] == "Builtin" and not field_type["description"]["kind"] == "User":
+                continue
+            if field_name == "InputQueueCharacters":
                 continue
             out_cpp(" " * 4 + f'.def_rw("{pascal_to_snake_case(field_name)}", &{struct_name}::{field_name})')
         out_cpp(";")

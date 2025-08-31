@@ -112,7 +112,6 @@ TODO:
     - [ ] Unit tests on all python versions (likely with lavapipe on CI)
     - [ ] Rename some badly named things:
         - UploadMethod constants
-        - BIT in CullMode flags
     - [ ] Is StreamingProperty any useful? Should users instead just subclass Property?
     - [ ] Re-organize utils directory, what really is a util anyway?
 - [ ] Extra Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
