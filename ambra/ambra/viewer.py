@@ -106,6 +106,8 @@ class Viewer:
 
         # GUI
         self.gui = Gui(self.window)
+        self.gui.set_ini_filename(config.gui.ini_filename)
+
         self.gui_show_stats = config.gui.stats
         self.gui_show_inspector = config.gui.inspector
         self.gui_show_playback = config.gui.playback

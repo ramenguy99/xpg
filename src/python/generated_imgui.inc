@@ -2558,11 +2558,6 @@ mod_imgui.def("load_ini_settings_from_disk",
         return ImGui::LoadIniSettingsFromDisk(ini_filename);
     }, nb::arg("ini_filename"));
 
-mod_imgui.def("load_ini_settings_from_memory",
-    [] (const char* ini_data, size_t ini_size) -> void {
-        return ImGui::LoadIniSettingsFromMemory(ini_data, ini_size);
-    }, nb::arg("ini_data"), nb::arg("ini_size") = 0);
-
 mod_imgui.def("save_ini_settings_to_disk",
     [] (const char* ini_filename) -> void {
         return ImGui::SaveIniSettingsToDisk(ini_filename);

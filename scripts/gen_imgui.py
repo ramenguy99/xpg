@@ -379,6 +379,7 @@ for f in data["functions"]:
         "ImGui_PlotLines",
         "ImGui_PlotHistogram",
         # .ini
+        "ImGui_LoadIniSettingsFromMemory",
         "ImGui_SaveIniSettingsToMemory",
         # Weird API
         "ImGui_GetStyleColorVec4",

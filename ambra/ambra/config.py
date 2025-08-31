@@ -69,6 +69,8 @@ class Handedness(Enum):
 
 @dataclass
 class GuiConfig:
+    ini_filename: Optional[str] = "imgui.ini" # if set to None disables.
+
     stats: bool = False
     playback: bool = False
     inspector: bool = False

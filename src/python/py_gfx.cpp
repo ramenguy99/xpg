@@ -2139,6 +2139,11 @@ struct Gui: nb::intrusive_base {
         gui::Render(command_buffer.buffer);
     }
 
+    void set_ini_filename(std::optional<nb::str> str) {
+        ini_filename = std::move(str);
+        ImGui::GetIO().IniFilename = ini_filename.has_value() ? ini_filename->c_str() : NULL;
+    }
+
     ~Gui()
     {
         gfx::WaitIdle(window->ctx->vk);
@@ -2147,6 +2152,7 @@ struct Gui: nb::intrusive_base {
 
     nb::ref<Window> window;
     gui::ImGuiImpl imgui_impl;
+    std::optional<nb::str> ini_filename;
 
     // Garbage collection:
 
@@ -3191,6 +3197,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("end_frame", &Gui::end_frame)
         .def("render", &Gui::render, nb::arg("frame"))
         .def("frame", &Gui::frame)
+        .def("set_ini_filename", &Gui::set_ini_filename)
     ;
 
     nb::enum_<gfx::Action>(m, "Action")
