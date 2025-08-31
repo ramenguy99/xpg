@@ -99,7 +99,8 @@ Python:
         - [x] Add names to builtin objects (context, frames, swapchain images)
         - [x] Expose debug markers API on queues and on command buffers
     - [x] Vertex buffer offset
-    - [ ] Fine grained pipeline binding
+    - [x] Fine grained pipeline binding
+        - [x] Custom index type
     - [ ] blit cmds
 - [ ] Clean examples
     - [x] Headless graphics and compute

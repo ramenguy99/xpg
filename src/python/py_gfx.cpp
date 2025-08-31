@@ -1272,29 +1272,64 @@ struct CommandBuffer: GfxObject {
         vkCmdSetScissor(buffer, 0, 1, &scissor);
     }
 
+    void bind_pipeline(std::variant<nb::ref<GraphicsPipeline>, nb::ref<ComputePipeline>> pipeline);
+
+    void bind_descriptor_sets(
+        std::variant<nb::ref<GraphicsPipeline>, nb::ref<ComputePipeline>> pipeline,
+        const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+        const std::vector<u32>& dynamic_offsets,
+        u32 first_descriptor_set
+    );
+
+    void push_constants(
+        std::variant<nb::ref<GraphicsPipeline>, nb::ref<ComputePipeline>> pipeline,
+        const nb::bytes& push_constants,
+        u32 offset
+    );
+
     void bind_pipeline_common(
         VkPipelineBindPoint bind_point,
         VkPipeline pipeline,
         VkPipelineLayout layout,
         const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
         const std::vector<u32>& dynamic_offsets,
-        const std::optional<nb::bytes>& push_constants
+        u32 first_descriptor_set,
+        const std::optional<nb::bytes>& push_constants,
+        u32 push_constants_offset
     );
 
     void bind_compute_pipeline(
         const ComputePipeline& pipeline,
         const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
         const std::vector<u32>& dynamic_offsets,
-        const std::optional<nb::bytes>& push_constants
+        u32 first_descriptor_set,
+        const std::optional<nb::bytes>& push_constants,
+        u32 push_constants_offset
+    );
+
+    void bind_vertex_buffers(
+        const std::vector<std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>>>& vertex_buffers,
+        u32 first_vertex_buffer_binding
+    );
+
+    void bind_index_buffer(
+        std::optional<nb::ref<Buffer>> index_buffer,
+        VkDeviceSize index_buffer_offset,
+        VkIndexType index_type
     );
 
     void bind_graphics_pipeline(
         const GraphicsPipeline& pipeline,
         const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
         const std::vector<u32>& dynamic_offsets,
+        u32 first_descriptor_set,
         const std::optional<nb::bytes>& push_constants,
+        u32 push_constants_offset,
         const std::vector<std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>>> vertex_buffers,
-        std::optional<nb::ref<Buffer>> index_buffer
+        u32 first_vertex_buffer_binding,
+        std::optional<nb::ref<Buffer>> index_buffer,
+        VkDeviceSize index_buffer_offset,
+        VkIndexType index_type
     );
 
     void dispatch(
@@ -2469,13 +2504,72 @@ struct GraphicsPipeline: GfxObject {
     gfx::GraphicsPipeline pipeline;
 };
 
+void CommandBuffer::bind_pipeline(std::variant<nb::ref<GraphicsPipeline>, nb::ref<ComputePipeline>> pipeline) {
+    if (std::holds_alternative<nb::ref<GraphicsPipeline>>(pipeline)) {
+        nb::ref<GraphicsPipeline> graphics_pipeline = std::get<nb::ref<GraphicsPipeline>>(pipeline);
+        vkCmdBindPipeline(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline->pipeline.pipeline);
+    } else {
+        nb::ref<ComputePipeline> compute_pipeline = std::get<nb::ref<ComputePipeline>>(pipeline);
+        vkCmdBindPipeline(buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline->pipeline.pipeline);
+    }
+}
+
+void CommandBuffer::bind_descriptor_sets(
+    std::variant<nb::ref<GraphicsPipeline>, nb::ref<ComputePipeline>> pipeline,
+    const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+    const std::vector<u32>& dynamic_offsets,
+    u32 first_descriptor_set)
+{
+    check_vector_of_ref_for_null(descriptor_sets, "elements of \"descriptor_sets\" must not be None");
+
+    VkPipelineLayout layout;
+    VkPipelineBindPoint bind_point;
+    if (std::holds_alternative<nb::ref<GraphicsPipeline>>(pipeline)) {
+        nb::ref<GraphicsPipeline> graphics_pipeline = std::get<nb::ref<GraphicsPipeline>>(pipeline);
+        layout = graphics_pipeline->pipeline.layout;
+        bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    } else {
+        nb::ref<ComputePipeline> compute_pipeline = std::get<nb::ref<ComputePipeline>>(pipeline);
+        layout = compute_pipeline->pipeline.layout;
+        bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+    }
+
+    // Descriptor sets
+    if(descriptor_sets.size() > 0) {
+        Array<VkDescriptorSet> sets(descriptor_sets.size());
+        for(usize i = 0; i < sets.length; i++) {
+            sets[i] = descriptor_sets[i]->set.set;
+        }
+        vkCmdBindDescriptorSets(buffer, bind_point, layout, first_descriptor_set, sets.length, sets.data, (u32)dynamic_offsets.size(), dynamic_offsets.data());
+    }
+}
+
+void CommandBuffer::push_constants(
+    std::variant<nb::ref<GraphicsPipeline>, nb::ref<ComputePipeline>> pipeline,
+    const nb::bytes& push_constants,
+    u32 offset)
+{
+    VkPipelineLayout layout;
+    if (std::holds_alternative<nb::ref<GraphicsPipeline>>(pipeline)) {
+        nb::ref<GraphicsPipeline> graphics_pipeline = std::get<nb::ref<GraphicsPipeline>>(pipeline);
+        layout = graphics_pipeline->pipeline.layout;
+    } else {
+        nb::ref<ComputePipeline> compute_pipeline = std::get<nb::ref<ComputePipeline>>(pipeline);
+        layout = compute_pipeline->pipeline.layout;
+    }
+
+    vkCmdPushConstants(buffer, layout, VK_SHADER_STAGE_ALL, offset, push_constants.size(), push_constants.data());
+}
+
 void CommandBuffer::bind_pipeline_common(
     VkPipelineBindPoint bind_point,
     VkPipeline pipeline,
     VkPipelineLayout layout,
     const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
     const std::vector<u32>& dynamic_offsets,
-    const std::optional<nb::bytes>& push_constants)
+    u32 first_descriptor_set,
+    const std::optional<nb::bytes>& push_constants,
+    u32 push_constants_offset)
 {
     // Pipeline
     vkCmdBindPipeline(buffer, bind_point, pipeline);
@@ -2486,12 +2580,12 @@ void CommandBuffer::bind_pipeline_common(
         for(usize i = 0; i < sets.length; i++) {
             sets[i] = descriptor_sets[i]->set.set;
         }
-        vkCmdBindDescriptorSets(buffer, bind_point, layout, 0, sets.length, sets.data, (u32)dynamic_offsets.size(), dynamic_offsets.data());
+        vkCmdBindDescriptorSets(buffer, bind_point, layout, first_descriptor_set, sets.length, sets.data, (u32)dynamic_offsets.size(), dynamic_offsets.data());
     }
 
     // Push constants
     if(push_constants.has_value()) {
-        vkCmdPushConstants(buffer, layout, VK_SHADER_STAGE_ALL, 0, push_constants->size(), push_constants->data());
+        vkCmdPushConstants(buffer, layout, VK_SHADER_STAGE_ALL, push_constants_offset, push_constants->size(), push_constants->data());
     }
 }
 
@@ -2499,25 +2593,19 @@ void CommandBuffer::bind_compute_pipeline(
     const ComputePipeline& pipeline,
     const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
     const std::vector<u32>& dynamic_offsets,
-    const std::optional<nb::bytes>& push_constants)
+    u32 first_descriptor_set,
+    const std::optional<nb::bytes>& push_constants,
+    u32 push_constants_offset)
 {
     check_vector_of_ref_for_null(descriptor_sets, "elements of \"descriptor_sets\" must not be None");
-    bind_pipeline_common(VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, dynamic_offsets, push_constants);
+    bind_pipeline_common(VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, dynamic_offsets, first_descriptor_set, push_constants, push_constants_offset);
 }
 
-void CommandBuffer::bind_graphics_pipeline(
-    const GraphicsPipeline& pipeline,
-    const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
-    const std::vector<u32>& dynamic_offsets,
-    const std::optional<nb::bytes>& push_constants,
-    const std::vector<std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>>> vertex_buffers,
-    std::optional<nb::ref<Buffer>> index_buffer
+void CommandBuffer::bind_vertex_buffers(
+    const std::vector<std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>>>& vertex_buffers,
+    u32 first_vertex_buffer_binding
 )
 {
-    check_vector_of_ref_for_null(descriptor_sets, "elements of \"descriptor_sets\" must not be None");
-    bind_pipeline_common(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, dynamic_offsets, push_constants);
-
-    // Vertex buffers
     if(vertex_buffers.size() > 0) {
         Array<VkDeviceSize> offsets(vertex_buffers.size());
         Array<VkBuffer> buffers(vertex_buffers.size());
@@ -2539,13 +2627,38 @@ void CommandBuffer::bind_graphics_pipeline(
                 buffers[i] = ref->buffer.buffer;
             }
         }
-        vkCmdBindVertexBuffers(buffer, 0, buffers.length, buffers.data, offsets.data);
+        vkCmdBindVertexBuffers(buffer, first_vertex_buffer_binding, buffers.length, buffers.data, offsets.data);
     }
+}
 
+void CommandBuffer::bind_index_buffer(
+    std::optional<nb::ref<Buffer>> index_buffer,
+    VkDeviceSize index_buffer_offset,
+    VkIndexType index_type)
+{
+    vkCmdBindIndexBuffer(buffer, index_buffer.value()->buffer.buffer, index_buffer_offset, index_type);
+}
+
+void CommandBuffer::bind_graphics_pipeline(
+    const GraphicsPipeline& pipeline,
+    const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+    const std::vector<u32>& dynamic_offsets,
+    u32 first_descriptor_set,
+    const std::optional<nb::bytes>& push_constants,
+    u32 push_constants_offset,
+    const std::vector<std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>>> vertex_buffers,
+    u32 first_vertex_buffer_binding,
+    std::optional<nb::ref<Buffer>> index_buffer,
+    VkDeviceSize index_buffer_offset,
+    VkIndexType index_type)
+{
+    check_vector_of_ref_for_null(descriptor_sets, "elements of \"descriptor_sets\" must not be None");
+    bind_pipeline_common(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.pipeline, pipeline.pipeline.layout, descriptor_sets, dynamic_offsets, first_descriptor_set, push_constants, push_constants_offset);
+    bind_vertex_buffers(vertex_buffers, first_vertex_buffer_binding);
 
     // Index buffers
     if(index_buffer.has_value()) {
-        vkCmdBindIndexBuffer(buffer, index_buffer.value()->buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdBindIndexBuffer(buffer, index_buffer.value()->buffer.buffer, index_buffer_offset, index_type);
     }
 }
 
@@ -3593,6 +3706,14 @@ void gfx_create_bindings(nb::module_& m)
         .value("MEMORY_PLANE_3", VK_IMAGE_ASPECT_MEMORY_PLANE_3_BIT_EXT)
     ;
 
+    nb::enum_<VkIndexType>(m, "IndexType")
+        .value("UINT16",    VK_INDEX_TYPE_UINT16)
+        .value("UINT32",    VK_INDEX_TYPE_UINT32)
+        .value("UINT8",     VK_INDEX_TYPE_UINT8)
+        .value("NONE_KHR",  VK_INDEX_TYPE_NONE_KHR)
+        .value("UINT8_KHR", VK_INDEX_TYPE_UINT8_KHR)
+    ;
+
     nb::class_<CommandBuffer, GfxObject>(m, "CommandBuffer")
         .def(nb::init<nb::ref<Context>, std::optional<u32>, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("queue_family_index") = nb::none(), nb::arg("name") = nb::none())
         .def("__enter__", &CommandBuffer::enter)
@@ -3611,19 +3732,49 @@ void gfx_create_bindings(nb::module_& m)
         .def("rendering", &CommandBuffer::rendering, nb::arg("render_area"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
         .def("set_viewport", &CommandBuffer::set_viewport, nb::arg("viewport"))
         .def("set_scissors", &CommandBuffer::set_scissors, nb::arg("scissors"))
-        .def("bind_graphics_pipeline", &CommandBuffer::bind_graphics_pipeline,
+        .def("bind_pipeline", &CommandBuffer::bind_pipeline,
+            nb::arg("pipeline")
+        )
+        .def("bind_descriptor_sets", &CommandBuffer::bind_descriptor_sets,
             nb::arg("pipeline"),
-            nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("descriptor_sets"),
             nb::arg("dynamic_offsets") = std::vector<u32>(),
-            nb::arg("push_constants") = std::optional<nb::bytes>(),
-            nb::arg("vertex_buffers") = std::vector<nb::ref<Buffer>>(),
-            nb::arg("index_buffer") = std::optional<nb::ref<Buffer>>()
+            nb::arg("first_descriptor_set") = 0
+        )
+        .def("push_constants", &CommandBuffer::push_constants,
+            nb::arg("pipeline"),
+            nb::arg("push_constants"),
+            nb::arg("offset") = 0
         )
         .def("bind_compute_pipeline", &CommandBuffer::bind_compute_pipeline,
             nb::arg("pipeline"),
             nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
             nb::arg("dynamic_offsets") = std::vector<u32>(),
-            nb::arg("push_constants") = std::optional<nb::bytes>()
+            nb::arg("first_descriptor_set") = 0,
+            nb::arg("push_constants") = std::optional<nb::bytes>(),
+            nb::arg("push_constants_offset") = 0
+        )
+        .def("bind_vertex_buffers", &CommandBuffer::bind_vertex_buffers,
+            nb::arg("vertex_buffers"),
+            nb::arg("first_vertex_buffer_binding") = 0
+        )
+        .def("bind_index_buffers", &CommandBuffer::bind_index_buffer,
+            nb::arg("index_buffer"),
+            nb::arg("index_buffer_offset") = 0,
+            nb::arg("index_type") = VK_INDEX_TYPE_UINT32
+        )
+        .def("bind_graphics_pipeline", &CommandBuffer::bind_graphics_pipeline,
+            nb::arg("pipeline"),
+            nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("dynamic_offsets") = std::vector<u32>(),
+            nb::arg("first_descriptor_set") = 0,
+            nb::arg("push_constants") = std::optional<nb::bytes>(),
+            nb::arg("push_constants_offset") = 0,
+            nb::arg("vertex_buffers") = std::vector<nb::ref<Buffer>>(),
+            nb::arg("first_vertex_buffer_binding") = 0,
+            nb::arg("index_buffer") = std::optional<nb::ref<Buffer>>(),
+            nb::arg("index_buffer_offset") = 0,
+            nb::arg("index_type") = VK_INDEX_TYPE_UINT32
         )
         .def("dispatch", &CommandBuffer::dispatch,
             nb::arg("groups_x"),
@@ -3738,14 +3889,6 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<VertexBinding>(m, "VertexBinding")
         .def(nb::init<u32, u32, VkVertexInputRate>(), nb::arg("binding"), nb::arg("stride"), nb::arg("input_rate") = VK_VERTEX_INPUT_RATE_VERTEX)
-    ;
-
-    nb::enum_<VkIndexType>(m, "IndexType")
-        .value("UINT16",    VK_INDEX_TYPE_UINT16)
-        .value("UINT32",    VK_INDEX_TYPE_UINT32)
-        .value("UINT8",     VK_INDEX_TYPE_UINT8)
-        .value("NONE_KHR",  VK_INDEX_TYPE_NONE_KHR)
-        .value("UINT8_KHR", VK_INDEX_TYPE_UINT8_KHR)
     ;
 
     nb::class_<gfx::FormatInfo>(m, "FormatInfo")
