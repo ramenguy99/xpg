@@ -42,8 +42,8 @@ def compile(file: Path, entry: str = "main", target: str = "spirv_1_3") -> slang
     #   [x] imported files / modules  -> highest importance
     #       [x] Export list of deps in prog
     #       [x] Use this in pipeline cache creation for deps
-    #   [x] compiler version          -> should expose this as an API
     #   [x] slang target              -> only spirv currently supported
+    #   [ ] compiler version          -> should expose this as an API
     #   Fill need if ever supported:
     #   - preprocessor defines
     #   - specialization constants

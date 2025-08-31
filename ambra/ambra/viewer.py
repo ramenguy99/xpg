@@ -224,12 +224,12 @@ class Viewer:
 
             self.on_resize(width, height)
 
+        # Step scene
+        self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
+
         # GUI
         with self.gui.frame():
             self.on_gui()
-
-        # Step scene
-        self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
 
         # Render
         self.renderer.render(self.viewport, self.gui)
