@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pyxpg"
-version = "0.0.4"
+version = "0.0.5"
 description = "XPG python bindings"
 readme = "README.md"
 requires-python = ">=3.8"
