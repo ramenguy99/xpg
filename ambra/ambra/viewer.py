@@ -113,6 +113,9 @@ class Viewer:
         self.gui_selected_obj: Optional[Object] = None
         self.gui_selected_gpu_property: Optional[Union[GpuBufferProperty, GpuImageProperty]] = None
 
+        # Disable ImGui asserts
+        imgui.get_io().config_error_recovery_enable_assert = False
+
         # Renderer
         self.renderer = Renderer(self.ctx, self.window, config.renderer)
 
