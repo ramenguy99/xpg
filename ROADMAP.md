@@ -38,7 +38,7 @@ Build:
             conda install conda-forge::vulkan-tools
 
 Maintenance:
-- [x] Update all deps (last: 22/04/2025)
+- [x] Update all deps (last: 31/08/2025)
 - [x] Add basic CI build on master or manually triggered (can remove slang to keep it fast, could also be a pipeline option)
 
 C++:

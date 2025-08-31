@@ -103,10 +103,14 @@ nb::enum_<ImGuiTreeNodeFlags_>(mod_imgui, "TreeNodeFlags", nb::is_arithmetic() ,
     .value("SPAN_LABEL_WIDTH", ImGuiTreeNodeFlags_SpanLabelWidth)
     .value("SPAN_ALL_COLUMNS", ImGuiTreeNodeFlags_SpanAllColumns)
     .value("LABEL_SPAN_ALL_COLUMNS", ImGuiTreeNodeFlags_LabelSpanAllColumns)
-    .value("NAV_LEFT_JUMPS_BACK_HERE", ImGuiTreeNodeFlags_NavLeftJumpsBackHere)
+    .value("NAV_LEFT_JUMPS_TO_PARENT", ImGuiTreeNodeFlags_NavLeftJumpsToParent)
     .value("COLLAPSING_HEADER", ImGuiTreeNodeFlags_CollapsingHeader)
-    .value("ALLOW_ITEM_OVERLAP", ImGuiTreeNodeFlags_AllowItemOverlap)
+    .value("DRAW_LINES_NONE", ImGuiTreeNodeFlags_DrawLinesNone)
+    .value("DRAW_LINES_FULL", ImGuiTreeNodeFlags_DrawLinesFull)
+    .value("DRAW_LINES_TO_NODES", ImGuiTreeNodeFlags_DrawLinesToNodes)
+    .value("NAV_LEFT_JUMPS_BACK_HERE", ImGuiTreeNodeFlags_NavLeftJumpsBackHere)
     .value("SPAN_TEXT_WIDTH", ImGuiTreeNodeFlags_SpanTextWidth)
+    .value("ALLOW_ITEM_OVERLAP", ImGuiTreeNodeFlags_AllowItemOverlap)
     ;
 
 nb::enum_<ImGuiPopupFlags_>(mod_imgui, "PopupFlags", nb::is_arithmetic() , nb::is_flag())
@@ -158,10 +162,12 @@ nb::enum_<ImGuiTabBarFlags_>(mod_imgui, "TabBarFlags", nb::is_arithmetic() , nb:
     .value("NO_TAB_LIST_SCROLLING_BUTTONS", ImGuiTabBarFlags_NoTabListScrollingButtons)
     .value("NO_TOOLTIP", ImGuiTabBarFlags_NoTooltip)
     .value("DRAW_SELECTED_OVERLINE", ImGuiTabBarFlags_DrawSelectedOverline)
-    .value("FITTING_POLICY_RESIZE_DOWN", ImGuiTabBarFlags_FittingPolicyResizeDown)
+    .value("FITTING_POLICY_MIXED", ImGuiTabBarFlags_FittingPolicyMixed)
+    .value("FITTING_POLICY_SHRINK", ImGuiTabBarFlags_FittingPolicyShrink)
     .value("FITTING_POLICY_SCROLL", ImGuiTabBarFlags_FittingPolicyScroll)
     .value("FITTING_POLICY_MASK_", ImGuiTabBarFlags_FittingPolicyMask_)
     .value("FITTING_POLICY_DEFAULT_", ImGuiTabBarFlags_FittingPolicyDefault_)
+    .value("FITTING_POLICY_RESIZE_DOWN", ImGuiTabBarFlags_FittingPolicyResizeDown)
     ;
 
 nb::enum_<ImGuiTabItemFlags_>(mod_imgui, "TabItemFlags", nb::is_arithmetic() , nb::is_flag())
@@ -458,12 +464,12 @@ nb::enum_<ImGuiConfigFlags_>(mod_imgui, "ConfigFlags", nb::is_arithmetic() , nb:
     .value("NO_KEYBOARD", ImGuiConfigFlags_NoKeyboard)
     .value("DOCKING_ENABLE", ImGuiConfigFlags_DockingEnable)
     .value("VIEWPORTS_ENABLE", ImGuiConfigFlags_ViewportsEnable)
-    .value("DPI_ENABLE_SCALE_VIEWPORTS", ImGuiConfigFlags_DpiEnableScaleViewports)
-    .value("DPI_ENABLE_SCALE_FONTS", ImGuiConfigFlags_DpiEnableScaleFonts)
     .value("IS_S_R_G_B", ImGuiConfigFlags_IsSRGB)
     .value("IS_TOUCH_SCREEN", ImGuiConfigFlags_IsTouchScreen)
     .value("NAV_ENABLE_SET_MOUSE_POS", ImGuiConfigFlags_NavEnableSetMousePos)
     .value("NAV_NO_CAPTURE_KEYBOARD", ImGuiConfigFlags_NavNoCaptureKeyboard)
+    .value("DPI_ENABLE_SCALE_FONTS", ImGuiConfigFlags_DpiEnableScaleFonts)
+    .value("DPI_ENABLE_SCALE_VIEWPORTS", ImGuiConfigFlags_DpiEnableScaleViewports)
     ;
 
 nb::enum_<ImGuiBackendFlags_>(mod_imgui, "BackendFlags", nb::is_arithmetic() , nb::is_flag())
@@ -472,6 +478,7 @@ nb::enum_<ImGuiBackendFlags_>(mod_imgui, "BackendFlags", nb::is_arithmetic() , n
     .value("HAS_MOUSE_CURSORS", ImGuiBackendFlags_HasMouseCursors)
     .value("HAS_SET_MOUSE_POS", ImGuiBackendFlags_HasSetMousePos)
     .value("RENDERER_HAS_VTX_OFFSET", ImGuiBackendFlags_RendererHasVtxOffset)
+    .value("RENDERER_HAS_TEXTURES", ImGuiBackendFlags_RendererHasTextures)
     .value("PLATFORM_HAS_VIEWPORTS", ImGuiBackendFlags_PlatformHasViewports)
     .value("HAS_MOUSE_HOVERED_VIEWPORT", ImGuiBackendFlags_HasMouseHoveredViewport)
     .value("RENDERER_HAS_VIEWPORTS", ImGuiBackendFlags_RendererHasViewports)
@@ -511,6 +518,7 @@ nb::enum_<ImGuiCol_>(mod_imgui, "Col", nb::is_arithmetic() )
     .value("RESIZE_GRIP", ImGuiCol_ResizeGrip)
     .value("RESIZE_GRIP_HOVERED", ImGuiCol_ResizeGripHovered)
     .value("RESIZE_GRIP_ACTIVE", ImGuiCol_ResizeGripActive)
+    .value("INPUT_TEXT_CURSOR", ImGuiCol_InputTextCursor)
     .value("TAB_HOVERED", ImGuiCol_TabHovered)
     .value("TAB", ImGuiCol_Tab)
     .value("TAB_SELECTED", ImGuiCol_TabSelected)
@@ -531,6 +539,7 @@ nb::enum_<ImGuiCol_>(mod_imgui, "Col", nb::is_arithmetic() )
     .value("TABLE_ROW_BG_ALT", ImGuiCol_TableRowBgAlt)
     .value("TEXT_LINK", ImGuiCol_TextLink)
     .value("TEXT_SELECTED_BG", ImGuiCol_TextSelectedBg)
+    .value("TREE_LINES", ImGuiCol_TreeLines)
     .value("DRAG_DROP_TARGET", ImGuiCol_DragDropTarget)
     .value("NAV_CURSOR", ImGuiCol_NavCursor)
     .value("NAV_WINDOWING_HIGHLIGHT", ImGuiCol_NavWindowingHighlight)
@@ -568,10 +577,14 @@ nb::enum_<ImGuiStyleVar_>(mod_imgui, "StyleVar", nb::is_arithmetic() )
     .value("IMAGE_BORDER_SIZE", ImGuiStyleVar_ImageBorderSize)
     .value("TAB_ROUNDING", ImGuiStyleVar_TabRounding)
     .value("TAB_BORDER_SIZE", ImGuiStyleVar_TabBorderSize)
+    .value("TAB_MIN_WIDTH_BASE", ImGuiStyleVar_TabMinWidthBase)
+    .value("TAB_MIN_WIDTH_SHRINK", ImGuiStyleVar_TabMinWidthShrink)
     .value("TAB_BAR_BORDER_SIZE", ImGuiStyleVar_TabBarBorderSize)
     .value("TAB_BAR_OVERLINE_SIZE", ImGuiStyleVar_TabBarOverlineSize)
     .value("TABLE_ANGLED_HEADERS_ANGLE", ImGuiStyleVar_TableAngledHeadersAngle)
     .value("TABLE_ANGLED_HEADERS_TEXT_ALIGN", ImGuiStyleVar_TableAngledHeadersTextAlign)
+    .value("TREE_LINES_SIZE", ImGuiStyleVar_TreeLinesSize)
+    .value("TREE_LINES_ROUNDING", ImGuiStyleVar_TreeLinesRounding)
     .value("BUTTON_TEXT_ALIGN", ImGuiStyleVar_ButtonTextAlign)
     .value("SELECTABLE_TEXT_ALIGN", ImGuiStyleVar_SelectableTextAlign)
     .value("SEPARATOR_TEXT_BORDER_SIZE", ImGuiStyleVar_SeparatorTextBorderSize)
@@ -806,11 +819,31 @@ nb::enum_<ImDrawListFlags_>(mod_imgui, "DrawListFlags", nb::is_arithmetic() , nb
     .value("ALLOW_VTX_OFFSET", ImDrawListFlags_AllowVtxOffset)
     ;
 
+nb::enum_<ImTextureFormat>(mod_imgui, "TextureFormat", nb::is_arithmetic() )
+    .value("R_G_B_A32", ImTextureFormat_RGBA32)
+    .value("ALPHA8", ImTextureFormat_Alpha8)
+    ;
+
+nb::enum_<ImTextureStatus>(mod_imgui, "TextureStatus", nb::is_arithmetic() )
+    .value("O_K", ImTextureStatus_OK)
+    .value("DESTROYED", ImTextureStatus_Destroyed)
+    .value("WANT_CREATE", ImTextureStatus_WantCreate)
+    .value("WANT_UPDATES", ImTextureStatus_WantUpdates)
+    .value("WANT_DESTROY", ImTextureStatus_WantDestroy)
+    ;
+
 nb::enum_<ImFontAtlasFlags_>(mod_imgui, "FontAtlasFlags", nb::is_arithmetic() , nb::is_flag())
     .value("NONE", ImFontAtlasFlags_None)
     .value("NO_POWER_OF_TWO_HEIGHT", ImFontAtlasFlags_NoPowerOfTwoHeight)
     .value("NO_MOUSE_CURSORS", ImFontAtlasFlags_NoMouseCursors)
     .value("NO_BAKED_LINES", ImFontAtlasFlags_NoBakedLines)
+    ;
+
+nb::enum_<ImFontFlags_>(mod_imgui, "FontFlags", nb::is_arithmetic() , nb::is_flag())
+    .value("NONE", ImFontFlags_None)
+    .value("NO_LOAD_ERROR", ImFontFlags_NoLoadError)
+    .value("NO_LOAD_GLYPHS", ImFontFlags_NoLoadGlyphs)
+    .value("LOCK_BAKED_SIZES", ImFontFlags_LockBakedSizes)
     ;
 
 nb::enum_<ImGuiViewportFlags_>(mod_imgui, "ViewportFlags", nb::is_arithmetic() , nb::is_flag())
@@ -835,11 +868,10 @@ nb::class_<ImGuiIO>(mod_imgui, "IO")
     .def_rw("config_flags", &ImGuiIO::ConfigFlags)
     .def_rw("backend_flags", &ImGuiIO::BackendFlags)
     .def_rw("display_size", &ImGuiIO::DisplaySize)
+    .def_rw("display_framebuffer_scale", &ImGuiIO::DisplayFramebufferScale)
     .def_rw("delta_time", &ImGuiIO::DeltaTime)
     .def_rw("ini_saving_rate", &ImGuiIO::IniSavingRate)
-    .def_rw("font_global_scale", &ImGuiIO::FontGlobalScale)
     .def_rw("font_allow_user_scaling", &ImGuiIO::FontAllowUserScaling)
-    .def_rw("display_framebuffer_scale", &ImGuiIO::DisplayFramebufferScale)
     .def_rw("config_nav_swap_gamepad_buttons", &ImGuiIO::ConfigNavSwapGamepadButtons)
     .def_rw("config_nav_move_set_mouse_pos", &ImGuiIO::ConfigNavMoveSetMousePos)
     .def_rw("config_nav_capture_keyboard", &ImGuiIO::ConfigNavCaptureKeyboard)
@@ -855,6 +887,9 @@ nb::class_<ImGuiIO>(mod_imgui, "IO")
     .def_rw("config_viewports_no_task_bar_icon", &ImGuiIO::ConfigViewportsNoTaskBarIcon)
     .def_rw("config_viewports_no_decoration", &ImGuiIO::ConfigViewportsNoDecoration)
     .def_rw("config_viewports_no_default_parent", &ImGuiIO::ConfigViewportsNoDefaultParent)
+    .def_rw("config_viewport_platform_focus_sets_im_gui_focus", &ImGuiIO::ConfigViewportPlatformFocusSetsImGuiFocus)
+    .def_rw("config_dpi_scale_fonts", &ImGuiIO::ConfigDpiScaleFonts)
+    .def_rw("config_dpi_scale_viewports", &ImGuiIO::ConfigDpiScaleViewports)
     .def_rw("mouse_draw_cursor", &ImGuiIO::MouseDrawCursor)
     .def_rw("config_mac_o_s_x_behaviors", &ImGuiIO::ConfigMacOSXBehaviors)
     .def_rw("config_input_trickle_event_queue", &ImGuiIO::ConfigInputTrickleEventQueue)
@@ -913,6 +948,7 @@ nb::class_<ImGuiIO>(mod_imgui, "IO")
     .def_rw("app_focus_lost", &ImGuiIO::AppFocusLost)
     .def_rw("app_accepting_events", &ImGuiIO::AppAcceptingEvents)
     .def_rw("input_queue_surrogate", &ImGuiIO::InputQueueSurrogate)
+    .def_rw("font_global_scale", &ImGuiIO::FontGlobalScale)
 ;
 
 mod_imgui.def("get_style",
@@ -1122,11 +1158,6 @@ mod_imgui.def("set_window_focus",
         return ImGui::SetWindowFocus();
     });
 
-mod_imgui.def("set_window_font_scale",
-    [] (float scale) -> void {
-        return ImGui::SetWindowFontScale(scale);
-    }, nb::arg("scale"));
-
 mod_imgui.def("set_window_pos_str",
     [] (const char* name, ImVec2 pos, ImGuiCond cond) -> void {
         return ImGui::SetWindowPos(name, pos, cond);
@@ -1197,14 +1228,29 @@ mod_imgui.def("set_scroll_from_pos_y",
         return ImGui::SetScrollFromPosY(local_y, center_y_ratio);
     }, nb::arg("local_y"), nb::arg("center_y_ratio") = 0.5);
 
-mod_imgui.def("push_font",
-    [] (ImFont* font) -> void {
-        return ImGui::PushFont(font);
-    }, nb::arg("font"));
+mod_imgui.def("push_font_float",
+    [] (ImFont* font, float font_size_base_unscaled) -> void {
+        return ImGui::PushFont(font, font_size_base_unscaled);
+    }, nb::arg("font"), nb::arg("font_size_base_unscaled"));
 
 mod_imgui.def("pop_font",
     [] () -> void {
         return ImGui::PopFont();
+    });
+
+mod_imgui.def("get_font",
+    [] () -> ImFont* {
+        return ImGui::GetFont();
+    });
+
+mod_imgui.def("get_font_size",
+    [] () -> float {
+        return ImGui::GetFontSize();
+    });
+
+mod_imgui.def("get_font_baked",
+    [] () -> ImFontBaked* {
+        return ImGui::GetFontBaked();
     });
 
 mod_imgui.def("push_style_color",
@@ -1285,16 +1331,6 @@ mod_imgui.def("push_text_wrap_pos",
 mod_imgui.def("pop_text_wrap_pos",
     [] () -> void {
         return ImGui::PopTextWrapPos();
-    });
-
-mod_imgui.def("get_font",
-    [] () -> ImFont* {
-        return ImGui::GetFont();
-    });
-
-mod_imgui.def("get_font_size",
-    [] () -> float {
-        return ImGui::GetFontSize();
     });
 
 mod_imgui.def("get_font_tex_uv_white_pixel",
@@ -1545,24 +1581,24 @@ mod_imgui.def("text_link",
     }, nb::arg("label"));
 
 mod_imgui.def("text_link_open_u_r_l",
-    [] (const char* label, std::optional<const char*> url) -> void {
+    [] (const char* label, std::optional<const char*> url) -> bool {
         return ImGui::TextLinkOpenURL(label, url.has_value() ? url.value() : NULL);
     }, nb::arg("label"), nb::arg("url") = nb::none());
 
 mod_imgui.def("image",
-    [] (ImTextureID user_texture_id, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1) -> void {
-        return ImGui::Image(user_texture_id, image_size, uv0, uv1);
-    }, nb::arg("user_texture_id"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1));
+    [] (ImTextureRef tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1) -> void {
+        return ImGui::Image(tex_ref, image_size, uv0, uv1);
+    }, nb::arg("tex_ref"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1));
 
 mod_imgui.def("image_with_bg",
-    [] (ImTextureID user_texture_id, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 bg_col, ImVec4 tint_col) -> void {
-        return ImGui::ImageWithBg(user_texture_id, image_size, uv0, uv1, bg_col, tint_col);
-    }, nb::arg("user_texture_id"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
+    [] (ImTextureRef tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 bg_col, ImVec4 tint_col) -> void {
+        return ImGui::ImageWithBg(tex_ref, image_size, uv0, uv1, bg_col, tint_col);
+    }, nb::arg("tex_ref"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
 
 mod_imgui.def("image_button",
-    [] (const char* str_id, ImTextureID user_texture_id, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 bg_col, ImVec4 tint_col) -> bool {
-        return ImGui::ImageButton(str_id, user_texture_id, image_size, uv0, uv1, bg_col, tint_col);
-    }, nb::arg("str_id"), nb::arg("user_texture_id"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
+    [] (const char* str_id, ImTextureRef tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 bg_col, ImVec4 tint_col) -> bool {
+        return ImGui::ImageButton(str_id, tex_ref, image_size, uv0, uv1, bg_col, tint_col);
+    }, nb::arg("str_id"), nb::arg("tex_ref"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
 
 mod_imgui.def("drag_float",
     [] (const char* label, float v, float v_speed, float v_min, float v_max, const char* format, ImGuiSliderFlags flags) -> nb::tuple {
@@ -2608,13 +2644,13 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
     [] (DrawList* self) -> void {
         return self->list->PopClipRect();
     })
-    .def("push_texture_id",
-    [] (DrawList* self, ImTextureID texture_id) -> void {
-        return self->list->PushTextureID(texture_id);
-    }, nb::arg("texture_id"))
-    .def("pop_texture_id",
+    .def("push_texture",
+    [] (DrawList* self, ImTextureRef tex_ref) -> void {
+        return self->list->PushTexture(tex_ref);
+    }, nb::arg("tex_ref"))
+    .def("pop_texture",
     [] (DrawList* self) -> void {
-        return self->list->PopTextureID();
+        return self->list->PopTexture();
     })
     .def("get_clip_rect_min",
     [] (DrawList* self) -> ImVec2 {
@@ -2705,17 +2741,17 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
         return self->list->AddConcavePolyFilled(points, num_points, col);
     }, nb::arg("points"), nb::arg("num_points"), nb::arg("col"))
     .def("add_image",
-    [] (DrawList* self, ImTextureID user_texture_id, ImVec2 p_min, ImVec2 p_max, ImVec2 uv_min, ImVec2 uv_max, Color col) -> void {
-        return self->list->AddImage(user_texture_id, p_min, p_max, uv_min, uv_max, col);
-    }, nb::arg("user_texture_id"), nb::arg("p_min"), nb::arg("p_max"), nb::arg("uv_min") = nb::make_tuple(0, 0), nb::arg("uv_max") = nb::make_tuple(1, 1), nb::arg("col") = IM_COL32_WHITE)
+    [] (DrawList* self, ImTextureRef tex_ref, ImVec2 p_min, ImVec2 p_max, ImVec2 uv_min, ImVec2 uv_max, Color col) -> void {
+        return self->list->AddImage(tex_ref, p_min, p_max, uv_min, uv_max, col);
+    }, nb::arg("tex_ref"), nb::arg("p_min"), nb::arg("p_max"), nb::arg("uv_min") = nb::make_tuple(0, 0), nb::arg("uv_max") = nb::make_tuple(1, 1), nb::arg("col") = IM_COL32_WHITE)
     .def("add_image_quad",
-    [] (DrawList* self, ImTextureID user_texture_id, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, ImVec2 uv1, ImVec2 uv2, ImVec2 uv3, ImVec2 uv4, Color col) -> void {
-        return self->list->AddImageQuad(user_texture_id, p1, p2, p3, p4, uv1, uv2, uv3, uv4, col);
-    }, nb::arg("user_texture_id"), nb::arg("p1"), nb::arg("p2"), nb::arg("p3"), nb::arg("p4"), nb::arg("uv1") = nb::make_tuple(0, 0), nb::arg("uv2") = nb::make_tuple(1, 0), nb::arg("uv3") = nb::make_tuple(1, 1), nb::arg("uv4") = nb::make_tuple(0, 1), nb::arg("col") = IM_COL32_WHITE)
+    [] (DrawList* self, ImTextureRef tex_ref, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, ImVec2 uv1, ImVec2 uv2, ImVec2 uv3, ImVec2 uv4, Color col) -> void {
+        return self->list->AddImageQuad(tex_ref, p1, p2, p3, p4, uv1, uv2, uv3, uv4, col);
+    }, nb::arg("tex_ref"), nb::arg("p1"), nb::arg("p2"), nb::arg("p3"), nb::arg("p4"), nb::arg("uv1") = nb::make_tuple(0, 0), nb::arg("uv2") = nb::make_tuple(1, 0), nb::arg("uv3") = nb::make_tuple(1, 1), nb::arg("uv4") = nb::make_tuple(0, 1), nb::arg("col") = IM_COL32_WHITE)
     .def("add_image_rounded",
-    [] (DrawList* self, ImTextureID user_texture_id, ImVec2 p_min, ImVec2 p_max, ImVec2 uv_min, ImVec2 uv_max, Color col, float rounding, ImDrawFlags flags) -> void {
-        return self->list->AddImageRounded(user_texture_id, p_min, p_max, uv_min, uv_max, col, rounding, flags);
-    }, nb::arg("user_texture_id"), nb::arg("p_min"), nb::arg("p_max"), nb::arg("uv_min"), nb::arg("uv_max"), nb::arg("col"), nb::arg("rounding"), nb::arg("flags") = 0)
+    [] (DrawList* self, ImTextureRef tex_ref, ImVec2 p_min, ImVec2 p_max, ImVec2 uv_min, ImVec2 uv_max, Color col, float rounding, ImDrawFlags flags) -> void {
+        return self->list->AddImageRounded(tex_ref, p_min, p_max, uv_min, uv_max, col, rounding, flags);
+    }, nb::arg("tex_ref"), nb::arg("p_min"), nb::arg("p_max"), nb::arg("uv_min"), nb::arg("uv_max"), nb::arg("col"), nb::arg("rounding"), nb::arg("flags") = 0)
     .def("path_clear",
     [] (DrawList* self) -> void {
         return self->list->PathClear();
@@ -2808,11 +2844,29 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
     [] (DrawList* self, ImVec2 pos, ImVec2 uv, Color col) -> void {
         return self->list->PrimVtx(pos, uv, col);
     }, nb::arg("pos"), nb::arg("uv"), nb::arg("col"))
+    .def("push_texture_id",
+    [] (DrawList* self, ImTextureRef tex_ref) -> void {
+        return self->list->PushTextureID(tex_ref);
+    }, nb::arg("tex_ref"))
+    .def("pop_texture_id",
+    [] (DrawList* self) -> void {
+        return self->list->PopTextureID();
+    })
 ;
+mod_imgui.def("push_font",
+    [] (ImFont* font) -> void {
+        return ImGui::PushFont(font);
+    }, nb::arg("font"));
+
+mod_imgui.def("set_window_font_scale",
+    [] (float scale) -> void {
+        return ImGui::SetWindowFontScale(scale);
+    }, nb::arg("scale"));
+
 mod_imgui.def("image_im_vec4",
-    [] (ImTextureID user_texture_id, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 tint_col, ImVec4 border_col) -> void {
-        return ImGui::Image(user_texture_id, image_size, uv0, uv1, tint_col, border_col);
-    }, nb::arg("user_texture_id"), nb::arg("image_size"), nb::arg("uv0"), nb::arg("uv1"), nb::arg("tint_col"), nb::arg("border_col"));
+    [] (ImTextureRef tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 tint_col, ImVec4 border_col) -> void {
+        return ImGui::Image(tex_ref, image_size, uv0, uv1, tint_col, border_col);
+    }, nb::arg("tex_ref"), nb::arg("image_size"), nb::arg("uv0"), nb::arg("uv1"), nb::arg("tint_col"), nb::arg("border_col"));
 
 mod_imgui.def("push_button_repeat",
     [] (bool repeat) -> void {
@@ -2868,15 +2922,5 @@ mod_imgui.def("show_stack_tool_window",
 mod_imgui.def("set_item_allow_overlap",
     [] () -> void {
         return ImGui::SetItemAllowOverlap();
-    });
-
-mod_imgui.def("push_allow_keyboard_focus",
-    [] (bool tab_stop) -> void {
-        return ImGui::PushAllowKeyboardFocus(tab_stop);
-    }, nb::arg("tab_stop"));
-
-mod_imgui.def("pop_allow_keyboard_focus",
-    [] () -> void {
-        return ImGui::PopAllowKeyboardFocus();
     });
 

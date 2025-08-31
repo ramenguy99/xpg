@@ -76,9 +76,17 @@ if (XPG_BUILD_GLSLANG_AND_SPIRV)
     add_subdirectory(ext/glslang)
 endif()
 
+# Add external dependencies
+add_subdirectory(ext/Vulkan-Headers)
+add_subdirectory(ext/glfw)
+add_subdirectory(ext/volk)
+add_subdirectory(ext/glm)
+add_subdirectory(ext/VulkanMemoryAllocator)
+add_subdirectory(ext/zstd/build/cmake EXCLUDE_FROM_ALL)
+
 # Configure slang
 if (XPG_BUILD_SLANG)
-    set(SLANG_USE_SYSTEM_VULKAN_HEADERS ON)
+    set(SLANG_USE_SYSTEM_VULKAN_HEADERS OFF)
     set(SLANG_ENABLE_CUDA OFF)
     set(SLANG_ENABLE_OPTIX OFF)
     set(SLANG_ENABLE_NVAPI OFF)
@@ -100,14 +108,6 @@ if (XPG_BUILD_SLANG)
     set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
     add_subdirectory(ext/slang EXCLUDE_FROM_ALL)
 endif()
-
-# Add external dependencies
-add_subdirectory(ext/glfw)
-add_subdirectory(ext/Vulkan-Headers)
-add_subdirectory(ext/volk)
-add_subdirectory(ext/glm)
-add_subdirectory(ext/VulkanMemoryAllocator)
-add_subdirectory(ext/zstd/build/cmake EXCLUDE_FROM_ALL)
 
 # Library
 add_library(xpg STATIC

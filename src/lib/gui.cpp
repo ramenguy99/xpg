@@ -128,7 +128,6 @@ void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Cont
         font_cfg.FontDataOwnedByAtlas = font.owned_by_atlas;
         io.Fonts->AddFontFromMemoryTTF(font.data.data, (int)font.data.length, font.size, &font_cfg);
     }
-    ImGui_ImplVulkan_CreateFontsTexture();
 
     impl->render_pass = render_pass;
 }

@@ -109,7 +109,7 @@ for enum in data["enums"]:
     enum_name = name
     if name.startswith("ImGui"):
         enum_name = enum_name[5:]
-    elif name.startswith("ImDraw") or name.startswith("ImFont"):
+    elif name.startswith("ImDraw") or name.startswith("ImFont") or name.startswith("ImTexture"):
         enum_name = enum_name[2:]
     else:
         assert False, name
@@ -160,7 +160,7 @@ for enum in data["enums"]:
             if name.startswith("ImGuiMod_"): continue
 
             elem_name = name[5 + len(enum_name) + 1:]
-        elif name.startswith("ImDraw") or name.startswith("ImFont"):
+        elif name.startswith("ImDraw") or name.startswith("ImFont") or name.startswith("ImTexture"):
             assert name.startswith("Im" + enum_name + "_"), f"{enum_name} {name}"
             elem_name = name[2 + len(enum_name) + 1:]
         else:
@@ -290,6 +290,7 @@ def read_type(typ: dict) -> TypeInfo:
                 "ImGuiPlatformIO",
                 "ImGuiStyle",
                 "ImGuiMultiSelectIO",
+                "ImFontBaked",
                 # "ImDrawListSplitter",
                 # "ImGuiIO",
                 # "ImGuiInputTextCallbackData",
