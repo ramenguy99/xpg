@@ -699,18 +699,17 @@ int main(int argc, char** argv) {
                 }
             });
 
-            VkImageBlit region = {};
-            region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            region.srcSubresource.layerCount = 1;
-            region.srcOffsets[1].x = window.fb_width;
-            region.srcOffsets[1].y = window.fb_height;
-            region.srcOffsets[1].z = 1;
-            region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            region.dstSubresource.layerCount = 1;
-            region.dstOffsets[1].x = window.fb_width;
-            region.dstOffsets[1].y = window.fb_height;
-            region.dstOffsets[1].z = 1;
-            vkCmdBlitImage(frame.command_buffer, app.output_image.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frame.current_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_NEAREST);
+            gfx::CmdBlitImage(frame.command_buffer, {
+                .src = app.output_image.image,
+                .src_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                .src_width = window.fb_width,
+                .src_height = window.fb_height,
+                .dst = frame.current_image,
+                .dst_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .dst_width = window.fb_width,
+                .dst_height = window.fb_height,
+                .filter = VK_FILTER_NEAREST,
+            });
 
             gfx::CmdBarriers(frame.command_buffer, {
                 .image = {

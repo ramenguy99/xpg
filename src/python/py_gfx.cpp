@@ -1468,24 +1468,94 @@ struct CommandBuffer: GfxObject {
     }
 
 
-    void blit_image(Image& src, Image& dst) {
+    void blit_image(Image& src, Image& dst, VkFilter filter, VkImageAspectFlagBits src_aspect, VkImageAspectFlagBits dst_aspect) {
         // TODO: add  error checking (check spec for what blits are valid)
-        // TODO: add options for aspect and interpolation type
-        // TODO: wrap in gfx:: helper
-
-        VkImageBlit region = {};
-        region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.srcSubresource.layerCount = 1;
-        region.srcOffsets[1].x = src.width;
-        region.srcOffsets[1].y = src.height;
-        region.srcOffsets[1].z = 1;
-        region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.dstSubresource.layerCount = 1;
-        region.dstOffsets[1].x = dst.width;
-        region.dstOffsets[1].y = dst.height;
-        region.dstOffsets[1].z = 1;
-        vkCmdBlitImage(buffer, src.image.image, src.current_layout, dst.image.image, dst.current_layout, 1, &region, VK_FILTER_NEAREST);
+        gfx::CmdBlitImage(buffer, {
+            .src = src.image.image,
+            .src_layout = src.current_layout,
+            .src_width = src.width,
+            .src_height = src.height,
+            .src_aspect = (VkImageAspectFlags)src_aspect,
+            .dst = src.image.image,
+            .dst_layout = dst.current_layout,
+            .dst_width = dst.width,
+            .dst_height = dst.height,
+            .dst_aspect = (VkImageAspectFlags)dst_aspect,
+            .filter = filter,
+        });
     }
+
+    void blit_image_range(Image& src, Image& dst, VkFilter filter,
+        u32 src_width,
+        u32 src_height,
+        u32 src_x,
+        u32 src_y,
+        VkImageAspectFlagBits src_aspect,
+        u32 dst_width,
+        u32 dst_height,
+        u32 dst_x,
+        u32 dst_y,
+        VkImageAspectFlagBits dst_aspect)
+    {
+        gfx::CmdBlitImage(buffer, {
+            .src = src.image.image,
+            .src_layout = src.current_layout,
+            .src_x = src_x,
+            .src_y = src_y,
+            .src_width = src_width,
+            .src_height = src_height,
+            .src_aspect = (VkImageAspectFlags)src_aspect,
+            .dst = src.image.image,
+            .dst_layout = dst.current_layout,
+            .dst_x = dst_x,
+            .dst_y = dst_y,
+            .dst_width = dst_width,
+            .dst_height = dst_height,
+            .dst_aspect = (VkImageAspectFlags)dst_aspect,
+            .filter = filter,
+        });
+    }
+
+    void resolve_image(Image& src, Image& dst, VkImageAspectFlagBits src_aspect, VkImageAspectFlagBits dst_aspect)
+    {
+        gfx::CmdResolveImage(buffer, {
+            .src = src.image.image,
+            .src_layout = src.current_layout,
+            .src_aspect = (VkImageAspectFlags)src_aspect,
+            .dst = src.image.image,
+            .dst_layout = dst.current_layout,
+            .dst_aspect = (VkImageAspectFlags)dst_aspect,
+            .width = src.width,
+            .height = src.height,
+        });
+    }
+
+    void resolve_image_range(Image& src, Image& dst,
+        u32 width,
+        u32 height,
+        u32 src_x,
+        u32 src_y,
+        VkImageAspectFlagBits src_aspect,
+        u32 dst_x,
+        u32 dst_y,
+        VkImageAspectFlagBits dst_aspect)
+    {
+        gfx::CmdResolveImage(buffer, {
+            .src = src.image.image,
+            .src_layout = src.current_layout,
+            .src_x = src_x,
+            .src_y = src_y,
+            .src_aspect = (VkImageAspectFlags)src_aspect,
+            .dst = src.image.image,
+            .dst_layout = dst.current_layout,
+            .dst_x = dst_x,
+            .dst_y = dst_y,
+            .dst_aspect = (VkImageAspectFlags)dst_aspect,
+            .width = width,
+            .height = height,
+        });
+    }
+
 
     void reset_query_pool(const QueryPool& pool) {
         vkCmdResetQueryPool(buffer, pool.pool, 0, pool.count);
@@ -3836,7 +3906,43 @@ void gfx_create_bindings(nb::module_& m)
         )
         .def("blit_image", &CommandBuffer::blit_image,
             nb::arg("src"),
-            nb::arg("dst")
+            nb::arg("dst"),
+            nb::arg("filter") = VK_FILTER_NEAREST,
+            nb::arg("src_aspect") = VK_IMAGE_ASPECT_COLOR_BIT,
+            nb::arg("dst_aspect") = VK_IMAGE_ASPECT_COLOR_BIT
+        )
+        .def("blit_image_range", &CommandBuffer::blit_image_range,
+            nb::arg("src"),
+            nb::arg("src_width"),
+            nb::arg("src_height"),
+            nb::arg("dst"),
+            nb::arg("dst_width"),
+            nb::arg("dst_height"),
+            nb::arg("filter") = VK_FILTER_NEAREST,
+            nb::arg("src_x") = 0,
+            nb::arg("src_y") = 0,
+            nb::arg("src_aspect") = VK_IMAGE_ASPECT_COLOR_BIT,
+            nb::arg("dst_x") = 0,
+            nb::arg("dst_y") = 0,
+            nb::arg("dst_aspect") = VK_IMAGE_ASPECT_COLOR_BIT
+        )
+        .def("resolve_image", &CommandBuffer::resolve_image,
+            nb::arg("src"),
+            nb::arg("dst"),
+            nb::arg("src_aspect") = VK_IMAGE_ASPECT_COLOR_BIT,
+            nb::arg("dst_aspect") = VK_IMAGE_ASPECT_COLOR_BIT
+        )
+        .def("resolve_image_range", &CommandBuffer::resolve_image_range,
+            nb::arg("src"),
+            nb::arg("dst"),
+            nb::arg("width"),
+            nb::arg("height"),
+            nb::arg("src_x") = 0,
+            nb::arg("src_y") = 0,
+            nb::arg("src_aspect") = VK_IMAGE_ASPECT_COLOR_BIT,
+            nb::arg("dst_x") = 0,
+            nb::arg("dst_y") = 0,
+            nb::arg("dst_aspect") = VK_IMAGE_ASPECT_COLOR_BIT
         )
         .def("reset_query_pool", &CommandBuffer::reset_query_pool,
             nb::arg("pool")
@@ -4242,8 +4348,8 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::enum_<VkCullModeFlagBits>(m, "CullMode", nb::is_flag(), nb::is_arithmetic())
         .value("NONE",           VK_CULL_MODE_NONE)
-        .value("FRONT_BIT",      VK_CULL_MODE_FRONT_BIT)
-        .value("BACK_BIT",       VK_CULL_MODE_BACK_BIT)
+        .value("FRONT",          VK_CULL_MODE_FRONT_BIT)
+        .value("BACK",           VK_CULL_MODE_BACK_BIT)
         .value("FRONT_AND_BACK", VK_CULL_MODE_FRONT_AND_BACK)
     ;
 

@@ -1951,6 +1951,75 @@ void CmdCopyBufferToImage(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc)
     vkCmdCopyBufferToImage(cmd, desc.buffer, desc.image, desc.image_layout, 1, &region);
 }
 
+void CmdBlitImage(VkCommandBuffer cmd, const BlitImageDesc&& desc) {
+    VkImageBlit region = {};
+
+    region.srcSubresource.mipLevel = desc.src_mip,
+    region.srcSubresource.baseArrayLayer = desc.src_base_layer,
+    region.srcSubresource.aspectMask = desc.src_aspect;
+    region.srcSubresource.layerCount = desc.src_layer_count;
+    region.srcOffsets[0].x = desc.src_x;
+    region.srcOffsets[0].y = desc.src_y;
+    region.srcOffsets[0].z = desc.src_z;
+    region.srcOffsets[1].x = desc.src_x + desc.src_width;
+    region.srcOffsets[1].y = desc.src_y + desc.src_height;
+    region.srcOffsets[1].z = desc.src_z + desc.src_depth;
+
+    region.dstSubresource.mipLevel = desc.dst_mip,
+    region.dstSubresource.baseArrayLayer = desc.dst_base_layer,
+    region.dstSubresource.aspectMask = desc.dst_aspect;
+    region.dstSubresource.layerCount = desc.dst_layer_count;
+    region.dstOffsets[0].x = desc.dst_x;
+    region.dstOffsets[0].y = desc.dst_y;
+    region.dstOffsets[0].z = desc.dst_z;
+    region.dstOffsets[1].x = desc.dst_x + desc.dst_width;
+    region.dstOffsets[1].y = desc.dst_y + desc.dst_height;
+    region.dstOffsets[1].z = desc.dst_z + desc.dst_depth;
+
+    vkCmdBlitImage(
+        cmd,
+        desc.src,
+        desc.src_layout,
+        desc.dst,
+        desc.dst_layout,
+        1, &region,
+        desc.filter
+    );
+}
+
+void CmdResolveImage(VkCommandBuffer cmd, const ResolveImageDesc&& desc) {
+    VkImageResolve region = {};
+
+    region.srcSubresource.mipLevel = desc.src_mip,
+    region.srcSubresource.baseArrayLayer = desc.src_base_layer,
+    region.srcSubresource.aspectMask = desc.src_aspect;
+    region.srcSubresource.layerCount = desc.src_layer_count;
+    region.srcOffset.x = desc.src_x;
+    region.srcOffset.y = desc.src_y;
+    region.srcOffset.z = desc.src_z;
+
+    region.dstSubresource.mipLevel = desc.dst_mip,
+    region.dstSubresource.baseArrayLayer = desc.dst_base_layer,
+    region.dstSubresource.aspectMask = desc.dst_aspect;
+    region.dstSubresource.layerCount = desc.dst_layer_count;
+    region.dstOffset.x = desc.dst_x;
+    region.dstOffset.y = desc.dst_y;
+    region.dstOffset.z = desc.dst_z;
+
+    region.extent.width = desc.width;
+    region.extent.height = desc.height;
+    region.extent.depth = desc.depth;
+
+    vkCmdResolveImage(
+        cmd,
+        desc.src,
+        desc.src_layout,
+        desc.dst,
+        desc.dst_layout,
+        1, &region
+    );
+}
+
 #ifdef _WIN32
 VkExternalSemaphoreHandleTypeFlagBits EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 VkExternalMemoryHandleTypeFlagBits EXTERNAL_MEMORY_HANDLE_TYPE_BIT = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;

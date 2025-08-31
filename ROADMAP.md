@@ -101,7 +101,7 @@ Python:
     - [x] Vertex buffer offset
     - [x] Fine grained pipeline binding
         - [x] Custom index type
-    - [ ] blit cmds
+    - [x] blit and resolve cmds
 - [ ] Clean examples
     - [x] Headless graphics and compute
     - [x] Minimal

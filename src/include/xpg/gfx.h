@@ -656,6 +656,65 @@ struct CopyImageBufferDesc {
 void CmdCopyImageToBuffer(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc);
 void CmdCopyBufferToImage(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc);
 
+struct BlitImageDesc {
+    VkImage src;
+    VkImageLayout src_layout;
+    u32 src_x = 0;
+    u32 src_y = 0;
+    u32 src_z = 0;
+    u32 src_width;
+    u32 src_height;
+    u32 src_depth = 1;
+    u32 src_mip = 0;
+    u32 src_base_layer = 0;  // Index of first layer in array
+    u32 src_layer_count = 1; // Number of layers in array
+    VkImageAspectFlags src_aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+
+    VkImage dst;
+    VkImageLayout dst_layout;
+    u32 dst_x = 0;
+    u32 dst_y = 0;
+    u32 dst_z = 0;
+    u32 dst_width;
+    u32 dst_height;
+    u32 dst_depth = 1;
+    u32 dst_mip = 0;
+    u32 dst_base_layer = 0;  // Index of first layer in array
+    u32 dst_layer_count = 1; // Number of layers in array
+    VkImageAspectFlags dst_aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+
+    VkFilter filter;
+};
+void CmdBlitImage(VkCommandBuffer cmd, const BlitImageDesc&& desc);
+
+struct ResolveImageDesc {
+    VkImage src;
+    VkImageLayout src_layout;
+    u32 src_x = 0;
+    u32 src_y = 0;
+    u32 src_z = 0;
+    u32 src_mip = 0;
+    u32 src_base_layer = 0;  // Index of first layer in array
+    u32 src_layer_count = 1; // Number of layers in array
+    VkImageAspectFlags src_aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+
+    VkImage dst;
+    VkImageLayout dst_layout;
+    u32 dst_x = 0;
+    u32 dst_y = 0;
+    u32 dst_z = 0;
+    u32 dst_mip = 0;
+    u32 dst_base_layer = 0;  // Index of first layer in array
+    u32 dst_layer_count = 1; // Number of layers in array
+    VkImageAspectFlags dst_aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+
+    u32 width;
+    u32 height;
+    u32 depth = 1;
+};
+void CmdResolveImage(VkCommandBuffer cmd, const ResolveImageDesc&& desc);
+
+
 
 // - Shaders
 struct Shader {
