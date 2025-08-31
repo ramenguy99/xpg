@@ -1011,7 +1011,7 @@ template<typename T>
 void check_vector_of_ref_for_null(const std::vector<nb::ref<T>>& v, const char* error) {
     for (size_t i = 0; i < v.size(); i++) {
         if (!v[i]) {
-            nb::raise(error);
+            nb::raise("%s", error);
         }
     }
 }
