@@ -5,6 +5,16 @@ Python:
     Same but force ninja (much faster on windows):
         pip install -C cmake.args=-GNinja -C cmake.build-type=Debug -Ceditable.rebuild=true  --no-build-isolation -ve .
 
+Ubuntu build (X11 only):
+    apt install \
+        build-essential \
+        cmake \
+        libx11-dev \
+        libxrandr-dev \
+        libxinerama-dev \
+        libxcursor-dev \
+        libxi-dev
+
 - Imgui bindings with dear_bindings:
     -> json file looks straight forward for binding gen, nice that we can match API 1 to 1 with what we use in xpg
     -> not yet clear if we can also do ImPlot with this, or if we need internal stuff too. But good starting point.

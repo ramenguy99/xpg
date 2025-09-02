@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Dict, Generic, List, Optional, TypeVar, Union, Set, Tuple
+from typing import Dict, Generic, List, Optional, Tuple, TypeVar, Union
 
 import numpy as np
 from pyxpg import (
@@ -17,7 +17,6 @@ from pyxpg import (
     PipelineStageFlags,
     TimelineSemaphore,
 )
-
 
 from ..config import UploadMethod
 from ..renderer_frame import RendererFrame, SemaphoreInfo
@@ -222,9 +221,13 @@ class GpuResourceProperty(Generic[R]):
             if self.dynamic:
                 do_load = not self.resources[property_frame_index][1]
             else:
-                do_load = (self.upload_method == UploadMethod.CPU_BUF
+                do_load = (
+                    self.upload_method == UploadMethod.CPU_BUF
                     or self.upload_method == UploadMethod.BAR
-                    or (self.gpu_pool is not None and not self.gpu_pool.is_available_or_prefetching(property_frame_index))
+                    or (
+                        self.gpu_pool is not None
+                        and not self.gpu_pool.is_available_or_prefetching(property_frame_index)
+                    )
                 )
 
             if do_load:

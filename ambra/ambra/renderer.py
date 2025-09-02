@@ -25,9 +25,9 @@ from pyxpg import (
     PipelineStageFlags,
     RenderingAttachment,
     StoreOp,
+    SwapchainOutOfDateError,
     Window,
     slang,
-    SwapchainOutOfDateError
 )
 
 from .config import RendererConfig, UploadMethod
@@ -261,7 +261,7 @@ class Renderer:
             frame = self.window.begin_frame()
         except SwapchainOutOfDateError:
             return
-            
+
         with frame.command_buffer as cmd:
             viewport_rect = (
                 viewport.rect.x,
