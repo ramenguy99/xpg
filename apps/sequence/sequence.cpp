@@ -696,7 +696,7 @@ int main(int argc, char** argv) {
             };
 
             VkSemaphore signal_semaphores[] = {
-                frame.release_semaphore,
+                frame.current_present_semaphore,
                 app.render_done_semaphores[app.frame_index],
             };
 

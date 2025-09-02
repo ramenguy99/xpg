@@ -1357,7 +1357,7 @@ SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
 }
 
 Frame& WaitForFrame(Window* w, const Context& vk) {
-    Frame& frame = w->frames[w->swapchain_frame_index];
+    Frame& frame = w->frames[w->wrapping_frame_index];
     vkWaitForFences(vk.device, 1, &frame.fence, VK_TRUE, ~0ULL);
 
 #if !SYNC_SWAPCHAIN_DESTRUCTION
@@ -1401,6 +1401,7 @@ Result AcquireImage(Frame* frame, Window* window, const Context& vk)
     frame->current_image_index = image_index;
     frame->current_image = window->images[image_index];
     frame->current_image_view = window->image_views[image_index];
+    frame->current_present_semaphore = window->present_semaphores[image_index];
 
     return Result::SUCCESS;
 }
@@ -1485,7 +1486,7 @@ VkPipelineStageFlags stage_mask) {
     wait_info.stageMask = stage_mask;
 
     VkSemaphoreSubmitInfo signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-    signal_info.semaphore = frame.release_semaphore;
+    signal_info.semaphore = frame.current_present_semaphore;
     signal_info.stageMask = stage_mask;
 
     VkCommandBufferSubmitInfo command_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
@@ -1505,7 +1506,7 @@ VkPipelineStageFlags stage_mask) {
         .cmd = { frame.command_buffer },
         .wait_semaphores = { frame.acquire_semaphore },
         .wait_stages = { stage_mask },
-        .signal_semaphores = { frame.release_semaphore },
+        .signal_semaphores = { frame.current_present_semaphore },
         .fence = frame.fence,
     });
 #endif
@@ -1532,7 +1533,7 @@ VkResult PresentFrame(Window* w, Frame* frame, const Context& vk) {
     present_info.pSwapchains = &w->swapchain;
     present_info.pImageIndices = &frame->current_image_index;
     present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores = &frame->release_semaphore;
+    present_info.pWaitSemaphores = &frame->current_present_semaphore;
     VkResult vkr = vkQueuePresentKHR(vk.queue, &present_info);
 
     if (vkr == VK_ERROR_OUT_OF_DATE_KHR || vkr == VK_SUBOPTIMAL_KHR) {
@@ -1541,9 +1542,10 @@ VkResult PresentFrame(Window* w, Frame* frame, const Context& vk) {
         return vkr;
     }
 
-    w->swapchain_frame_index = (w->swapchain_frame_index + 1) % w->frames.length;
+    w->wrapping_frame_index = (w->wrapping_frame_index + 1) % w->frames.length;
     frame->current_image = VK_NULL_HANDLE;
     frame->current_image_view = VK_NULL_HANDLE;
+    frame->current_present_semaphore = VK_NULL_HANDLE;
     frame->current_image_index = ~(u32)0;
     return VK_SUCCESS;
 }
@@ -1653,6 +1655,16 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
         return res;
     }
 
+    // Allocate present semaphores
+    Array<VkSemaphore> present_semaphores(swapchain_frames);
+    for (usize i = 0; i < swapchain_frames; i++) {
+        VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT };
+        VkDevice device = vk.device;
+
+        CreateGPUSemaphore(vk.device, &present_semaphores[i]);
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, present_semaphores[i], "xpg-swapchain-present-semaphore");
+    }
+
     // We limit the number of frames we create to at most being the number of swapchain images.
     // Having more frames in flight does not make sense because we would anyway block to wait
     // for swapchain images to be ready.
@@ -1735,10 +1747,9 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
         vkCreateFence(vk.device, &fence_info, 0, &frame.fence);
 
         CreateGPUSemaphore(vk.device, &frame.acquire_semaphore);
-        CreateGPUSemaphore(vk.device, &frame.release_semaphore);
 
         if (vk.debug_utils_enabled) {
-            VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT }; \
+            VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT };
             VkDevice device = vk.device;
 
             // Commands
@@ -1755,7 +1766,6 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
 
             // Sync
             DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, frame.acquire_semaphore, "xpg-frame-acquire-semaphore");
-            DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, frame.release_semaphore, "xpg-frame-release-semaphore");
             DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_FENCE,     frame.fence,             "xpg-frame-fence");
         }
     }
@@ -1764,6 +1774,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     w->surface = surface;
     w->swapchain_format = format;
     w->frames = move(frames);
+    w->present_semaphores = move(present_semaphores);
 
     return Result::SUCCESS;
 }
@@ -1774,6 +1785,7 @@ DestroyWindowWithSwapchain(Window* w, const Context& vk)
     // Swapchain
     for (usize i = 0; i < w->image_views.length; i++) {
         vkDestroyImageView(vk.device, w->image_views[i], 0);
+        vkDestroySemaphore(vk.device, w->present_semaphores[i], 0);
     }
     vkDestroySwapchainKHR(vk.device, w->swapchain, 0);
     vkDestroySurfaceKHR(vk.instance, w->surface, 0);
@@ -1784,7 +1796,6 @@ DestroyWindowWithSwapchain(Window* w, const Context& vk)
         vkDestroyFence(vk.device, frame.fence, 0);
 
         vkDestroySemaphore(vk.device, frame.acquire_semaphore, 0);
-        vkDestroySemaphore(vk.device, frame.release_semaphore, 0);
 
         vkFreeCommandBuffers(vk.device, frame.command_pool, 1, &frame.command_buffer);
         vkDestroyCommandPool(vk.device, frame.command_pool, 0);

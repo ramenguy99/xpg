@@ -228,13 +228,13 @@ struct Frame
     VkCommandBuffer copy_command_buffer;
 
     VkSemaphore acquire_semaphore;
-    VkSemaphore release_semaphore;
 
     VkFence fence;
 
     // Filled every frame after acquiring
     VkImage current_image;
     VkImageView current_image_view;
+    VkSemaphore current_present_semaphore;
     u32 current_image_index;
 };
 
@@ -447,12 +447,12 @@ struct Window
     // Per frame swapchain data
     Array<VkImage> images;
     Array<VkImageView> image_views;
+    Array<VkSemaphore> present_semaphores;
 
     // Index in swapchain frames, wraps around at the number of frames in flight.
     // This is always sequential, it should be used to index into 'frames' but not
-    // into images and image_views. For that one should use the index returned
-    // by vkAcquireNextImageKHR.
-    u32 swapchain_frame_index;
+    // into images, image_views and present semaphores.
+    u32 wrapping_frame_index;
 
     // If set to true when calling UpdateSwapchain it will force creation of a new swapchain.
     // Should be set after a vkQueuePresentKHR returns VK_ERROR_OUT_OF_DATE_KHR or VK_SUBOPTIMAL_KHR.

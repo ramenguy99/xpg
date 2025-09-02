@@ -1899,7 +1899,7 @@ struct Window: nb::intrusive_base {
             for(usize i = 0; i < additional_signal_semaphores.size(); i++) {
                 signal_semaphores[i] = additional_signal_semaphores[i]->semaphore;
             }
-            signal_semaphores[additional_signal_semaphores.size()] = frame.frame.release_semaphore;
+            signal_semaphores[additional_signal_semaphores.size()] = frame.frame.current_present_semaphore;
             additional_signal_timeline_values.push_back(0);
 
             vkr = gfx::SubmitQueue(ctx->vk.queue, {
