@@ -27,6 +27,7 @@ from pyxpg import (
     StoreOp,
     Window,
     slang,
+    SwapchainOutOfDateError
 )
 
 from .config import RendererConfig, UploadMethod
@@ -256,7 +257,11 @@ class Renderer:
             self.bulk_upload_list.clear()
 
         # Render frame
-        frame = self.window.begin_frame()
+        try:
+            frame = self.window.begin_frame()
+        except SwapchainOutOfDateError:
+            return
+            
         with frame.command_buffer as cmd:
             viewport_rect = (
                 viewport.rect.x,
