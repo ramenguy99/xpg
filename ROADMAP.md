@@ -49,6 +49,9 @@ C++:
     - [x] framegraph
 - [x] Check support for present modes
 - [x] Cleanup gfx wrappers -> do not like alloca / dynamic alloc, maybe should just wrap the vulkan types for defaults?
+- [ ] Expose swapchain format / colorspace creation info
+- [ ] Debug case where frame count < swapchain frame count. Check with lastest vulkan sdk validation on. One option seems
+      to have a separate array of semaphores, one per swapchain frame, unfortunately I think we need to keep an other index just for that.
 
 Python:
 - [x] Check if there is a better way to do imports that works more intuitively

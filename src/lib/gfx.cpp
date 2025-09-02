@@ -1597,7 +1597,8 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
 
     VkFormat format = VK_FORMAT_UNDEFINED;
     for (u32 i = 0; i < formats_count; i++) {
-        if (formats[i].format == VK_FORMAT_B8G8R8A8_UNORM || formats[i].format == VK_FORMAT_R8G8B8A8_UNORM) {
+        logging::trace("gfx/window", "Swapchain available format %u: %s - %s", i, string_VkFormat(formats[i].format), string_VkColorSpaceKHR(formats[i].colorSpace));
+        if (format == VK_FORMAT_UNDEFINED && (formats[i].format == VK_FORMAT_B8G8R8A8_UNORM || formats[i].format == VK_FORMAT_R8G8B8A8_UNORM)) {
             format = formats[i].format;
         }
     }
@@ -1607,7 +1608,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
         format = formats[0].format;
     }
 
-    logging::info("gfx/window", "Swapchain format: %s", string_VkFormat(format));
+    logging::info("gfx/window", "Swapchain picked format: %s", string_VkFormat(format));
 
     // Retrieve framebuffer size.
     u32 fb_width = surface_capabilities.currentExtent.width == 0xFFFFFFFF ? width : surface_capabilities.currentExtent.width;
