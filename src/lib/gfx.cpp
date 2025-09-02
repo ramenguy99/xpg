@@ -1359,7 +1359,6 @@ SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
 Frame& WaitForFrame(Window* w, const Context& vk) {
     Frame& frame = w->frames[w->swapchain_frame_index];
     vkWaitForFences(vk.device, 1, &frame.fence, VK_TRUE, ~0ULL);
-    vkResetFences(vk.device, 1, &frame.fence);
 
 #if !SYNC_SWAPCHAIN_DESTRUCTION
     // Decrement frame in flight count on stale swapchains, if any.
@@ -1470,8 +1469,15 @@ VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc) {
 }
 
 VkResult Submit(const Frame& frame, const Context& vk,
-// VkPipelineStageFlags2 stage_mask) {
+#if 0
+VkPipelineStageFlags2 stage_mask) {
+#else
 VkPipelineStageFlags stage_mask) {
+#endif
+
+    // Reset frame fence before submission. This must be done after acquiring
+    // because acquiring can fail with an out-of-date swapchain.
+    vkResetFences(vk.device, 1, &frame.fence);
 
 #if 0
     VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
