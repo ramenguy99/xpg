@@ -148,6 +148,7 @@ struct Context
 
     VmaAllocator vma;
     u32 preferred_frames_in_flight;
+    VkImageUsageFlags preferred_swapchain_usage_flags;
     bool vsync;
 
     // Sync command submission
@@ -171,6 +172,7 @@ struct ContextDesc {
     // Only used if presentation is requested
     bool require_presentation = true;
     u32 preferred_frames_in_flight = 2;
+    VkImageUsageFlags preferred_swapchain_usage_flags = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     bool vsync = true;
 
     // Debug utils, adds the instance extension VK_EXT_debug_utils to enable
@@ -436,6 +438,7 @@ struct Window
     GLFWwindow* window;
     VkSurfaceKHR surface;
     VkFormat swapchain_format;
+    VkImageUsageFlags swapchain_usage_flags;
     VkPresentModeKHR present_mode;
     WindowCallbacks callbacks;
 

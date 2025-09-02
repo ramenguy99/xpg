@@ -51,8 +51,10 @@ C++:
 - [x] Cleanup gfx wrappers -> do not like alloca / dynamic alloc, maybe should just wrap the vulkan types for defaults?
 - [x] Fix hang during resize on swapchain out of date
 - [x] Debug case where frame count < swapchain frame count.
+- [x] Expose swapchain image usage flgs
 - [ ] Expose swapchain format / colorspace creation info
-      to have a separate array of semaphores, one per swapchain frame, unfortunately I think we need to keep an other index just for that.
+    - Read on proper way to do color management / hdr with vulkan
+    - Maybe expose lower level API to create a window without a swapchain, enumerate supported formats and color spaces and let application pick.
 
 Python:
 - [x] Check if there is a better way to do imports that works more intuitively

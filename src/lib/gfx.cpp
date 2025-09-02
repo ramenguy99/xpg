@@ -1177,6 +1177,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     vk->copy_queue_family_index = picked_info.copy_queue_family_index;
     vk->copy_queue_timestamp_queries = picked_info.copy_queue_timestamp_queries;
     vk->preferred_frames_in_flight = desc.preferred_frames_in_flight;
+    vk->preferred_swapchain_usage_flags = desc.preferred_swapchain_usage_flags;
     vk->vsync = desc.vsync;
     vk->vma = vma;
     vk->sync_command_pool = sync_command_pool;
@@ -1211,7 +1212,7 @@ void WaitIdle(Context& vk) {
 }
 
 Result
-CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize swapchain_frames, VkPresentModeKHR present_mode, VkSwapchainKHR old_swapchain)
+CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize swapchain_frames, VkPresentModeKHR present_mode, VkImageUsageFlags usage_flags, VkSwapchainKHR old_swapchain)
 {
     // Create swapchain.
     u32 queue_family_indices[] = { vk.queue_family_index };
@@ -1223,7 +1224,7 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     swapchain_info.imageExtent.width = fb_width;
     swapchain_info.imageExtent.height = fb_height;
     swapchain_info.imageArrayLayers = 1;
-    swapchain_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+    swapchain_info.imageUsage = usage_flags;
     swapchain_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     swapchain_info.queueFamilyIndexCount = 1;
     swapchain_info.pQueueFamilyIndices = queue_family_indices;
@@ -1303,7 +1304,6 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     w->image_views = move(image_views);
     w->fb_width = fb_width;
     w->fb_height = fb_height;
-    w->present_mode = present_mode;
 
     return Result::SUCCESS;
 }
@@ -1342,7 +1342,7 @@ SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
     logging::trace("gfx/swapchain", "Added stale swapchain. Total: %llu", w->stale_swapchains.length);
 #endif
 
-    Result result = CreateSwapchain(w, vk, w->surface, w->swapchain_format, new_width, new_height, w->images.length, w->present_mode, old_swapchain);
+    Result result = CreateSwapchain(w, vk, w->surface, w->swapchain_format, new_width, new_height, w->images.length, w->present_mode, w->swapchain_usage_flags, old_swapchain);
     if (result != Result::SUCCESS) {
         return SwapchainStatus::FAILED;
     }
@@ -1579,6 +1579,11 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
         return Result::SWAPCHAIN_CREATION_FAILED;
     }
 
+    // Compute available usage flags
+    VkImageUsageFlags usage_flags = surface_capabilities.supportedUsageFlags & vk.preferred_swapchain_usage_flags;
+    logging::info("gfx/window", "Swapchain usage flags: preferred 0x%x, supported 0x%x, picked 0x%x", 
+        vk.preferred_swapchain_usage_flags, surface_capabilities.supportedUsageFlags, vk.preferred_swapchain_usage_flags & surface_capabilities.supportedUsageFlags);
+
     // Compute number of frames in flight.
     u32 swapchain_frames = Max<u32>(vk.preferred_frames_in_flight, surface_capabilities.minImageCount);
     if (surface_capabilities.maxImageCount > 0) {
@@ -1649,7 +1654,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     }
     logging::info("gfx/window", "Swapchain present mode: %s", string_VkPresentModeKHR(present_mode));
 
-    Result res = CreateSwapchain(w, vk, surface, format, fb_width, fb_height, swapchain_frames, present_mode, VK_NULL_HANDLE);
+    Result res = CreateSwapchain(w, vk, surface, format, fb_width, fb_height, swapchain_frames, present_mode, usage_flags, VK_NULL_HANDLE);
     if (res != Result::SUCCESS) {
         logging::error("gfx/window", "CreateSwapchain failed: %d", (s32)res);
         return res;
@@ -1773,8 +1778,10 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     w->window = window;
     w->surface = surface;
     w->swapchain_format = format;
+    w->swapchain_usage_flags = usage_flags;
     w->frames = move(frames);
     w->present_semaphores = move(present_semaphores);
+    w->present_mode = present_mode;
 
     return Result::SUCCESS;
 }

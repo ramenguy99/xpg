@@ -130,6 +130,7 @@ struct Context: nb::intrusive_base {
         gfx::DeviceFeatures::Flags optional_features,
         bool presentation,
         u32 preferred_frames_in_flight,
+        VkImageUsageFlagBits preferred_swapchain_usage_flags,
         bool vsync,
         u32 force_physical_device_index,
         bool prefer_discrete_gpu,
@@ -153,6 +154,7 @@ struct Context: nb::intrusive_base {
             .optional_features = optional_features,
             .require_presentation = presentation,
             .preferred_frames_in_flight = preferred_frames_in_flight,
+            .preferred_swapchain_usage_flags = preferred_swapchain_usage_flags,
             .vsync = vsync,
             .enable_debug_utils = enable_debug_utils,
             .enable_validation_layer = enable_validation_layer,
@@ -2981,14 +2983,40 @@ void gfx_create_bindings(nb::module_& m)
         })
     ;
 
+    nb::enum_<VkImageUsageFlagBits>(m, "ImageUsageFlags", nb::is_arithmetic() , nb::is_flag())
+        .value("TRANSFER_SRC",                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+        .value("TRANSFER_DST",                         VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+        .value("SAMPLED",                              VK_IMAGE_USAGE_SAMPLED_BIT)
+        .value("STORAGE",                              VK_IMAGE_USAGE_STORAGE_BIT)
+        .value("COLOR_ATTACHMENT",                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        .value("DEPTH_STENCIL_ATTACHMENT",             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        .value("TRANSIENT_ATTACHMENT",                 VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
+        .value("INPUT_ATTACHMENT",                     VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
+        .value("VIDEO_DECODE_DST",                     VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR)
+        .value("VIDEO_DECODE_SRC",                     VK_IMAGE_USAGE_VIDEO_DECODE_SRC_BIT_KHR)
+        .value("VIDEO_DECODE_DPB",                     VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)
+        .value("FRAGMENT_DENSITY_MAP",                 VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
+        .value("FRAGMENT_SHADING_RATE_ATTACHMENT",     VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
+        .value("HOST_TRANSFER",                        VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT)
+        .value("VIDEO_ENCODE_DST",                     VK_IMAGE_USAGE_VIDEO_ENCODE_DST_BIT_KHR)
+        .value("VIDEO_ENCODE_SRC",                     VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR)
+        .value("VIDEO_ENCODE_DPB",                     VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR)
+        .value("ATTACHMENT_FEEDBACK_LOOP",             VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
+        .value("INVOCATION_MASK",                      VK_IMAGE_USAGE_INVOCATION_MASK_BIT_HUAWEI)
+        .value("SAMPLE_WEIGHT",                        VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM)
+        .value("SAMPLE_BLOCK_MATCH",                   VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM)
+        .value("SHADING_RATE_IMAGE",                   VK_IMAGE_USAGE_SHADING_RATE_IMAGE_BIT_NV)
+    ;
+
     nb::class_<Context>(m, "Context",
         nb::intrusive_ptr<Context>([](Context *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<std::tuple<u32, u32>, gfx::DeviceFeatures::Flags, gfx::DeviceFeatures::Flags, bool, u32, bool, u32, bool, bool, bool, bool, bool>(),
+        .def(nb::init<std::tuple<u32, u32>, gfx::DeviceFeatures::Flags, gfx::DeviceFeatures::Flags, bool, u32, VkImageUsageFlagBits, bool, u32, bool, bool, bool, bool, bool>(),
             nb::arg("version") = std::make_tuple(1, 1),
             nb::arg("required_features") = gfx::DeviceFeatures::Flags(gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::SYNCHRONIZATION_2),
             nb::arg("optional_features") = gfx::DeviceFeatures::Flags(gfx::DeviceFeatures::NONE),
             nb::arg("presentation") = true,
             nb::arg("preferred_frames_in_flight") = 2,
+            nb::arg("preferred_swapchain_usage_flags") = (VkImageUsageFlagBits)(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT),
             nb::arg("vsync") = true,
             nb::arg("force_physical_device_index") = ~0U,
             nb::arg("prefer_discrete_gpu") = true,
@@ -3172,6 +3200,7 @@ void gfx_create_bindings(nb::module_& m)
         )
         .def("post_empty_event", &Window::post_empty_event)
         .def_prop_ro("swapchain_format", [](Window& w) -> VkFormat { return w.window.swapchain_format; })
+        .def_prop_ro("swapchain_usage_flags", [](Window& w) -> VkImageUsageFlagBits { return (VkImageUsageFlagBits)w.window.swapchain_usage_flags; })
         .def_prop_ro("num_swapchain_images", [](Window& w) -> usize { return w.window.image_views.length; })
         .def_prop_ro("fb_width", [](Window& w) -> u32 { return w.window.fb_width; })
         .def_prop_ro("fb_height", [](Window& w) -> u32 { return w.window.fb_height; })
@@ -3365,31 +3394,6 @@ void gfx_create_bindings(nb::module_& m)
         .value("ACCELERATION_STRUCTURE_INPUT",   VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR)
         .value("ACCELERATION_STRUCTURE_STORAGE", VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR)
         .value("SHADER_DEVICE_ADDRESS",          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-    ;
-
-    nb::enum_<VkImageUsageFlagBits>(m, "ImageUsageFlags", nb::is_arithmetic() , nb::is_flag())
-        .value("TRANSFER_SRC",                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
-        .value("TRANSFER_DST",                         VK_IMAGE_USAGE_TRANSFER_DST_BIT)
-        .value("SAMPLED",                              VK_IMAGE_USAGE_SAMPLED_BIT)
-        .value("STORAGE",                              VK_IMAGE_USAGE_STORAGE_BIT)
-        .value("COLOR_ATTACHMENT",                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-        .value("DEPTH_STENCIL_ATTACHMENT",             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-        .value("TRANSIENT_ATTACHMENT",                 VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
-        .value("INPUT_ATTACHMENT",                     VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
-        .value("VIDEO_DECODE_DST",                     VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR)
-        .value("VIDEO_DECODE_SRC",                     VK_IMAGE_USAGE_VIDEO_DECODE_SRC_BIT_KHR)
-        .value("VIDEO_DECODE_DPB",                     VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)
-        .value("FRAGMENT_DENSITY_MAP",                 VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
-        .value("FRAGMENT_SHADING_RATE_ATTACHMENT",     VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
-        .value("HOST_TRANSFER",                        VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT)
-        .value("VIDEO_ENCODE_DST",                     VK_IMAGE_USAGE_VIDEO_ENCODE_DST_BIT_KHR)
-        .value("VIDEO_ENCODE_SRC",                     VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR)
-        .value("VIDEO_ENCODE_DPB",                     VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR)
-        .value("ATTACHMENT_FEEDBACK_LOOP",             VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
-        .value("INVOCATION_MASK",                      VK_IMAGE_USAGE_INVOCATION_MASK_BIT_HUAWEI)
-        .value("SAMPLE_WEIGHT",                        VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM)
-        .value("SAMPLE_BLOCK_MATCH",                   VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM)
-        .value("SHADING_RATE_IMAGE",                   VK_IMAGE_USAGE_SHADING_RATE_IMAGE_BIT_NV)
     ;
 
     nb::enum_<VkCompareOp>(m, "CompareOp")
