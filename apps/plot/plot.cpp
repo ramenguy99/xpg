@@ -1453,6 +1453,7 @@ int main(int argc, char** argv) {
     result = gfx::CreateContext(&vk, {
         .minimum_api_version = (u32)VK_API_VERSION_1_0,
         .enable_validation_layer = enable_vulkan_validation,
+        .enable_synchronization_validation = enable_vulkan_validation,
     });
     if (result != gfx::Result::SUCCESS) {
         logging::error("plot", "Failed to initialize vulkan\n");
