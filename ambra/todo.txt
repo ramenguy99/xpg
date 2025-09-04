@@ -1,8 +1,8 @@
 TODO:
 - [ ] Primitives
-    - [ ] 2D Points
-    - [x] 2D Lines
-    - [ ] Spheres
+    - [ ] thin points 2D / 3D
+    - [x] thin lines 2D / 3D
+    - [ ] circles and spheres
     - [ ] Cilinders (with/without caps)
     - [-] Meshes
         - [ ] Handle optional params for:
@@ -91,7 +91,7 @@ TODO:
     - [x] Configurable keybindings
     - [x] NEXT: Expose imgui.get_io for things like want_capture_mouse (or add helper for that)
     - [x] Show memory usage in stats
-    - [ ] Better/configurable handling of imgui.ini file
+    - [x] Better/configurable handling of imgui.ini file
     - [ ] Port built-in profiler
     - [ ] Memory breakdown view -> also plot of usage per-frame to spot mid-frame allocs
 - [ ] Shaders
@@ -106,6 +106,7 @@ TODO:
     - [ ] Think about clean way to handle handedness / zy up conventions.
         -> wrap things that care in a separate module, make different default symbols base on config ?
         -> maybe math and camera utils should expose both, and viewer use config to pick
+        -> currently configurable but not used everywhere, double check that it is propagated where needed
 - [x] Hook pyxpg logging into python logging
 - [ ] Cleanup before release:
     - [ ] Public vs private API (hide / protect internal stuff)
@@ -257,3 +258,13 @@ Issues found while implementing skeletal animation:
                 - vertex attribute number of joint indices / weights
                 -> do we have a cleaner way to handle those other than (-1, -1, -1) as we do with images now?
 
+Nice to have soon:
+[ ] User texture for UI stuff, e.g. in imagui window (or tooltip)
+    - ImGui uses VkDescriptorSet, must be a single COMBINED_IMAGE_SAMPLER in it
+    - You can pass the descriptor pool from which to allocate to imgui directly, but we currently
+      let ImGui do that and just pass a number
+    - You can allocate from ImGui's pool with ImGuiImplVulkan_AddTexture and ImGuiImplVulkan_RemoveTexture,
+      these will allocate from the imgui's managed pool. This only requires a VkSampler, an image view and a layout.
+    - We can also allocate those descriptor sets manually, either directly in python or in a Gui wrapper.
+    - It might be a bit inefficient to have a DescriptorSet and Pool per image, but we currently don't expose
+      descriptor pools anyway. We might want to revisit this once we do this.

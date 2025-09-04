@@ -244,6 +244,10 @@ C++:
         - [ ] Completely switch to syncrhonization 2 for submission? Probably need to fix barriers for submit and present at COLOR_ATTACHMENT_OUTPUT stage
 - [ ] Controller support
 
+Gfx:
+- [ ] Color management / swapchain format colorspace
+- [ ] Finer grain descriptor pool / set support
+
 Python:
 - [x] Mac wheels (not sure how to handle moltenvk yet)
 - [ ] glslang bindings for compiling and reflection
