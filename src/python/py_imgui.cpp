@@ -13,6 +13,9 @@
 
 #include <imgui.h>
 
+#include "py_gfx.h"
+
+
 namespace nb = nanobind;
 
 typedef ImU32 Color;
@@ -20,6 +23,26 @@ typedef ImU32 Color;
 struct DrawList: nb::intrusive_base {
     DrawList(ImDrawList* list): list(list) { }
     ImDrawList* list;
+};
+
+struct Texture: nb::intrusive_base {
+    Texture(nb::ref<DescriptorSet> descriptor_set)
+        : descriptor_set(std::move(descriptor_set)) {
+        tex_ref = ImTextureRef((ImTextureID)this->descriptor_set->set.set);
+    }
+
+    void destroy() {
+        if (descriptor_set) {
+            descriptor_set->destroy();
+        }
+    }
+
+    ~Texture() {
+        destroy();
+    }
+
+    nb::ref<DescriptorSet> descriptor_set;
+    ImTextureRef tex_ref;
 };
 
 void imgui_create_bindings(nb::module_& mod_imgui)
@@ -126,4 +149,10 @@ void imgui_create_bindings(nb::module_& mod_imgui)
 
     // IO
     mod_imgui.def("get_io", ImGui::GetIO, nb::rv_policy::reference);
+
+    // Texture
+    nb::class_<Texture>(mod_imgui, "Texture",
+        nb::intrusive_ptr<Texture>([](Texture *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def(nb::init<nb::ref<DescriptorSet>>(), "descriptor_set")
+    ;
 }

@@ -1581,7 +1581,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
 
     // Compute available usage flags
     VkImageUsageFlags usage_flags = surface_capabilities.supportedUsageFlags & vk.preferred_swapchain_usage_flags;
-    logging::info("gfx/window", "Swapchain usage flags: preferred 0x%x, supported 0x%x, picked 0x%x", 
+    logging::info("gfx/window", "Swapchain usage flags: preferred 0x%x, supported 0x%x, picked 0x%x",
         vk.preferred_swapchain_usage_flags, surface_capabilities.supportedUsageFlags, vk.preferred_swapchain_usage_flags & surface_capabilities.supportedUsageFlags);
 
     // Compute number of frames in flight.
@@ -2873,6 +2873,27 @@ WriteSamplerDescriptor(VkDescriptorSet set, const Context& vk, const SamplerDesc
     write_descriptor_set.pImageInfo = &desc_info;
     write_descriptor_set.dstBinding = write.binding;
     write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+
+    // Actually write the descriptor to the GPU visible heap
+    vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
+}
+
+void
+WriteCombinedImageSamplerDescriptor(VkDescriptorSet set, const Context& vk, const CombinedImageSamplerDescriptorWriteDesc&& write)
+{
+    // Prepare descriptor and handle
+    VkDescriptorImageInfo desc_info = {};
+    desc_info.sampler = write.sampler;
+    desc_info.imageView = write.view;
+    desc_info.imageLayout = write.layout;
+
+    VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    write_descriptor_set.dstSet = set;
+    write_descriptor_set.dstArrayElement = write.element;
+    write_descriptor_set.descriptorCount = 1;
+    write_descriptor_set.pImageInfo = &desc_info;
+    write_descriptor_set.dstBinding = write.binding;
+    write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 
     // Actually write the descriptor to the GPU visible heap
     vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);

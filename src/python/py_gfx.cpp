@@ -18,6 +18,7 @@
 #include <xpg/gui.h>
 #include <xpg/log.h>
 
+#include "py_gfx.h"
 #include "py_function.h"
 
 namespace nb = nanobind;
@@ -154,7 +155,7 @@ struct Context: nb::intrusive_base {
             .optional_features = optional_features,
             .require_presentation = presentation,
             .preferred_frames_in_flight = preferred_frames_in_flight,
-            .preferred_swapchain_usage_flags = preferred_swapchain_usage_flags,
+            .preferred_swapchain_usage_flags = (VkImageUsageFlags)preferred_swapchain_usage_flags,
             .vsync = vsync,
             .enable_debug_utils = enable_debug_utils,
             .enable_validation_layer = enable_validation_layer,
@@ -184,26 +185,6 @@ struct Context: nb::intrusive_base {
     gfx::Context vk;
     nb::ref<DeviceProperties> device_properties;
     nb::ref<MemoryProperties> memory_properties;
-};
-
-struct GfxObject: nb::intrusive_base {
-    GfxObject() {}
-    GfxObject(nb::ref<Context> ctx, bool owned, std::optional<nb::str> name = std::nullopt)
-        : ctx(std::move(ctx))
-        , owned(owned)
-        , name(std::move(name))
-    {}
-
-    // Reference to main context
-    nb::ref<Context> ctx;
-
-    // If set the underlying object should be freed on destruction.
-    // User created objects normally have this set to true,
-    // context/swapchain owned objects have this set to false.
-    bool owned = true;
-
-    // Debug name, used in __repr__ and set for vkSetDebugUtilsObjectNameEXT
-    std::optional<nb::str> name;
 };
 
 struct AllocInfo: nb::intrusive_base {
@@ -2248,84 +2229,84 @@ struct AccelerationStructure: GfxObject {
 
     gfx::AccelerationStructure as;
 };
-struct DescriptorSetEntry: gfx::DescriptorSetEntryDesc {
-    DescriptorSetEntry(u32 count, VkDescriptorType type)
-        : gfx::DescriptorSetEntryDesc {
-            .count = count,
-            .type = type
-        }
-    {
-    };
+
+
+
+DescriptorSet::DescriptorSet(nb::ref<Context> ctx, const std::vector<DescriptorSetEntry>& entries, VkDescriptorBindingFlagBits flags, std::optional<nb::str> name)
+    : GfxObject(ctx, true, std::move(name))
+{
+    VkResult vkr = gfx::CreateDescriptorSet(&set, ctx->vk, {
+        .entries = ArrayView((gfx::DescriptorSetEntryDesc*)entries.data(), entries.size()),
+        .flags = (VkDescriptorBindingFlags)flags,
+    });
+    if (vkr != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create descriptor set");
+    }
+    DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_SET, set.set);
+    DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_POOL, set.pool);
+    DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, set.layout);
+}
+
+void DescriptorSet::write_buffer(const Buffer& buffer, VkDescriptorType type, u32 binding, u32 element, VkDeviceSize offset, VkDeviceSize size) {
+    gfx::WriteBufferDescriptor(set.set, ctx->vk, {
+        .buffer = buffer.buffer.buffer,
+        .type = type,
+        .binding = binding,
+        .element = element,
+        .offset = offset,
+        .size = size,
+    });
 };
-static_assert(sizeof(DescriptorSetEntry) == sizeof(gfx::DescriptorSetEntryDesc));
 
-struct DescriptorSet: GfxObject {
-    DescriptorSet(nb::ref<Context> ctx, const std::vector<DescriptorSetEntry>& entries, VkDescriptorBindingFlagBits flags, std::optional<nb::str> name)
-        : GfxObject(ctx, true, std::move(name))
-    {
-        VkResult vkr = gfx::CreateDescriptorSet(&set, ctx->vk, {
-            .entries = ArrayView((gfx::DescriptorSetEntryDesc*)entries.data(), entries.size()),
-            .flags = (VkDescriptorBindingFlags)flags,
-        });
-        if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create descriptor set");
-        }
-        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_SET, set.set);
-        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_POOL, set.pool);
-        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, set.layout);
-    }
-
-    void write_buffer(const Buffer& buffer, VkDescriptorType type, u32 binding, u32 element, VkDeviceSize offset, VkDeviceSize size) {
-        gfx::WriteBufferDescriptor(set.set, ctx->vk, {
-            .buffer = buffer.buffer.buffer,
-            .type = type,
-            .binding = binding,
-            .element = element,
-            .offset = offset,
-            .size = size,
-        });
-    };
-
-    void write_image(const Image& image, VkImageLayout layout, VkDescriptorType type, u32 binding, u32 element) {
-        gfx::WriteImageDescriptor(set.set, ctx->vk, {
-            .view = image.image.view,
-            .layout = layout,
-            .type = type,
-            .binding = binding,
-            .element = element,
-        });
-    };
-
-    void write_sampler(const Sampler& sampler, u32 binding, u32 element) {
-        gfx::WriteSamplerDescriptor(set.set, ctx->vk, {
-            .sampler = sampler.sampler.sampler,
-            .binding = binding,
-            .element = element,
-        });
-    }
-
-    void write_acceleration_structure(const AccelerationStructure& as, u32 binding, u32 element) {
-        gfx::WriteAccelerationStructureDescriptor(set.set, ctx->vk, {
-            .acceleration_structure = as.as.tlas,
-            .binding = binding,
-            .element = element,
-        });
-    }
-
-    ~DescriptorSet()
-    {
-        destroy();
-    }
-
-    void destroy()
-    {
-        if (owned) {
-            gfx::DestroyDescriptorSet(&set, ctx->vk);
-        }
-    }
-
-    gfx::DescriptorSet set;
+void DescriptorSet::write_image(const Image& image, VkImageLayout layout, VkDescriptorType type, u32 binding, u32 element) {
+    gfx::WriteImageDescriptor(set.set, ctx->vk, {
+        .view = image.image.view,
+        .layout = layout,
+        .type = type,
+        .binding = binding,
+        .element = element,
+    });
 };
+
+void DescriptorSet::write_combined_image_sampler(const Image& image, VkImageLayout layout, const Sampler& sampler, u32 binding, u32 element) {
+    gfx::WriteCombinedImageSamplerDescriptor(set.set, ctx->vk, {
+        .view = image.image.view,
+        .layout = layout,
+        .sampler = sampler.sampler.sampler,
+        .binding = binding,
+        .element = element,
+    });
+}
+
+void DescriptorSet::write_sampler(const Sampler& sampler, u32 binding, u32 element) {
+    gfx::WriteSamplerDescriptor(set.set, ctx->vk, {
+        .sampler = sampler.sampler.sampler,
+        .binding = binding,
+        .element = element,
+    });
+}
+
+void DescriptorSet::write_acceleration_structure(const AccelerationStructure& as, u32 binding, u32 element) {
+    gfx::WriteAccelerationStructureDescriptor(set.set, ctx->vk, {
+        .acceleration_structure = as.as.tlas,
+        .binding = binding,
+        .element = element,
+    });
+}
+
+DescriptorSet::~DescriptorSet()
+{
+    destroy();
+}
+
+void DescriptorSet::destroy()
+{
+    if (owned) {
+        gfx::DestroyDescriptorSet(&set, ctx->vk);
+    }
+}
+
+
 
 struct Shader: GfxObject {
     Shader(nb::ref<Context> ctx, const nb::bytes& code, std::optional<nb::str> name)
@@ -4427,6 +4408,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("write_buffer", &DescriptorSet::write_buffer, nb::arg("buffer"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0, nb::arg("offset") = 0, nb::arg("size") = VK_WHOLE_SIZE)
         .def("write_image", &DescriptorSet::write_image, nb::arg("image"), nb::arg("layout"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0)
         .def("write_sampler", &DescriptorSet::write_sampler, nb::arg("sampler"), nb::arg("binding"), nb::arg("element") = 0)
+        .def("write_combined_image_sampler", &DescriptorSet::write_combined_image_sampler, nb::arg("image"), nb::arg("layout"), nb::arg("sampler"), nb::arg("binding"), nb::arg("element") = 0)
         .def("write_acceleration_structure", &DescriptorSet::write_acceleration_structure, nb::arg("acceleration_structure"), nb::arg("binding"), nb::arg("element") = 0)
     ;
 

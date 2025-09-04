@@ -1048,6 +1048,15 @@ struct ImageDescriptorWriteDesc {
     u32 element = 0;
 };
 
+struct CombinedImageSamplerDescriptorWriteDesc {
+    VkImageView view;
+    VkImageLayout layout;
+    VkSampler sampler;
+
+    u32 binding;
+    u32 element = 0;
+};
+
 struct SamplerDescriptorWriteDesc {
     VkSampler sampler;
     u32 binding;
@@ -1063,6 +1072,7 @@ struct AccelerationStructureDescriptorWriteDesc {
 void WriteBufferDescriptor(VkDescriptorSet set, const Context& vk, const BufferDescriptorWriteDesc&& write);
 void WriteImageDescriptor(VkDescriptorSet set, const Context& vk, const ImageDescriptorWriteDesc&& write);
 void WriteSamplerDescriptor(VkDescriptorSet set, const Context& vk, const SamplerDescriptorWriteDesc&& write);
+void WriteCombinedImageSamplerDescriptor(VkDescriptorSet set, const Context& vk, const CombinedImageSamplerDescriptorWriteDesc&& write);
 void WriteAccelerationStructureDescriptor(VkDescriptorSet set, const Context& vk, const AccelerationStructureDescriptorWriteDesc&& write);
 
 // Acceleration structures
