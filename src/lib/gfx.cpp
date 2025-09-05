@@ -2790,7 +2790,7 @@ CreateSampler(Sampler* sampler, const Context& vk, const SamplerDesc&& desc) {
     info.compareOp = desc.compare_op;
     info.minLod = desc.min_lod;
     info.maxLod = desc.max_lod;
-    info.borderColor = {};
+    info.borderColor = desc.border_color;
     info.unnormalizedCoordinates = 0;
 
     VkSampler s = {};

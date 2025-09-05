@@ -1000,6 +1000,8 @@ struct SamplerDesc {
 
     bool compare_enable = false;
     VkCompareOp compare_op = VK_COMPARE_OP_ALWAYS;
+
+    VkBorderColor border_color = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
 };
 
 VkResult CreateSampler(Sampler* sampler, const Context& vk, const SamplerDesc&& desc);

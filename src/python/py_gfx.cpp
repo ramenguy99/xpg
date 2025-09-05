@@ -866,6 +866,7 @@ struct Sampler: GfxObject {
         float max_anisotropy,
         bool compare_enable,
         VkCompareOp compare_op,
+        VkBorderColor border_color,
         std::optional<nb::str> name
     ) : GfxObject(ctx, true, std::move(name))
     {
@@ -882,7 +883,8 @@ struct Sampler: GfxObject {
             .anisotroy_enabled = anisotroy_enabled,
             .max_anisotropy =    max_anisotropy,
             .compare_enable =    compare_enable,
-            .compare_op =        compare_op
+            .compare_op =        compare_op,
+            .border_color =      border_color,
         });
 
         if (vkr != VK_SUCCESS) {
@@ -3407,6 +3409,17 @@ void gfx_create_bindings(nb::module_& m)
         .value("MIRROR_CLAMP_TO_EDGE", VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE)
     ;
 
+    nb::enum_<VkBorderColor>(m, "BorderColor")
+        .value("FLOAT_TRANSPARENT_BLACK", VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK)
+        .value("INT_TRANSPARENT_BLACK",   VK_BORDER_COLOR_INT_TRANSPARENT_BLACK)
+        .value("FLOAT_OPAQUE_BLACK",      VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
+        .value("INT_OPAQUE_BLACK",        VK_BORDER_COLOR_INT_OPAQUE_BLACK)
+        .value("FLOAT_OPAQUE_WHITE",      VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE)
+        .value("INT_OPAQUE_WHITE",        VK_BORDER_COLOR_INT_OPAQUE_WHITE)
+        .value("FLOAT_CUSTOM",            VK_BORDER_COLOR_FLOAT_CUSTOM_EXT)
+        .value("INT_CUSTOM",              VK_BORDER_COLOR_INT_CUSTOM_EXT)
+    ;
+
     nb::class_<GfxObject>(m, "GfxObject",
         nb::intrusive_ptr<GfxObject>([](GfxObject *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def_ro("ctx", &GfxObject::ctx)
@@ -3550,6 +3563,7 @@ void gfx_create_bindings(nb::module_& m)
                 float,
                 bool,
                 VkCompareOp,
+                VkBorderColor,
                 std::optional<nb::str>
             >(),
                 nb::arg("ctx"),
@@ -3566,6 +3580,7 @@ void gfx_create_bindings(nb::module_& m)
                 nb::arg("max_anisotropy")    = 0.0f,
                 nb::arg("compare_enable")    = false,
                 nb::arg("compare_op")        = VK_COMPARE_OP_ALWAYS,
+                nb::arg("border_color")      = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
                 nb::arg("name") = nb::none()
             )
         .def("__repr__", [](Sampler& sampler) {

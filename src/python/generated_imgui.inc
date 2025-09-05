@@ -1586,18 +1586,18 @@ mod_imgui.def("text_link_open_u_r_l",
     }, nb::arg("label"), nb::arg("url") = nb::none());
 
 mod_imgui.def("image",
-    [] (ImTextureRef tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1) -> void {
-        return ImGui::Image(tex_ref, image_size, uv0, uv1);
+    [] (const Texture& tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1) -> void {
+        return ImGui::Image(tex_ref.tex_ref, image_size, uv0, uv1);
     }, nb::arg("tex_ref"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1));
 
 mod_imgui.def("image_with_bg",
-    [] (ImTextureRef tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 bg_col, ImVec4 tint_col) -> void {
-        return ImGui::ImageWithBg(tex_ref, image_size, uv0, uv1, bg_col, tint_col);
+    [] (const Texture& tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 bg_col, ImVec4 tint_col) -> void {
+        return ImGui::ImageWithBg(tex_ref.tex_ref, image_size, uv0, uv1, bg_col, tint_col);
     }, nb::arg("tex_ref"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
 
 mod_imgui.def("image_button",
-    [] (const char* str_id, ImTextureRef tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 bg_col, ImVec4 tint_col) -> bool {
-        return ImGui::ImageButton(str_id, tex_ref, image_size, uv0, uv1, bg_col, tint_col);
+    [] (const char* str_id, const Texture& tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 bg_col, ImVec4 tint_col) -> bool {
+        return ImGui::ImageButton(str_id, tex_ref.tex_ref, image_size, uv0, uv1, bg_col, tint_col);
     }, nb::arg("str_id"), nb::arg("tex_ref"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
 
 mod_imgui.def("drag_float",
@@ -2645,8 +2645,8 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
         return self->list->PopClipRect();
     })
     .def("push_texture",
-    [] (DrawList* self, ImTextureRef tex_ref) -> void {
-        return self->list->PushTexture(tex_ref);
+    [] (DrawList* self, const Texture& tex_ref) -> void {
+        return self->list->PushTexture(tex_ref.tex_ref);
     }, nb::arg("tex_ref"))
     .def("pop_texture",
     [] (DrawList* self) -> void {
@@ -2741,16 +2741,16 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
         return self->list->AddConcavePolyFilled(points, num_points, col);
     }, nb::arg("points"), nb::arg("num_points"), nb::arg("col"))
     .def("add_image",
-    [] (DrawList* self, ImTextureRef tex_ref, ImVec2 p_min, ImVec2 p_max, ImVec2 uv_min, ImVec2 uv_max, Color col) -> void {
-        return self->list->AddImage(tex_ref, p_min, p_max, uv_min, uv_max, col);
+    [] (DrawList* self, const Texture& tex_ref, ImVec2 p_min, ImVec2 p_max, ImVec2 uv_min, ImVec2 uv_max, Color col) -> void {
+        return self->list->AddImage(tex_ref.tex_ref, p_min, p_max, uv_min, uv_max, col);
     }, nb::arg("tex_ref"), nb::arg("p_min"), nb::arg("p_max"), nb::arg("uv_min") = nb::make_tuple(0, 0), nb::arg("uv_max") = nb::make_tuple(1, 1), nb::arg("col") = IM_COL32_WHITE)
     .def("add_image_quad",
-    [] (DrawList* self, ImTextureRef tex_ref, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, ImVec2 uv1, ImVec2 uv2, ImVec2 uv3, ImVec2 uv4, Color col) -> void {
-        return self->list->AddImageQuad(tex_ref, p1, p2, p3, p4, uv1, uv2, uv3, uv4, col);
+    [] (DrawList* self, const Texture& tex_ref, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, ImVec2 uv1, ImVec2 uv2, ImVec2 uv3, ImVec2 uv4, Color col) -> void {
+        return self->list->AddImageQuad(tex_ref.tex_ref, p1, p2, p3, p4, uv1, uv2, uv3, uv4, col);
     }, nb::arg("tex_ref"), nb::arg("p1"), nb::arg("p2"), nb::arg("p3"), nb::arg("p4"), nb::arg("uv1") = nb::make_tuple(0, 0), nb::arg("uv2") = nb::make_tuple(1, 0), nb::arg("uv3") = nb::make_tuple(1, 1), nb::arg("uv4") = nb::make_tuple(0, 1), nb::arg("col") = IM_COL32_WHITE)
     .def("add_image_rounded",
-    [] (DrawList* self, ImTextureRef tex_ref, ImVec2 p_min, ImVec2 p_max, ImVec2 uv_min, ImVec2 uv_max, Color col, float rounding, ImDrawFlags flags) -> void {
-        return self->list->AddImageRounded(tex_ref, p_min, p_max, uv_min, uv_max, col, rounding, flags);
+    [] (DrawList* self, const Texture& tex_ref, ImVec2 p_min, ImVec2 p_max, ImVec2 uv_min, ImVec2 uv_max, Color col, float rounding, ImDrawFlags flags) -> void {
+        return self->list->AddImageRounded(tex_ref.tex_ref, p_min, p_max, uv_min, uv_max, col, rounding, flags);
     }, nb::arg("tex_ref"), nb::arg("p_min"), nb::arg("p_max"), nb::arg("uv_min"), nb::arg("uv_max"), nb::arg("col"), nb::arg("rounding"), nb::arg("flags") = 0)
     .def("path_clear",
     [] (DrawList* self) -> void {
@@ -2845,8 +2845,8 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
         return self->list->PrimVtx(pos, uv, col);
     }, nb::arg("pos"), nb::arg("uv"), nb::arg("col"))
     .def("push_texture_id",
-    [] (DrawList* self, ImTextureRef tex_ref) -> void {
-        return self->list->PushTextureID(tex_ref);
+    [] (DrawList* self, const Texture& tex_ref) -> void {
+        return self->list->PushTextureID(tex_ref.tex_ref);
     }, nb::arg("tex_ref"))
     .def("pop_texture_id",
     [] (DrawList* self) -> void {
@@ -2864,8 +2864,8 @@ mod_imgui.def("set_window_font_scale",
     }, nb::arg("scale"));
 
 mod_imgui.def("image_im_vec4",
-    [] (ImTextureRef tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 tint_col, ImVec4 border_col) -> void {
-        return ImGui::Image(tex_ref, image_size, uv0, uv1, tint_col, border_col);
+    [] (const Texture& tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 tint_col, ImVec4 border_col) -> void {
+        return ImGui::Image(tex_ref.tex_ref, image_size, uv0, uv1, tint_col, border_col);
     }, nb::arg("tex_ref"), nb::arg("image_size"), nb::arg("uv0"), nb::arg("uv1"), nb::arg("tint_col"), nb::arg("border_col"));
 
 mod_imgui.def("push_button_repeat",
