@@ -65,6 +65,9 @@ void imgui_create_bindings(nb::module_& mod_imgui)
             }
             new (v) ImVec2(nb::cast<float>(l[0]), nb::cast<float>(l[1]));
         }, nb::arg("l"))
+        .def("__repr__", [](ImVec2& v) {
+            return nb::str("[{}, {}]").format(v.x, v.y);
+        })
     ;
     nb::implicitly_convertible<nb::tuple, ImVec2>();
     nb::implicitly_convertible<nb::list, ImVec2>();
@@ -88,6 +91,9 @@ void imgui_create_bindings(nb::module_& mod_imgui)
             }
             new (v) ImVec4(nb::cast<float>(l[0]), nb::cast<float>(l[1]), nb::cast<float>(l[2]), nb::cast<float>(l[3]));
         }, nb::arg("l"))
+        .def("__repr__", [](ImVec4& v) {
+            return nb::str("[{}, {}, {}, {}]").format(v.x, v.y, v.z, v.w);
+        })
     ;
     nb::implicitly_convertible<nb::tuple, ImVec4>();
     nb::implicitly_convertible<nb::list, ImVec4>();
