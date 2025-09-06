@@ -1398,6 +1398,10 @@ Result AcquireImage(Frame* frame, Window* window, const Context& vk)
         return Result::API_ERROR;
     }
 
+    // Reset frame fence before submission. This must be done after acquiring
+    // because acquiring can fail with an out-of-date swapchain.
+    vkResetFences(vk.device, 1, &frame->fence);
+
     frame->current_image_index = image_index;
     frame->current_image = window->images[image_index];
     frame->current_image_view = window->image_views[image_index];
