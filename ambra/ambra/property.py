@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Union, List, Tuple, Optional
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import DTypeLike
@@ -297,4 +297,3 @@ def as_property(
         return value
     else:
         return DataProperty(value, dtype, shape, animation, upload, name)
-

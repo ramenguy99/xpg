@@ -31,6 +31,7 @@ from pyxpg import (
 )
 
 from .config import RendererConfig, UploadMethod
+from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .renderer_frame import RendererFrame
 from .scene import Property
 from .shaders import compile
@@ -41,7 +42,6 @@ from .utils.gpu import (
     UniformPool,
     UploadableBuffer,
 )
-from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .utils.ring_buffer import RingBuffer
 from .utils.threadpool import ThreadPool
 from .viewport import Viewport

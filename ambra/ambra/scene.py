@@ -5,9 +5,9 @@ from numpy.typing import DTypeLike
 from pyglm.glm import mat3, mat4, quat, vec2, vec3
 from pyxpg import imgui
 
+from .property import Animation, Property, PropertyData, UploadSettings, as_property
 from .transform2d import Transform2D
 from .transform3d import Transform3D
-from .property import Property, PropertyData, Animation, UploadSettings, as_property
 
 _counter = 0
 

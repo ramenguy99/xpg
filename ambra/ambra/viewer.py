@@ -24,11 +24,11 @@ from pyxpg import (
 )
 
 from .config import Config
+from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .keybindings import KeyMap
 from .renderer import Renderer
 from .scene import Object, Scene
 from .server import Client, Message, RawMessage, Server, parse_builtin_messages
-from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .utils.lru_pool import LRUPool
 from .viewport import Playback, Rect, Viewport
 
