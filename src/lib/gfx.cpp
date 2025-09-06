@@ -689,6 +689,13 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         },
     };
 
+    ExtensionDependencies<1> shader_draw_parameters_deps = {
+        .flag = DeviceFeatures::SHADER_DRAW_PARAMETERS,
+        .extensions = {
+            VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
+        },
+    };
+
     // Enumerate and choose a physical devices.
     u32 physical_device_count = 0;
     result = vkEnumeratePhysicalDevices(instance, &physical_device_count, 0);
@@ -880,6 +887,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             CHECK_SUPPORTED_EXTENSIONS(external_resources);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(host_query_reset);
             CHECK_SUPPORTED_EXTENSIONS(calibrated_timestamps);
+            CHECK_SUPPORTED_EXTENSIONS(shader_draw_parameters);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(timeline_semaphore);
 
             if (features_to_check & DeviceFeatures::WIDE_LINES)
@@ -1040,6 +1048,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     ENABLE_EXTENSIONS_IF_SUPPORTED(external_resources);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(host_query_reset);
     ENABLE_EXTENSIONS_IF_SUPPORTED(calibrated_timestamps);
+    ENABLE_EXTENSIONS_IF_SUPPORTED(shader_draw_parameters);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(timeline_semaphore);
 
     void* enabled_next = 0;
@@ -1479,11 +1488,6 @@ VkPipelineStageFlags2 stage_mask) {
 #else
 VkPipelineStageFlags stage_mask) {
 #endif
-
-    // Reset frame fence before submission. This must be done after acquiring
-    // because acquiring can fail with an out-of-date swapchain.
-    vkResetFences(vk.device, 1, &frame.fence);
-
 #if 0
     VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
     wait_info.semaphore = frame.acquire_semaphore;

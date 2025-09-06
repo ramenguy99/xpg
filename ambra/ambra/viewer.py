@@ -28,7 +28,7 @@ from .keybindings import KeyMap
 from .renderer import Renderer
 from .scene import Object, Scene
 from .server import Client, Message, RawMessage, Server, parse_builtin_messages
-from .utils.gpu_property import GpuBufferProperty, GpuImageProperty
+from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .utils.lru_pool import LRUPool
 from .viewport import Playback, Rect, Viewport
 
@@ -73,7 +73,8 @@ class Viewer:
             optional_features=DeviceFeatures.RAY_QUERY
             | DeviceFeatures.HOST_QUERY_RESET
             | DeviceFeatures.WIDE_LINES
-            | DeviceFeatures.TIMELINE_SEMAPHORES,
+            | DeviceFeatures.TIMELINE_SEMAPHORES
+            | DeviceFeatures.SHADER_DRAW_PARAMETERS,
             preferred_frames_in_flight=config.preferred_frames_in_flight,
             vsync=config.vsync,
             force_physical_device_index=0xFFFFFFFF

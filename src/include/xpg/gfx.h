@@ -70,18 +70,19 @@ enum class Result
 
 struct DeviceFeatures {
     enum Flags: u64 {
-        NONE                  =         0,
-        DYNAMIC_RENDERING     = 1ull << 0,
-        SYNCHRONIZATION_2     = 1ull << 1,
-        DESCRIPTOR_INDEXING   = 1ull << 2,
-        SCALAR_BLOCK_LAYOUT   = 1ull << 3,
-        RAY_QUERY             = 1ull << 4,
-        RAY_TRACING_PIPELINE  = 1ull << 5,
-        EXTERNAL_RESOURCES    = 1ull << 6,
-        HOST_QUERY_RESET      = 1ull << 7,
-        CALIBRATED_TIMESTAMPS = 1ull << 8,
-        TIMELINE_SEMAPHORES   = 1ull << 9,
-        WIDE_LINES            = 1ull << 10,
+        NONE                   =         0,
+        DYNAMIC_RENDERING      = 1ull << 0,
+        SYNCHRONIZATION_2      = 1ull << 1,
+        DESCRIPTOR_INDEXING    = 1ull << 2,
+        SCALAR_BLOCK_LAYOUT    = 1ull << 3,
+        RAY_QUERY              = 1ull << 4,
+        RAY_TRACING_PIPELINE   = 1ull << 5,
+        EXTERNAL_RESOURCES     = 1ull << 6,
+        HOST_QUERY_RESET       = 1ull << 7,
+        CALIBRATED_TIMESTAMPS  = 1ull << 8,
+        TIMELINE_SEMAPHORES    = 1ull << 9,
+        WIDE_LINES             = 1ull << 10,
+        SHADER_DRAW_PARAMETERS = 1ull << 11,
     };
 
     DeviceFeatures() {};

@@ -9,7 +9,7 @@ from ambra.config import (
     RendererConfig,
 )
 from ambra.primitives2d import Image
-from ambra.scene import StreamingProperty, UploadSettings
+from ambra.property import StreamingProperty, UploadSettings
 from ambra.utils.gpu import Format
 from ambra.viewer import Viewer
 

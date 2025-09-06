@@ -154,6 +154,9 @@ class Image(Object3D):
         self.format = format
 
     def create(self, r: Renderer) -> None:
+        if not (r.ctx.device_features & DeviceFeatures.SHADER_DRAW_PARAMETERS):
+            raise RuntimeError(f"Image primitive requires {DeviceFeatures.SHADER_DRAW_PARAMETERS} whis is not available on current device.")
+
         self.images = r.add_gpu_image_property(
             self.image,
             self.format,
