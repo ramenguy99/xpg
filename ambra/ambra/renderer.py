@@ -41,7 +41,7 @@ from .utils.gpu import (
     UniformPool,
     UploadableBuffer,
 )
-from .utils.gpu_property import GpuBufferProperty, GpuImageProperty
+from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .utils.ring_buffer import RingBuffer
 from .utils.threadpool import ThreadPool
 from .viewport import Viewport

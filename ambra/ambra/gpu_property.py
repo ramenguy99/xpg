@@ -18,12 +18,12 @@ from pyxpg import (
     TimelineSemaphore,
 )
 
-from ..config import UploadMethod
-from ..renderer_frame import RendererFrame, SemaphoreInfo
-from ..scene import Property, view_bytes
-from .gpu import BufferUploadInfo, ImageUploadInfo, get_image_pitch_rows_and_texel_size
-from .lru_pool import LRUPool
-from .threadpool import Promise, ThreadPool
+from .config import UploadMethod
+from .renderer_frame import RendererFrame, SemaphoreInfo
+from .property import Property, view_bytes
+from .utils.gpu import BufferUploadInfo, ImageUploadInfo, get_image_pitch_rows_and_texel_size
+from .utils.lru_pool import LRUPool
+from .utils.threadpool import Promise, ThreadPool
 
 
 class CpuBuffer:

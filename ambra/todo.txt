@@ -243,7 +243,7 @@ Issues found while implementing skeletal animation:
         -> can we create a sort of LiveProperty that implements this?
         -> or should we instead build the non-preuploaded resources on top of something that supports this?
     -> I think we are in for a big rewrite here:
-        -> we don't actually need more than 1 GPU buffer unless prefetching:
+        [x] we don't actually need more than 1 GPU buffer unless prefetching:
             -> BAR + CPU is anyways on CPU buffers that are per-frame buffered (currently BAR is on GPU buffer but maybe should be moved)
             -> GFX + TRANSFER non-prefetch buffers do not need double buffering because we are not overlapping frames like that
             -> we can keep treating prefetch buffers separate how we have been doing
@@ -257,6 +257,107 @@ Issues found while implementing skeletal animation:
                 - vertex attribute dtypes
                 - vertex attribute number of joint indices / weights
                 -> do we have a cleaner way to handle those other than (-1, -1, -1) as we do with images now?
+
+        Design space:
+            CPU property memory allocation:
+                Full array   -> one single array with all frames of the same size
+                Jagged array -> list of variable size arrays
+
+            GPU property variants:
+                Preupload: All frames allocated with max size (conservative preupload) or exact size (exact preupload)
+                    Buffer location:
+                        CPU mapped  -> one for each property frame with exact or conservative size depending CPU property, upload is just memcpy
+                        GPU managed -> one for each property frame with exact or conservative size depending CPU property, upload through bulk
+                    CPU load:
+                        sync  -> just use at upload time
+                        async -> parallel for at creation time, use at upload time
+                    GPU upload (only if GPU managed): bulk upload
+                    Prefetching: N/A
+                    Update:
+                        CPU mapped:
+                            Full array
+                                1. can alloc extra staging buffers and exchange them with frames in flight -> potentially complex to implement
+                                2. use any of the jagged array solutions
+                            Jagged array -> interchange is not possible because we can get back smaller buffers, there is no perfect solution for this case I think.
+                                1. Switch to always have the GPU do the copy (basically promote to GPU managed and handle the same way) -> potentially bad for resources in CPU memory
+                                2. Allocate frames_in_flight - 1 buffers FOR EACH property frame -> adds frames_in_flight - 1 times the cpu memory usage of this property
+                                3. Add an externally synchronized CPU thread to do the async copy when the last frame is done but before the new frame uses the buffer.
+                                This basically just replaces the GPU copy with a CPU copy on the same timeline and critical path. Synchronization will also be very hard to get right.
+                                I think we should do solution 1 by default, and expose solution 2 if explicitly requested by the user.
+                        GPU managed: can allocate staging buffers for each frame in flight with conservative size and issue uploads each render frame
+                    Resize:
+                        Shrink:
+                            Full array: need to reallocate all buffers anyways, might aswell create a new property, use a jagged array if needed
+                            Jagged array: supported out of the box, GPU buffers are not resized, uploads and rendering checks actual size before usage
+                        Grow:
+                            Full array: need to reallocate all buffers anyways, might aswell create a new property
+                            Jagged array: could potentially reallocate the buffer just for this frame, but need a way to delay freeing of existing buffer until not in use (could always keep track, or just wait a safe amount of frames)
+
+                Streaming: Frames in flight allocated with max size  -> upload every miss (e.g. new property frame not yet loaded, allows prefetching)
+                    Buffer location:
+                        CPU mapped  -> need one per frame in flight, don't reuse until render frame finished on the GPU
+                        GPU managed -> need one cpu buffer as a source per frame in flight, one GPU buffer is enough because GPU frames don't overlap
+                    CPU load:
+                        sync  -> CPU property frame loaded immediately on .load()
+                        async -> CPU proeprty frame enqueued on .load() and waited on .upload() (wait could potentially be delayed until submit for GPU copy, and also for CPU if scheduled asynchronously)
+                    GPU upload (only if GPU managed):
+                        gfx queue      -> extra commands in gfx queue to issue load
+                        transfer queue -> extra commands in transfer queue to issue load + extra semaphores to sync queues
+                    Prefetching:
+                        CPU prefething  -> only if CPU load is async, has extra buffers for load jobs
+                        GPU prefetching -> only if GPU load is transfer queue, has extra buffers and command lists for async jobs, requires extra semaphores to sync queues
+                    Update:
+                        Same as streaming in a new property frame, in a way the frame identifier becomes a tuple (property frame index, generation index)
+                        The tricky bit is that we really need to consider both at the same time, because you could potentially in flight
+                        the same property frame but with a different generation index.
+                    Resize:
+                        Shrink: supported out of the box, GPU buffers are not resized, uploads and rendering checks actual size before usage
+                        Grow: need to reallocate all buffers anyways, might aswell create a new property
+
+                All variants:
+                    - preupload | preuplod dynamic | streaming
+                    - cpu sync | cpu async
+                    - cpu heap | gpu heap
+                    - cpu mapped | gfx queue | transfer queue
+                    - cpu prefetch | no prefetch
+                    - gpu prefetch | no prefetch
+
+                    Hard rules:
+                        gpu prefetch requires transfer queue
+                        cpu prefetch requires cpu async
+                        transfer queue requires streaming
+                        images require gpu heap
+                    Soft rules:
+                        gfx queue and transfer queue prefer gpu heap
+                        preupload dynamic prefers gpu heap
+
+                Data structures:
+                    - Single buffer -> good for streaming content that is synchronized on GPU timeline
+                    - Full array (for each property frame)  -> good for static preupload and reuse
+                    - Ringbuffer (for each frame in flight) -> good for dynamic things that change each frame
+                    - LRU cache -> good for prefetching and reuse of already uploaded buffers with eviction policies
+                        -> handles frames in flight refcounting
+                        -> handles LRU eviction
+                        -> handles lookup of already present property frames
+
+                What datastructures we need for what usecase and set of buffers?
+                    Preupload:
+                        static: one buffer for each property frame -> Full array
+                        dynamic:
+                            case 1.
+                                - one buffer for each property frame -> Full array
+                                - one staging buffer for each frame in flight -> Ring buffer
+                            case 2.
+                                - frames in flight buffers for each property frame -> many Full array
+
+                    Streaming:
+                        CPU load: one buffer per frame in flight and caching -> LRU pool
+                        GPU upload: single buffer
+
+                    Streaming + prefetch:
+                        CPU load: one buffer per frame in flight + one per prefetch and caching -> LRU pool
+                        GPU upload: single buffer + prefetch buffers with exchange -> LRU pool?
+
 
 Nice to have soon:
 [ ] User texture for UI stuff, e.g. in imagui window (or tooltip)

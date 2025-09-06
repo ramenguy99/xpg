@@ -230,6 +230,9 @@ Build:
 
 Maintenance:
 - [ ] Add simple unit tests, pytest with a specific python version? Use lavapipe for rendering tests?
+- [ ] Add Vulkan API tests taking advantage of vulkan profiles simulation: https://vulkan.lunarg.com/doc/sdk/1.4.321.1/windows/profiles_layer.html
+    - Simulate multiple variants of supported extensions and features
+    - Check if possible to simulate different memory heaps and types too
 
 Docs:
 - [ ] Doc comments and documentation website
