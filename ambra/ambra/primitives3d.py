@@ -33,29 +33,30 @@ from pyxpg import (
     VertexInputRate,
 )
 
+from .property import BufferProperty, ImageProperty
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
-from .scene import Object3D, Property
+from .scene import Object3D
 from .utils.ring_buffer import RingBuffer
 
 
 class Lines(Object3D):
     def __init__(
         self,
-        lines: Union[Property, np.ndarray],
-        colors: Union[Property, np.ndarray],
-        line_width: Union[Property, float] = 1.0,
+        lines: Union[BufferProperty, np.ndarray],
+        colors: Union[BufferProperty, np.ndarray],
+        line_width: Union[BufferProperty, float] = 1.0,
         is_strip: bool = False,
         name: Optional[str] = None,
-        translation: Optional[Property] = None,
-        rotation: Optional[Property] = None,
-        scale: Optional[Property] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
     ):
         super().__init__(name, translation, rotation, scale)
         self.is_strip = is_strip
-        self.lines = self.add_property(lines, np.float32, (-1, 3), name="lines")
-        self.colors = self.add_property(colors, np.uint32, (-1,), name="colors")
-        self.line_width = self.add_property(line_width, np.float32, name="line_width")
+        self.lines = self.add_buffer_property(lines, np.float32, (-1, 3), name="lines")
+        self.colors = self.add_buffer_property(colors, np.uint32, (-1,), name="colors")
+        self.line_width = self.add_buffer_property(line_width, np.float32, name="line_width")
 
     def create(self, r: Renderer) -> None:
         self.lines_buffer = r.add_gpu_buffer_property(
@@ -142,16 +143,14 @@ class Lines(Object3D):
 class Image(Object3D):
     def __init__(
         self,
-        image: Property,
-        format: Format,
+        image: ImageProperty,
         name: Optional[str] = None,
-        translation: Optional[Property] = None,
-        rotation: Optional[Property] = None,
-        scale: Optional[Property] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
     ):
         super().__init__(name, translation, rotation, scale)
-        self.image = self.add_property(image, shape=(-1, -1, -1), name="image")
-        self.format = format
+        self.image = self.add_image_property(image, name="image")
 
     def create(self, r: Renderer) -> None:
         if not (r.ctx.device_features & DeviceFeatures.SHADER_DRAW_PARAMETERS):
@@ -161,7 +160,6 @@ class Image(Object3D):
 
         self.images = r.add_gpu_image_property(
             self.image,
-            self.format,
             ImageUsageFlags.SAMPLED,
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
             MemoryUsage.SHADER_READ_ONLY,
@@ -246,21 +244,23 @@ class Image(Object3D):
 class Mesh(Object3D):
     def __init__(
         self,
-        positions: Property,
+        positions: BufferProperty,
         #  normals: Property[np.ndarray],
-        indices: Optional[Property] = None,
+        indices: Optional[BufferProperty] = None,
         primitive_topology: PrimitiveTopology = PrimitiveTopology.TRIANGLE_LIST,
         cull_mode: CullMode = CullMode.NONE,
         front_face: FrontFace = FrontFace.COUNTER_CLOCKWISE,
         name: Optional[str] = None,
-        translation: Optional[Property] = None,
-        rotation: Optional[Property] = None,
-        scale: Optional[Property] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
     ):
         super().__init__(name, translation, rotation, scale)
-        self.positions = self.add_property(positions, np.float32, (-1, 3), name="positions")
+        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions")
         # self.normals: Property = self.add_property(normals, np.float32, (-1, 3), name="normals")
-        self.indices = self.add_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
+        self.indices = (
+            self.add_buffer_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
+        )
         self.primitive_topology = primitive_topology
         self.cull_mode = cull_mode
         self.front_face = front_face
@@ -355,39 +355,39 @@ class Mesh(Object3D):
 class AnimatedMesh(Object3D):
     def __init__(
         self,
-        positions: Property,
-        normals: Property,
-        tangents: Property,
-        uvs: Property,
-        joint_indices: Property,
-        weights: Property,
-        joints: Property,
-        texture: Property,
-        texture_format: Format,
-        indices: Optional[Property] = None,
+        positions: BufferProperty,
+        normals: BufferProperty,
+        tangents: BufferProperty,
+        uvs: BufferProperty,
+        joint_indices: BufferProperty,
+        weights: BufferProperty,
+        joints: BufferProperty,
+        texture: ImageProperty,
+        indices: Optional[BufferProperty] = None,
         primitive_topology: PrimitiveTopology = PrimitiveTopology.TRIANGLE_LIST,
         cull_mode: CullMode = CullMode.NONE,
         front_face: FrontFace = FrontFace.COUNTER_CLOCKWISE,
         name: Optional[str] = None,
-        translation: Optional[Property] = None,
-        rotation: Optional[Property] = None,
-        scale: Optional[Property] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
     ):
         super().__init__(name, translation, rotation, scale)
 
-        self.positions = self.add_property(positions, np.float32, (-1, 3), name="positions")
-        self.normals = self.add_property(normals, np.float32, (-1, 3), name="normals")
-        self.tangents = self.add_property(tangents, np.float32, (-1, 3), name="tangents")
-        self.uvs = self.add_property(uvs, np.float32, (-1, 2), name="uvs")
-        self.joint_indices = self.add_property(joint_indices, np.int16, (-1, 4), name="joint_indices")
-        self.weights = self.add_property(weights, np.float32, (-1, 4), name="weights")
+        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions")
+        self.normals = self.add_buffer_property(normals, np.float32, (-1, 3), name="normals")
+        self.tangents = self.add_buffer_property(tangents, np.float32, (-1, 3), name="tangents")
+        self.uvs = self.add_buffer_property(uvs, np.float32, (-1, 2), name="uvs")
+        self.joint_indices = self.add_buffer_property(joint_indices, np.int16, (-1, 4), name="joint_indices")
+        self.weights = self.add_buffer_property(weights, np.float32, (-1, 4), name="weights")
 
-        self.joints = self.add_property(joints, np.float32, (-1, 4, 4), name="joints")
+        self.joints = self.add_buffer_property(joints, np.float32, (-1, 4, 4), name="joints")
 
-        self.texture = self.add_property(texture, shape=(-1, -1, -1), name="base_color_texture")
-        self.texture_format = texture_format
+        self.texture = self.add_image_property(texture, name="base_color_texture")
 
-        self.indices = self.add_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
+        self.indices = (
+            self.add_buffer_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
+        )
 
         self.primitive_topology = primitive_topology
         self.cull_mode = cull_mode
@@ -459,7 +459,6 @@ class AnimatedMesh(Object3D):
 
         self.texture_image = r.add_gpu_image_property(
             self.texture,
-            self.texture_format,
             ImageUsageFlags.SAMPLED,
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
             MemoryUsage.SHADER_READ_ONLY,

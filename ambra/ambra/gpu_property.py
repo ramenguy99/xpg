@@ -9,7 +9,6 @@ from pyxpg import (
     BufferUsageFlags,
     CommandBuffer,
     Context,
-    Format,
     Image,
     ImageLayout,
     ImageUsageFlags,
@@ -19,7 +18,7 @@ from pyxpg import (
 )
 
 from .config import UploadMethod
-from .property import Property, view_bytes
+from .property import BufferProperty, ImageProperty, Property, view_bytes
 from .renderer_frame import RendererFrame, SemaphoreInfo
 from .utils.gpu import BufferUploadInfo, ImageUploadInfo, get_image_pitch_rows_and_texel_size
 from .utils.lru_pool import LRUPool
@@ -101,6 +100,9 @@ class GpuResourceProperty(Generic[R]):
         self.property = property
         self.name = name
         self.pipeline_stage_flags = pipeline_stage_flags
+
+        # Frame management
+        self.frame_generation_indices = [0] * self.property.num_frames
 
         # Current state
         self.current: Optional[R] = None
@@ -248,7 +250,9 @@ class GpuResourceProperty(Generic[R]):
         if self.property.upload.preupload:
             res, up_to_date = self.resources[property_frame_index]
             if not up_to_date:
+                assert self.cpu_pool is not None
                 assert self.current_cpu_buf is not None
+
                 cpu_buf = self.current_cpu_buf
                 self.current_cpu_buf = None
 
@@ -435,58 +439,7 @@ class GpuResourceProperty(Generic[R]):
         return self.current
 
     def invalidate_frame(self, frame_index: int) -> None:
-        upload = self.property.upload
-        if upload.preupload:
-            # In terms of state we can differentiate between static and dynamic properties
-            # and allow promotion to static here. We could also technically allow a property
-            # to specify dynamic to avoid promotion at runtime.
-            #
-            # We already have all frames uploaded here. But we can't just overwrite them
-            # because they might be in use by previous frames.
-            #
-            # We need to transition to a LRU pool model:
-            #  1) We could add all frames to an LRU pool and allocate a few new ones for streaming uploads.
-            #  2) Alternatively we could allocate a separate LRU pool just for streaming stuff.
-            #
-            # There is also 2 cases, mapped and gpu.
-            #  1) In mapped case we operate always on CPU timeline so we need to always manage resources in use.
-            #  2) In non-mapped case we need to allocate "frames" staging buffers, but can then issue copies
-            #     on the GPU with proper barriers.
-            #
-            # We could reuse some of the infrastructure for streaming, especially cpu buffers in the
-            # unmapped resource case.
-            # It's harder to reuse the gpu_pool (or the cpu_pool in the mapped case) because the buffers
-            # in the preupload case are actually sized by the frame, which is not guaranteed to be the
-            # same for all buffers.
-            #
-            # It's also not obvious if and how to handle the case where after invalidation the frame grew
-            # bigger, or if we want to support this at all. We could say that for that case we tank the
-            # performance hit of reallocating the buffer, and just queue the current buffer for being freed.
-            #
-            # Currently the main issue is that the LRU pools are not really designed with invalidation in mind
-            # because they cannot handle multiple versions of a frame with the same key. It's not yet clear
-            # to me if they should handle that with something like generation numbers, or if we should have
-            # a different system to handle this.
-            #
-            # TODO: this is now broken and we need to rethink all of this invalidation / per-frame streaming topic.
-            if not self.dynamic:
-                print("PROMOTING")
-                self.cpu_buffers = [
-                    CpuBuffer(self._create_cpu_buffer(f"cpubuf-{self.name}-{i}", AllocType.HOST))
-                    for i in range(self.num_frames_in_flight)
-                ]
-                self.cpu_pool = LRUPool(self.cpu_buffers, self.num_frames_in_flight, 0)
-                self.dynamic = True
-
-            # Invalidate frame
-            self.cpu_pool.invalidate(frame_index)
-            res, _ = self.resources[frame_index]
-            self.resources[frame_index] = (res, False)
-        else:
-            assert self.cpu_pool is not None
-            self.cpu_pool.invalidate(frame_index)
-            if self.gpu_pool is not None:
-                self.gpu_pool.invalidate(frame_index)
+        self.frame_generation_indices[frame_index] += 1
 
     def destroy(self) -> None:
         self.current = None
@@ -547,7 +500,7 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
         upload_method: UploadMethod,
         thread_pool: ThreadPool,
         out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
-        property: Property,
+        property: BufferProperty,
         usage_flags: BufferUsageFlags,
         memory_usage: MemoryUsage,
         pipeline_stage_flags: PipelineStageFlags,
@@ -555,7 +508,7 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
     ):
         self.usage_flags = usage_flags | BufferUsageFlags.TRANSFER_DST
         self.memory_usage = memory_usage
-        self.size = property.max_size()
+        self.size = property.max_size
 
         if upload_method == UploadMethod.CPU_BUF or upload_method == UploadMethod.BAR:
             self.cpu_usage_flags = self.usage_flags
@@ -642,8 +595,7 @@ class GpuImageProperty(GpuResourceProperty[Image]):
         upload_method: UploadMethod,
         thread_pool: ThreadPool,
         out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
-        property: Property,
-        format: Format,
+        property: ImageProperty,
         usage_flags: ImageUsageFlags,
         layout: ImageLayout,
         memory_usage: MemoryUsage,
@@ -658,10 +610,9 @@ class GpuImageProperty(GpuResourceProperty[Image]):
         self.layout = layout
         self.memory_usage = memory_usage
 
-        self.channels = property.channels()
-        self.height = property.height()
-        self.width = property.width()
-        self.format = format
+        self.height = property.height
+        self.width = property.width
+        self.format = property.format
 
         self.pitch, self.rows, _ = get_image_pitch_rows_and_texel_size(self.width, self.height, self.format)
         super().__init__(

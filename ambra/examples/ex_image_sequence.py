@@ -9,7 +9,7 @@ from ambra.config import (
     RendererConfig,
 )
 from ambra.primitives2d import Image
-from ambra.property import StreamingProperty, UploadSettings
+from ambra.property import ImageProperty, UploadSettings
 from ambra.utils.gpu import Format
 from ambra.viewer import Viewer
 
@@ -44,25 +44,17 @@ H = 256
 C = 4
 
 
-class GeneratedStreamingProperty(StreamingProperty):
-    def width(self):
-        return W
-
-    def height(self):
-        return H
-
-    def channels(self):
-        return C
-
+class GeneratedStreamingProperty(ImageProperty):
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1):
         arr = np.full((H, W, C), frame_index, np.uint8)
         return arr
 
 
 image_gen = GeneratedStreamingProperty(
+    W,
+    H,
+    Format.R8G8B8A8_UNORM,
     N,
-    np.uint8,
-    (H, W, C),
     upload=UploadSettings(
         preupload=False,
         async_load=True,

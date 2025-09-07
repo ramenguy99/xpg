@@ -1,10 +1,11 @@
 import numpy as np
-from pyglm.glm import vec2, ivec2
+from pyglm.glm import ivec2, vec2
 from pyxpg import *
 
 from ambra.config import Config, GuiConfig
 from ambra.utils.hook import hook
 from ambra.viewer import Viewer
+
 
 class CustomViewer(Viewer):
     @hook
@@ -32,20 +33,39 @@ class CustomViewer(Viewer):
             height = available.y
             view_size = ivec2(ar * height, height)
 
-            imgui.image(texture, imgui.Vec2(*view_size), imgui.Vec2(*(vec2(image_top_left) / vec2(image_size))), imgui.Vec2(*(vec2(image_bottom_right) / vec2(image_size))))
+            imgui.image(
+                texture,
+                imgui.Vec2(*view_size),
+                imgui.Vec2(*(vec2(image_top_left) / vec2(image_size))),
+                imgui.Vec2(*(vec2(image_bottom_right) / vec2(image_size))),
+            )
             draw_list.add_rect(cursor_pos, imgui.Vec2(*(pos + view_size)), 0xFFFFFFFF, thickness=2)
 
             pixel_size = vec2(view_size) / vec2(image_visible_size)
             mouse_relative_pos = mouse_pos - pos
-            if mouse_relative_pos.x >= 0 and mouse_relative_pos.y >= 0 and mouse_relative_pos.x < view_size.x and mouse_relative_pos.x < view_size.x:
+            if (
+                mouse_relative_pos.x >= 0
+                and mouse_relative_pos.y >= 0
+                and mouse_relative_pos.x < view_size.x
+                and mouse_relative_pos.x < view_size.x
+            ):
                 pixel_coordinates = ivec2(vec2(mouse_relative_pos) / pixel_size)
                 pixel_pos = vec2(pos) + vec2(pixel_coordinates) * pixel_size
-                draw_list.add_rect(imgui.Vec2(*pixel_pos), imgui.Vec2(*(pixel_pos + pixel_size)), 0xFF00FFFF, thickness=2)
+                draw_list.add_rect(
+                    imgui.Vec2(*pixel_pos), imgui.Vec2(*(pixel_pos + pixel_size)), 0xFF00FFFF, thickness=2
+                )
 
                 pixel_image_coordinates = pixel_coordinates + image_top_left
-                if pixel_image_coordinates.x >= 0 and pixel_image_coordinates.y >= 0 and pixel_image_coordinates.x < image_size.x and pixel_image_coordinates.y < image_size.y:
+                if (
+                    pixel_image_coordinates.x >= 0
+                    and pixel_image_coordinates.y >= 0
+                    and pixel_image_coordinates.x < image_size.x
+                    and pixel_image_coordinates.y < image_size.y
+                ):
                     imgui.begin_tooltip()
-                    imgui.text(f"({pixel_image_coordinates.x}, {pixel_image_coordinates.y}): {img_data[pixel_image_coordinates.y, pixel_image_coordinates.x]}")
+                    imgui.text(
+                        f"({pixel_image_coordinates.x}, {pixel_image_coordinates.y}): {img_data[pixel_image_coordinates.y, pixel_image_coordinates.x]}"
+                    )
                     imgui.end_tooltip()
         imgui.end()
 
@@ -79,7 +99,12 @@ img = Image.from_data(
     ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST,
     AllocType.DEVICE,
 )
-sampler = Sampler(viewer.ctx, u = SamplerAddressMode.CLAMP_TO_BORDER, v = SamplerAddressMode.CLAMP_TO_BORDER, border_color=BorderColor.FLOAT_OPAQUE_BLACK)
+sampler = Sampler(
+    viewer.ctx,
+    u=SamplerAddressMode.CLAMP_TO_BORDER,
+    v=SamplerAddressMode.CLAMP_TO_BORDER,
+    border_color=BorderColor.FLOAT_OPAQUE_BLACK,
+)
 set = DescriptorSet(
     viewer.ctx,
     [

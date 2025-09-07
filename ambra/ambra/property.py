@@ -4,6 +4,9 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import DTypeLike
+from pyxpg import Format
+
+from .utils.gpu import format_from_channels_dtype
 
 PropertyItem = np.ndarray
 PropertyData = Union[List[np.ndarray], np.ndarray]
@@ -18,6 +21,10 @@ PropertyData = Union[List[np.ndarray], np.ndarray]
 #     # For rotations
 #     NLERP = auto()
 #     SLERP = auto()
+
+
+def view_bytes(a: np.ndarray) -> memoryview:
+    return a.reshape((-1,), copy=False).view(np.uint8).data
 
 
 class AnimationBoundary(Enum):
@@ -96,23 +103,19 @@ class Property:
     def __init__(
         self,
         num_frames: int,
-        dtype: Optional[DTypeLike] = None,
-        shape: Optional[Tuple[int, ...]] = None,
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
         name: str = "",
     ):
         self.num_frames = num_frames
-        self.dtype = dtype
-        self.shape = shape
         self.name = name
         self.animation = animation if animation is not None else FrameAnimation(boundary=AnimationBoundary.REPEAT)
         self.upload = upload if upload is not None else UploadSettings(preupload=True)
 
         self.current_frame_index = 0
 
-    def update(self, time: float, frame_index: int) -> None:
-        self.current_frame_index = self.get_frame_index(time, frame_index)
+    def update(self, time: float, playback_frame: int) -> None:
+        self.current_frame_index = self.get_frame_index(time, playback_frame)
 
     def get_current(self) -> PropertyItem:
         return self.get_frame_by_index(self.current_frame_index)
@@ -120,23 +123,8 @@ class Property:
     def max_animation_time(self, fps: float) -> float:
         return self.animation.max_animation_time(self.num_frames, fps)
 
-    def max_size(self) -> int:
-        raise NotImplementedError
-
-    def width(self) -> int:
-        raise NotImplementedError
-
-    def height(self) -> int:
-        raise NotImplementedError
-
-    def channels(self) -> int:
-        raise NotImplementedError
-
     def get_frame_index(self, time: float, playback_frame: int) -> int:
         return self.animation.get_frame_index(self.num_frames, time, playback_frame)
-
-    def get_frame(self, time: float, frame_index: int) -> PropertyItem:
-        return self.get_frame_by_index(self.get_frame_index(time, frame_index))
 
     def get_frame_by_index_into(self, frame_index: int, out: memoryview, thread_index: int = -1) -> int:
         frame = self.get_frame_by_index(frame_index, thread_index)
@@ -151,8 +139,51 @@ class Property:
         raise NotImplementedError
 
 
-def view_bytes(a: np.ndarray) -> memoryview:
-    return a.reshape((-1,), copy=False).view(np.uint8).data
+class BufferProperty(Property):
+    def __init__(
+        self,
+        max_size: int,
+        num_frames: int,
+        dtype: Optional[DTypeLike] = None,
+        shape: Optional[Tuple[int, ...]] = None,
+        animation: Optional[Animation] = None,
+        upload: Optional[UploadSettings] = None,
+        name: str = "",
+    ):
+        super().__init__(num_frames, animation, upload, name)
+        self.max_size = max_size
+        self.dtype = dtype
+        self.shape = shape
+
+
+class ImageProperty(Property):
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        format: Format,
+        num_frames: int,
+        animation: Optional[Animation] = None,
+        upload: Optional[UploadSettings] = None,
+        name: str = "",
+    ):
+        super().__init__(num_frames, animation, upload, name)
+        self.width = width
+        self.height = height
+        self.format = format
+
+
+class ShapeError(Exception):
+    def __init__(
+        self,
+        expected: Optional[Tuple[int, ...]],
+        got: Optional[Tuple[int, ...]],
+    ):
+        self.expected = expected
+        self.got = got
+
+    def __str__(self) -> str:
+        return f"Shape mismatch. Expected: {self.expected}. Got: {self.got}"
 
 
 def shape_match(
@@ -173,7 +204,7 @@ def shape_match(
     return True
 
 
-class DataProperty(Property):
+class DataBufferProperty(BufferProperty):
     def __init__(
         self,
         in_data: Union[PropertyData, int, float],
@@ -192,7 +223,7 @@ class DataProperty(Property):
             if isinstance(in_data, List):
                 data = in_data
                 for i in range(len(in_data)):
-                    a = np.asarray(in_data[i], dtype)
+                    a = np.asarray(in_data[i], dtype, order="C")
                     if not shape_match(shape, a.shape):
                         raise ShapeError(shape, a.shape)
                     data[i] = a
@@ -207,83 +238,70 @@ class DataProperty(Property):
                 else:
                     raise ShapeError(shape, data.shape)
 
-        super().__init__(len(data), dtype, shape, animation, upload, name)
-        self.data: PropertyData = data
-
-    # Buffers
-    def max_size(self) -> int:
-        if isinstance(self.data, List):
-            return max([d.itemsize * np.prod(d.shape, dtype=np.int64) for d in self.data])  # type: ignore
+        max_size: int
+        if isinstance(data, List):
+            max_size = max([d.itemsize * np.prod(d.shape, dtype=np.int64) for d in data])  # type: ignore
         else:
-            return self.data.itemsize * np.prod(self.data.shape[1:], dtype=np.int64)  # type: ignore
+            max_size = data.itemsize * np.prod(data.shape[1:], dtype=np.int64)  # type: ignore
 
-    # Images
-    def width(self) -> int:
-        return self.data[0].shape[1]  # type: ignore
-
-    def height(self) -> int:
-        return self.data[0].shape[0]  # type: ignore
-
-    def channels(self) -> int:
-        return self.data[0].shape[2]  # type: ignore
+        super().__init__(max_size, len(data), dtype, shape, animation, upload, name)
+        self.data = data
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         return self.data[frame_index]
 
 
-class StreamingProperty(Property):
+class DataImageProperty(ImageProperty):
     def __init__(
         self,
-        num_frames: int,
-        dtype: Optional[DTypeLike] = None,
-        shape: Optional[Tuple[int, ...]] = None,
+        in_data: PropertyData,
+        format: Optional[Format] = None,
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
         name: str = "",
     ):
-        super().__init__(num_frames, dtype, shape, animation, upload, name)
+        data: Union[List[np.ndarray], np.ndarray]
+        if isinstance(in_data, List):
+            data = in_data
+            for i in range(len(in_data)):
+                a = np.asarray(in_data[i])
+                if len(a.shape) != 3:
+                    raise ShapeError((-1, -1, -1), a.shape)
+                data[i] = a
+        else:
+            data = np.asarray(in_data, order="C")
+            if len(data.shape) == 3:
+                # Implicitly add animation dimension
+                data = data[np.newaxis]
+            elif len(data.shape) == 4:
+                # Shape already matches
+                pass
+            else:
+                raise ShapeError((-1, -1, -1), data.shape)
 
-    # For buffers
-    def max_size(self) -> int:
-        raise NotImplementedError
+        height, width, channels = data[0].shape[:3]
+        if format is None:
+            format = format_from_channels_dtype(channels, data[0].dtype)
+        else:
+            # TODO: check that format is compatible with data (maybe allow some conversions?)
+            pass
 
-    # For images
-    def width(self) -> int:
-        raise NotImplementedError
+        super().__init__(width, height, format, len(data), animation, upload, name)
+        self.data = data
 
-    def height(self) -> int:
-        raise NotImplementedError
-
-    def channels(self) -> int:
-        raise NotImplementedError
-
-    # def get_frame_by_index_into(self, frame_index: int, out: memoryview) -> int:
-    def get_frame_by_index(self, frame: int, thread_index: int = -1) -> PropertyItem:
-        raise NotImplementedError
+    def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
+        return self.data[frame_index]
 
 
-class ShapeError(Exception):
-    def __init__(
-        self,
-        expected: Optional[Tuple[int, ...]],
-        got: Optional[Tuple[int, ...]],
-    ):
-        self.expected = expected
-        self.got = got
-
-    def __str__(self) -> str:
-        return f"Shape mismatch. Expected: {self.expected}. Got: {self.got}"
-
-
-def as_property(
-    value: Union[Property, PropertyData, int, float],
+def as_buffer_property(
+    value: Union[BufferProperty, PropertyData, int, float],
     dtype: Optional[DTypeLike] = None,
     shape: Optional[Tuple[int, ...]] = None,
     animation: Optional[Animation] = None,
     upload: Optional[UploadSettings] = None,
     name: str = "",
-) -> Property:
-    if isinstance(value, Property):
+) -> BufferProperty:
+    if isinstance(value, BufferProperty):
         if not shape_match(shape, value.shape):
             raise ShapeError(shape, value.shape)
         if dtype is not None and not np.dtype(dtype) == value.dtype:
@@ -296,4 +314,22 @@ def as_property(
             value.name = name
         return value
     else:
-        return DataProperty(value, dtype, shape, animation, upload, name)
+        return DataBufferProperty(value, dtype, shape, animation, upload, name)
+
+
+def as_image_property(
+    value: Union[ImageProperty, PropertyData],
+    animation: Optional[Animation] = None,
+    upload: Optional[UploadSettings] = None,
+    name: str = "",
+) -> ImageProperty:
+    if isinstance(value, ImageProperty):
+        if animation is not None:
+            value.animation = animation
+        if upload is not None:
+            value.upload = upload
+        if not value.name:
+            value.name = name
+        return value
+    else:
+        return DataImageProperty(value, None, animation, upload, name)

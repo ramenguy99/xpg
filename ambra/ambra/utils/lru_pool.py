@@ -90,11 +90,6 @@ class LRUPool(Generic[K, O]):
                 pass
         return obj
 
-    def invalidate(self, key: K) -> None:
-        cached = self.lookup.get(key)
-        if cached is not None:
-            cached.valid = False
-
     def is_available(self, key: K) -> bool:
         cached = self.lookup.get(key)
         return cached is not None and not cached.prefetching and cached.valid

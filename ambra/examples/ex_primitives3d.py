@@ -6,7 +6,7 @@ from ambra.primitives3d import Lines
 from ambra.scene import (
     AnimationBoundary,
     FrameAnimation,
-    as_property,
+    as_buffer_property,
 )
 from ambra.viewer import Viewer
 
@@ -53,7 +53,7 @@ colors = np.array(
 line_width = np.linspace(1, 32, 100)
 
 # scale = np.linspace(np.array([1, 1, 1]), np.array([1, 1, 3]), 100)
-translation = as_property(
+translation = as_buffer_property(
     np.linspace(np.array([0, 0, 0]), np.array([0, 1, 1]), 50),
     np.float32,
     (3,),
@@ -62,7 +62,7 @@ translation = as_property(
 
 line = Lines(positions, colors, line_width, scale=None, translation=translation)
 
-translation = as_property(
+translation = as_buffer_property(
     np.linspace(np.array([1, 0, 0]), np.array([2, 0, 0]), 50),
     np.float32,
     (3,),

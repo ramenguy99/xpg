@@ -12,7 +12,7 @@ from ambra.config import (
 from ambra.primitives2d import Lines
 from ambra.scene import (
     UploadSettings,
-    as_property,
+    as_buffer_property,
 )
 from ambra.transform3d import RigidTransform3D
 from ambra.viewer import Viewer
@@ -89,9 +89,8 @@ colors = [
 
 line_width = 4
 
-# positions = StreamingProperty(np.linspace(np.array([0, 0]), np.array([1, 1]), 50), np.float32, (2,), FrameAnimation(AnimationBoundary.MIRROR))
-positions = as_property(positions, np.float32, (-1, 2), upload=UploadSettings(preupload=False))
-# positions = as_property(positions, np.float32, (-1, 2), upload=UploadSettings(preupload=False, async_load=True))
+positions = as_buffer_property(positions, np.float32, (-1, 2), upload=UploadSettings(preupload=False))
+# positions = as_buffer_property(positions, np.float32, (-1, 2), upload=UploadSettings(preupload=False, async_load=True))
 
 line = Lines(positions, colors, line_width)
 viewer.viewport.scene.objects.extend([line])

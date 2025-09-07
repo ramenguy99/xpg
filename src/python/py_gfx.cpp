@@ -3210,7 +3210,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("end_frame", &Gui::end_frame)
         .def("render", &Gui::render, nb::arg("frame"))
         .def("frame", &Gui::frame)
-        .def("set_ini_filename", &Gui::set_ini_filename)
+        .def("set_ini_filename", &Gui::set_ini_filename, nb::arg("filename").none())
     ;
 
     nb::enum_<gfx::Action>(m, "Action")

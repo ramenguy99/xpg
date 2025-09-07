@@ -29,29 +29,30 @@ from pyxpg import (
     VertexInputRate,
 )
 
+from .property import BufferProperty, ImageProperty
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
-from .scene import Object2D, Property
+from .scene import Object2D
 from .utils.ring_buffer import RingBuffer
 
 
 class Lines(Object2D):
     def __init__(
         self,
-        lines: Union[Property, np.ndarray],
-        colors: Union[Property, np.ndarray],
-        line_width: Union[Property, float] = 1.0,
+        lines: Union[BufferProperty, np.ndarray],
+        colors: Union[BufferProperty, np.ndarray],
+        line_width: Union[BufferProperty, float] = 1.0,
         is_strip: bool = False,
         name: Optional[str] = None,
-        translation: Optional[Property] = None,
-        rotation: Optional[Property] = None,
-        scale: Optional[Property] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
     ):
         super().__init__(name, translation, rotation, scale)
         self.is_strip = is_strip
-        self.lines = self.add_property(lines, np.float32, (-1, 2), name="lines")
-        self.colors = self.add_property(colors, np.uint32, (-1,), name="colors")
-        self.line_width = self.add_property(line_width, np.float32, name="line_width")
+        self.lines = self.add_buffer_property(lines, np.float32, (-1, 2), name="lines")
+        self.colors = self.add_buffer_property(colors, np.uint32, (-1,), name="colors")
+        self.line_width = self.add_buffer_property(line_width, np.float32, name="line_width")
 
     def create(self, r: Renderer) -> None:
         self.lines_buffer = r.add_gpu_buffer_property(
@@ -133,16 +134,14 @@ class Lines(Object2D):
 class Image(Object2D):
     def __init__(
         self,
-        image: Property,
-        format: Format,
+        image: ImageProperty,
         name: Optional[str] = None,
-        translation: Optional[Property] = None,
-        rotation: Optional[Property] = None,
-        scale: Optional[Property] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
     ):
         super().__init__(name, translation, rotation, scale)
-        self.image = self.add_property(image, shape=(-1, -1, -1), name="image")
-        self.format = format
+        self.image = self.add_image_property(image, name="image")
 
     def create(self, r: Renderer) -> None:
         if not (r.ctx.device_features & DeviceFeatures.SHADER_DRAW_PARAMETERS):
@@ -152,7 +151,6 @@ class Image(Object2D):
 
         self.images = r.add_gpu_image_property(
             self.image,
-            self.format,
             ImageUsageFlags.SAMPLED,
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
             MemoryUsage.SHADER_READ_ONLY,

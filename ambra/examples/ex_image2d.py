@@ -2,7 +2,7 @@ import numpy as np
 
 from ambra.config import CameraConfig, CameraProjection, Config, PlaybackConfig
 from ambra.primitives2d import Image
-from ambra.scene import AnimationBoundary, FrameAnimation, as_property
+from ambra.property import AnimationBoundary, FrameAnimation, as_buffer_property
 from ambra.utils.gpu import Format
 from ambra.viewer import Viewer
 
@@ -21,12 +21,12 @@ viewer = Viewer(
 )
 
 # scale = np.linspace(np.array([1, 1]), np.array([1, 3]), 100)
-rotation = as_property(
+rotation = as_buffer_property(
     np.linspace(0, 4 * np.pi, 50),
     np.float32,
     animation=FrameAnimation(AnimationBoundary.MIRROR),
 )
-translation = as_property(
+translation = as_buffer_property(
     np.linspace(np.array([0, 0]), np.array([5, 0]), 100),
     np.float32,
     (2,),

@@ -32,8 +32,8 @@ from pyxpg import (
 
 from .config import RendererConfig, UploadMethod
 from .gpu_property import GpuBufferProperty, GpuImageProperty
+from .property import BufferProperty, ImageProperty
 from .renderer_frame import RendererFrame
-from .scene import Property
 from .shaders import compile
 from .utils.gpu import (
     BufferUploadInfo,
@@ -195,7 +195,7 @@ class Renderer:
 
     def add_gpu_buffer_property(
         self,
-        property: Property,
+        property: BufferProperty,
         usage_flags: BufferUsageFlags,
         memory_usage: MemoryUsage,
         pipeline_stage_flags: PipelineStageFlags,
@@ -218,8 +218,7 @@ class Renderer:
 
     def add_gpu_image_property(
         self,
-        property: Property,
-        format: Format,
+        property: ImageProperty,
         usage_flags: ImageUsageFlags,
         layout: ImageLayout,
         memory_usage: MemoryUsage,
@@ -233,7 +232,6 @@ class Renderer:
             self.thread_pool,
             self.bulk_upload_list,
             property,
-            format,
             usage_flags,
             layout,
             memory_usage,

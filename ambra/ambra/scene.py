@@ -5,7 +5,16 @@ from numpy.typing import DTypeLike
 from pyglm.glm import mat3, mat4, quat, vec2, vec3
 from pyxpg import imgui
 
-from .property import Animation, Property, PropertyData, UploadSettings, as_property
+from .property import (
+    Animation,
+    BufferProperty,
+    ImageProperty,
+    Property,
+    PropertyData,
+    UploadSettings,
+    as_buffer_property,
+    as_image_property,
+)
 from .transform2d import Transform2D
 from .transform3d import Transform3D
 
@@ -30,16 +39,27 @@ class Object:
         _counter += 1
         return _counter
 
-    def add_property(
+    def add_buffer_property(
         self,
-        prop: Union[Property, PropertyData, int, float],
+        prop: Union[BufferProperty, PropertyData, int, float],
         dtype: Optional[DTypeLike] = None,
         shape: Optional[Tuple[int, ...]] = None,
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
         name: str = "",
-    ) -> Property:
-        property = as_property(prop, dtype, shape, animation, upload, name)
+    ) -> BufferProperty:
+        property = as_buffer_property(prop, dtype, shape, animation, upload, name)
+        self.properties.append(property)
+        return property
+
+    def add_image_property(
+        self,
+        prop: Union[ImageProperty, PropertyData],
+        animation: Optional[Animation] = None,
+        upload: Optional[UploadSettings] = None,
+        name: str = "",
+    ) -> ImageProperty:
+        property = as_image_property(prop, animation, upload, name)
         self.properties.append(property)
         return property
 
@@ -78,7 +98,12 @@ class Object:
                 self.gui_selected_property = p
             if self.gui_selected_property == p:
                 imgui.indent(10)
-                imgui.text(f"{p.shape} {np.dtype(p.dtype).name} {p.max_size()}")
+
+                if isinstance(p, BufferProperty):
+                    imgui.text(f"{p.shape} {np.dtype(p.dtype).name} {p.max_size}")
+                elif isinstance(p, ImageProperty):
+                    imgui.text(f"[{p.width}x{p.height}] {p.format}")
+
                 if p.num_frames > 1:
                     imgui.text(f"{p.current_frame_index} / {p.num_frames}")
                 imgui.indent(-10)
@@ -89,23 +114,23 @@ class Object2D(Object):
     def __init__(
         self,
         name: Optional[str],
-        translation: Optional[Property] = None,
-        rotation: Optional[Property] = None,
-        scale: Optional[Property] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
     ):
         super().__init__(name)
-        self.translation = self.add_property(
+        self.translation = self.add_buffer_property(
             translation if translation is not None else np.array([0, 0]),
             np.float32,
             (2,),
             name="translation",
         )
-        self.rotation = self.add_property(
+        self.rotation = self.add_buffer_property(
             rotation if rotation is not None else np.array([0]),
             np.float32,
             name="rotation",
         )
-        self.scale = self.add_property(
+        self.scale = self.add_buffer_property(
             scale if scale is not None else np.array([1, 1]),
             np.float32,
             (2,),
@@ -130,24 +155,24 @@ class Object3D(Object):
     def __init__(
         self,
         name: Optional[str] = None,
-        translation: Optional[Property] = None,
-        rotation: Optional[Property] = None,
-        scale: Optional[Property] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
     ):
         super().__init__(name)
-        self.translation = self.add_property(
+        self.translation = self.add_buffer_property(
             translation if translation is not None else np.array([0, 0, 0]),
             np.float32,
             (3,),
             name="translation",
         )
-        self.rotation = self.add_property(
+        self.rotation = self.add_buffer_property(
             rotation if rotation is not None else np.array([1, 0, 0, 0]),
             np.float32,
             (4,),
             name="rotation",
         )
-        self.scale = self.add_property(
+        self.scale = self.add_buffer_property(
             scale if scale is not None else np.array([1, 1, 1]),
             np.float32,
             (3,),

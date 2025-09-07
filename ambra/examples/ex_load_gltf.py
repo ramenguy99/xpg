@@ -9,7 +9,7 @@ import sys
 from ambra.utils.hook import hook
 from ambra.config import GuiConfig, Config, CameraConfig
 from ambra.primitives3d import AnimatedMesh, Lines
-from ambra.viewer import Viewer, imgui
+from ambra.property import UploadSettings, as_buffer_property
 from ambra.transform3d import Transform3D
 from ambra.scene import UploadSettings, as_property
 from pyglm.glm import vec3, quat, mat4, vec4, rotate
@@ -213,9 +213,14 @@ def fk():
 md = meshes[0]
 fk()
 
-joints_prop = as_property(joints_array, np.float32, (-1, 4, 4), upload=UploadSettings(
-    preupload=False,
-))
+joints_prop = as_buffer_property(
+    joints_array,
+    np.float32,
+    (-1, 4, 4),
+    upload=UploadSettings(
+        preupload=False,
+    ),
+)
 
 m = AnimatedMesh(
     positions=md.positions,
