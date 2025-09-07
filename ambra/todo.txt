@@ -111,8 +111,8 @@ TODO:
 - [ ] Cleanup before release:
     - [ ] Public vs private API (hide / protect internal stuff)
     - [ ] Unit tests on all python versions (likely with lavapipe on CI)
-    - [ ] Rename some badly named things:
-        - UploadMethod constants
+    - [x] Rename some badly named things:
+        [x] UploadMethod constants
     - [ ] Is StreamingProperty any useful? Should users instead just subclass Property?
     - [ ] Re-organize utils directory, what really is a util anyway?
 - [ ] Extra Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
@@ -375,9 +375,9 @@ Issues found while implementing skeletal animation:
                 [x] How do we implement static -> dynamic promotion in a way that does not require tons of if statements? we bite the bullet and do it for now
                 [x] What is the user API for frame invalidation? Is the user expected to call the method on the gpu property? If so then likely have to document this well or be strict with naming? Currently yes
                 [x] Which LRU pools are invalid, and in which states? Do we want to split some of this logic into components instead of having a bunch of state in GpuResourceProperty? we just reuse them for now
-                [ ] Where do we implement and how do we override / configure upload mode picking (see preferred upload modes above)?
-                [ ] Simplify if statements by precomputing commonly used bools
-                [ ] Double check if we need the extra array of resource generations for the full array dynamic case
+                [x] Simplify if statements by precomputing commonly used bools
+                [x] Where do we implement and how do we override / configure upload mode picking (see preferred upload modes above)? We have an ok version of this in renderer (unless overridden by config)
+                [x] Double check if we need the extra array of resource generations for the full array dynamic case
                 [ ] Improve UI of GPU property depending on various states
 
 Nice to have soon:

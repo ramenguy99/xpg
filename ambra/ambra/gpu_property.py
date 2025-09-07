@@ -106,31 +106,38 @@ class GpuResourceProperty(Generic[R]):
         self.current_cpu_buf: Optional[CpuBuffer] = None
         self.frame_generation_indices = [0] * self.property.num_frames
 
-        # Options
+        # Variants
         self.preupload = self.property.upload.preupload
-        self.mapped = upload_method == UploadMethod.MAPPED_PREFER_DEVICE or upload_method == UploadMethod.MAPPED_PREFER_HOST
+        self.async_load = self.property.upload.async_load
+        self.mapped = (
+            upload_method == UploadMethod.MAPPED_PREFER_DEVICE or upload_method == UploadMethod.MAPPED_PREFER_HOST
+        )
 
-        # If preupload static
+        # Preupload variants
+        self.dynamic = False
+        self.jagged = False
+
+        # If preupload
         self.resources: List[R] = []
+
+        # If preupload and dynamic
         self.resources_frame_generation: List[int] = []
         self.property_frame_indices_in_flight: List[Optional[int]] = [None] * self.num_frames_in_flight
-        self.dynamic = False
-        self.is_jagged = False
 
-        # If preupload dynamic or streaming
+        # If (preupload and dynamic) or streaming
         self.cpu_buffers: List[CpuBuffer] = []
         self.cpu_pool: Optional[LRUPool[int, CpuBuffer]] = None
 
-        # If preupload dynamic or streaming and GPU managed
+        # If streaming and not mapped
         self.gpu_resources: List[GpuResource[R]] = []
         self.gpu_pool: Optional[LRUPool[int, GpuResource[R]]] = None
 
-        # If streaming and GPU managed and prefetch
+        # If streaming and prefetch and not mapped
         self.prefetch_states: List[PrefetchState] = []
         self.prefetch_states_lookup: Dict[GpuResource[R], PrefetchState] = {}
 
         # Upload
-        if self.property.upload.preupload:
+        if self.preupload:
             if upload_method == UploadMethod.MAPPED_PREFER_HOST:
                 alloc_type = AllocType.HOST
             elif upload_method == UploadMethod.MAPPED_PREFER_DEVICE:
@@ -144,7 +151,7 @@ class GpuResourceProperty(Generic[R]):
             # issues using the context from multiple threads. It's not
             # clear where is the best way to ensure this is thread safe so
             # for now we don't do it.
-            if property.upload.async_load:
+            if self.async_load:
                 promises: List[Promise[np.ndarray]] = []
                 for i in range(property.num_frames):
                     promise: Promise[np.ndarray] = Promise()
@@ -153,7 +160,7 @@ class GpuResourceProperty(Generic[R]):
 
             nbytes = 0
             for i in range(property.num_frames):
-                if property.upload.async_load:
+                if self.async_load:
                     frame = promises[i].get()
                 else:
                     frame = property.get_frame_by_index(i)
@@ -161,7 +168,7 @@ class GpuResourceProperty(Generic[R]):
                 if i == 0:
                     nbytes = frame.nbytes
                 elif nbytes != frame.nbytes:
-                    self.is_jagged = True
+                    self.jagged = True
 
                 res = self._create_resource_for_preupload(frame, alloc_type, f"{name}-{i}")
                 if self.mapped:
@@ -170,14 +177,16 @@ class GpuResourceProperty(Generic[R]):
                     out_upload_list.append(self._create_bulk_upload_descriptor(res, frame))
                 self.resources.append(res)
         else:
-            cpu_prefetch_count = self.property.upload.cpu_prefetch_count
             gpu_prefetch_count = (
                 self.property.upload.gpu_prefetch_count if upload_method == UploadMethod.TRANSFER_QUEUE else 0
             )
-            cpu_buffers_count = num_frames_in_flight + cpu_prefetch_count + gpu_prefetch_count
             gpu_resources_count = 1 + gpu_prefetch_count
+            cpu_prefetch_count = self.property.upload.cpu_prefetch_count
+            cpu_buffers_count = num_frames_in_flight + cpu_prefetch_count + gpu_prefetch_count
 
-            cpu_alloc_type = AllocType.DEVICE_MAPPED if self.upload_method == UploadMethod.MAPPED_PREFER_DEVICE else AllocType.HOST
+            cpu_alloc_type = (
+                AllocType.DEVICE_MAPPED if self.upload_method == UploadMethod.MAPPED_PREFER_DEVICE else AllocType.HOST
+            )
             self.cpu_buffers = [
                 CpuBuffer(self._create_cpu_buffer(f"cpubuf-{name}-{i}", cpu_alloc_type))
                 for i in range(cpu_buffers_count)
@@ -189,33 +198,34 @@ class GpuResourceProperty(Generic[R]):
                 cpu_prefetch_count,
             )
 
-            for i in range(gpu_resources_count):
-                res = self._create_gpu_resource(f"gpubuf-{name}-{i}")
+            if not self.mapped:
+                for i in range(gpu_resources_count):
+                    res = self._create_gpu_resource(f"gpubuf-{name}-{i}")
+                    if upload_method == UploadMethod.TRANSFER_QUEUE:
+                        semaphore = TimelineSemaphore(ctx, name=f"gpubuf-{name}-{i}-semaphore")
+                    else:
+                        semaphore = None
+                    self.gpu_resources.append(GpuResource(res, semaphore))
+
+                self.gpu_pool = LRUPool(
+                    self.gpu_resources,
+                    1,
+                    self.frame_generation_indices,  # type: ignore
+                    gpu_prefetch_count,
+                )
+
                 if upload_method == UploadMethod.TRANSFER_QUEUE:
-                    semaphore = TimelineSemaphore(ctx, name=f"gpubuf-{name}-{i}-semaphore")
-                else:
-                    semaphore = None
-                self.gpu_resources.append(GpuResource(res, semaphore))
-
-            self.gpu_pool = LRUPool(
-                self.gpu_resources,
-                1,
-                self.frame_generation_indices,  # type: ignore
-                gpu_prefetch_count,
-            )
-
-            if upload_method == UploadMethod.TRANSFER_QUEUE:
-                self.prefetch_states = [
-                    PrefetchState(
-                        commands=CommandBuffer(
-                            ctx,
-                            queue_family_index=ctx.transfer_queue_family_index,
-                            name=f"gpu-prefetch-commands-{name}-{i}",
-                        ),
-                        prefetch_done_value=0,
-                    )
-                    for i in range(gpu_prefetch_count)
-                ]
+                    self.prefetch_states = [
+                        PrefetchState(
+                            commands=CommandBuffer(
+                                ctx,
+                                queue_family_index=ctx.transfer_queue_family_index,
+                                name=f"gpu-prefetch-commands-{name}-{i}",
+                            ),
+                            prefetch_done_value=0,
+                        )
+                        for i in range(gpu_prefetch_count)
+                    ]
 
     def _load_async(self, i: int, thread_index: int) -> np.ndarray:
         return self.property.get_frame_by_index(i, thread_index)
@@ -225,22 +235,21 @@ class GpuResourceProperty(Generic[R]):
 
     def load(self, frame: RendererFrame) -> None:
         # Issue CPU loads if async
-        if not self.property.upload.preupload or self.dynamic:
+        if not self.preupload or self.dynamic:
             assert self.cpu_pool is not None
 
             self.cpu_pool.release_frame(frame.index)
 
             def cpu_load(k: int, buf: CpuBuffer) -> None:
-                if self.property.upload.async_load:
+                if self.async_load:
                     self.thread_pool.submit(buf.promise, self._load_async_into, k, buf)  # type: ignore
                 else:
                     buf.used_size = self.property.get_frame_by_index_into(k, buf.buf.data)
 
             property_frame_index = self.property.current_frame_index
 
-            # TODO: check if can be unified
             if self.dynamic:
-                if not self.is_jagged and self.mapped:
+                if not self.jagged and self.mapped:
                     do_load = not self.cpu_pool.is_available(property_frame_index)
                 else:
                     do_load = (
@@ -248,11 +257,10 @@ class GpuResourceProperty(Generic[R]):
                         != self.frame_generation_indices[property_frame_index]
                     )
             else:
-                do_load = (self.mapped or (
-                        self.gpu_pool is not None
-                        and not self.gpu_pool.is_available_or_prefetching(property_frame_index)
-                    )
+                do_load = (
+                    self.mapped or not self.gpu_pool.is_available_or_prefetching(property_frame_index)  # type: ignore
                 )
+
             if do_load:
                 self.current_cpu_buf = self.cpu_pool.get(property_frame_index, cpu_load)
 
@@ -268,7 +276,7 @@ class GpuResourceProperty(Generic[R]):
         # Issue GPU loads
         property_frame_index = self.property.current_frame_index
 
-        if self.property.upload.preupload:
+        if self.preupload:
             res = self.resources[property_frame_index]
             self.current = res
             if (cpu_buf := self.current_cpu_buf) is not None:
@@ -276,13 +284,13 @@ class GpuResourceProperty(Generic[R]):
                 assert self.current_cpu_buf is not None
                 self.current_cpu_buf = None
 
-                if self.property.upload.async_load:
+                if self.async_load:
                     cpu_buf.promise.get()
 
                 self.cpu_pool.use_frame(frame.index, property_frame_index)
 
                 # Preupload dynamic gpu managed, or jagged, issue upload on GFX queue
-                if self.is_jagged or not self.mapped:
+                if self.jagged or not self.mapped:
                     # Upload on gfx queue
                     self._cmd_before_barrier(frame.cmd, res)
                     self._cmd_upload(frame.cmd, cpu_buf, res)
@@ -294,8 +302,8 @@ class GpuResourceProperty(Generic[R]):
                     ]
                 else:
                     # NOTE: only works for buffers for now, which is why we get a type error here.
-                    self.resources[property_frame_index] = cpu_buf.buf # type: ignore
-                    self.current = cpu_buf.buf # type: ignore
+                    self.resources[property_frame_index] = cpu_buf.buf  # type: ignore
+                    self.current = cpu_buf.buf  # type: ignore
             self.property_frame_indices_in_flight[frame.index] = property_frame_index
         else:
             assert self.cpu_pool is not None
@@ -306,7 +314,7 @@ class GpuResourceProperty(Generic[R]):
                 cpu_buf = self.current_cpu_buf
                 self.current_cpu_buf = None
 
-                if self.property.upload.async_load:
+                if self.async_load:
                     cpu_buf.promise.get()
 
                 self.cpu_pool.use_frame(frame.index, property_frame_index)
@@ -324,7 +332,7 @@ class GpuResourceProperty(Generic[R]):
                     self.current_cpu_buf = None
 
                     # Wait for buffer to be ready
-                    if self.property.upload.async_load:
+                    if self.async_load:
                         cpu_buf.promise.get()
 
                     self.cpu_pool.use_frame(frame.index, k)
@@ -380,10 +388,10 @@ class GpuResourceProperty(Generic[R]):
                 self.current = gpu_res.resource
 
     def prefetch(self) -> None:
-        if not self.property.upload.preupload:
+        if not self.preupload:
             assert self.cpu_pool is not None
 
-            if self.property.upload.async_load:
+            if self.async_load:
                 # Issue prefetches
                 def cpu_prefetch_cleanup(k: int, buf: CpuBuffer) -> bool:
                     return buf.promise.is_set()
@@ -473,18 +481,22 @@ class GpuResourceProperty(Generic[R]):
         return self.current
 
     def invalidate_frame(self, invalidated_property_frame_index: int) -> None:
-        if self.property.upload.preupload and not self.dynamic:
+        if self.preupload and not self.dynamic:
             self.dynamic = True
 
-            if not self.is_jagged and self.mapped:
+            if not self.jagged and self.mapped:
                 # NOTE: only works for buffers for now, which is why we get a type error here.
 
                 # Promote buffers to CPU LRU pool buffers
-                self.cpu_buffers = [CpuBuffer(r) for r in self.resources] # type: ignore
+                self.cpu_buffers = [CpuBuffer(r) for r in self.resources]  # type: ignore
                 pre_initialized: List[Optional[int]] = list(range(len(self.resources)))
 
                 # Allocate extra staging buffers for LRU pool
-                cpu_alloc_type = AllocType.DEVICE_MAPPED if self.upload_method == UploadMethod.MAPPED_PREFER_DEVICE else AllocType.HOST
+                cpu_alloc_type = (
+                    AllocType.DEVICE_MAPPED
+                    if self.upload_method == UploadMethod.MAPPED_PREFER_DEVICE
+                    else AllocType.HOST
+                )
                 for i in range(self.num_frames_in_flight):
                     self.cpu_buffers.append(
                         CpuBuffer(self._create_cpu_buffer(f"cpubuf-{self.name}-{i}", cpu_alloc_type))
@@ -526,7 +538,7 @@ class GpuResourceProperty(Generic[R]):
 
     def destroy(self) -> None:
         self.current = None
-        if self.property.upload.preupload:
+        if self.preupload:
             for res in self.resources:
                 res.destroy()
             self.resources.clear()

@@ -23,7 +23,7 @@ logging.basicConfig(
 
 NUM_WORKERS = 4
 
-path = Path("N:\\scenes\\smpl\\all_frames_20.bin")
+path = Path("N:\\scenes\\smpl\\all_frames_10.bin")
 files = [open(path, "rb", buffering=0) for _ in range(NUM_WORKERS)]
 file = files[0]
 header = read_exact(file, 12)
@@ -40,10 +40,10 @@ class FileStreamingProperty(BufferProperty):
     def _get_size_offset(frame_index: int):
         return V * 12, 12 + frame_index * V * 12
 
-    def get_frame_by_index_into(self, frame_index: int, out: memoryview, thread_index: int = -1) -> int:
-        size, offset = FileStreamingProperty._get_size_offset(frame_index)
-        read_exact_at_offset_into(files[thread_index], offset, out[:size])
-        return size
+    # def get_frame_by_index_into(self, frame_index: int, out: memoryview, thread_index: int = -1) -> int:
+    #     size, offset = FileStreamingProperty._get_size_offset(frame_index)
+    #     read_exact_at_offset_into(files[thread_index], offset, out[:size])
+    #     return size
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1):
         size, offset = FileStreamingProperty._get_size_offset(frame_index)
@@ -103,10 +103,10 @@ viewer = CustomViewer(
         ),
         renderer=RendererConfig(
             background_color=(0, 0, 0, 1),
+            # force_buffer_upload_method=UploadMethod.GRAPHICS_QUEUE,
+            # force_buffer_upload_method=UploadMethod.TRANSFER_QUEUE,
             # force_buffer_upload_method=UploadMethod.MAPPED_PREFER_HOST,
             # force_buffer_upload_method=UploadMethod.MAPPED_PREFER_DEVICE,
-            # force_buffer_upload_method=UploadMethod.TRANSFER_QUEUE,
-            # force_buffer_upload_method=UploadMethod.GRAPHICS_QUEUE,
             upload_buffer_count=2,
             thread_pool_workers=NUM_WORKERS,
         ),
