@@ -106,6 +106,10 @@ class GpuResourceProperty(Generic[R]):
         self.current_cpu_buf: Optional[CpuBuffer] = None
         self.frame_generation_indices = [0] * self.property.num_frames
 
+        # Options
+        self.preupload = self.property.upload.preupload
+        self.mapped = upload_method == UploadMethod.MAPPED_PREFER_DEVICE or upload_method == UploadMethod.MAPPED_PREFER_HOST
+
         # If preupload static
         self.resources: List[R] = []
         self.resources_frame_generation: List[int] = []
@@ -127,9 +131,9 @@ class GpuResourceProperty(Generic[R]):
 
         # Upload
         if self.property.upload.preupload:
-            if upload_method == UploadMethod.CPU_BUF:
+            if upload_method == UploadMethod.MAPPED_PREFER_HOST:
                 alloc_type = AllocType.HOST
-            elif upload_method == UploadMethod.BAR:
+            elif upload_method == UploadMethod.MAPPED_PREFER_DEVICE:
                 alloc_type = AllocType.DEVICE_MAPPED
             else:
                 alloc_type = AllocType.DEVICE
@@ -160,7 +164,7 @@ class GpuResourceProperty(Generic[R]):
                     self.is_jagged = True
 
                 res = self._create_resource_for_preupload(frame, alloc_type, f"{name}-{i}")
-                if upload_method == UploadMethod.CPU_BUF or upload_method == UploadMethod.BAR:
+                if self.mapped:
                     self._upload_mapped_resource(res, frame)
                 else:
                     out_upload_list.append(self._create_bulk_upload_descriptor(res, frame))
@@ -173,7 +177,7 @@ class GpuResourceProperty(Generic[R]):
             cpu_buffers_count = num_frames_in_flight + cpu_prefetch_count + gpu_prefetch_count
             gpu_resources_count = 1 + gpu_prefetch_count
 
-            cpu_alloc_type = AllocType.DEVICE_MAPPED if self.upload_method == UploadMethod.BAR else AllocType.HOST
+            cpu_alloc_type = AllocType.DEVICE_MAPPED if self.upload_method == UploadMethod.MAPPED_PREFER_DEVICE else AllocType.HOST
             self.cpu_buffers = [
                 CpuBuffer(self._create_cpu_buffer(f"cpubuf-{name}-{i}", cpu_alloc_type))
                 for i in range(cpu_buffers_count)
@@ -233,10 +237,10 @@ class GpuResourceProperty(Generic[R]):
                     buf.used_size = self.property.get_frame_by_index_into(k, buf.buf.data)
 
             property_frame_index = self.property.current_frame_index
+
+            # TODO: check if can be unified
             if self.dynamic:
-                if not self.is_jagged and (
-                    self.upload_method == UploadMethod.CPU_BUF or self.upload_method == UploadMethod.BAR
-                ):
+                if not self.is_jagged and self.mapped:
                     do_load = not self.cpu_pool.is_available(property_frame_index)
                 else:
                     do_load = (
@@ -244,10 +248,7 @@ class GpuResourceProperty(Generic[R]):
                         != self.frame_generation_indices[property_frame_index]
                     )
             else:
-                do_load = (
-                    self.upload_method == UploadMethod.CPU_BUF
-                    or self.upload_method == UploadMethod.BAR
-                    or (
+                do_load = (self.mapped or (
                         self.gpu_pool is not None
                         and not self.gpu_pool.is_available_or_prefetching(property_frame_index)
                     )
@@ -281,9 +282,7 @@ class GpuResourceProperty(Generic[R]):
                 self.cpu_pool.use_frame(frame.index, property_frame_index)
 
                 # Preupload dynamic gpu managed, or jagged, issue upload on GFX queue
-                if self.is_jagged or not (
-                    self.upload_method == UploadMethod.CPU_BUF or self.upload_method == UploadMethod.BAR
-                ):
+                if self.is_jagged or not self.mapped:
                     # Upload on gfx queue
                     self._cmd_before_barrier(frame.cmd, res)
                     self._cmd_upload(frame.cmd, cpu_buf, res)
@@ -302,7 +301,7 @@ class GpuResourceProperty(Generic[R]):
             assert self.cpu_pool is not None
 
             # Wait for buffer to be ready
-            if self.upload_method == UploadMethod.CPU_BUF or self.upload_method == UploadMethod.BAR:
+            if self.mapped:
                 assert self.current_cpu_buf is not None
                 cpu_buf = self.current_cpu_buf
                 self.current_cpu_buf = None
@@ -329,7 +328,7 @@ class GpuResourceProperty(Generic[R]):
                         cpu_buf.promise.get()
 
                     self.cpu_pool.use_frame(frame.index, k)
-                    if self.upload_method == UploadMethod.GFX:
+                    if self.upload_method == UploadMethod.GRAPHICS_QUEUE:
                         # Upload on gfx queue
                         self._cmd_before_barrier(frame.cmd, gpu_res.resource)
                         self._cmd_upload(frame.cmd, cpu_buf, gpu_res.resource)
@@ -477,9 +476,7 @@ class GpuResourceProperty(Generic[R]):
         if self.property.upload.preupload and not self.dynamic:
             self.dynamic = True
 
-            if not self.is_jagged and (
-                self.upload_method == UploadMethod.BAR or self.upload_method == UploadMethod.CPU_BUF
-            ):
+            if not self.is_jagged and self.mapped:
                 # NOTE: only works for buffers for now, which is why we get a type error here.
 
                 # Promote buffers to CPU LRU pool buffers
@@ -487,7 +484,7 @@ class GpuResourceProperty(Generic[R]):
                 pre_initialized: List[Optional[int]] = list(range(len(self.resources)))
 
                 # Allocate extra staging buffers for LRU pool
-                cpu_alloc_type = AllocType.DEVICE_MAPPED if self.upload_method == UploadMethod.BAR else AllocType.HOST
+                cpu_alloc_type = AllocType.DEVICE_MAPPED if self.upload_method == UploadMethod.MAPPED_PREFER_DEVICE else AllocType.HOST
                 for i in range(self.num_frames_in_flight):
                     self.cpu_buffers.append(
                         CpuBuffer(self._create_cpu_buffer(f"cpubuf-{self.name}-{i}", cpu_alloc_type))
@@ -596,12 +593,6 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
         self.memory_usage = memory_usage
         self.size = property.max_size
 
-        if upload_method == UploadMethod.CPU_BUF or upload_method == UploadMethod.BAR:
-            # TRANSFER_SRC is needed if promoted to dynamic
-            self.cpu_usage_flags = self.usage_flags | BufferUsageFlags.TRANSFER_SRC
-        else:
-            self.cpu_usage_flags = BufferUsageFlags.TRANSFER_SRC
-
         super().__init__(
             ctx,
             num_frames_in_flight,
@@ -624,10 +615,16 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
         return BufferUploadInfo(view_bytes(frame), resource)
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:
+        if self.mapped:
+            # TRANSFER_SRC is needed if promoted to dynamic
+            usage_flags = self.usage_flags | BufferUsageFlags.TRANSFER_SRC
+        else:
+            usage_flags = BufferUsageFlags.TRANSFER_SRC
+
         return Buffer(
             self.ctx,
             self.size,
-            self.cpu_usage_flags,
+            usage_flags,
             alloc_type,
             name=name,
         )
@@ -689,9 +686,9 @@ class GpuImageProperty(GpuResourceProperty[Image]):
         pipeline_stage_flags: PipelineStageFlags,
         name: str,
     ):
-        if upload_method != UploadMethod.GFX and upload_method != UploadMethod.TRANSFER_QUEUE:
+        if upload_method != UploadMethod.GRAPHICS_QUEUE and upload_method != UploadMethod.TRANSFER_QUEUE:
             raise ValueError(
-                f"GpuImageProperty supports only {UploadMethod.GFX} and {UploadMethod.TRANSFER_QUEUE} upload methods. Got {upload_method}."
+                f"GpuImageProperty supports only {UploadMethod.GRAPHICS_QUEUE} and {UploadMethod.TRANSFER_QUEUE} upload methods. Got {upload_method}."
             )
         self.usage_flags = usage_flags | ImageUsageFlags.TRANSFER_DST
         self.layout = layout

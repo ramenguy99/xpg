@@ -124,13 +124,13 @@ class Renderer:
                         "Transfer queue upload requires timeline semaphores which are not available on picked device"
                     )
         else:
+            # TODO: we could also check if BAR is available and large enough
+            # and add a DEVICE_PREFER_MAPPED option to take advantage of it.
             if (
                 ctx.device_properties.device_type == PhysicalDeviceType.INTEGRATED_GPU
                 or ctx.device_properties.device_type == PhysicalDeviceType.CPU
             ):
-                self.buffer_upload_method = UploadMethod.CPU_BUF
-            elif False:  # TODO: Check if has resizable bar and if is configured to use it
-                self.buffer_upload_method = UploadMethod.BAR
+                self.buffer_upload_method = UploadMethod.MAPPED_PREFER_DEVICE
             elif (
                 config.use_transfer_queue_if_available
                 and ctx.has_transfer_queue
@@ -138,16 +138,16 @@ class Renderer:
             ):
                 self.buffer_upload_method = UploadMethod.TRANSFER_QUEUE
             else:
-                self.buffer_upload_method = UploadMethod.GFX
+                self.buffer_upload_method = UploadMethod.GRAPHICS_QUEUE
 
         # Upload method for images
         if config.force_image_upload_method is not None:
             if (
-                config.force_image_upload_method == UploadMethod.CPU_BUF
-                or config.force_image_upload_method == UploadMethod.BAR
+                config.force_image_upload_method == UploadMethod.MAPPED_PREFER_DEVICE
+                or config.force_image_upload_method == UploadMethod.MAPPED_PREFER_HOST
             ):
                 raise RuntimeError(
-                    f"Upload method for images must be {UploadMethod.GFX} or {UploadMethod.TRANSFER_QUEUE}. Got {config.force_image_upload_method} in config.force_image_upload_method."
+                    f"Upload method for images must be {UploadMethod.GRAPHICS_QUEUE} or {UploadMethod.TRANSFER_QUEUE}. Got {config.force_image_upload_method} in config.force_image_upload_method."
                 )
             self.image_upload_method = config.force_image_upload_method
             if self.image_upload_method == UploadMethod.TRANSFER_QUEUE:
@@ -165,7 +165,7 @@ class Renderer:
             ):
                 self.image_upload_method = UploadMethod.TRANSFER_QUEUE
             else:
-                self.image_upload_method = UploadMethod.GFX
+                self.image_upload_method = UploadMethod.GRAPHICS_QUEUE
 
         self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
 

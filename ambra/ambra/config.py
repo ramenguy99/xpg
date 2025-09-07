@@ -21,10 +21,10 @@ class ServerConfig:
 
 
 class UploadMethod(Enum):
-    GFX = 0
+    GRAPHICS_QUEUE = 0
     TRANSFER_QUEUE = 1
-    CPU_BUF = 2
-    BAR = 3
+    MAPPED_PREFER_HOST = 2
+    MAPPED_PREFER_DEVICE = 3
 
 
 @dataclass

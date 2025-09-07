@@ -29,7 +29,7 @@ viewer = Viewer(
             ortho_half_extents=(10, 10),
         ),
         renderer=RendererConfig(
-            force_buffer_upload_method=UploadMethod.GFX,
+            force_buffer_upload_method=UploadMethod.GRAPHICS_QUEUE,
         ),
     ),
 )

@@ -103,9 +103,10 @@ viewer = CustomViewer(
         ),
         renderer=RendererConfig(
             background_color=(0, 0, 0, 1),
-            # force_buffer_upload_method=UploadMethod.CPU_BUF,
+            # force_buffer_upload_method=UploadMethod.MAPPED_PREFER_HOST,
+            # force_buffer_upload_method=UploadMethod.MAPPED_PREFER_DEVICE,
             # force_buffer_upload_method=UploadMethod.TRANSFER_QUEUE,
-            # force_buffer_upload_method=UploadMethod.GFX,
+            # force_buffer_upload_method=UploadMethod.GRAPHICS_QUEUE,
             upload_buffer_count=2,
             thread_pool_workers=NUM_WORKERS,
         ),
