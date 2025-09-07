@@ -1,15 +1,6 @@
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import (
-    Callable,
-    Dict,
-    Generic,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    TypeVar,
-)
+from typing import Callable, Dict, Generic, List, Optional, Sequence, Tuple, TypeVar
 
 
 class _RefCount:
@@ -39,22 +30,32 @@ class _Entry(Generic[O]):
 
 
 class LRUPool(Generic[K, O]):
-    def __init__(self, objs: List[O], num_frames: int, max_prefetch: int = 0, pre_initialized: Optional[List[Optional[K]]] = None, frame_generation_indices: List[int] = None):
-        self.lru: OrderedDict[O, Optional[K]] = OrderedDict()
-        self.lookup: OrderedDict[K, _Entry[O]] = OrderedDict()
-        self.in_flight: List[Optional[Tuple[K, _Entry[O]]]] = [None] * num_frames
-        self.max_prefetch: int = max_prefetch
-        self.prefetch_store: Dict[O, K] = {}
+    def __init__(
+        self,
+        objs: List[O],
+        num_frames: int,
+        frame_generation_indices: Dict[K, int],
+        max_prefetch: int = 0,
+        pre_initialized: Optional[List[Optional[K]]] = None,
+    ):
+        self.lru: OrderedDict[O, Optional[Tuple[K, int]]] = OrderedDict()
+        self.lookup: OrderedDict[Tuple[K, int], _Entry[O]] = OrderedDict()
+        self.in_flight: List[Optional[Tuple[Tuple[K, int], _Entry[O]]]] = [None] * num_frames
         self.frame_generation_indices = frame_generation_indices
+        self.max_prefetch: int = max_prefetch
+        self.prefetch_store: Dict[O, Tuple[K, int]] = {}
 
         if pre_initialized is not None:
             if len(objs) != len(pre_initialized):
-                raise RuntimeError(f"Length of objs ({len(objs)}) and pre_initialized ({len(pre_initialized)}) must match")
+                raise RuntimeError(
+                    f"Length of objs ({len(objs)}) and pre_initialized ({len(pre_initialized)}) must match"
+                )
             for o, k in zip(objs, pre_initialized):
-                self.lru[o] = k
                 if k is not None:
-                    self.lookup[k] = _Entry(o, _RefCount(), prefetching=False)
+                    self.lru[o] = (k, 0)
+                    self.lookup[(k, 0)] = _Entry(o, _RefCount(), prefetching=False)
                 else:
+                    self.lru[o] = None
                     self.lru.move_to_end(o, last=False)
         else:
             for o in objs:
@@ -62,10 +63,11 @@ class LRUPool(Generic[K, O]):
 
     def get(
         self,
-        key: K,
+        k: K,
         load: Callable[[K, O], None],
         ensure_fetched: Optional[Callable[[K, O], None]] = None,
     ) -> O:
+        key = (k, self.frame_generation_indices[k])
         cached = self.lookup.get(key)
 
         # Check if already loaded
@@ -79,7 +81,7 @@ class LRUPool(Generic[K, O]):
                 self.lookup.pop(old_key)
 
             # Load
-            load(key, obj)
+            load(key[0], obj)
 
             # Register buffer as loaded for future use
             self.lookup[key] = _Entry(obj, _RefCount(), prefetching=False)
@@ -89,7 +91,7 @@ class LRUPool(Generic[K, O]):
             if cached.prefetching:
                 # Realize prefetch
                 if ensure_fetched:
-                    ensure_fetched(key, obj)
+                    ensure_fetched(key[0], obj)
 
                 # Item is still in the prefetching list here.
                 # It will be removed by the next prefetch cleanup
@@ -102,31 +104,37 @@ class LRUPool(Generic[K, O]):
                 pass
         return obj
 
-    def is_available(self, key: K) -> bool:
-        cached = self.lookup.get(key)
+    def is_available(self, k: K) -> bool:
+        cached = self.lookup.get((k, self.frame_generation_indices[k]))
         return cached is not None and not cached.prefetching
 
-    def is_available_or_prefetching(self, key: K) -> bool:
-        cached = self.lookup.get(key)
+    def is_available_or_prefetching(self, k: K) -> bool:
+        cached = self.lookup.get((k, self.frame_generation_indices[k]))
         return cached is not None
 
-    def evict_next(self, key: K):
-        if (o := self.lookup.get(key)) is not None:
+    def evict_next(self, k: K) -> None:
+        if (o := self.lookup.get((k, self.frame_generation_indices[k]))) is not None:
             try:
                 self.lru.move_to_end(o.obj, last=False)
             except KeyError:
                 pass
 
-    def use_frame(self, frame_index: int, key: K) -> None:
+    def use_frame(self, frame_index: int, k: K) -> None:
+        key = (k, self.frame_generation_indices[k])
+
         entry = self.lookup[key]
         entry.refcount.inc()
         self.in_flight[frame_index] = (key, entry)
 
-    def use_manual(self, key: K) -> None:
+    def use_manual(self, k: K) -> None:
+        key = (k, self.frame_generation_indices[k])
+
         entry = self.lookup[key]
         entry.refcount.inc()
 
-    def release_manual(self, key: K) -> None:
+    def release_manual(self, k: K) -> None:
+        key = (k, self.frame_generation_indices[k])
+
         entry = self.lookup[key]
 
         # Decrement refcount
@@ -151,7 +159,7 @@ class LRUPool(Generic[K, O]):
             self.in_flight[frame_index] = None
 
     def give_back(self, k: K, obj: O) -> None:
-        self.lru[obj] = k
+        self.lru[obj] = (k, self.frame_generation_indices[k])
 
     def prefetch(
         self,
@@ -163,13 +171,13 @@ class LRUPool(Generic[K, O]):
             return
 
         for obj, key in list(self.prefetch_store.items()):
-            if cleanup(key, obj):
+            if cleanup(key[0], obj):
                 # Insert back in the LRU if not yet claimed
                 if self.lookup[key].prefetching:
                     self.lru[obj] = key
 
-                    # Check if the buffer is still in the window
-                    if key not in useful_range:
+                    # Check if the buffer is out of date or it's not in the window
+                    if key[1] > self.frame_generation_indices[key[0]] or key[0] not in useful_range:
                         # Move to end of LRU to ensure this buffer is reused soon
                         self.lru.move_to_end(obj, last=False)
 
@@ -183,7 +191,8 @@ class LRUPool(Generic[K, O]):
 
         bump = []
         prefetch_count = self.max_prefetch - len(self.prefetch_store)
-        for key in useful_range[:prefetch_count]:
+        for k in useful_range[:prefetch_count]:
+            key = (k, self.frame_generation_indices[k])
             cached = self.lookup.get(key)
             if cached is None:
                 # Grab a free buffer
@@ -193,7 +202,7 @@ class LRUPool(Generic[K, O]):
                     self.lookup.pop(old_key)
 
                 # Submit for load
-                submit_load(key, obj)
+                submit_load(key[0], obj)
 
                 # Register buffer as loading for future use
                 self.lookup[key] = _Entry(obj, _RefCount(), prefetching=True)

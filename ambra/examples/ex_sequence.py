@@ -13,7 +13,7 @@ from ambra.utils.io import (
     read_exact_at_offset,
     read_exact_at_offset_into,
 )
-from ambra.viewer import Viewer, imgui
+from ambra.viewer import Action, Key, Modifiers, Viewer, imgui
 
 logging.basicConfig(
     level=logging.NOTSET,
@@ -23,7 +23,7 @@ logging.basicConfig(
 
 NUM_WORKERS = 4
 
-path = Path("N:\\scenes\\smpl\\all_frames_10.bin")
+path = Path("N:\\scenes\\smpl\\all_frames_20.bin")
 files = [open(path, "rb", buffering=0) for _ in range(NUM_WORKERS)]
 file = files[0]
 header = read_exact(file, 12)
@@ -33,7 +33,6 @@ I = struct.unpack("<I", header[8:12])[0]
 
 indices = np.frombuffer(read_exact_at_offset(file, N * V * 12 + len(header), I * 4), np.uint32)
 
-
 scale = 1.0
 
 
@@ -41,10 +40,10 @@ class FileStreamingProperty(BufferProperty):
     def _get_size_offset(frame_index: int):
         return V * 12, 12 + frame_index * V * 12
 
-    # def get_frame_by_index_into(self, frame_index: int, out: memoryview, thread_index: int = -1) -> int:
-    #     size, offset = FileStreamingProperty._get_size_offset(frame_index)
-    #     read_exact_at_offset_into(files[thread_index], offset, out[:size])
-    #     return size
+    def get_frame_by_index_into(self, frame_index: int, out: memoryview, thread_index: int = -1) -> int:
+        size, offset = FileStreamingProperty._get_size_offset(frame_index)
+        read_exact_at_offset_into(files[thread_index], offset, out[:size])
+        return size
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1):
         size, offset = FileStreamingProperty._get_size_offset(frame_index)
@@ -79,6 +78,14 @@ class CustomViewer(Viewer):
                 mesh.positions_buffer.invalidate_frame(mesh.positions.current_frame_index)
         imgui.end()
 
+    def on_key(self, key: Key, action: Action, modifiers: Modifiers):
+        handled = False
+        if action == Action.PRESS:
+            if key == Key.A:
+                mesh.positions_buffer.invalidate_frame(mesh.positions.current_frame_index)
+        if not handled:
+            return super().on_key(key, action, modifiers)
+
 
 viewer = CustomViewer(
     "primitives",
@@ -96,7 +103,9 @@ viewer = CustomViewer(
         ),
         renderer=RendererConfig(
             background_color=(0, 0, 0, 1),
-            force_buffer_upload_method=UploadMethod.GFX,
+            # force_buffer_upload_method=UploadMethod.CPU_BUF,
+            # force_buffer_upload_method=UploadMethod.TRANSFER_QUEUE,
+            # force_buffer_upload_method=UploadMethod.GFX,
             upload_buffer_count=2,
             thread_pool_workers=NUM_WORKERS,
         ),

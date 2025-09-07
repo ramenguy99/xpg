@@ -347,7 +347,7 @@ class Viewer:
             imgui.separator()
             if self.gui_selected_gpu_property is not None:
 
-                def drawpool(name: str, pool: Optional[LRUPool[Tuple[int, int], Any]], count: int) -> None:
+                def drawpool(name: str, pool: Optional[LRUPool[int, Any]], count: int) -> None:
                     if pool is None:
                         return
                     imgui.separator_text(name)

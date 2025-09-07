@@ -270,14 +270,13 @@ Issues found while implementing skeletal animation:
                         GPU managed -> one for each property frame with exact or conservative size depending CPU property, upload through bulk
                     CPU load:
                         sync  -> just use at upload time
-                        async -> parallel for at creation time, use at upload time
+                        async -> parallel for at creation time
                     GPU upload (only if GPU managed): bulk upload
                     Prefetching: N/A
                     Update:
                         CPU mapped:
                             Full array
-                                1. can alloc extra staging buffers and exchange them with frames in flight -> potentially complex to implement
-                                2. use any of the jagged array solutions
+                                1. can alloc extra staging buffers and exchange them with frames in flight -> similar to gpu managed
                             Jagged array -> interchange is not possible because we can get back smaller buffers, there is no perfect solution for this case I think.
                                 1. Switch to always have the GPU do the copy (basically promote to GPU managed and handle the same way) -> potentially bad for resources in CPU memory
                                 2. Allocate frames_in_flight - 1 buffers FOR EACH property frame -> adds frames_in_flight - 1 times the cpu memory usage of this property
@@ -344,20 +343,42 @@ Issues found while implementing skeletal animation:
                     Preupload:
                         static: one buffer for each property frame -> Full array
                         dynamic:
-                            case 1.
-                                - one buffer for each property frame -> Full array
-                                - one staging buffer for each frame in flight -> Ring buffer
-                            case 2.
-                                - frames in flight buffers for each property frame -> many Full array
-
+                            Full array:
+                                Cpu mapped: LRU pool of all cpu buffers -> tricky because we don't want LRU eviction but always want to evict the previous version of a frame
+                            Jagged array:
+                                case 1: - one buffer for each property frame and one staging buffer for each frame in flight -> Full array + Ring buffer
+                                case 2: frames in flight buffers for each property frame -> Full array of ring buffers
                     Streaming:
                         CPU load: one buffer per frame in flight and caching -> LRU pool
                         GPU upload: single buffer
 
                     Streaming + prefetch:
                         CPU load: one buffer per frame in flight + one per prefetch and caching -> LRU pool
-                        GPU upload: single buffer + prefetch buffers with exchange -> LRU pool?
+                        GPU upload: single buffer + prefetch buffers with exchange -> LRU pool
 
+                Fields in use:
+                    - resources -> preupload static mapped and unmapped
+                    - cpu_pool -> preupload dynamic mapped and unmapped
+                    -
+
+                Preferred upload modes:
+                    Integrated:
+                        - If using an integrated GPU we want to avoid extra copies, therefore both CPU and BAR (Device mapped) should always be preferred (BAR because some integrated gpus could have "faster" memory).
+                          We will prioritize doing uploads on the CPU directly, but can also let the GPU do BAR copies in the jagged dynamic case.
+                    Discrete:
+                        - Initial uploads could use DEVICE_MAPPED_WITH_FALLBACK, check if mapped and do initial upload with BAR.
+                        - We could have a size heuristic if stuff could also stay in BAR later, while for bigger resources we want TRANSFER or GFX.
+
+                Questions:
+                [x] Subclass Property into ImageProperty and BufferProperty? Do I also need DataImageProperty and DataBufferProperty though? maybe not a good idea
+                [x] How do we detect jagged vs not, DataProperty knows this, but not BufferProperty? can do this at preupload time
+                [x] How do we implement static -> dynamic promotion in a way that does not require tons of if statements? we bite the bullet and do it for now
+                [x] What is the user API for frame invalidation? Is the user expected to call the method on the gpu property? If so then likely have to document this well or be strict with naming? Currently yes
+                [x] Which LRU pools are invalid, and in which states? Do we want to split some of this logic into components instead of having a bunch of state in GpuResourceProperty? we just reuse them for now
+                [ ] Where do we implement and how do we override / configure upload mode picking (see preferred upload modes above)?
+                [ ] Simplify if statements by precomputing commonly used bools
+                [ ] Double check if we need the extra array of resource generations for the full array dynamic case
+                [ ] Improve UI of GPU property depending on various states
 
 Nice to have soon:
 [ ] User texture for UI stuff, e.g. in imagui window (or tooltip)
