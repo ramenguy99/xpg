@@ -178,7 +178,7 @@ class GpuResourceProperty(Generic[R]):
                 CpuBuffer(self._create_cpu_buffer(f"cpubuf-{name}-{i}", cpu_alloc_type))
                 for i in range(cpu_buffers_count)
             ]
-            self.cpu_pool = LRUPool(self.cpu_buffers, num_frames_in_flight, cpu_prefetch_count)
+            self.cpu_pool = LRUPool(self.cpu_buffers, num_frames_in_flight, cpu_prefetch_count, frame_generation_indices=self.frame_generation_indices)
 
             for i in range(gpu_resources_count):
                 res = self._create_gpu_resource(f"gpubuf-{name}-{i}")
@@ -192,6 +192,7 @@ class GpuResourceProperty(Generic[R]):
                 self.gpu_resources,
                 1,
                 gpu_prefetch_count,
+                frame_generation_indices=self.frame_generation_indices,
             )
 
             if upload_method == UploadMethod.TRANSFER_QUEUE:
@@ -482,7 +483,7 @@ class GpuResourceProperty(Generic[R]):
                         pre_initialized.append(None)
 
                     # Initialize LRU pool
-                    self.cpu_pool = LRUPool(self.cpu_buffers, self.num_frames_in_flight, 0, pre_initialized)
+                    self.cpu_pool = LRUPool(self.cpu_buffers, self.num_frames_in_flight, 0, pre_initialized, self.frame_generation_indices)
                     for frame_index, property_frame_index in enumerate(self.property_frame_indices_in_flight):
                         self.cpu_pool.use_frame(frame_index, (property_frame_index, 0))
                 else:
@@ -491,18 +492,17 @@ class GpuResourceProperty(Generic[R]):
                         CpuBuffer(self._create_cpu_buffer(f"cpubuf-{self.name}-{i}", AllocType.HOST))
                         for i in range(self.num_frames_in_flight)
                     ]
-                    self.cpu_pool = LRUPool(self.cpu_buffers, self.num_frames_in_flight, 0)
+                    self.cpu_pool = LRUPool(self.cpu_buffers, self.num_frames_in_flight, 0, None, self.frame_generation_indices)
                     self.resources_frame_generation = [0] * len(self.resources)
 
         assert self.cpu_pool is not None
         to_evict = (invalidated_property_frame_index, self.frame_generation_indices[invalidated_property_frame_index])
+
         self.cpu_pool.evict_next(to_evict)
-
-        # print(f"Evicted {to_evict} invalidating {invalidated_property_frame_index}")
-        # for k, v in self.cpu_pool.lru.items():
-        #     print("   ", k, v)
-
+        if self.gpu_pool is not None:
+            self.gpu_pool.evict_next(to_evict)
         self.frame_generation_indices[invalidated_property_frame_index] += 1
+
 
     def destroy(self) -> None:
         self.current = None
@@ -574,7 +574,8 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
         self.size = property.max_size
 
         if upload_method == UploadMethod.CPU_BUF or upload_method == UploadMethod.BAR:
-            self.cpu_usage_flags = self.usage_flags
+            # TRANSFER_SRC is needed if promoted to dynamic
+            self.cpu_usage_flags = self.usage_flags | BufferUsageFlags.TRANSFER_SRC
         else:
             self.cpu_usage_flags = BufferUsageFlags.TRANSFER_SRC
 

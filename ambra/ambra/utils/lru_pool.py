@@ -39,16 +39,17 @@ class _Entry(Generic[O]):
 
 
 class LRUPool(Generic[K, O]):
-    def __init__(self, objs: List[O], num_frames: int, max_prefetch: int = 0, pre_initialized: Optional[List[Optional[K]]] = None):
+    def __init__(self, objs: List[O], num_frames: int, max_prefetch: int = 0, pre_initialized: Optional[List[Optional[K]]] = None, frame_generation_indices: List[int] = None):
         self.lru: OrderedDict[O, Optional[K]] = OrderedDict()
         self.lookup: OrderedDict[K, _Entry[O]] = OrderedDict()
         self.in_flight: List[Optional[Tuple[K, _Entry[O]]]] = [None] * num_frames
         self.max_prefetch: int = max_prefetch
         self.prefetch_store: Dict[O, K] = {}
+        self.frame_generation_indices = frame_generation_indices
 
         if pre_initialized is not None:
             if len(objs) != len(pre_initialized):
-                raise RuntimeError(f"Length of objs ({len(objs)}and pre_initialized ({len(pre_initialized)} must match")
+                raise RuntimeError(f"Length of objs ({len(objs)}) and pre_initialized ({len(pre_initialized)}) must match")
             for o, k in zip(objs, pre_initialized):
                 self.lru[o] = k
                 if k is not None:
@@ -132,6 +133,8 @@ class LRUPool(Generic[K, O]):
         if entry.refcount.dec():
             # If refcount is 0 add buffer back to LRU
             self.lru[entry.obj] = key
+            if key[1] < self.frame_generation_indices[key[0]]:
+                self.lru.move_to_end(entry.obj, last=False)
 
     def release_frame(self, frame_index: int) -> None:
         if old := self.in_flight[frame_index]:
@@ -141,6 +144,8 @@ class LRUPool(Generic[K, O]):
             if entry.refcount.dec():
                 # If refcount is 0 add buffer back to LRU
                 self.lru[entry.obj] = key
+                if key[1] < self.frame_generation_indices[key[0]]:
+                    self.lru.move_to_end(entry.obj, last=False)
 
             # Mark nothing in flight yet for this frame.
             self.in_flight[frame_index] = None
