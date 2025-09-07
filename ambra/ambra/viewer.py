@@ -347,14 +347,14 @@ class Viewer:
             imgui.separator()
             if self.gui_selected_gpu_property is not None:
 
-                def drawpool(name: str, pool: Optional[LRUPool[int, Any]], count: int) -> None:
+                def drawpool(name: str, pool: Optional[LRUPool[Tuple[int, int], Any]], count: int) -> None:
                     if pool is None:
                         return
                     imgui.separator_text(name)
                     imgui.text("Map")
                     imgui.indent()
                     for lu_k, lu_v in pool.lookup.items():
-                        imgui.text(f"{lu_k:03d} {lu_v}")
+                        imgui.text(f"{lu_k} {lu_v}")
                     imgui.unindent()
 
                     imgui.text("LRU")
@@ -420,7 +420,7 @@ class Viewer:
                         )
 
                         for (
-                            c_k,
+                            (c_k, _),
                             c_v,
                         ) in self.gui_selected_gpu_property.cpu_pool.lookup.items():
                             cursor = imgui.Vec2(start.x + 5 * c_k, start.y)
@@ -449,7 +449,7 @@ class Viewer:
                         )
 
                         for (
-                            g_k,
+                            (g_k, _),
                             g_v,
                         ) in self.gui_selected_gpu_property.gpu_pool.lookup.items():
                             cursor = imgui.Vec2(start.x + 5 * g_k, start.y)

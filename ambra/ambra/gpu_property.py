@@ -101,26 +101,29 @@ class GpuResourceProperty(Generic[R]):
         self.name = name
         self.pipeline_stage_flags = pipeline_stage_flags
 
-        # Frame management
-        self.frame_generation_indices = [0] * self.property.num_frames
-
-        # Current state
+        # Common
         self.current: Optional[R] = None
         self.current_cpu_buf: Optional[CpuBuffer] = None
+        self.frame_generation_indices = [0] * self.property.num_frames
 
-        # If preupload:
-        self.resources: List[Tuple[R, bool]] = []
+        # If preupload static
+        self.resources: List[R] = []
+        self.resources_frame_generation = []
+        self.property_frame_indices_in_flight = [None] * self.num_frames_in_flight
         self.dynamic = False
+        self.is_jagged = False
 
-        # Otherwise:
+        # If preupload dynamic or streaming
         self.cpu_buffers: List[CpuBuffer] = []
-        self.cpu_pool: Optional[LRUPool[int, CpuBuffer]] = None
+        self.cpu_pool: Optional[LRUPool[Tuple[int, int], CpuBuffer]] = None
+
+        # If preupload dynamic or streaming and GPU managed
         self.gpu_resources: List[GpuResource[R]] = []
-        self.gpu_pool: Optional[LRUPool[int, GpuResource[R]]] = None
+        self.gpu_pool: Optional[LRUPool[Tuple[int, int], GpuResource[R]]] = None
+
+        # If streaming and GPU managed and prefetch
         self.prefetch_states: List[PrefetchState] = []
         self.prefetch_states_lookup: Dict[GpuResource[R], PrefetchState] = {}
-
-        self.has_owned_upload_buffers = not self.property.upload.preupload
 
         # Upload
         if self.property.upload.preupload:
@@ -135,7 +138,7 @@ class GpuResourceProperty(Generic[R]):
             # threads here, but we first need to know the size of the frame.
             # This makes things more complicated because we could run into
             # issues using the context from multiple threads. It's not
-            # clear where is the best case to ensure this is thread safe so
+            # clear where is the best way to ensure this is thread safe so
             # for now we don't do it.
             if property.upload.async_load:
                 promises: List[Promise[np.ndarray]] = []
@@ -144,17 +147,24 @@ class GpuResourceProperty(Generic[R]):
                     self.thread_pool.submit(promise, self._load_async, i)  # type: ignore
                     promises.append(promise)
 
+            nbytes = 0
             for i in range(property.num_frames):
                 if property.upload.async_load:
                     frame = promises[i].get()
                 else:
                     frame = property.get_frame_by_index(i)
+
+                if i == 0:
+                    nbytes = frame.nbytes
+                elif nbytes != frame.nbytes:
+                    self.is_jagged = True
+
                 res = self._create_resource_for_preupload(frame, alloc_type, f"{name}-{i}")
                 if upload_method == UploadMethod.CPU_BUF or upload_method == UploadMethod.BAR:
                     self._upload_mapped_resource(res, frame)
                 else:
                     out_upload_list.append(self._create_bulk_upload_descriptor(res, frame))
-                self.resources.append((res, True))
+                self.resources.append(res)
         else:
             cpu_prefetch_count = self.property.upload.cpu_prefetch_count
             gpu_prefetch_count = (
@@ -196,8 +206,6 @@ class GpuResourceProperty(Generic[R]):
                     )
                     for i in range(gpu_prefetch_count)
                 ]
-        # TODO: after invalidation or if configured, allocate owned prealloc buffers
-        # and switch to streaming operations
 
     def _load_async(self, i: int, thread_index: int) -> np.ndarray:
         return self.property.get_frame_by_index(i, thread_index)
@@ -212,28 +220,32 @@ class GpuResourceProperty(Generic[R]):
 
             self.cpu_pool.release_frame(frame.index)
 
-            def cpu_load(k: int, buf: CpuBuffer) -> None:
+            def cpu_load(k: Tuple[int, int], buf: CpuBuffer) -> None:
                 if self.property.upload.async_load:
-                    self.thread_pool.submit(buf.promise, self._load_async_into, k, buf)  # type: ignore
+                    print(f"Async loading {key}")
+                    self.thread_pool.submit(buf.promise, self._load_async_into, k[0], buf)  # type: ignore
                 else:
-                    buf.used_size = self.property.get_frame_by_index_into(k, buf.buf.data)
+                    buf.used_size = self.property.get_frame_by_index_into(k[0], buf.buf.data)
 
             property_frame_index = self.property.current_frame_index
+            key = (property_frame_index, self.frame_generation_indices[property_frame_index])
 
             if self.dynamic:
-                do_load = not self.resources[property_frame_index][1]
+                if not self.is_jagged and (self.upload_method == UploadMethod.CPU_BUF or self.upload_method == UploadMethod.BAR):
+                    do_load = not self.cpu_pool.is_available(key)
+                else:
+                    do_load = self.resources_frame_generation[property_frame_index] != self.frame_generation_indices[property_frame_index]
             else:
                 do_load = (
                     self.upload_method == UploadMethod.CPU_BUF
                     or self.upload_method == UploadMethod.BAR
                     or (
                         self.gpu_pool is not None
-                        and not self.gpu_pool.is_available_or_prefetching(property_frame_index)
+                        and not self.gpu_pool.is_available_or_prefetching(key)
                     )
                 )
-
             if do_load:
-                self.current_cpu_buf = self.cpu_pool.get(property_frame_index, cpu_load)
+                self.current_cpu_buf = self.cpu_pool.get(key, cpu_load)
 
     def upload(self, frame: RendererFrame) -> None:
         # NOTE: unless we are doing BAR uploads here, we could delay
@@ -248,28 +260,36 @@ class GpuResourceProperty(Generic[R]):
         property_frame_index = self.property.current_frame_index
 
         if self.property.upload.preupload:
-            res, up_to_date = self.resources[property_frame_index]
-            if not up_to_date:
+            res = self.resources[property_frame_index]
+            self.current = res
+            if (cpu_buf := self.current_cpu_buf) is not None:
                 assert self.cpu_pool is not None
                 assert self.current_cpu_buf is not None
-
-                cpu_buf = self.current_cpu_buf
                 self.current_cpu_buf = None
 
                 if self.property.upload.async_load:
                     cpu_buf.promise.get()
 
-                self.cpu_pool.use_frame(frame.index, property_frame_index)
+                key = (property_frame_index, self.frame_generation_indices[property_frame_index])
+                self.cpu_pool.use_frame(frame.index, key)
 
-                # Upload on gfx queue
-                self._cmd_before_barrier(frame.cmd, res)
-                self._cmd_upload(frame.cmd, cpu_buf, res)
-                self._cmd_after_barrier(frame.cmd, res)
+                # Preupload dynamic gpu managed, or jagged, issue upload on GFX queue
+                if self.is_jagged or not (self.upload_method == UploadMethod.CPU_BUF or self.upload_method == UploadMethod.BAR):
+                    # Upload on gfx queue
+                    self._cmd_before_barrier(frame.cmd, res)
+                    self._cmd_upload(frame.cmd, cpu_buf, res)
+                    self._cmd_after_barrier(frame.cmd, res)
 
-                self.resources[property_frame_index] = (res, True)
-            self.current = res
+                    # Update generation index for this frame
+                    self.resources_frame_generation[property_frame_index] = self.frame_generation_indices[property_frame_index]
+                else:
+                    self.resources[property_frame_index] = cpu_buf.buf
+                    self.current = cpu_buf.buf
+            self.property_frame_indices_in_flight[frame.index] = property_frame_index
         else:
             assert self.cpu_pool is not None
+
+            key = (property_frame_index, self.frame_generation_indices[property_frame_index])
 
             # Wait for buffer to be ready
             if self.upload_method == UploadMethod.CPU_BUF or self.upload_method == UploadMethod.BAR:
@@ -280,14 +300,14 @@ class GpuResourceProperty(Generic[R]):
                 if self.property.upload.async_load:
                     cpu_buf.promise.get()
 
-                self.cpu_pool.use_frame(frame.index, property_frame_index)
+                self.cpu_pool.use_frame(frame.index, key)
 
                 # NOTE: only works for buffers for now, which is why we get a type error here.
                 self.current = cpu_buf.buf  # type: ignore
             else:
                 assert self.gpu_pool is not None
 
-                def gpu_load(k: int, gpu_res: GpuResource[R]) -> None:
+                def gpu_load(k: Tuple[int, int], gpu_res: GpuResource[R]) -> None:
                     assert self.cpu_pool is not None
                     assert self.current_cpu_buf is not None
 
@@ -324,11 +344,11 @@ class GpuResourceProperty(Generic[R]):
 
                         gpu_res.state = GpuResourceState.LOAD
 
-                def gpu_ensure(k: int, gpu_res: GpuResource[R]) -> None:
+                def gpu_ensure(k: Tuple[int, int], gpu_res: GpuResource[R]) -> None:
                     assert gpu_res.state == GpuResourceState.PREFETCH, gpu_res.state
 
-                gpu_res = self.gpu_pool.get(property_frame_index, gpu_load, gpu_ensure)
-                self.gpu_pool.give_back(property_frame_index, gpu_res)
+                gpu_res = self.gpu_pool.get(key, gpu_load, gpu_ensure)
+                self.gpu_pool.give_back(key, gpu_res)
 
                 if gpu_res.state == GpuResourceState.LOAD or gpu_res.state == GpuResourceState.PREFETCH:
                     if gpu_res.state == GpuResourceState.PREFETCH:
@@ -356,11 +376,11 @@ class GpuResourceProperty(Generic[R]):
 
             if self.property.upload.async_load:
                 # Issue prefetches
-                def cpu_prefetch_cleanup(k: int, buf: CpuBuffer) -> bool:
+                def cpu_prefetch_cleanup(k: Tuple[int, int], buf: CpuBuffer) -> bool:
                     return buf.promise.is_set()
 
-                def cpu_prefetch(k: int, buf: CpuBuffer) -> None:
-                    self.thread_pool.submit(buf.promise, self._load_async_into, k, buf)  # type: ignore
+                def cpu_prefetch(k: Tuple[int, int], buf: CpuBuffer) -> None:
+                    self.thread_pool.submit(buf.promise, self._load_async_into, k[0], buf)  # type: ignore
 
                 # TODO: can likely improve prefetch logic, and should probably allow
                 # this to be hooked / configured somehow
@@ -370,12 +390,12 @@ class GpuResourceProperty(Generic[R]):
                 prefetch_start = self.property.current_frame_index + 1
                 prefetch_end = prefetch_start + self.property.upload.cpu_prefetch_count
                 prefetch_range = [self.property.get_frame_index(0, i) for i in range(prefetch_start, prefetch_end)]
-                self.cpu_pool.prefetch(prefetch_range, cpu_prefetch_cleanup, cpu_prefetch)
+                self.cpu_pool.prefetch([(p, self.frame_generation_indices[p]) for p in prefetch_range], cpu_prefetch_cleanup, cpu_prefetch)
 
             if self.upload_method == UploadMethod.TRANSFER_QUEUE:
                 assert self.gpu_pool is not None
 
-                def gpu_prefetch_cleanup(k: int, gpu_res: GpuResource[R]) -> bool:
+                def gpu_prefetch_cleanup(k: Tuple[int, int], gpu_res: GpuResource[R]) -> bool:
                     state = self.prefetch_states_lookup[gpu_res]
 
                     assert gpu_res.semaphore is not None
@@ -393,7 +413,7 @@ class GpuResourceProperty(Generic[R]):
                         return True
                     return False
 
-                def gpu_prefetch(k: int, gpu_res: GpuResource[R]) -> None:
+                def gpu_prefetch(k: Tuple[int, int], gpu_res: GpuResource[R]) -> None:
                     assert self.cpu_pool is not None
                     assert (
                         gpu_res.state == GpuResourceState.EMPTY
@@ -427,9 +447,16 @@ class GpuResourceProperty(Generic[R]):
                 # TODO: fix, same as above
                 prefetch_start = self.property.current_frame_index + 1
                 prefetch_end = prefetch_start + self.property.upload.gpu_prefetch_count
-                prefetch_range = [self.property.get_frame_index(0, i) for i in range(prefetch_start, prefetch_end)]
+                available_range = []
+                for i in range(prefetch_start, prefetch_end):
+                    frame_index = self.property.get_frame_index(0, i)
+                    frame_generation_index = self.frame_generation_indices[frame_index]
+                    key = (frame_index, frame_generation_index)
+                    if self.cpu_pool.is_available(key):
+                        available_range.append(key)
+
                 self.gpu_pool.prefetch(
-                    [i for i in prefetch_range if self.cpu_pool.is_available(i)],
+                    available_range,
                     gpu_prefetch_cleanup,
                     gpu_prefetch,
                 )
@@ -438,13 +465,49 @@ class GpuResourceProperty(Generic[R]):
         assert self.current
         return self.current
 
-    def invalidate_frame(self, frame_index: int) -> None:
-        self.frame_generation_indices[frame_index] += 1
+    def invalidate_frame(self, invalidated_property_frame_index: int) -> None:
+        if self.property.upload.preupload:
+            if not self.dynamic:
+                self.dynamic = True
+
+                if not self.is_jagged and (self.upload_method == UploadMethod.BAR or self.upload_method == UploadMethod.CPU_BUF):
+                    # Promote buffers to CPU LRU pool buffers
+                    self.cpu_buffers = [CpuBuffer(r) for r in self.resources]
+                    pre_initialized = [(i, 0) for i in range(len(self.resources))]
+
+                    # Allocate extra staging buffers for LRU pool
+                    cpu_alloc_type = AllocType.DEVICE_MAPPED if self.upload_method == UploadMethod.BAR else AllocType.HOST
+                    for i in range(self.num_frames_in_flight):
+                        self.cpu_buffers.append(CpuBuffer(self._create_cpu_buffer(f"cpubuf-{self.name}-{i}", cpu_alloc_type)))
+                        pre_initialized.append(None)
+
+                    # Initialize LRU pool
+                    self.cpu_pool = LRUPool(self.cpu_buffers, self.num_frames_in_flight, 0, pre_initialized)
+                    for frame_index, property_frame_index in enumerate(self.property_frame_indices_in_flight):
+                        self.cpu_pool.use_frame(frame_index, (property_frame_index, 0))
+                else:
+                    # Allocate new staging buffers
+                    self.cpu_buffers = [
+                        CpuBuffer(self._create_cpu_buffer(f"cpubuf-{self.name}-{i}", AllocType.HOST))
+                        for i in range(self.num_frames_in_flight)
+                    ]
+                    self.cpu_pool = LRUPool(self.cpu_buffers, self.num_frames_in_flight, 0)
+                    self.resources_frame_generation = [0] * len(self.resources)
+
+        assert self.cpu_pool is not None
+        to_evict = (invalidated_property_frame_index, self.frame_generation_indices[invalidated_property_frame_index])
+        self.cpu_pool.evict_next(to_evict)
+
+        # print(f"Evicted {to_evict} invalidating {invalidated_property_frame_index}")
+        # for k, v in self.cpu_pool.lru.items():
+        #     print("   ", k, v)
+
+        self.frame_generation_indices[invalidated_property_frame_index] += 1
 
     def destroy(self) -> None:
         self.current = None
         if self.property.upload.preupload:
-            for res, _ in self.resources:
+            for res in self.resources:
                 res.destroy()
             self.resources.clear()
         else:
