@@ -1399,11 +1399,15 @@ Result AcquireImage(Frame* frame, Window* window, const Context& vk)
 {
     u32 image_index;
     VkResult vkr = vkAcquireNextImageKHR(vk.device, window->swapchain, ~0ull, frame->acquire_semaphore, 0, &image_index);
-    if (vkr == VK_ERROR_OUT_OF_DATE_KHR) {
+    if (vkr == VK_SUBOPTIMAL_KHR) {
+        window->force_swapchain_recreate = true;
+    }
+    else if (vkr == VK_ERROR_OUT_OF_DATE_KHR) {
         window->force_swapchain_recreate = true;
         return Result::SWAPCHAIN_OUT_OF_DATE;
     }
     else if (vkr != VK_SUCCESS) {
+        xpg::logging::error("gfx/acquire", "Failed to acquire next image: %d", vkr);
         return Result::API_ERROR;
     }
 
