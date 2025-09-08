@@ -1229,8 +1229,8 @@ mod_imgui.def("set_scroll_from_pos_y",
     }, nb::arg("local_y"), nb::arg("center_y_ratio") = 0.5);
 
 mod_imgui.def("push_font_float",
-    [] (ImFont* font, float font_size_base_unscaled) -> void {
-        return ImGui::PushFont(font, font_size_base_unscaled);
+    [] (Font* font, float font_size_base_unscaled) -> void {
+        return ImGui::PushFont(font->font, font_size_base_unscaled);
     }, nb::arg("font"), nb::arg("font_size_base_unscaled"));
 
 mod_imgui.def("pop_font",
@@ -1238,19 +1238,9 @@ mod_imgui.def("pop_font",
         return ImGui::PopFont();
     });
 
-mod_imgui.def("get_font",
-    [] () -> ImFont* {
-        return ImGui::GetFont();
-    });
-
 mod_imgui.def("get_font_size",
     [] () -> float {
         return ImGui::GetFontSize();
-    });
-
-mod_imgui.def("get_font_baked",
-    [] () -> ImFontBaked* {
-        return ImGui::GetFontBaked();
     });
 
 mod_imgui.def("push_style_color",
@@ -2854,8 +2844,8 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
     })
 ;
 mod_imgui.def("push_font",
-    [] (ImFont* font) -> void {
-        return ImGui::PushFont(font);
+    [] (Font* font) -> void {
+        return ImGui::PushFont(font->font);
     }, nb::arg("font"));
 
 mod_imgui.def("set_window_font_scale",

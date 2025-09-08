@@ -55,3 +55,10 @@ struct DescriptorSet: GfxObject {
     void destroy();
     xpg::gfx::DescriptorSet set;
 };
+
+struct ImFont;
+struct Font: nanobind::intrusive_base {
+    Font(ImFont* font, nanobind::str name): font(font), name(std::move(name)) {}
+    ImFont* font;
+    nanobind::str name;
+};

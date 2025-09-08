@@ -2129,6 +2129,19 @@ struct Gui: nb::intrusive_base {
         ImGui::GetIO().IniFilename = ini_filename.has_value() ? ini_filename->c_str() : NULL;
     }
 
+    nb::ref<Font> add_font_ttf(nb::str name, nb::bytes ttf_data) {
+        ImFontConfig font_cfg = {};
+        strncpy(font_cfg.Name, name.c_str(), sizeof(font_cfg.Name) - 1);
+        font_cfg.FontDataOwnedByAtlas = false;
+        ImFont* imfont = ImGui::GetIO().Fonts->AddFontFromMemoryTTF((void*)ttf_data.data(), ttf_data.size(), 0.0f, &font_cfg);
+        if (!imfont) {
+            nb::raise("Failed to add font");
+        }
+        nb::ref<Font> font = new Font(imfont, std::move(name));
+        this->fonts.push_back(font);
+        return font;
+    }
+
     ~Gui()
     {
         gfx::WaitIdle(window->ctx->vk);
@@ -2138,6 +2151,7 @@ struct Gui: nb::intrusive_base {
     nb::ref<Window> window;
     gui::ImGuiImpl imgui_impl;
     std::optional<nb::str> ini_filename;
+    std::vector<nb::ref<Font>> fonts;
 
     // Garbage collection:
 
@@ -3202,6 +3216,10 @@ void gfx_create_bindings(nb::module_& m)
         .def("__exit__", &Gui::GuiFrame::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
     ;
 
+    nb::class_<Font>(m, "Font",
+        nb::intrusive_ptr<Font>([](Font *o, PyObject *po) noexcept { o->set_self_py(po); }))
+    ;
+
     nb::class_<Gui>(m, "Gui",
         nb::type_slots(gui_tp_slots),
         nb::intrusive_ptr<Gui>([](Gui *o, PyObject *po) noexcept { o->set_self_py(po); }))
@@ -3211,6 +3229,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("render", &Gui::render, nb::arg("frame"))
         .def("frame", &Gui::frame)
         .def("set_ini_filename", &Gui::set_ini_filename, nb::arg("filename").none())
+        .def("add_font_ttf", &Gui::add_font_ttf, nb::arg("name"), nb::arg("ttf_data"));
     ;
 
     nb::enum_<gfx::Action>(m, "Action")

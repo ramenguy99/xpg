@@ -119,6 +119,9 @@ class Viewer:
         # Disable ImGui asserts
         imgui.get_io().config_error_recovery_enable_assert = False
 
+        # Make ImGui automatically scale fonts on DPI change events
+        imgui.get_io().config_dpi_scale_fonts = True
+
         # Renderer
         self.renderer = Renderer(self.ctx, self.window, config.renderer)
 

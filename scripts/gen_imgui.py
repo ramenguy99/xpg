@@ -369,9 +369,13 @@ for f in data["functions"]:
         "ImGui_SetAllocatorFunctions",
         "ImGui_MemAlloc",
         "ImGui_MemFree",
+        # Done manually"
+        "ImGui_GetIO",
 
         # TODO:
-        "ImGui_GetIO",
+        # Font
+        "ImGui_GetFont",
+        "ImGui_GetFontBaked",
         # InputText
         "ImGui_InputText",          # Requires special handling instead of callback
         "ImGui_InputTextMultiline", # Requires special handling instead of callback
@@ -561,6 +565,8 @@ for f in data["functions"]:
             else:
                 if typ.cpp_name == "ImDrawList*" or typ.cpp_name == "const ImDrawList*":
                     return f"{typ.name}*"
+                elif typ.cpp_name == "ImFont*":
+                    return f"{typ.name}*"
                 elif typ.cpp_name == "ImTextureRef":
                     return "const Texture&"
                 else:
@@ -658,6 +664,8 @@ for f in data["functions"]:
                 name = f"{arg.name}.data()"
             elif arg.type.name == "TextureRef":
                 name = f"{arg.name}.tex_ref"
+            elif arg.type.name == "Font":
+                name = f"{arg.name}->font"
             elif arg.type.flags & TypeFlag.IS_PTR and not arg.type.flags & TypeFlag.IS_REF:
                 if arg.type.flags & TypeFlag.IS_OPTIONAL:
                     # name = f"&{arg.name}.value()"
