@@ -68,10 +68,11 @@ class Server:
                     # Header
                     client_name_length = struct.unpack("<I", await reader.readexactly(4))[0]
                     if client_name_length > 0:
-                        pass
-                    client_name = (await reader.readexactly(client_name_length)).decode(
-                        encoding="utf-8", errors="ignore"
-                    )
+                        client_name = (await reader.readexactly(client_name_length)).decode(
+                            encoding="utf-8", errors="ignore"
+                        )
+                    else:
+                        client_name = ""
                     client = Client(client_address[0], client_address[1], client_name)
 
                     print(f'Server: client {client_address[0]}:{client_address[1]} registered as "{client_name}"')

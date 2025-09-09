@@ -1,24 +1,41 @@
+Priority:
+- [ ] Finalize Property API:
+    - [ ] update, append, insert, remove frames
+    - [ ] customize property options (maybe just as_buffer_property, but calling DataBufferProperty directly)
+- [ ] Directional lights, simple materials and shader permutations
+- [ ] Basic client/server example and initial set of APIs
+- [ ] Important 3D primitives
+- [ ] ImGui plots
+- [ ] Multi-viewport
+- [ ] Shaders / fonts build and packaging into wheel
+
 TODO:
 - [ ] Primitives
-    - [ ] thin points 2D / 3D
-    - [x] thin lines 2D / 3D
-    - [ ] circles and spheres
-    - [ ] Cilinders (with/without caps)
-    - [-] Meshes
-        - [ ] Handle optional params for:
-            - normals -> fallback to flat shading with shader derivatives
-            - uvs -> fallback to flat color
-            - tangents and normal maps (?)
-            - joint indices, weights, joints
-        - [ ] Fixup when correctly handling materials and
-    - [x] 2D Images
-    - [x] 3D Images (e.g. textured quads)
+    - [ ] Objects:
+        - [ ] thin points 2D / 3D
+        - [x] thin lines 2D / 3D
+        - [ ] circles and spheres
+        - [ ] Cilinders (with/without caps)
+        - [-] Meshes
+            - [ ] Handle optional params for:
+                - normals -> fallback to flat shading with shader derivatives
+                - uvs -> fallback to flat color
+                - tangents and normal maps (?)
+                - joint indices, weights, joints
+            - [ ] Fixup when correctly handling materials and
+        - [x] 2D Images
+        - [x] 3D Images (e.g. textured quads)
+    - [ ] Add helpers to simplify creation of vertex buffers and descriptor sets
+    - [ ] Together with light / materials, figure out how to do shader permutations / optional properties
 - [ ] Renderer architecture / path tracer support
     - [ ] Single object vs batching -> especially relevant for path tracing where you need to batch things in a tlas
         - [ ] Lights
         - [ ] Materials
         - [ ] Instancing
         - [ ] Support both raster and path tracing with accumulation
+    - [ ] Unified render targets? Maybe with opt-out mechanism or special queues?
+        - Need to think what level of control the renderables need over how they are rendered.
+          Things like transparency and shadow map rendering might want to have something like this anyways.
 - [ ] Buffer and image management:
     - [ ] UploadableBuffer and UploadableImage are currently only used
           by renderer for bulk uniforms. I think the main issue with this
@@ -36,13 +53,14 @@ TODO:
           - Per frame upload without a sequence (e.g. bulk uniforms) -> this is in spirit the same as streaming GpuProperty but without relying on it (maybe GpuProperty should rely on this?)
             - For GPU resources (non-mappable buffers or images)
             - For buffers we should check if BAR memory is available and if we want to use and alloc per-frame mappable buffers, otherwise alloc per-frame staging and 1 device resource.
-    - [ ] Support buffer suballocation in gpu property for preuplaod and image array to reduce number of resources that we need for a sequence
-    - [ ] Implement invalidation of preuploaded properties. If using mapped buffers (CPU or BAR) we can just alloc the remaining frames_in_flight - 1 buffers and switch to ring buffer.
-    - [ ] Implement smarter logic to pick which upload mode to use. For smaller properties we want bar if available I guess.
     - [ ] Prefetching is currently assuming linearly increasing frame indices
-- [-] Server
+    - [ ] Together with server, figure out API to append frames (and potentially insert / remove too)
+    - [ ] Support buffer suballocation in gpu property for preuplaod and image array to reduce number of resources that we need for a sequence -> could require changes at usage side that will also get an offset
+    - [x] Implement invalidation of preuploaded properties. If using mapped buffers (CPU or BAR) we can just alloc the remaining frames_in_flight - 1 buffers and switch to ring buffer.
+    - [x] Implement smarter logic to pick which upload mode to use. For smaller properties we want bar if available I guess.
+- [ ] Server
     - [ ] Test design and finish implementing
-    - [ ] Client python package
+    - [ ] Client python package (maybe shared ambra-protocol too, could require same version until 1.0.0 and then keep server backwards compatible within major)
     - [ ] C/C++ and rust lib
 - [x] Frame helpers (ideally at object level, shared across all primitives)
     - Fixed framerate
@@ -92,6 +110,15 @@ TODO:
     - [x] NEXT: Expose imgui.get_io for things like want_capture_mouse (or add helper for that)
     - [x] Show memory usage in stats
     - [x] Better/configurable handling of imgui.ini file
+    - [x] User texture for UI stuff, e.g. in imagui window (or tooltip)
+        - ImGui uses VkDescriptorSet, must be a single COMBINED_IMAGE_SAMPLER in it
+        - You can pass the descriptor pool from which to allocate to imgui directly, but we currently
+        let ImGui do that and just pass a number
+        - You can allocate from ImGui's pool with ImGuiImplVulkan_AddTexture and ImGuiImplVulkan_RemoveTexture,
+        these will allocate from the imgui's managed pool. This only requires a VkSampler, an image view and a layout.
+        - We can also allocate those descriptor sets manually, either directly in python or in a Gui wrapper.
+        - It might be a bit inefficient to have a DescriptorSet and Pool per image, but we currently don't expose
+        descriptor pools anyway. We might want to revisit this once we do this.
     - [ ] Port built-in profiler
     - [ ] Memory breakdown view -> also plot of usage per-frame to spot mid-frame allocs
 - [ ] Shaders
@@ -226,7 +253,7 @@ Thoughts:
 Issues found while implementing skeletal animation:
 [ ] if passing [N, 1] instead of [N] we can end up creating LOTS of frames (and therefore LOTS of buffers)
     -> we can likely check if last dimension is 1 in something that usually is not (e.g. indices) and warn / raise
-    -> We can anyways try to optimize number of buffers that we actually create buy suballocation
+    -> We can anyways try to optimize number of buffers that we actually create with suballocation
 [ ] easy to pass an image as np.float64 if you are doing ops (e.g. dstacking alpha), warn / raise if dtype does not match format
 
 [ ] per frame uploadable property:
@@ -378,10 +405,11 @@ Issues found while implementing skeletal animation:
                 [x] Simplify if statements by precomputing commonly used bools
                 [x] Where do we implement and how do we override / configure upload mode picking (see preferred upload modes above)? We have an ok version of this in renderer (unless overridden by config)
                 [x] Double check if we need the extra array of resource generations for the full array dynamic case
+                [ ] How to handle append, insert, remove
                 [ ] Improve UI of GPU property depending on various states
 
 Nice to have soon:
-[ ] User texture for UI stuff, e.g. in imagui window (or tooltip)
+[x] User texture for UI stuff, e.g. in imgui window (or tooltip)
     - ImGui uses VkDescriptorSet, must be a single COMBINED_IMAGE_SAMPLER in it
     - You can pass the descriptor pool from which to allocate to imgui directly, but we currently
       let ImGui do that and just pass a number
