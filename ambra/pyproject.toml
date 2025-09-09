@@ -103,4 +103,7 @@ ignore = [
     "TRY003", # exception with long message
     "BLE001", # do not catch blind exception
     "SIM105", # use contextlib suppress
+
+    # Dataclass
+    "RUF009", # Function call in dataclass defaults (we use it with frozen types)
 ]

@@ -18,6 +18,11 @@
 #include <xpg/gui.h>
 #include <xpg/log.h>
 
+#include <implot.h>
+#include <implot_internal.h>
+#include <implot.cpp>
+#include <implot_items.cpp>
+
 #include "py_gfx.h"
 #include "py_function.h"
 
@@ -2091,6 +2096,7 @@ struct Gui: nb::intrusive_base {
         : window(window)
     {
         gui::CreateImGuiImpl(&imgui_impl, window->window, window->ctx->vk, {});
+        ImPlot::CreateContext();
     }
 
     struct GuiFrame {
@@ -2145,6 +2151,7 @@ struct Gui: nb::intrusive_base {
     ~Gui()
     {
         gfx::WaitIdle(window->ctx->vk);
+        ImPlot::DestroyContext();
         gui::DestroyImGuiImpl(&imgui_impl, window->ctx->vk);
     }
 

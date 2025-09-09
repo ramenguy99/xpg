@@ -12,6 +12,7 @@
 #include <nanobind/ndarray.h>
 
 #include <imgui.h>
+#include <implot.h>
 
 #include "py_gfx.h"
 
@@ -163,4 +164,8 @@ void imgui_create_bindings(nb::module_& mod_imgui)
         .def(nb::init<nb::ref<DescriptorSet>>(), nb::arg("descriptor_set"))
         .def("destroy", &Texture::destroy)
     ;
+
+    // Should this be pyxpg.imgui.implot or pyxpg.implot?
+    nb::module_ mod_implot = mod_imgui.def_submodule("implot", "ImPlot bindings for XPG");
+    #include "generated_implot.inc"
 }

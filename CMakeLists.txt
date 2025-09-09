@@ -204,6 +204,8 @@ if(XPG_BUILD_PYTHON)
         target_link_libraries(_pyxpg PRIVATE xpg)
     endif()
 
+    target_include_directories(_pyxpg PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>/ext/implot)
+
     # set_target_properties(pyxpg PROPERTIES OUTPUT_NAME "xpg")
     nanobind_add_stub(pyxpg_stub
         MODULE _pyxpg
@@ -247,6 +249,26 @@ if(XPG_BUILD_PYTHON)
         ${CMAKE_SOURCE_DIR}/src/python/pyxpg/imgui/__init__.py
         DESTINATION
         "pyxpg/imgui")
+
+    # ImPlot
+    nanobind_add_stub(pyxpg_implot_stub
+        MODULE _pyxpg.imgui.implot
+        OUTPUT pyxpg/imgui/implot/__init__.pyi
+        MARKER_FILE pyxpg/imgui/implot/py.typed
+        PYTHON_PATH $<TARGET_FILE_DIR:_pyxpg>
+        DEPENDS _pyxpg
+    )
+
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/imgui/implot/__init__.pyi
+        ${CMAKE_CURRENT_BINARY_DIR}/pyxpg/imgui/implot/py.typed
+        DESTINATION
+        "pyxpg/imgui/implot")
+
+    install(FILES
+        ${CMAKE_SOURCE_DIR}/src/python/pyxpg/imgui/implot/__init__.py
+        DESTINATION
+        "pyxpg/imgui/implot")
 
     # Slang
     if(XPG_BUILD_SLANG)
