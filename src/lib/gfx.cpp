@@ -1319,13 +1319,8 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
 
 SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
 {
-    VkSurfaceCapabilitiesKHR surface_capabilities;
-    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk.physical_device, w->surface, &surface_capabilities) != VK_SUCCESS) {
-        return SwapchainStatus::FAILED;
-    }
-
-    uint32_t new_width = surface_capabilities.currentExtent.width == 0xFFFFFFFF ? w->fb_width : surface_capabilities.currentExtent.width;
-    uint32_t new_height = surface_capabilities.currentExtent.height == 0xFFFFFFFF ? w->fb_height : surface_capabilities.currentExtent.height;
+	int new_width = 0, new_height = 0;
+	glfwGetFramebufferSize(w->window, &new_width, &new_height);
 
     if (new_width == 0 || new_height == 0)
         return SwapchainStatus::MINIMIZED;
@@ -1636,8 +1631,8 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     logging::info("gfx/window", "Swapchain picked format: %s", string_VkFormat(format));
 
     // Retrieve framebuffer size.
-    u32 fb_width = surface_capabilities.currentExtent.width == 0xFFFFFFFF ? width : surface_capabilities.currentExtent.width;
-    u32 fb_height = surface_capabilities.currentExtent.height == 0xFFFFFFFF ? height : surface_capabilities.currentExtent.height;
+	int fb_width = 0, fb_height = 0;
+	glfwGetFramebufferSize(window, &fb_width, &fb_height);
 
     logging::info("gfx/window", "Surface extents: [%ux%u]", fb_width, fb_height);
 
