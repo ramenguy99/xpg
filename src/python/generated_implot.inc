@@ -408,497 +408,507 @@ nb::class_<ImPlotInputMap>(mod_implot, "InputMap")
     .def_rw("zoom_rate", &ImPlotInputMap::ZoomRate)
 ;
 
-mod_imgui.def("begin_plot",
+mod_implot.def("begin_plot",
     [] (const char* title_id, ImVec2 size, ImPlotFlags flags) -> bool {
         return ImPlot::BeginPlot(title_id, size, flags);
     }, nb::arg("title_id"), nb::arg("size") = nb::make_tuple(-1, 0), nb::arg("flags") = 0);
 
-mod_imgui.def("end_plot",
+mod_implot.def("end_plot",
     [] () -> void {
         return ImPlot::EndPlot();
     });
 
-mod_imgui.def("begin_subplots",
+mod_implot.def("begin_subplots",
     [] (const char* title_id, int rows, int cols, ImVec2 size, ImPlotSubplotFlags flags) -> bool {
         return ImPlot::BeginSubplots(title_id, rows, cols, size, flags);
     }, nb::arg("title_id"), nb::arg("rows"), nb::arg("cols"), nb::arg("size"), nb::arg("flags") = 0);
 
-mod_imgui.def("end_subplots",
+mod_implot.def("end_subplots",
     [] () -> void {
         return ImPlot::EndSubplots();
     });
 
-mod_imgui.def("setup_axis",
+mod_implot.def("setup_axis",
     [] (ImAxis axis, const char* label, ImPlotAxisFlags flags) -> void {
         return ImPlot::SetupAxis(axis, label, flags);
     }, nb::arg("axis"), nb::arg("label") = nullptr, nb::arg("flags") = 0);
 
-mod_imgui.def("setup_axis_limits",
+mod_implot.def("setup_axis_limits",
     [] (ImAxis axis, float v_min, float v_max, ImPlotCond cond) -> void {
         return ImPlot::SetupAxisLimits(axis, v_min, v_max, cond);
     }, nb::arg("axis"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("cond") = ImPlotCond_Once);
 
-mod_imgui.def("setup_axis_format",
+mod_implot.def("setup_axis_format",
     [] (ImAxis axis, const char* fmt) -> void {
         return ImPlot::SetupAxisFormat(axis, fmt);
     }, nb::arg("axis"), nb::arg("fmt"));
 
-mod_imgui.def("setup_axis_scale",
+mod_implot.def("setup_axis_scale",
     [] (ImAxis axis, ImPlotScale scale) -> void {
         return ImPlot::SetupAxisScale(axis, scale);
     }, nb::arg("axis"), nb::arg("scale"));
 
-mod_imgui.def("setup_axis_limits_constraints",
+mod_implot.def("setup_axis_limits_constraints",
     [] (ImAxis axis, float v_min, float v_max) -> void {
         return ImPlot::SetupAxisLimitsConstraints(axis, v_min, v_max);
     }, nb::arg("axis"), nb::arg("v_min"), nb::arg("v_max"));
 
-mod_imgui.def("setup_axis_zoom_constraints",
+mod_implot.def("setup_axis_zoom_constraints",
     [] (ImAxis axis, float z_min, float z_max) -> void {
         return ImPlot::SetupAxisZoomConstraints(axis, z_min, z_max);
     }, nb::arg("axis"), nb::arg("z_min"), nb::arg("z_max"));
 
-mod_imgui.def("setup_axes",
+mod_implot.def("setup_axes",
     [] (const char* x_label, const char* y_label, ImPlotAxisFlags x_flags, ImPlotAxisFlags y_flags) -> void {
         return ImPlot::SetupAxes(x_label, y_label, x_flags, y_flags);
     }, nb::arg("x_label"), nb::arg("y_label"), nb::arg("x_flags") = 0, nb::arg("y_flags") = 0);
 
-mod_imgui.def("setup_axes_limits",
+mod_implot.def("setup_axes_limits",
     [] (float x_min, float x_max, float y_min, float y_max, ImPlotCond cond) -> void {
         return ImPlot::SetupAxesLimits(x_min, x_max, y_min, y_max, cond);
     }, nb::arg("x_min"), nb::arg("x_max"), nb::arg("y_min"), nb::arg("y_max"), nb::arg("cond") = ImPlotCond_Once);
 
-mod_imgui.def("setup_legend",
+mod_implot.def("setup_legend",
     [] (ImPlotLocation location, ImPlotLegendFlags flags) -> void {
         return ImPlot::SetupLegend(location, flags);
     }, nb::arg("location"), nb::arg("flags") = 0);
 
-mod_imgui.def("setup_mouse_text",
+mod_implot.def("setup_mouse_text",
     [] (ImPlotLocation location, ImPlotMouseTextFlags flags) -> void {
         return ImPlot::SetupMouseText(location, flags);
     }, nb::arg("location"), nb::arg("flags") = 0);
 
-mod_imgui.def("setup_finish",
+mod_implot.def("setup_finish",
     [] () -> void {
         return ImPlot::SetupFinish();
     });
 
-mod_imgui.def("set_next_axis_limits",
+mod_implot.def("set_next_axis_limits",
     [] (ImAxis axis, float v_min, float v_max, ImPlotCond cond) -> void {
         return ImPlot::SetNextAxisLimits(axis, v_min, v_max, cond);
     }, nb::arg("axis"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("cond") = ImPlotCond_Once);
 
-mod_imgui.def("set_next_axis_to_fit",
+mod_implot.def("set_next_axis_to_fit",
     [] (ImAxis axis) -> void {
         return ImPlot::SetNextAxisToFit(axis);
     }, nb::arg("axis"));
 
-mod_imgui.def("set_next_axes_limits",
+mod_implot.def("set_next_axes_limits",
     [] (float x_min, float x_max, float y_min, float y_max, ImPlotCond cond) -> void {
         return ImPlot::SetNextAxesLimits(x_min, x_max, y_min, y_max, cond);
     }, nb::arg("x_min"), nb::arg("x_max"), nb::arg("y_min"), nb::arg("y_max"), nb::arg("cond") = ImPlotCond_Once);
 
-mod_imgui.def("set_next_axes_to_fit",
+mod_implot.def("set_next_axes_to_fit",
     [] () -> void {
         return ImPlot::SetNextAxesToFit();
     });
 
-mod_imgui.def("annotation",
+mod_implot.def("plot_text",
+    [] (const char* text, float x, float y, ImVec2 pix_offset, ImPlotTextFlags flags) -> void {
+        return ImPlot::PlotText(text, x, y, pix_offset, flags);
+    }, nb::arg("text"), nb::arg("x"), nb::arg("y"), nb::arg("pix_offset") = nb::make_tuple(0, 0), nb::arg("flags") = 0);
+
+mod_implot.def("plot_dummy",
+    [] (const char* label_id, ImPlotDummyFlags flags) -> void {
+        return ImPlot::PlotDummy(label_id, flags);
+    }, nb::arg("label_id"), nb::arg("flags") = 0);
+
+mod_implot.def("annotation",
     [] (float x, float y, ImVec4 col, ImVec2 pix_offset, bool clamp, bool round) -> void {
         return ImPlot::Annotation(x, y, col, pix_offset, clamp, round);
     }, nb::arg("x"), nb::arg("y"), nb::arg("col"), nb::arg("pix_offset"), nb::arg("clamp"), nb::arg("round") = false);
 
-mod_imgui.def("annotation_str",
+mod_implot.def("annotation_str",
     [] (float x, float y, ImVec4 col, ImVec2 pix_offset, bool clamp, const char* fmt) -> void {
         return ImPlot::Annotation(x, y, col, pix_offset, clamp, "%s", fmt);
     }, nb::arg("x"), nb::arg("y"), nb::arg("col"), nb::arg("pix_offset"), nb::arg("clamp"), nb::arg("fmt"));
 
-mod_imgui.def("tag_x",
+mod_implot.def("tag_x",
     [] (float x, ImVec4 col, bool round) -> void {
         return ImPlot::TagX(x, col, round);
     }, nb::arg("x"), nb::arg("col"), nb::arg("round") = false);
 
-mod_imgui.def("tag_x_str",
+mod_implot.def("tag_x_str",
     [] (float x, ImVec4 col, const char* fmt) -> void {
         return ImPlot::TagX(x, col, "%s", fmt);
     }, nb::arg("x"), nb::arg("col"), nb::arg("fmt"));
 
-mod_imgui.def("tag_y",
+mod_implot.def("tag_y",
     [] (float y, ImVec4 col, bool round) -> void {
         return ImPlot::TagY(y, col, round);
     }, nb::arg("y"), nb::arg("col"), nb::arg("round") = false);
 
-mod_imgui.def("tag_y_str",
+mod_implot.def("tag_y_str",
     [] (float y, ImVec4 col, const char* fmt) -> void {
         return ImPlot::TagY(y, col, "%s", fmt);
     }, nb::arg("y"), nb::arg("col"), nb::arg("fmt"));
 
-mod_imgui.def("set_axis",
+mod_implot.def("set_axis",
     [] (ImAxis axis) -> void {
         return ImPlot::SetAxis(axis);
     }, nb::arg("axis"));
 
-mod_imgui.def("set_axes",
+mod_implot.def("set_axes",
     [] (ImAxis x_axis, ImAxis y_axis) -> void {
         return ImPlot::SetAxes(x_axis, y_axis);
     }, nb::arg("x_axis"), nb::arg("y_axis"));
 
-mod_imgui.def("pixels_to_plot",
+mod_implot.def("pixels_to_plot",
     [] (ImVec2 pix, ImAxis x_axis, ImAxis y_axis) -> ImPlotPoint {
         return ImPlot::PixelsToPlot(pix, x_axis, y_axis);
     }, nb::arg("pix"), nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
-mod_imgui.def("pixels_to_plot_float",
+mod_implot.def("pixels_to_plot_float",
     [] (float x, float y, ImAxis x_axis, ImAxis y_axis) -> ImPlotPoint {
         return ImPlot::PixelsToPlot(x, y, x_axis, y_axis);
     }, nb::arg("x"), nb::arg("y"), nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
-mod_imgui.def("plot_to_pixels",
+mod_implot.def("plot_to_pixels",
     [] (ImPlotPoint plt, ImAxis x_axis, ImAxis y_axis) -> ImVec2 {
         return ImPlot::PlotToPixels(plt, x_axis, y_axis);
     }, nb::arg("plt"), nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
-mod_imgui.def("plot_to_pixels_double",
+mod_implot.def("plot_to_pixels_double",
     [] (float x, float y, ImAxis x_axis, ImAxis y_axis) -> ImVec2 {
         return ImPlot::PlotToPixels(x, y, x_axis, y_axis);
     }, nb::arg("x"), nb::arg("y"), nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
-mod_imgui.def("get_plot_pos",
+mod_implot.def("get_plot_pos",
     [] () -> ImVec2 {
         return ImPlot::GetPlotPos();
     });
 
-mod_imgui.def("get_plot_size",
+mod_implot.def("get_plot_size",
     [] () -> ImVec2 {
         return ImPlot::GetPlotSize();
     });
 
-mod_imgui.def("get_plot_mouse_pos",
+mod_implot.def("get_plot_mouse_pos",
     [] (ImAxis x_axis, ImAxis y_axis) -> ImPlotPoint {
         return ImPlot::GetPlotMousePos(x_axis, y_axis);
     }, nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
-mod_imgui.def("get_plot_limits",
+mod_implot.def("get_plot_limits",
     [] (ImAxis x_axis, ImAxis y_axis) -> ImPlotRect {
         return ImPlot::GetPlotLimits(x_axis, y_axis);
     }, nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
-mod_imgui.def("is_plot_hovered",
+mod_implot.def("is_plot_hovered",
     [] () -> bool {
         return ImPlot::IsPlotHovered();
     });
 
-mod_imgui.def("is_axis_hovered",
+mod_implot.def("is_axis_hovered",
     [] (ImAxis axis) -> bool {
         return ImPlot::IsAxisHovered(axis);
     }, nb::arg("axis"));
 
-mod_imgui.def("is_subplots_hovered",
+mod_implot.def("is_subplots_hovered",
     [] () -> bool {
         return ImPlot::IsSubplotsHovered();
     });
 
-mod_imgui.def("is_plot_selected",
+mod_implot.def("is_plot_selected",
     [] () -> bool {
         return ImPlot::IsPlotSelected();
     });
 
-mod_imgui.def("get_plot_selection",
+mod_implot.def("get_plot_selection",
     [] (ImAxis x_axis, ImAxis y_axis) -> ImPlotRect {
         return ImPlot::GetPlotSelection(x_axis, y_axis);
     }, nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
-mod_imgui.def("cancel_plot_selection",
+mod_implot.def("cancel_plot_selection",
     [] () -> void {
         return ImPlot::CancelPlotSelection();
     });
 
-mod_imgui.def("hide_next_item",
+mod_implot.def("hide_next_item",
     [] (bool hidden, ImPlotCond cond) -> void {
         return ImPlot::HideNextItem(hidden, cond);
     }, nb::arg("hidden") = true, nb::arg("cond") = ImPlotCond_Once);
 
-mod_imgui.def("begin_aligned_plots",
+mod_implot.def("begin_aligned_plots",
     [] (const char* group_id, bool vertical) -> bool {
         return ImPlot::BeginAlignedPlots(group_id, vertical);
     }, nb::arg("group_id"), nb::arg("vertical") = true);
 
-mod_imgui.def("end_aligned_plots",
+mod_implot.def("end_aligned_plots",
     [] () -> void {
         return ImPlot::EndAlignedPlots();
     });
 
-mod_imgui.def("begin_legend_popup",
+mod_implot.def("begin_legend_popup",
     [] (const char* label_id, ImGuiMouseButton mouse_button) -> bool {
         return ImPlot::BeginLegendPopup(label_id, mouse_button);
     }, nb::arg("label_id"), nb::arg("mouse_button") = 1);
 
-mod_imgui.def("end_legend_popup",
+mod_implot.def("end_legend_popup",
     [] () -> void {
         return ImPlot::EndLegendPopup();
     });
 
-mod_imgui.def("is_legend_entry_hovered",
+mod_implot.def("is_legend_entry_hovered",
     [] (const char* label_id) -> bool {
         return ImPlot::IsLegendEntryHovered(label_id);
     }, nb::arg("label_id"));
 
-mod_imgui.def("begin_drag_drop_target_plot",
+mod_implot.def("begin_drag_drop_target_plot",
     [] () -> bool {
         return ImPlot::BeginDragDropTargetPlot();
     });
 
-mod_imgui.def("begin_drag_drop_target_axis",
+mod_implot.def("begin_drag_drop_target_axis",
     [] (ImAxis axis) -> bool {
         return ImPlot::BeginDragDropTargetAxis(axis);
     }, nb::arg("axis"));
 
-mod_imgui.def("begin_drag_drop_target_legend",
+mod_implot.def("begin_drag_drop_target_legend",
     [] () -> bool {
         return ImPlot::BeginDragDropTargetLegend();
     });
 
-mod_imgui.def("end_drag_drop_target",
+mod_implot.def("end_drag_drop_target",
     [] () -> void {
         return ImPlot::EndDragDropTarget();
     });
 
-mod_imgui.def("begin_drag_drop_source_plot",
+mod_implot.def("begin_drag_drop_source_plot",
     [] (ImGuiDragDropFlags flags) -> bool {
         return ImPlot::BeginDragDropSourcePlot(flags);
     }, nb::arg("flags") = 0);
 
-mod_imgui.def("begin_drag_drop_source_axis",
+mod_implot.def("begin_drag_drop_source_axis",
     [] (ImAxis axis, ImGuiDragDropFlags flags) -> bool {
         return ImPlot::BeginDragDropSourceAxis(axis, flags);
     }, nb::arg("axis"), nb::arg("flags") = 0);
 
-mod_imgui.def("begin_drag_drop_source_item",
+mod_implot.def("begin_drag_drop_source_item",
     [] (const char* label_id, ImGuiDragDropFlags flags) -> bool {
         return ImPlot::BeginDragDropSourceItem(label_id, flags);
     }, nb::arg("label_id"), nb::arg("flags") = 0);
 
-mod_imgui.def("end_drag_drop_source",
+mod_implot.def("end_drag_drop_source",
     [] () -> void {
         return ImPlot::EndDragDropSource();
     });
 
-mod_imgui.def("style_colors_auto",
+mod_implot.def("style_colors_auto",
     [] () -> void {
         return ImPlot::StyleColorsAuto();
     });
 
-mod_imgui.def("style_colors_classic",
+mod_implot.def("style_colors_classic",
     [] () -> void {
         return ImPlot::StyleColorsClassic();
     });
 
-mod_imgui.def("style_colors_dark",
+mod_implot.def("style_colors_dark",
     [] () -> void {
         return ImPlot::StyleColorsDark();
     });
 
-mod_imgui.def("style_colors_light",
+mod_implot.def("style_colors_light",
     [] () -> void {
         return ImPlot::StyleColorsLight();
     });
 
-mod_imgui.def("push_style_color",
+mod_implot.def("push_style_color",
     [] (ImPlotCol idx, Color col) -> void {
         return ImPlot::PushStyleColor(idx, col);
     }, nb::arg("idx"), nb::arg("col"));
 
-mod_imgui.def("push_style_color_im_vec4",
+mod_implot.def("push_style_color_im_vec4",
     [] (ImPlotCol idx, ImVec4 col) -> void {
         return ImPlot::PushStyleColor(idx, col);
     }, nb::arg("idx"), nb::arg("col"));
 
-mod_imgui.def("pop_style_color",
+mod_implot.def("pop_style_color",
     [] (int count) -> void {
         return ImPlot::PopStyleColor(count);
     }, nb::arg("count") = 1);
 
-mod_imgui.def("push_style_var",
+mod_implot.def("push_style_var",
     [] (ImPlotStyleVar idx, float val) -> void {
         return ImPlot::PushStyleVar(idx, val);
     }, nb::arg("idx"), nb::arg("val"));
 
-mod_imgui.def("push_style_var_int",
+mod_implot.def("push_style_var_int",
     [] (ImPlotStyleVar idx, int val) -> void {
         return ImPlot::PushStyleVar(idx, val);
     }, nb::arg("idx"), nb::arg("val"));
 
-mod_imgui.def("push_style_var_im_vec2",
+mod_implot.def("push_style_var_im_vec2",
     [] (ImPlotStyleVar idx, ImVec2 val) -> void {
         return ImPlot::PushStyleVar(idx, val);
     }, nb::arg("idx"), nb::arg("val"));
 
-mod_imgui.def("pop_style_var",
+mod_implot.def("pop_style_var",
     [] (int count) -> void {
         return ImPlot::PopStyleVar(count);
     }, nb::arg("count") = 1);
 
-mod_imgui.def("set_next_line_style",
+mod_implot.def("set_next_line_style",
     [] (ImVec4 col, float weight) -> void {
         return ImPlot::SetNextLineStyle(col, weight);
     }, nb::arg("col") = IMPLOT_AUTO_COL, nb::arg("weight") = IMPLOT_AUTO);
 
-mod_imgui.def("set_next_fill_style",
+mod_implot.def("set_next_fill_style",
     [] (ImVec4 col, float alpha_mod) -> void {
         return ImPlot::SetNextFillStyle(col, alpha_mod);
     }, nb::arg("col") = IMPLOT_AUTO_COL, nb::arg("alpha_mod") = IMPLOT_AUTO);
 
-mod_imgui.def("set_next_marker_style",
+mod_implot.def("set_next_marker_style",
     [] (ImPlotMarker marker, float size, ImVec4 fill, float weight, ImVec4 outline) -> void {
         return ImPlot::SetNextMarkerStyle(marker, size, fill, weight, outline);
     }, nb::arg("marker") = IMPLOT_AUTO, nb::arg("size") = IMPLOT_AUTO, nb::arg("fill") = IMPLOT_AUTO_COL, nb::arg("weight") = IMPLOT_AUTO, nb::arg("outline") = IMPLOT_AUTO_COL);
 
-mod_imgui.def("set_next_error_bar_style",
+mod_implot.def("set_next_error_bar_style",
     [] (ImVec4 col, float size, float weight) -> void {
         return ImPlot::SetNextErrorBarStyle(col, size, weight);
     }, nb::arg("col") = IMPLOT_AUTO_COL, nb::arg("size") = IMPLOT_AUTO, nb::arg("weight") = IMPLOT_AUTO);
 
-mod_imgui.def("get_last_item_color",
+mod_implot.def("get_last_item_color",
     [] () -> ImVec4 {
         return ImPlot::GetLastItemColor();
     });
 
-mod_imgui.def("get_style_color_name",
+mod_implot.def("get_style_color_name",
     [] (ImPlotCol idx) -> const char* {
         return ImPlot::GetStyleColorName(idx);
     }, nb::arg("idx"));
 
-mod_imgui.def("get_marker_name",
+mod_implot.def("get_marker_name",
     [] (ImPlotMarker idx) -> const char* {
         return ImPlot::GetMarkerName(idx);
     }, nb::arg("idx"));
 
-mod_imgui.def("add_colormap",
+mod_implot.def("add_colormap",
     [] (const char* name, const ImVec4* cols, int size, bool qual) -> ImPlotColormap {
         return ImPlot::AddColormap(name, cols, size, qual);
     }, nb::arg("name"), nb::arg("cols"), nb::arg("size"), nb::arg("qual") = true);
 
-mod_imgui.def("get_colormap_count",
+mod_implot.def("get_colormap_count",
     [] () -> int {
         return ImPlot::GetColormapCount();
     });
 
-mod_imgui.def("get_colormap_name",
+mod_implot.def("get_colormap_name",
     [] (ImPlotColormap cmap) -> const char* {
         return ImPlot::GetColormapName(cmap);
     }, nb::arg("cmap"));
 
-mod_imgui.def("get_colormap_index",
+mod_implot.def("get_colormap_index",
     [] (const char* name) -> ImPlotColormap {
         return ImPlot::GetColormapIndex(name);
     }, nb::arg("name"));
 
-mod_imgui.def("push_colormap",
+mod_implot.def("push_colormap",
     [] (ImPlotColormap cmap) -> void {
         return ImPlot::PushColormap(cmap);
     }, nb::arg("cmap"));
 
-mod_imgui.def("push_colormap_str",
+mod_implot.def("push_colormap_str",
     [] (const char* name) -> void {
         return ImPlot::PushColormap(name);
     }, nb::arg("name"));
 
-mod_imgui.def("pop_colormap",
+mod_implot.def("pop_colormap",
     [] (int count) -> void {
         return ImPlot::PopColormap(count);
     }, nb::arg("count") = 1);
 
-mod_imgui.def("next_colormap_color",
+mod_implot.def("next_colormap_color",
     [] () -> ImVec4 {
         return ImPlot::NextColormapColor();
     });
 
-mod_imgui.def("get_colormap_size",
+mod_implot.def("get_colormap_size",
     [] (ImPlotColormap cmap) -> int {
         return ImPlot::GetColormapSize(cmap);
     }, nb::arg("cmap") = IMPLOT_AUTO);
 
-mod_imgui.def("get_colormap_color",
+mod_implot.def("get_colormap_color",
     [] (int idx, ImPlotColormap cmap) -> ImVec4 {
         return ImPlot::GetColormapColor(idx, cmap);
     }, nb::arg("idx"), nb::arg("cmap") = IMPLOT_AUTO);
 
-mod_imgui.def("sample_colormap",
+mod_implot.def("sample_colormap",
     [] (float t, ImPlotColormap cmap) -> ImVec4 {
         return ImPlot::SampleColormap(t, cmap);
     }, nb::arg("t"), nb::arg("cmap") = IMPLOT_AUTO);
 
-mod_imgui.def("colormap_scale",
+mod_implot.def("colormap_scale",
     [] (const char* label, float scale_min, float scale_max, ImVec2 size, const char* format, ImPlotColormapScaleFlags flags, ImPlotColormap cmap) -> void {
         return ImPlot::ColormapScale(label, scale_min, scale_max, size, format, flags, cmap);
     }, nb::arg("label"), nb::arg("scale_min"), nb::arg("scale_max"), nb::arg("size") = nb::make_tuple(0, 0), nb::arg("format") = "%g", nb::arg("flags") = 0, nb::arg("cmap") = IMPLOT_AUTO);
 
-mod_imgui.def("colormap_button",
+mod_implot.def("colormap_button",
     [] (const char* label, ImVec2 size, ImPlotColormap cmap) -> bool {
         return ImPlot::ColormapButton(label, size, cmap);
     }, nb::arg("label"), nb::arg("size") = nb::make_tuple(0, 0), nb::arg("cmap") = IMPLOT_AUTO);
 
-mod_imgui.def("bust_color_cache",
+mod_implot.def("bust_color_cache",
     [] (const char* plot_title_id) -> void {
         return ImPlot::BustColorCache(plot_title_id);
     }, nb::arg("plot_title_id") = nullptr);
 
-mod_imgui.def("item_icon",
+mod_implot.def("item_icon",
     [] (ImVec4 col) -> void {
         return ImPlot::ItemIcon(col);
     }, nb::arg("col"));
 
-mod_imgui.def("item_icon_im_u32",
+mod_implot.def("item_icon_im_u32",
     [] (Color col) -> void {
         return ImPlot::ItemIcon(col);
     }, nb::arg("col"));
 
-mod_imgui.def("colormap_icon",
+mod_implot.def("colormap_icon",
     [] (ImPlotColormap cmap) -> void {
         return ImPlot::ColormapIcon(cmap);
     }, nb::arg("cmap"));
 
-mod_imgui.def("get_plot_draw_list",
+mod_implot.def("get_plot_draw_list",
     [] () -> DrawList* {
         return new DrawList(ImPlot::GetPlotDrawList());
     });
 
-mod_imgui.def("push_plot_clip_rect",
+mod_implot.def("push_plot_clip_rect",
     [] (float expand) -> void {
         return ImPlot::PushPlotClipRect(expand);
     }, nb::arg("expand") = 0);
 
-mod_imgui.def("pop_plot_clip_rect",
+mod_implot.def("pop_plot_clip_rect",
     [] () -> void {
         return ImPlot::PopPlotClipRect();
     });
 
-mod_imgui.def("show_style_selector",
+mod_implot.def("show_style_selector",
     [] (const char* label) -> bool {
         return ImPlot::ShowStyleSelector(label);
     }, nb::arg("label"));
 
-mod_imgui.def("show_colormap_selector",
+mod_implot.def("show_colormap_selector",
     [] (const char* label) -> bool {
         return ImPlot::ShowColormapSelector(label);
     }, nb::arg("label"));
 
-mod_imgui.def("show_input_map_selector",
+mod_implot.def("show_input_map_selector",
     [] (const char* label) -> bool {
         return ImPlot::ShowInputMapSelector(label);
     }, nb::arg("label"));
 
-mod_imgui.def("show_style_editor",
+mod_implot.def("show_style_editor",
     [] () -> void {
         return ImPlot::ShowStyleEditor();
     });
 
-mod_imgui.def("show_user_guide",
+mod_implot.def("show_user_guide",
     [] () -> void {
         return ImPlot::ShowUserGuide();
     });
 
-mod_imgui.def("show_metrics_window",
+mod_implot.def("show_metrics_window",
     [] (bool p_popen) -> bool {
         ImPlot::ShowMetricsWindow(&p_popen);
         return p_popen;

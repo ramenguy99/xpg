@@ -215,6 +215,7 @@ Python:
         - [ ] Also happening on first frame on windows, but not always?
     - [ ] expose implot, maybe also imguizmo and imnodes
     - [ ] scale fonts on DPI changes (likely coming soon to upstream imgui)
+    - [ ] begin with empty string segfaults?
 - [x] Nanobind:
     - [x] None converts to a nullptr nb::ref, makes a lot of our code potentially segfault
         - Opened discussion in nanobind repo

@@ -51,9 +51,9 @@ PRINT = False
 data = json.load(open(sys.argv[1], "r"))
 
 if OUT_PYTHON:
-    out_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "pyxpg", "imgui", "__init__.pyi"), "w")
+    out_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "pyxpg", "imgui", "__init__.pyi"), "w", newline="\n")
 if OUT:
-    out_cpp_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "generated_imgui.inc"), "w")
+    out_cpp_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "generated_imgui.inc"), "w", newline="\n")
 
 pascal_re = re.compile(r'(?<!^)(?=[A-Z])')
 def pascal_to_scream_case(name: str):

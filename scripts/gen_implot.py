@@ -16,7 +16,7 @@ module = "mod_implot"
 
 data = json.load(open(sys.argv[1], "r"))
 if OUT:
-    out_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "generated_implot.inc"), "w")
+    out_file = open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "generated_implot.inc"), "w", newline="\n")
 
 pascal_re = re.compile(r'(?<!^)(?=[A-Z])')
 
@@ -293,7 +293,7 @@ drawlist_ended = False
 for f in data["functions"]:
     func_name: str = f["name"]
     # print(f["original_fully_qualified_name"])
-    module = func_name.split("_")[0]
+    # module = func_name.split("_")[0]
 
     if f["is_imstr_helper"]:
         continue
@@ -409,8 +409,8 @@ for f in data["functions"]:
         "ImPlotPlotHistogram2D",
         "ImPlotPlotDigital",
         "ImPlotPlotImage",
-        "ImPlotPlotText",
-        "ImPlotPlotDummy",
+        # "ImPlotPlotText",
+        # "ImPlotPlotDummy",
 
         # Demo
         "ImPlotShowDemoWindow",
@@ -600,7 +600,7 @@ for f in data["functions"]:
     if py_func_name.startswith("list__"):
         if drawlist_started == False:
             drawlist_started = True
-            out(f"""auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
+            out(f"""auto drawlist_class = nb::class_<DrawList>({module}, "DrawList",
     nb::intrusive_ptr<DrawList>([](DrawList *o, PyObject *po) noexcept {{ o->set_self_py(po); }}))
 """)
         # Skip protected member functions
@@ -612,7 +612,7 @@ for f in data["functions"]:
         if drawlist_started and drawlist_ended == False:
             drawlist_ended = True
             out(";")
-        out(f"mod_imgui.def(\"{py_func_name}\",")
+        out(f"{module}.def(\"{py_func_name}\",")
 
     out(" " * 4 + "[] (", end="")
     cpp_args_str: List[str] = []
