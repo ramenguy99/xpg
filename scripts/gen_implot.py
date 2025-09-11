@@ -169,7 +169,7 @@ for struct in data["structs"]:
             out(" " * 4 + f'.def_rw("{pascal_to_snake_case(field_name)}", &{struct_name}::{field_name})')
         out(";")
         out("")
-exit(1)
+
 class TypeFlag(Flag):
     IS_OUTPUT = auto()
     IS_USER_TYPE = auto()
@@ -204,16 +204,11 @@ def read_type(typ: dict) -> TypeInfo:
 
     flags = TypeFlag(0)
     array = None
-    # if type_decl == "ImVec2":
-        # name = "Tuple[float, float]"
-    # elif type_decl == "ImVec4":
-        # name = "Tuple[float, float, float, float]"
     if type_decl == "ImU32":
-        # name = "Tuple[int, int, int, int]"
         name = "Color"
-    # elif type_decl == "double":
-    #     flags |= TypeFlag.IS_BUILTIN
-    #     name = "float"
+    elif type_decl == "double":
+        flags |= TypeFlag.IS_BUILTIN
+        name = "float"
     elif type_decl == "const void*":
         name = "memoryview"
     elif type_decl == "const char*":
@@ -265,19 +260,25 @@ def read_type(typ: dict) -> TypeInfo:
             assert False, f"{func_name} {typ}"
     elif type_desc["kind"] == "Array":
         inner = type_desc["inner_type"]
-        assert inner["kind"] == "Builtin", inner
-        builtin = inner["builtin_type"]
-        count = int(type_desc["bounds"])
-        name = "Tuple[" + ", ".join([builtin] * count) + "]"
-        flags |= TypeFlag.IS_OUTPUT
-        array = ArrayTypeInfo(builtin, count)
+        if inner["kind"] == "Pointer" and inner["inner_type"]["kind"] == "Builtin" and inner["inner_type"]["builtin_type"] == "char":
+            name = "Tuple[str, ...]"
+            array = ArrayTypeInfo("nb::str", -1)
+        else:
+            assert inner["kind"] == "Builtin", inner
+            builtin = inner["builtin_type"]
+            count = int(type_desc["bounds"])
+            name = "Tuple[" + ", ".join([builtin] * count) + "]"
+            flags |= TypeFlag.IS_OUTPUT
+            array = ArrayTypeInfo(builtin, count)
     else:
         name = type_decl
         flags |= TypeFlag.IS_USER_TYPE
 
     if name.startswith("ImGui"):
         name = name[5:]
-    if name.startswith("Im"):
+    elif name.startswith("ImPlot"):
+        name = name[6:]
+    elif name.startswith("Im"):
         name = name[2:]
 
     return TypeInfo(name, type_decl, flags, array)
@@ -303,7 +304,7 @@ for f in data["functions"]:
     if f["is_default_argument_helper"]:
         continue
 
-
+    print(func_name)
     # Skip specific functions we dont need
     if func_name in {
         # Context stuff (don't need)
@@ -311,6 +312,11 @@ for f in data["functions"]:
         "ImGui_DestroyContext",
         "ImGui_GetCurrentContext",
         "ImGui_SetCurrentContext",
+        "ImPlotCreateContext",
+        "ImPlotDestroyContext",
+        "ImPlotGetCurrentContext",
+        "ImPlotSetCurrentContext",
+        "ImPlotSetImGuiContext",
         # Frame handling (don't need)
         "ImGui_NewFrame",
         "ImGui_Render",
@@ -332,6 +338,10 @@ for f in data["functions"]:
         "ImGui_MemFree",
         # Done manually"
         "ImGui_GetIO",
+        "ImPlotGetStyle",
+        "ImPlotGetInputMap",
+        "ImPlotMapInputDefault",
+        "ImPlotMapInputReverse",
 
         # TODO:
         # Font
@@ -358,6 +368,52 @@ for f in data["functions"]:
         "ImGui_ColorConvertHSVtoRGB",
         "ImGui_TextUnformatted",               # Substring of text, no need for this
         "ImGui_GetDrawListSharedData",         # Internal only struct def
+
+        # ImPlot
+        # Multiple return values
+        "ImPlotSetupAxisLinks",
+        "ImPlotSetNextAxisLinks",
+        "ImPlotSetupAxisFormatImPlotFormatter",
+        "ImPlotDragPoint",
+        "ImPlotDragLineX",
+        "ImPlotDragLineY",
+        "ImPlotDragRect",
+        "ImPlotColormapSlider",
+
+        # Array input
+        "ImPlotSetupAxisTicks",
+        "ImPlotSetupAxisTicksDouble",
+
+        # Function pointer
+        "ImPlotSetupAxisScaleImPlotTransform",
+
+        # Plot functions
+        "ImPlotPlotLine",
+        "ImPlotPlotLineInt",
+        "ImPlotPlotScatter",
+        "ImPlotPlotScatterInt",
+        "ImPlotPlotStairs",
+        "ImPlotPlotStairsInt",
+        "ImPlotPlotShaded",
+        "ImPlotPlotShadedInt",
+        "ImPlotPlotBars",
+        "ImPlotPlotBarGroups",
+        "ImPlotPlotErrorBars",
+        "ImPlotPlotStems",
+        "ImPlotPlotStemsInt",
+        "ImPlotPlotInfLines",
+        "ImPlotPlotPieChart",
+        "ImPlotPlotPieChartImPlotFormatter",
+        "ImPlotPlotHeatmap",
+        "ImPlotPlotHistogram",
+        "ImPlotPlotHistogram2D",
+        "ImPlotPlotDigital",
+        "ImPlotPlotImage",
+        "ImPlotPlotText",
+        "ImPlotPlotDummy",
+
+        # Demo
+        "ImPlotShowDemoWindow",
     }:
         continue
 
@@ -369,6 +425,8 @@ for f in data["functions"]:
     if func_name.endswith("V"):
         continue
     if func_name.endswith("Ptr"):
+        continue
+    if func_name.endswith("G"):
         continue
 
     # Also skip combo and list stuff, not sure best way to deal with yet
@@ -399,16 +457,20 @@ for f in data["functions"]:
         all_funcs.add(cpp_name)
 
     if not func_name.startswith("ImGui_"):
+        # Skip unneeded implot struct methods
+        if func_name.split("_")[0] in {
+            "ImPlotRect", "ImPlotRange", "ImPlotStyle", "ImPlotInputMap",
+        }:
+            continue
+        elif func_name.startswith("ImPlot"):
+            func_name = func_name[6:]
         # Handle class methods, currently only ImDrawList is supported
-        if func_name.startswith("ImDrawList_"):
+        elif func_name.startswith("ImDrawList_"):
             pass
         else:
             continue
 
-    py_func_name = pascal_to_snake_case(func_name[6:])
-
-    out(f"def {py_func_name}(", end="")
-
+    py_func_name = pascal_to_snake_case(func_name)
 
     args: List[Arg] = []
 
@@ -420,6 +482,13 @@ for f in data["functions"]:
         arg_name = a["name"]
         if arg_name == "in":
             arg_name = "value"
+
+        if func_name == "BeginSubplots" and (arg_name == "row_ratios" or arg_name == "col_ratios"):
+            continue
+
+        # Skip arguments on implot style color functions (they have defaults)
+        if func_name.startswith("StyleColors") or func_name.startswith("ShowStyleEditor"):
+            continue
 
         # Skip varargs, we expect those functions to preformat their strings
         if a["is_varargs"]:
@@ -467,8 +536,6 @@ for f in data["functions"]:
 
 
     # Python fuc
-    out(", ".join(args_str), end="")
-    out(f")", end="")
     ret = f["return_type"]
     ret_type = read_type(ret)
     ret_str = ""
@@ -488,11 +555,6 @@ for f in data["functions"]:
             has_ret = True
         else:
             ret_str = ret_type.name
-
-    if ret_str:
-        out(f" -> {ret_str}", end="")
-    out(f": ...")
-
 
     # CPP func
     def type_str_to_cpp(typ: str, ret: bool=False) -> str:
@@ -619,7 +681,7 @@ for f in data["functions"]:
                 name = "nullptr"
             elif arg.type.array is not None:
                 name = f"{arg.name}.data()"
-            elif arg.name == "fmt":
+            elif arg.name == "fmt" and py_func_name != "setup_axis_format":
                 name = r'"%s", fmt'
             elif arg.type.name == "memoryview":
                 name = f"{arg.name}.data()"

@@ -420,14 +420,16 @@ Nice to have soon:
       descriptor pools anyway. We might want to revisit this once we do this.
 
 ImPlot binding notes:
-- Likely use generator for enums
+
+Notes:
+[x] Likely use generator for enums
 - Not sure if we'll need Range/Rect manually, ideally do most stuff with numpy arrays or tuples/lists
-- Can cover ImPlotStyle similar to ImGuiIO, with setters, likely generate setters for ImPlotCol instead of array, which we
-  can't actually do from python directly
-- Context -> no need to cover
+[x] Can cover ImPlotStyle similar to ImGuiIO, with setters, likely generate setters for ImPlotCol instead of array, which we
+    can't actually do from python directly
+[x] Context -> no need to cover
 - Begin/End plot and subplots -> expose manually + context manager
 - Setup:
-    - axis links -> no obvious safe way to expose
+    - axis links -> can expose with return value
     - axis format -> no custom formatter first
     - axis ticks -> numy array
     - axis scale -> no custom transform first, can think about adding about adding later, ideally would have batched api
@@ -455,8 +457,8 @@ ImPlot binding notes:
     - Can expose light/dark/imgui style setters (also need styles in rest of ImGui anyways, maybe should be together)
 - Colormaps:
     - Can expose as numpy arrays, copied internally
-- ImPlot input_map:
-    - Expose similar to ImGuiIO
+[ ] ImPlot input_map:
+    [x] Expose similar to ImGuiIO
     - Resets without arguments are easy, with not sure, maybe yes?
 - Misc:
     - Icons should be easy, but also not sure how useful

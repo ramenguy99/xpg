@@ -168,4 +168,49 @@ void imgui_create_bindings(nb::module_& mod_imgui)
     // Should this be pyxpg.imgui.implot or pyxpg.implot?
     nb::module_ mod_implot = mod_imgui.def_submodule("implot", "ImPlot bindings for XPG");
     #include "generated_implot.inc"
+
+    // IMPLOT_TMP void PlotLine(const char* label_id, const T* values, int count, double xscale=1, double xstart=0, ImPlotLineFlags flags=0, int offset=0, int stride=sizeof(T));
+    // IMPLOT_TMP void PlotLine(const char* label_id, const T* xs, const T* ys, int count, ImPlotLineFlags flags=0, int offset=0, int stride=sizeof(T));
+    drawlist_class.def("plot_line",
+        [](nb::str name,
+           nb::ndarray<nb::shape<-1>, nb::device::cpu> values,
+           double xscale = 1,
+           double xstart = 0,
+           ImPlotLineFlags flags = 0
+        ) {
+            // TODO: also switch on number of bits
+            // TODO: report error if wrong
+            // TODO: do xy version too, unclear if overloading is best
+
+            size_t stride = values.stride(0);
+            size_t count = values.shape(0);
+            nb::dlpack::dtype dtype = values.dtype();
+            switch (dtype.code) {
+                case (int)nb::dlpack::dtype_code::Int: {
+                    ImPlot::PlotLine(name.c_str(), (int*)values.data(), count, xscale, xstart, flags, 0, stride);
+                } break;
+                case (int)nb::dlpack::dtype_code::UInt: {
+                    ImPlot::PlotLine(name.c_str(), (uint32_t*)values.data(), count, xscale, xstart, flags, 0, stride);
+                } break;
+                case (int)nb::dlpack::dtype_code::Float: {
+                    ImPlot::PlotLine(name.c_str(), (float*)values.data(), count, xscale, xstart, flags, 0, stride);
+                } break;
+            }
+            // bool col_per_object = col.shape(0) != 1;
+            // bool rounding_per_object = rounding.shape(0) != 1;
+            // for (size_t i = 0; i < p_min.shape(0); i++) {
+            //     self.list->AddRectFilled(
+            //         ImVec2(p_min(i, 0), p_min(i, 1)),
+            //         ImVec2(p_max(i, 0), p_max(i, 1)),
+            //         col_per_object ? col(i) : col(0),
+            //         rounding_per_object ? rounding(i) : rounding(0)
+            //         );
+            // }
+        },
+        nb::arg("p_min"),
+        nb::arg("p_max"),
+        nb::arg("color"),
+        nb::arg("rounding")
+    );
+
 }
