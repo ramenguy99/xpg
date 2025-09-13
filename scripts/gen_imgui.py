@@ -98,6 +98,8 @@ out("class size_t: ...")
 out("class double: ...")
 out("")
 
+enum_typedefs = set()
+
 for enum in data["enums"]:
     flags: str = enum["is_flags_enum"]
     name: str = enum["name"]
@@ -116,6 +118,7 @@ for enum in data["enums"]:
 
     if name.endswith("_"):
         enum_name = enum_name[:-1]
+        enum_typedefs.add(name[:-1])
     out(f"class {enum_name}({base_class}):")
 
     extra_flag = ""
@@ -218,6 +221,7 @@ class TypeFlag(Flag):
     IS_REMOVED_PTR = auto()
     IS_OPTIONAL = auto()
     IS_BUILTIN = auto()
+    IS_ENUM_TYPEDEF = auto()
 
 @dataclass
 class ArrayTypeInfo:
@@ -313,6 +317,8 @@ def read_type(typ: dict) -> TypeInfo:
     else:
         name = type_decl
         flags |= TypeFlag.IS_USER_TYPE
+        if name in enum_typedefs:
+            flags |= TypeFlag.IS_ENUM_TYPEDEF
 
     if name.startswith("ImGui"):
         name = name[5:]
@@ -555,10 +561,11 @@ for f in data["functions"]:
     def type_to_cpp(typ: TypeInfo, ret: bool=False):
         if typ.array is not None:
             return f"std::array<{type_str_to_cpp(typ.array.typ)}, {typ.array.count}>"
+        elif typ.flags & TypeFlag.IS_ENUM_TYPEDEF:
+            return typ.cpp_name + "_"
         elif typ.flags & TypeFlag.IS_USER_TYPE:
             if typ.name.startswith("Optional["):
                 if typ.flags & TypeFlag.IS_PTR:
-                    print(typ.flags)
                     return f"std::optional<{typ.cpp_name[:-1]}*>"
                 else:
                     return f"std::optional<{typ.cpp_name}>"
@@ -651,6 +658,9 @@ for f in data["functions"]:
             func_call = "self->list->" + f["original_fully_qualified_name"]
         else:
             func_call = f["original_fully_qualified_name"]
+
+        if ret_type.flags & TypeFlag.IS_ENUM_TYPEDEF:
+            func_call = f"({ret_type.cpp_name}_){func_call}"
 
         arg_call_names = []
         for arg in args:

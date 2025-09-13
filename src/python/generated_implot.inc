@@ -409,7 +409,7 @@ nb::class_<ImPlotInputMap>(mod_implot, "InputMap")
 ;
 
 mod_implot.def("begin_plot",
-    [] (const char* title_id, ImVec2 size, ImPlotFlags flags) -> bool {
+    [] (const char* title_id, ImVec2 size, ImPlotFlags_ flags) -> bool {
         return ImPlot::BeginPlot(title_id, size, flags);
     }, nb::arg("title_id"), nb::arg("size") = nb::make_tuple(-1, 0), nb::arg("flags") = 0);
 
@@ -419,7 +419,7 @@ mod_implot.def("end_plot",
     });
 
 mod_implot.def("begin_subplots",
-    [] (const char* title_id, int rows, int cols, ImVec2 size, ImPlotSubplotFlags flags) -> bool {
+    [] (const char* title_id, int rows, int cols, ImVec2 size, ImPlotSubplotFlags_ flags) -> bool {
         return ImPlot::BeginSubplots(title_id, rows, cols, size, flags);
     }, nb::arg("title_id"), nb::arg("rows"), nb::arg("cols"), nb::arg("size"), nb::arg("flags") = 0);
 
@@ -429,52 +429,52 @@ mod_implot.def("end_subplots",
     });
 
 mod_implot.def("setup_axis",
-    [] (ImAxis axis, const char* label, ImPlotAxisFlags flags) -> void {
+    [] (ImAxis_ axis, const char* label, ImPlotAxisFlags_ flags) -> void {
         return ImPlot::SetupAxis(axis, label, flags);
     }, nb::arg("axis"), nb::arg("label") = nullptr, nb::arg("flags") = 0);
 
 mod_implot.def("setup_axis_limits",
-    [] (ImAxis axis, float v_min, float v_max, ImPlotCond cond) -> void {
+    [] (ImAxis_ axis, float v_min, float v_max, ImPlotCond_ cond) -> void {
         return ImPlot::SetupAxisLimits(axis, v_min, v_max, cond);
     }, nb::arg("axis"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("cond") = ImPlotCond_Once);
 
 mod_implot.def("setup_axis_format",
-    [] (ImAxis axis, const char* fmt) -> void {
+    [] (ImAxis_ axis, const char* fmt) -> void {
         return ImPlot::SetupAxisFormat(axis, fmt);
     }, nb::arg("axis"), nb::arg("fmt"));
 
 mod_implot.def("setup_axis_scale",
-    [] (ImAxis axis, ImPlotScale scale) -> void {
+    [] (ImAxis_ axis, ImPlotScale_ scale) -> void {
         return ImPlot::SetupAxisScale(axis, scale);
     }, nb::arg("axis"), nb::arg("scale"));
 
 mod_implot.def("setup_axis_limits_constraints",
-    [] (ImAxis axis, float v_min, float v_max) -> void {
+    [] (ImAxis_ axis, float v_min, float v_max) -> void {
         return ImPlot::SetupAxisLimitsConstraints(axis, v_min, v_max);
     }, nb::arg("axis"), nb::arg("v_min"), nb::arg("v_max"));
 
 mod_implot.def("setup_axis_zoom_constraints",
-    [] (ImAxis axis, float z_min, float z_max) -> void {
+    [] (ImAxis_ axis, float z_min, float z_max) -> void {
         return ImPlot::SetupAxisZoomConstraints(axis, z_min, z_max);
     }, nb::arg("axis"), nb::arg("z_min"), nb::arg("z_max"));
 
 mod_implot.def("setup_axes",
-    [] (const char* x_label, const char* y_label, ImPlotAxisFlags x_flags, ImPlotAxisFlags y_flags) -> void {
+    [] (const char* x_label, const char* y_label, ImPlotAxisFlags_ x_flags, ImPlotAxisFlags_ y_flags) -> void {
         return ImPlot::SetupAxes(x_label, y_label, x_flags, y_flags);
     }, nb::arg("x_label"), nb::arg("y_label"), nb::arg("x_flags") = 0, nb::arg("y_flags") = 0);
 
 mod_implot.def("setup_axes_limits",
-    [] (float x_min, float x_max, float y_min, float y_max, ImPlotCond cond) -> void {
+    [] (float x_min, float x_max, float y_min, float y_max, ImPlotCond_ cond) -> void {
         return ImPlot::SetupAxesLimits(x_min, x_max, y_min, y_max, cond);
     }, nb::arg("x_min"), nb::arg("x_max"), nb::arg("y_min"), nb::arg("y_max"), nb::arg("cond") = ImPlotCond_Once);
 
 mod_implot.def("setup_legend",
-    [] (ImPlotLocation location, ImPlotLegendFlags flags) -> void {
+    [] (ImPlotLocation_ location, ImPlotLegendFlags_ flags) -> void {
         return ImPlot::SetupLegend(location, flags);
     }, nb::arg("location"), nb::arg("flags") = 0);
 
 mod_implot.def("setup_mouse_text",
-    [] (ImPlotLocation location, ImPlotMouseTextFlags flags) -> void {
+    [] (ImPlotLocation_ location, ImPlotMouseTextFlags_ flags) -> void {
         return ImPlot::SetupMouseText(location, flags);
     }, nb::arg("location"), nb::arg("flags") = 0);
 
@@ -484,17 +484,17 @@ mod_implot.def("setup_finish",
     });
 
 mod_implot.def("set_next_axis_limits",
-    [] (ImAxis axis, float v_min, float v_max, ImPlotCond cond) -> void {
+    [] (ImAxis_ axis, float v_min, float v_max, ImPlotCond_ cond) -> void {
         return ImPlot::SetNextAxisLimits(axis, v_min, v_max, cond);
     }, nb::arg("axis"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("cond") = ImPlotCond_Once);
 
 mod_implot.def("set_next_axis_to_fit",
-    [] (ImAxis axis) -> void {
+    [] (ImAxis_ axis) -> void {
         return ImPlot::SetNextAxisToFit(axis);
     }, nb::arg("axis"));
 
 mod_implot.def("set_next_axes_limits",
-    [] (float x_min, float x_max, float y_min, float y_max, ImPlotCond cond) -> void {
+    [] (float x_min, float x_max, float y_min, float y_max, ImPlotCond_ cond) -> void {
         return ImPlot::SetNextAxesLimits(x_min, x_max, y_min, y_max, cond);
     }, nb::arg("x_min"), nb::arg("x_max"), nb::arg("y_min"), nb::arg("y_max"), nb::arg("cond") = ImPlotCond_Once);
 
@@ -504,12 +504,12 @@ mod_implot.def("set_next_axes_to_fit",
     });
 
 mod_implot.def("plot_text",
-    [] (const char* text, float x, float y, ImVec2 pix_offset, ImPlotTextFlags flags) -> void {
+    [] (const char* text, float x, float y, ImVec2 pix_offset, ImPlotTextFlags_ flags) -> void {
         return ImPlot::PlotText(text, x, y, pix_offset, flags);
     }, nb::arg("text"), nb::arg("x"), nb::arg("y"), nb::arg("pix_offset") = nb::make_tuple(0, 0), nb::arg("flags") = 0);
 
 mod_implot.def("plot_dummy",
-    [] (const char* label_id, ImPlotDummyFlags flags) -> void {
+    [] (const char* label_id, ImPlotDummyFlags_ flags) -> void {
         return ImPlot::PlotDummy(label_id, flags);
     }, nb::arg("label_id"), nb::arg("flags") = 0);
 
@@ -544,32 +544,32 @@ mod_implot.def("tag_y_str",
     }, nb::arg("y"), nb::arg("col"), nb::arg("fmt"));
 
 mod_implot.def("set_axis",
-    [] (ImAxis axis) -> void {
+    [] (ImAxis_ axis) -> void {
         return ImPlot::SetAxis(axis);
     }, nb::arg("axis"));
 
 mod_implot.def("set_axes",
-    [] (ImAxis x_axis, ImAxis y_axis) -> void {
+    [] (ImAxis_ x_axis, ImAxis_ y_axis) -> void {
         return ImPlot::SetAxes(x_axis, y_axis);
     }, nb::arg("x_axis"), nb::arg("y_axis"));
 
 mod_implot.def("pixels_to_plot",
-    [] (ImVec2 pix, ImAxis x_axis, ImAxis y_axis) -> ImPlotPoint {
+    [] (ImVec2 pix, ImAxis_ x_axis, ImAxis_ y_axis) -> ImPlotPoint {
         return ImPlot::PixelsToPlot(pix, x_axis, y_axis);
     }, nb::arg("pix"), nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
 mod_implot.def("pixels_to_plot_float",
-    [] (float x, float y, ImAxis x_axis, ImAxis y_axis) -> ImPlotPoint {
+    [] (float x, float y, ImAxis_ x_axis, ImAxis_ y_axis) -> ImPlotPoint {
         return ImPlot::PixelsToPlot(x, y, x_axis, y_axis);
     }, nb::arg("x"), nb::arg("y"), nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
 mod_implot.def("plot_to_pixels",
-    [] (ImPlotPoint plt, ImAxis x_axis, ImAxis y_axis) -> ImVec2 {
+    [] (ImPlotPoint plt, ImAxis_ x_axis, ImAxis_ y_axis) -> ImVec2 {
         return ImPlot::PlotToPixels(plt, x_axis, y_axis);
     }, nb::arg("plt"), nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
 mod_implot.def("plot_to_pixels_double",
-    [] (float x, float y, ImAxis x_axis, ImAxis y_axis) -> ImVec2 {
+    [] (float x, float y, ImAxis_ x_axis, ImAxis_ y_axis) -> ImVec2 {
         return ImPlot::PlotToPixels(x, y, x_axis, y_axis);
     }, nb::arg("x"), nb::arg("y"), nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
@@ -584,12 +584,12 @@ mod_implot.def("get_plot_size",
     });
 
 mod_implot.def("get_plot_mouse_pos",
-    [] (ImAxis x_axis, ImAxis y_axis) -> ImPlotPoint {
+    [] (ImAxis_ x_axis, ImAxis_ y_axis) -> ImPlotPoint {
         return ImPlot::GetPlotMousePos(x_axis, y_axis);
     }, nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
 mod_implot.def("get_plot_limits",
-    [] (ImAxis x_axis, ImAxis y_axis) -> ImPlotRect {
+    [] (ImAxis_ x_axis, ImAxis_ y_axis) -> ImPlotRect {
         return ImPlot::GetPlotLimits(x_axis, y_axis);
     }, nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
@@ -599,7 +599,7 @@ mod_implot.def("is_plot_hovered",
     });
 
 mod_implot.def("is_axis_hovered",
-    [] (ImAxis axis) -> bool {
+    [] (ImAxis_ axis) -> bool {
         return ImPlot::IsAxisHovered(axis);
     }, nb::arg("axis"));
 
@@ -614,7 +614,7 @@ mod_implot.def("is_plot_selected",
     });
 
 mod_implot.def("get_plot_selection",
-    [] (ImAxis x_axis, ImAxis y_axis) -> ImPlotRect {
+    [] (ImAxis_ x_axis, ImAxis_ y_axis) -> ImPlotRect {
         return ImPlot::GetPlotSelection(x_axis, y_axis);
     }, nb::arg("x_axis") = IMPLOT_AUTO, nb::arg("y_axis") = IMPLOT_AUTO);
 
@@ -624,7 +624,7 @@ mod_implot.def("cancel_plot_selection",
     });
 
 mod_implot.def("hide_next_item",
-    [] (bool hidden, ImPlotCond cond) -> void {
+    [] (bool hidden, ImPlotCond_ cond) -> void {
         return ImPlot::HideNextItem(hidden, cond);
     }, nb::arg("hidden") = true, nb::arg("cond") = ImPlotCond_Once);
 
@@ -659,7 +659,7 @@ mod_implot.def("begin_drag_drop_target_plot",
     });
 
 mod_implot.def("begin_drag_drop_target_axis",
-    [] (ImAxis axis) -> bool {
+    [] (ImAxis_ axis) -> bool {
         return ImPlot::BeginDragDropTargetAxis(axis);
     }, nb::arg("axis"));
 
@@ -679,7 +679,7 @@ mod_implot.def("begin_drag_drop_source_plot",
     }, nb::arg("flags") = 0);
 
 mod_implot.def("begin_drag_drop_source_axis",
-    [] (ImAxis axis, ImGuiDragDropFlags flags) -> bool {
+    [] (ImAxis_ axis, ImGuiDragDropFlags flags) -> bool {
         return ImPlot::BeginDragDropSourceAxis(axis, flags);
     }, nb::arg("axis"), nb::arg("flags") = 0);
 
@@ -714,12 +714,12 @@ mod_implot.def("style_colors_light",
     });
 
 mod_implot.def("push_style_color",
-    [] (ImPlotCol idx, Color col) -> void {
+    [] (ImPlotCol_ idx, Color col) -> void {
         return ImPlot::PushStyleColor(idx, col);
     }, nb::arg("idx"), nb::arg("col"));
 
 mod_implot.def("push_style_color_im_vec4",
-    [] (ImPlotCol idx, ImVec4 col) -> void {
+    [] (ImPlotCol_ idx, ImVec4 col) -> void {
         return ImPlot::PushStyleColor(idx, col);
     }, nb::arg("idx"), nb::arg("col"));
 
@@ -729,17 +729,17 @@ mod_implot.def("pop_style_color",
     }, nb::arg("count") = 1);
 
 mod_implot.def("push_style_var",
-    [] (ImPlotStyleVar idx, float val) -> void {
+    [] (ImPlotStyleVar_ idx, float val) -> void {
         return ImPlot::PushStyleVar(idx, val);
     }, nb::arg("idx"), nb::arg("val"));
 
 mod_implot.def("push_style_var_int",
-    [] (ImPlotStyleVar idx, int val) -> void {
+    [] (ImPlotStyleVar_ idx, int val) -> void {
         return ImPlot::PushStyleVar(idx, val);
     }, nb::arg("idx"), nb::arg("val"));
 
 mod_implot.def("push_style_var_im_vec2",
-    [] (ImPlotStyleVar idx, ImVec2 val) -> void {
+    [] (ImPlotStyleVar_ idx, ImVec2 val) -> void {
         return ImPlot::PushStyleVar(idx, val);
     }, nb::arg("idx"), nb::arg("val"));
 
@@ -759,7 +759,7 @@ mod_implot.def("set_next_fill_style",
     }, nb::arg("col") = IMPLOT_AUTO_COL, nb::arg("alpha_mod") = IMPLOT_AUTO);
 
 mod_implot.def("set_next_marker_style",
-    [] (ImPlotMarker marker, float size, ImVec4 fill, float weight, ImVec4 outline) -> void {
+    [] (ImPlotMarker_ marker, float size, ImVec4 fill, float weight, ImVec4 outline) -> void {
         return ImPlot::SetNextMarkerStyle(marker, size, fill, weight, outline);
     }, nb::arg("marker") = IMPLOT_AUTO, nb::arg("size") = IMPLOT_AUTO, nb::arg("fill") = IMPLOT_AUTO_COL, nb::arg("weight") = IMPLOT_AUTO, nb::arg("outline") = IMPLOT_AUTO_COL);
 
@@ -774,18 +774,18 @@ mod_implot.def("get_last_item_color",
     });
 
 mod_implot.def("get_style_color_name",
-    [] (ImPlotCol idx) -> const char* {
+    [] (ImPlotCol_ idx) -> const char* {
         return ImPlot::GetStyleColorName(idx);
     }, nb::arg("idx"));
 
 mod_implot.def("get_marker_name",
-    [] (ImPlotMarker idx) -> const char* {
+    [] (ImPlotMarker_ idx) -> const char* {
         return ImPlot::GetMarkerName(idx);
     }, nb::arg("idx"));
 
 mod_implot.def("add_colormap",
-    [] (const char* name, const ImVec4* cols, int size, bool qual) -> ImPlotColormap {
-        return ImPlot::AddColormap(name, cols, size, qual);
+    [] (const char* name, const ImVec4* cols, int size, bool qual) -> ImPlotColormap_ {
+        return (ImPlotColormap_)ImPlot::AddColormap(name, cols, size, qual);
     }, nb::arg("name"), nb::arg("cols"), nb::arg("size"), nb::arg("qual") = true);
 
 mod_implot.def("get_colormap_count",
@@ -794,17 +794,17 @@ mod_implot.def("get_colormap_count",
     });
 
 mod_implot.def("get_colormap_name",
-    [] (ImPlotColormap cmap) -> const char* {
+    [] (ImPlotColormap_ cmap) -> const char* {
         return ImPlot::GetColormapName(cmap);
     }, nb::arg("cmap"));
 
 mod_implot.def("get_colormap_index",
-    [] (const char* name) -> ImPlotColormap {
-        return ImPlot::GetColormapIndex(name);
+    [] (const char* name) -> ImPlotColormap_ {
+        return (ImPlotColormap_)ImPlot::GetColormapIndex(name);
     }, nb::arg("name"));
 
 mod_implot.def("push_colormap",
-    [] (ImPlotColormap cmap) -> void {
+    [] (ImPlotColormap_ cmap) -> void {
         return ImPlot::PushColormap(cmap);
     }, nb::arg("cmap"));
 
@@ -824,27 +824,27 @@ mod_implot.def("next_colormap_color",
     });
 
 mod_implot.def("get_colormap_size",
-    [] (ImPlotColormap cmap) -> int {
+    [] (ImPlotColormap_ cmap) -> int {
         return ImPlot::GetColormapSize(cmap);
     }, nb::arg("cmap") = IMPLOT_AUTO);
 
 mod_implot.def("get_colormap_color",
-    [] (int idx, ImPlotColormap cmap) -> ImVec4 {
+    [] (int idx, ImPlotColormap_ cmap) -> ImVec4 {
         return ImPlot::GetColormapColor(idx, cmap);
     }, nb::arg("idx"), nb::arg("cmap") = IMPLOT_AUTO);
 
 mod_implot.def("sample_colormap",
-    [] (float t, ImPlotColormap cmap) -> ImVec4 {
+    [] (float t, ImPlotColormap_ cmap) -> ImVec4 {
         return ImPlot::SampleColormap(t, cmap);
     }, nb::arg("t"), nb::arg("cmap") = IMPLOT_AUTO);
 
 mod_implot.def("colormap_scale",
-    [] (const char* label, float scale_min, float scale_max, ImVec2 size, const char* format, ImPlotColormapScaleFlags flags, ImPlotColormap cmap) -> void {
+    [] (const char* label, float scale_min, float scale_max, ImVec2 size, const char* format, ImPlotColormapScaleFlags_ flags, ImPlotColormap_ cmap) -> void {
         return ImPlot::ColormapScale(label, scale_min, scale_max, size, format, flags, cmap);
     }, nb::arg("label"), nb::arg("scale_min"), nb::arg("scale_max"), nb::arg("size") = nb::make_tuple(0, 0), nb::arg("format") = "%g", nb::arg("flags") = 0, nb::arg("cmap") = IMPLOT_AUTO);
 
 mod_implot.def("colormap_button",
-    [] (const char* label, ImVec2 size, ImPlotColormap cmap) -> bool {
+    [] (const char* label, ImVec2 size, ImPlotColormap_ cmap) -> bool {
         return ImPlot::ColormapButton(label, size, cmap);
     }, nb::arg("label"), nb::arg("size") = nb::make_tuple(0, 0), nb::arg("cmap") = IMPLOT_AUTO);
 
@@ -864,7 +864,7 @@ mod_implot.def("item_icon_im_u32",
     }, nb::arg("col"));
 
 mod_implot.def("colormap_icon",
-    [] (ImPlotColormap cmap) -> void {
+    [] (ImPlotColormap_ cmap) -> void {
         return ImPlot::ColormapIcon(cmap);
     }, nb::arg("cmap"));
 
