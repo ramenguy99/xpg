@@ -215,9 +215,10 @@ Python:
     - [ ] Fix imgui with waitevents on linux, likely need some form of animation frame flag / counter to render at least one additional frame
         - [ ] Also happening on first frame on windows, but not always?
     - [x] expose implot
+    - [x] begin with empty string segfaults
     - [ ] expose imguizmo and imnodes
     - [ ] scale fonts on DPI changes (likely coming soon to upstream imgui)
-    - [ ] begin with empty string segfaults?
+    - [ ] unify and cleanup gen_imgui.py and gen_implot.py
 - [x] Nanobind:
     - [x] None converts to a nullptr nb::ref, makes a lot of our code potentially segfault
         - Opened discussion in nanobind repo

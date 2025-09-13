@@ -333,6 +333,10 @@ overloads = []
 drawlist_started = False
 drawlist_ended = False
 
+forbid_empty_string = {
+    "ImGui::Begin": {"name"}
+}
+
 # Functions
 for f in data["functions"]:
     func_name: str = f["name"]
@@ -697,6 +701,13 @@ for f in data["functions"]:
 
     def out_add_ret():
         out_cpp(f"{additional_ret_name}", end="")
+
+
+    if (forbidden_args := forbid_empty_string.get(cpp_name)) is not None:
+        for forbidden_arg in forbidden_args:
+            out_cpp(" " * 8 + f"if ({forbidden_arg} == NULL or {forbidden_arg}[0] == '\\0') {{")
+            out_cpp(" " * 12 + f"throw nb::value_error(\"Argument \\\"name\\\" must not be empty string\");")
+            out_cpp(" " * 8 + "}")
 
 
     if not has_ret:

@@ -1028,6 +1028,9 @@ mod_imgui.def("style_colors_classic",
 
 mod_imgui.def("begin",
     [] (const char* name, std::optional<bool> p_open, ImGuiWindowFlags_ flags) -> std::tuple<bool, std::optional<bool>> {
+        if (name == NULL or name[0] == '\0') {
+            throw nb::value_error("Argument \"name\" must not be empty string");
+        }
         auto _call = ImGui::Begin(name, p_open.has_value() ? &p_open.value() : NULL, flags);
         auto _ret = p_open;
         return std::make_tuple(_call, _ret);
