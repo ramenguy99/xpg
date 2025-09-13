@@ -1027,10 +1027,10 @@ mod_imgui.def("style_colors_classic",
     }, nb::arg("dst") = nb::none());
 
 mod_imgui.def("begin",
-    [] (const char* name, std::optional<bool> p_open, ImGuiWindowFlags_ flags) -> nb::tuple {
+    [] (const char* name, std::optional<bool> p_open, ImGuiWindowFlags_ flags) -> std::tuple<bool, std::optional<bool>> {
         auto _call = ImGui::Begin(name, p_open.has_value() ? &p_open.value() : NULL, flags);
         auto _ret = p_open;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("name"), nb::arg("p_open") = nb::none(), nb::arg("flags") = 0);
 
 mod_imgui.def("end",
@@ -1544,10 +1544,10 @@ mod_imgui.def("arrow_button",
     }, nb::arg("str_id"), nb::arg("dir"));
 
 mod_imgui.def("checkbox",
-    [] (const char* label, bool v) -> nb::tuple {
+    [] (const char* label, bool v) -> std::tuple<bool, bool> {
         auto _call = ImGui::Checkbox(label, &v);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"));
 
 mod_imgui.def("radio_button",
@@ -1591,213 +1591,213 @@ mod_imgui.def("image_button",
     }, nb::arg("str_id"), nb::arg("tex_ref"), nb::arg("image_size"), nb::arg("uv0") = nb::make_tuple(0, 0), nb::arg("uv1") = nb::make_tuple(1, 1), nb::arg("bg_col") = nb::make_tuple(0, 0, 0, 0), nb::arg("tint_col") = nb::make_tuple(1, 1, 1, 1));
 
 mod_imgui.def("drag_float",
-    [] (const char* label, float v, float v_speed, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, float v, float v_speed, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, float> {
         auto _call = ImGui::DragFloat(label, &v, v_speed, v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_speed") = 1.0, nb::arg("v_min") = 0.0, nb::arg("v_max") = 0.0, nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("drag_float2",
-    [] (const char* label, std::array<float, 2> v, float v_speed, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<float, 2> v, float v_speed, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, std::array<float, 2>> {
         auto _call = ImGui::DragFloat2(label, v.data(), v_speed, v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_speed") = 1.0, nb::arg("v_min") = 0.0, nb::arg("v_max") = 0.0, nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("drag_float3",
-    [] (const char* label, std::array<float, 3> v, float v_speed, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<float, 3> v, float v_speed, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, std::array<float, 3>> {
         auto _call = ImGui::DragFloat3(label, v.data(), v_speed, v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_speed") = 1.0, nb::arg("v_min") = 0.0, nb::arg("v_max") = 0.0, nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("drag_float4",
-    [] (const char* label, std::array<float, 4> v, float v_speed, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<float, 4> v, float v_speed, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, std::array<float, 4>> {
         auto _call = ImGui::DragFloat4(label, v.data(), v_speed, v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_speed") = 1.0, nb::arg("v_min") = 0.0, nb::arg("v_max") = 0.0, nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("drag_int",
-    [] (const char* label, int v, float v_speed, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, int v, float v_speed, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, int> {
         auto _call = ImGui::DragInt(label, &v, v_speed, v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_speed") = 1.0, nb::arg("v_min") = 0, nb::arg("v_max") = 0, nb::arg("format") = "%d", nb::arg("flags") = 0);
 
 mod_imgui.def("drag_int2",
-    [] (const char* label, std::array<int, 2> v, float v_speed, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<int, 2> v, float v_speed, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, std::array<int, 2>> {
         auto _call = ImGui::DragInt2(label, v.data(), v_speed, v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_speed") = 1.0, nb::arg("v_min") = 0, nb::arg("v_max") = 0, nb::arg("format") = "%d", nb::arg("flags") = 0);
 
 mod_imgui.def("drag_int3",
-    [] (const char* label, std::array<int, 3> v, float v_speed, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<int, 3> v, float v_speed, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, std::array<int, 3>> {
         auto _call = ImGui::DragInt3(label, v.data(), v_speed, v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_speed") = 1.0, nb::arg("v_min") = 0, nb::arg("v_max") = 0, nb::arg("format") = "%d", nb::arg("flags") = 0);
 
 mod_imgui.def("drag_int4",
-    [] (const char* label, std::array<int, 4> v, float v_speed, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<int, 4> v, float v_speed, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, std::array<int, 4>> {
         auto _call = ImGui::DragInt4(label, v.data(), v_speed, v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_speed") = 1.0, nb::arg("v_min") = 0, nb::arg("v_max") = 0, nb::arg("format") = "%d", nb::arg("flags") = 0);
 
 mod_imgui.def("slider_float",
-    [] (const char* label, float v, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, float v, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, float> {
         auto _call = ImGui::SliderFloat(label, &v, v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("slider_float2",
-    [] (const char* label, std::array<float, 2> v, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<float, 2> v, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, std::array<float, 2>> {
         auto _call = ImGui::SliderFloat2(label, v.data(), v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("slider_float3",
-    [] (const char* label, std::array<float, 3> v, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<float, 3> v, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, std::array<float, 3>> {
         auto _call = ImGui::SliderFloat3(label, v.data(), v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("slider_float4",
-    [] (const char* label, std::array<float, 4> v, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<float, 4> v, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, std::array<float, 4>> {
         auto _call = ImGui::SliderFloat4(label, v.data(), v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("slider_angle",
-    [] (const char* label, float v_rad, float v_degrees_min, float v_degrees_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, float v_rad, float v_degrees_min, float v_degrees_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, float> {
         auto _call = ImGui::SliderAngle(label, &v_rad, v_degrees_min, v_degrees_max, format, flags);
         auto _ret = v_rad;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v_rad"), nb::arg("v_degrees_min") = -360.0, nb::arg("v_degrees_max") = +360.0, nb::arg("format") = "%.0f deg", nb::arg("flags") = 0);
 
 mod_imgui.def("slider_int",
-    [] (const char* label, int v, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, int v, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, int> {
         auto _call = ImGui::SliderInt(label, &v, v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("format") = "%d", nb::arg("flags") = 0);
 
 mod_imgui.def("slider_int2",
-    [] (const char* label, std::array<int, 2> v, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<int, 2> v, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, std::array<int, 2>> {
         auto _call = ImGui::SliderInt2(label, v.data(), v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("format") = "%d", nb::arg("flags") = 0);
 
 mod_imgui.def("slider_int3",
-    [] (const char* label, std::array<int, 3> v, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<int, 3> v, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, std::array<int, 3>> {
         auto _call = ImGui::SliderInt3(label, v.data(), v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("format") = "%d", nb::arg("flags") = 0);
 
 mod_imgui.def("slider_int4",
-    [] (const char* label, std::array<int, 4> v, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<int, 4> v, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, std::array<int, 4>> {
         auto _call = ImGui::SliderInt4(label, v.data(), v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("format") = "%d", nb::arg("flags") = 0);
 
 mod_imgui.def("v_slider_float",
-    [] (const char* label, ImVec2 size, float v, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, ImVec2 size, float v, float v_min, float v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, float> {
         auto _call = ImGui::VSliderFloat(label, size, &v, v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("size"), nb::arg("v"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("v_slider_int",
-    [] (const char* label, ImVec2 size, int v, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> nb::tuple {
+    [] (const char* label, ImVec2 size, int v, int v_min, int v_max, const char* format, ImGuiSliderFlags_ flags) -> std::tuple<bool, int> {
         auto _call = ImGui::VSliderInt(label, size, &v, v_min, v_max, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("size"), nb::arg("v"), nb::arg("v_min"), nb::arg("v_max"), nb::arg("format") = "%d", nb::arg("flags") = 0);
 
 mod_imgui.def("input_float",
-    [] (const char* label, float v, float step, float step_fast, const char* format, ImGuiInputTextFlags_ flags) -> nb::tuple {
+    [] (const char* label, float v, float step, float step_fast, const char* format, ImGuiInputTextFlags_ flags) -> std::tuple<bool, float> {
         auto _call = ImGui::InputFloat(label, &v, step, step_fast, format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("step") = 0.0, nb::arg("step_fast") = 0.0, nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("input_float2",
-    [] (const char* label, std::array<float, 2> v, const char* format, ImGuiInputTextFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<float, 2> v, const char* format, ImGuiInputTextFlags_ flags) -> std::tuple<bool, std::array<float, 2>> {
         auto _call = ImGui::InputFloat2(label, v.data(), format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("input_float3",
-    [] (const char* label, std::array<float, 3> v, const char* format, ImGuiInputTextFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<float, 3> v, const char* format, ImGuiInputTextFlags_ flags) -> std::tuple<bool, std::array<float, 3>> {
         auto _call = ImGui::InputFloat3(label, v.data(), format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("input_float4",
-    [] (const char* label, std::array<float, 4> v, const char* format, ImGuiInputTextFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<float, 4> v, const char* format, ImGuiInputTextFlags_ flags) -> std::tuple<bool, std::array<float, 4>> {
         auto _call = ImGui::InputFloat4(label, v.data(), format, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("format") = "%.3f", nb::arg("flags") = 0);
 
 mod_imgui.def("input_int",
-    [] (const char* label, int v, int step, int step_fast, ImGuiInputTextFlags_ flags) -> nb::tuple {
+    [] (const char* label, int v, int step, int step_fast, ImGuiInputTextFlags_ flags) -> std::tuple<bool, int> {
         auto _call = ImGui::InputInt(label, &v, step, step_fast, flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("step") = 1, nb::arg("step_fast") = 100, nb::arg("flags") = 0);
 
 mod_imgui.def("input_int2",
-    [] (const char* label, std::array<int, 2> v, ImGuiInputTextFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<int, 2> v, ImGuiInputTextFlags_ flags) -> std::tuple<bool, std::array<int, 2>> {
         auto _call = ImGui::InputInt2(label, v.data(), flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("flags") = 0);
 
 mod_imgui.def("input_int3",
-    [] (const char* label, std::array<int, 3> v, ImGuiInputTextFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<int, 3> v, ImGuiInputTextFlags_ flags) -> std::tuple<bool, std::array<int, 3>> {
         auto _call = ImGui::InputInt3(label, v.data(), flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("flags") = 0);
 
 mod_imgui.def("input_int4",
-    [] (const char* label, std::array<int, 4> v, ImGuiInputTextFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<int, 4> v, ImGuiInputTextFlags_ flags) -> std::tuple<bool, std::array<int, 4>> {
         auto _call = ImGui::InputInt4(label, v.data(), flags);
         auto _ret = v;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("v"), nb::arg("flags") = 0);
 
 mod_imgui.def("color_edit3",
-    [] (const char* label, std::array<float, 3> col, ImGuiColorEditFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<float, 3> col, ImGuiColorEditFlags_ flags) -> std::tuple<bool, std::array<float, 3>> {
         auto _call = ImGui::ColorEdit3(label, col.data(), flags);
         auto _ret = col;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("col"), nb::arg("flags") = 0);
 
 mod_imgui.def("color_edit4",
-    [] (const char* label, std::array<float, 4> col, ImGuiColorEditFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<float, 4> col, ImGuiColorEditFlags_ flags) -> std::tuple<bool, std::array<float, 4>> {
         auto _call = ImGui::ColorEdit4(label, col.data(), flags);
         auto _ret = col;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("col"), nb::arg("flags") = 0);
 
 mod_imgui.def("color_picker3",
-    [] (const char* label, std::array<float, 3> col, ImGuiColorEditFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::array<float, 3> col, ImGuiColorEditFlags_ flags) -> std::tuple<bool, std::array<float, 3>> {
         auto _call = ImGui::ColorPicker3(label, col.data(), flags);
         auto _ret = col;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("col"), nb::arg("flags") = 0);
 
 mod_imgui.def("color_button",
@@ -1951,10 +1951,10 @@ mod_imgui.def("begin_popup",
     }, nb::arg("str_id"), nb::arg("flags") = 0);
 
 mod_imgui.def("begin_popup_modal",
-    [] (const char* name, std::optional<bool> p_open, ImGuiWindowFlags_ flags) -> nb::tuple {
+    [] (const char* name, std::optional<bool> p_open, ImGuiWindowFlags_ flags) -> std::tuple<bool, std::optional<bool>> {
         auto _call = ImGui::BeginPopupModal(name, p_open.has_value() ? &p_open.value() : NULL, flags);
         auto _ret = p_open;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("name"), nb::arg("p_open") = nb::none(), nb::arg("flags") = 0);
 
 mod_imgui.def("end_popup",
@@ -2133,10 +2133,10 @@ mod_imgui.def("end_tab_bar",
     });
 
 mod_imgui.def("begin_tab_item",
-    [] (const char* label, std::optional<bool> p_open, ImGuiTabItemFlags_ flags) -> nb::tuple {
+    [] (const char* label, std::optional<bool> p_open, ImGuiTabItemFlags_ flags) -> std::tuple<bool, std::optional<bool>> {
         auto _call = ImGui::BeginTabItem(label, p_open.has_value() ? &p_open.value() : NULL, flags);
         auto _ret = p_open;
-        return nb::make_tuple(_call, _ret);
+        return std::make_tuple(_call, _ret);
     }, nb::arg("label"), nb::arg("p_open") = nb::none(), nb::arg("flags") = 0);
 
 mod_imgui.def("end_tab_item",

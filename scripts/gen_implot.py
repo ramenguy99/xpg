@@ -651,7 +651,7 @@ for f in data["functions"]:
 
     if has_ret:
         if has_add_ret:
-            out(f") -> nb::tuple {{")
+            out(f") -> std::tuple<{type_to_cpp(ret_type, True)}, {type_to_cpp(additional_ret_type)}> {{")
         else:
             out(f") -> {type_to_cpp(ret_type, True)} {{")
     else:
@@ -738,7 +738,7 @@ for f in data["functions"]:
             out(" " * 8 + "auto _ret = ", end="")
             out_add_ret()
             out(";")
-            out(" " * 8 + "return nb::make_tuple(_call, _ret);")
+            out(" " * 8 + "return std::make_tuple(_call, _ret);")
         else:
             out(" " * 8 + "return ", end="")
             # if ret_type.flags & TypeFlag.IS_USER_TYPE and ret_type.flags & TypeFlag.IS_PTR:
@@ -758,21 +758,3 @@ for f in data["functions"]:
         out(")")
     else:
         out(f");\n")
-
-
-if False:
-    with open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "module.cpp"), "r") as module_file:
-        next_lines = []
-        skip = False
-        for l in module_file.readlines():
-            if "!$" in l:
-                skip = False
-
-            if not skip:
-                next_lines.append(l)
-
-            if "$!" in l:
-                skip = True
-                next_lines.append(cpp_contents.getvalue())
-
-    open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "module.cpp"), "w").write("".join(next_lines))

@@ -629,7 +629,7 @@ for f in data["functions"]:
 
     if has_ret:
         if has_add_ret:
-            out_cpp(f") -> nb::tuple {{")
+            out_cpp(f") -> std::tuple<{type_to_cpp(ret_type, True)}, {type_to_cpp(additional_ret_type)}> {{")
         else:
             out_cpp(f") -> {type_to_cpp(ret_type, True)} {{")
     else:
@@ -716,7 +716,7 @@ for f in data["functions"]:
             out_cpp(" " * 8 + "auto _ret = ", end="")
             out_add_ret()
             out_cpp(";")
-            out_cpp(" " * 8 + "return nb::make_tuple(_call, _ret);")
+            out_cpp(" " * 8 + "return std::make_tuple(_call, _ret);")
         else:
             out_cpp(" " * 8 + "return ", end="")
             # if ret_type.flags & TypeFlag.IS_USER_TYPE and ret_type.flags & TypeFlag.IS_PTR:
