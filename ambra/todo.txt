@@ -153,7 +153,105 @@ TODO:
       -> investigate further and maybe make minimal repo if it's actually a nanobind issue
 - [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
 
+Material notes:
+- Channels:
+    -> every material property is a single channel or a set of channels
+    -> channels can be uniform values or textures
+    -> if channels are on textures they could actually be in any channel and packed weirdly.
+       I think we want max flexibility here. Can we have an API that makes the easy case easy but still allows full flexibilit?
+    -> alpha could be optionally part of color / albedo or separate
+    -> optional channels could also be useful, but how do we deal with permutations? can we have default values for some?
+- [ ] How does the usage code look like? How do we check that materials are correctly specified at creation time? No missing channels, no doubly defined.
+    - [ ] How do we allow materials to be used by multiple objects, but without duplicating things like gpu upload
+- [ ] How do we handle textures gpu upload, descriptors, shader permutations, uniform upload?
+- [ ] How does this generalize to a path tracing shader? Try both raster and ray design together early.
 
+Light notes:
+- Shadow plan:
+    - Each light will have it's own shadow map for simplicity
+    - Directional:
+        - render each shadowmap in one pass
+        - if multi-viewport is available we could batch directional lights with the same shadowmap size and render to a texture array
+    - Pointlight and spotlight: (spotlight with angle < 90 can have single face, while > 90 will be the same as point light)
+        - render each face in one pass
+        - if multi-viewport is available we can render all faces in one pass
+    - UniformEnv and Env will not have shadows (maybe AO at some point but that's separate)
+    - Area light could be approximated by a point light, otherwise need raytraced shadows. In general would be cool to do LTC + ratio estimator here, but it's a big separate feature.
+- Add options on lights to enable / disable shadows
+- Add options on objects to disable casting shadows -> maybe later even allow keying lights
+
+Dynamic light count notes:
+- Uniform buffers might be faster but are very limited in terms of how dynamic we can make the light count.
+- An explicit in memory representation could simplify this, but then also requires dynamic dispatch or separate / suballocated buffers
+  and bindless resources / atlases for shadow maps. Atlases then require custom sampling and filtering.
+- I don't think we want to do atlases, but we could do bindless. This would anyways be required for raytracing or large indirect
+  dispatches.
+- There is a world where we focus really on the bindless and can cache most
+  object draws, materials and lights into indirect execution buffers and render a
+  lot of objects really fast in python. However this comes at a cost of complexity
+  in terms of delta tracking and manual invalidation tracking. This trades ease of
+  use for perf, but it's not currently obvious how worth the trade is.
+
+Bindless:
+- Extensions:
+    - descriptor indexing is widely available but requires managing different pools per descriptor type
+    - Descriptor buffer allows manually managing descriptor memory and copies -> TODO: check availability on desktop
+        - Nvidia: Kepler+
+        - AMD: Old
+        - Mac: not yet on MoltenVK, maybe soon?
+        - Intel: Skylake+
+    - Mutable descriptor is only available Turing+ and would allow single pool approach
+        - Nvidia: Turing+
+        - AMD: RX480+
+        - Mac: not yet on MoltenVK, maybe soon?
+        - Intel: Skylake+
+- handles:
+    - slang now has DescriptorHandle but it's 64 bit, this allows things like transparent combined image sampler with 2 indices,
+      or casting from 64bit address to acceleration structure. But would not be needed for textures and buffers.
+      With more manual work we can still implement bindless without it. Need to test this
+- Plan:
+    - Require 8 descriptor sets and descriptor indexing
+    - Handle are 32 bit or 64 bit integers managed by application.
+    - In shader we have utilities to convert from application indices to typed handles
+    - We override dereference operator to implement our mapping from type to descriptor set, including things like generation/type checking
+    - How do we do suballocation? Dynamic / static split?
+
+- Resources:
+    - Descriptor update vs content update
+    - Content:
+        - needs to be buffered per-frame if allocated in mapped memory and updated by the cpu, otherwise just uploaded once per frame
+        - Frequencies:
+            - once per frame -> lights and camera data
+            - once per object -> transform
+            - once per material -> material data
+    - Descriptors:
+        - needs to be buffered per-frame because interacted with from the CPU
+        - Frequenceis:
+            - once per frame -> shadow maps, lights and camera data if allocated in different buffers
+            - once per object -> constant buffer descriptor
+            - once per material -> material textures
+    - Use push constant to pass indices into descriptor arrays and offsets into buffers
+    -> Idea:
+        - One descriptor set per type of resource make a bindless group, we have 1 bindless group per frame
+        - once per frame data like scene constants are in fixed position (e.g. buffer 0)
+        - once per object data is suballocated from a big buffer in fixed position (e.g. buffer 1), and offsets are passed in push constants
+        - once per material data is also suballocated from a big buffer in fxed position
+        - textures descriptors are written every time they change (e.g. material updates)
+
+        - Create a material:
+            - Alloc a gpu descriptor for each texture
+            - Alloc some gpu memory into material pool buffer, write descriptor indices in them
+        - Update a material:
+            - Values -> just write to material buffer (frames in flight?)
+            - Textures -> write new descriptor to descriptor buffer, material buffer uses the same index anyways
+        - Free a material:
+            - Release descriptors to pool
+            - Release gpu memory to material buffer pool
+    -> Thoughts:
+        - If we want a flexible scheme like the one we have for constants (e.g. alloc from a buff and then expand with another buffer if full),
+          we need to anyways have usage code get a buffer index to index the descriptor + a buffer offset to index within the buffer.
+        - For buffers especially we could just switch to doing pointers then and just use 64bit addresses without worring about descriptors at all.
+        - We still have to use descriptors for images and samplers, but that might simplify things a bit.
 Tools:
 - [x] mypy:
     # configured in tool.mypy
@@ -405,7 +503,7 @@ Issues found while implementing skeletal animation:
                 [x] Simplify if statements by precomputing commonly used bools
                 [x] Where do we implement and how do we override / configure upload mode picking (see preferred upload modes above)? We have an ok version of this in renderer (unless overridden by config)
                 [x] Double check if we need the extra array of resource generations for the full array dynamic case
-                [ ] How to handle append, insert, remove
+                [ ] How to handle append, insert, remove -> also need to remove gpu properties from renderer
                 [ ] Improve UI of GPU property depending on various states
 
 Nice to have soon:

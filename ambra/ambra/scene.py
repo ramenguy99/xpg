@@ -83,7 +83,13 @@ class Object:
         # TODO: can merge with udpate? Where to find parent? With link?
         pass
 
-    def render(self, renderer, frame):  # type: ignore
+    def upload(self, renderer, frame):  # type: ignore
+        pass
+
+    def render(self, renderer, frame, descriptor_set):  # type: ignore
+        pass
+
+    def render_depth(self, renderer, frame, descriptor_set):  # type: ignore
         pass
 
     def destroy(self) -> None:
@@ -190,8 +196,13 @@ class Object3D(Object):
             vec3(self.scale.get_current()),
         )
         self.current_transform_matrix: mat4 = (
-            parent.current_transform_matrix if parent is not None else np.eye(4)
-        ) @ self.current_relative_transform.as_mat4()  # type: ignore
+            parent.current_transform_matrix if parent is not None else mat4(1.0)
+        ) * self.current_relative_transform.as_mat4()  # type: ignore
+
+
+class Light(Object3D):
+    def render_shadowmaps(self, renderer, frame, scene: "Scene") -> None:
+        pass
 
 
 class Scene:
@@ -254,8 +265,27 @@ class Scene:
 
         self.visit_objects(visit)
 
-    def render(self, renderer, frame) -> None:  # type: ignore
+    def render(self, renderer, frame, descriptor_set) -> None:  # type: ignore
         def visit(o: Object) -> None:
-            o.render(renderer, frame)  # type: ignore
+            o.render(renderer, frame, descriptor_set)  # type: ignore
+
+        self.visit_objects(visit)
+
+    def upload(self, renderer, frame) -> None:  # type: ignore
+        def visit(o: Object) -> None:
+            o.upload(renderer, frame)  # type: ignore
+
+        self.visit_objects(visit)
+
+    def render_depth(self, renderer, frame, descriptor_set) -> None:  # type: ignore
+        def visit(o: Object) -> None:
+            o.render_depth(renderer, frame, descriptor_set)  # type: ignore
+
+        self.visit_objects(visit)
+
+    def render_shadowmaps(self, renderer, frame) -> None:  # type: ignore
+        def visit(o: Object) -> None:
+            if isinstance(o, Light):
+                o.render_shadowmaps(renderer, frame, self)  # type: ignore
 
         self.visit_objects(visit)

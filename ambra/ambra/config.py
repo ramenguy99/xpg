@@ -83,8 +83,8 @@ class CameraConfig:
     projection: CameraProjection = CameraProjection.PERSPECTIVE
     position: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     target: Tuple[float, float, float] = (0.0, 0.0, 1.0)
-    z_min: float = 0.001
-    z_max: float = 1000.0
+    z_near: float = 0.001
+    z_far: float = 1000.0
 
     # If type is CameraProjection.PERSPECTIVE
     perspective_vertical_fov: float = 45.0

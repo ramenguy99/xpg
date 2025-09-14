@@ -19,7 +19,6 @@ from pyxpg import (
     PipelineStageFlags,
     PrimitiveTopology,
     Rasterization,
-    RenderingAttachment,
     Sampler,
     SamplerAddressMode,
     Shader,
@@ -106,7 +105,7 @@ class Lines(Object2D):
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame) -> None:
+    def render(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
         self.constants["transform"][0, :3, :3] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
@@ -118,7 +117,7 @@ class Lines(Object2D):
                 self.colors_buffer.get_current(),
             ],
             descriptor_sets=[
-                frame.descriptor_set,
+                descriptor_set,
                 constants_alloc.descriptor_set,
             ],
             dynamic_offsets=[constants_alloc.offset],
@@ -127,8 +126,7 @@ class Lines(Object2D):
             self.line_width.get_current().item() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
         )
 
-        with frame.cmd.rendering(frame.rect, color_attachments=[RenderingAttachment(frame.image)]):
-            frame.cmd.draw(self.lines.get_current().shape[0])
+        frame.cmd.draw(self.lines.get_current().shape[0])
 
 
 class Image(Object2D):
@@ -205,7 +203,7 @@ class Image(Object2D):
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame) -> None:
+    def render(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
         self.constants["transform"][0, :3, :3] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
@@ -221,12 +219,11 @@ class Image(Object2D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             descriptor_sets=[
-                frame.descriptor_set,
+                descriptor_set,
                 constants_alloc.descriptor_set,
                 descriptor_set,
             ],
             dynamic_offsets=[constants_alloc.offset],
         )
 
-        with frame.cmd.rendering(frame.rect, color_attachments=[RenderingAttachment(frame.image)]):
-            frame.cmd.draw(4)
+        frame.cmd.draw(4)

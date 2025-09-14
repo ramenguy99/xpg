@@ -1,5 +1,5 @@
-import "../common";
-import "common_object";
+import "scene";
+import "object";
 
 struct VSInput
 {

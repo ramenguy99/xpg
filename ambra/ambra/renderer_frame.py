@@ -3,7 +3,6 @@ from typing import List, Optional, Tuple
 
 from pyxpg import (
     CommandBuffer,
-    DescriptorSet,
     Image,
     PipelineStageFlags,
     TimelineSemaphore,
@@ -28,7 +27,6 @@ class RendererFrame:
     viewport: Tuple[float, float, float, float]
     rect: Tuple[int, int, int, int]
 
-    descriptor_set: DescriptorSet
     additional_semaphores: List[SemaphoreInfo]
 
     copy_cmd: Optional[CommandBuffer]

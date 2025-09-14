@@ -91,14 +91,14 @@ class Viewport:
         if camera_config.projection == CameraProjection.PERSPECTIVE:
             camera = PerspectiveCamera(
                 camera_from_world,
-                CameraDepth(camera_config.z_min, camera_config.z_max),
+                CameraDepth(camera_config.z_near, camera_config.z_far),
                 rect.width / rect.height,
                 camera_config.perspective_vertical_fov,
             )
         elif camera_config.projection == CameraProjection.ORTHOGRAPHIC:
             camera = OrthographicCamera(
                 camera_from_world,
-                CameraDepth(camera_config.z_min, camera_config.z_max),
+                CameraDepth(camera_config.z_near, camera_config.z_far),
                 rect.width / rect.height,
                 vec2(camera_config.ortho_center),
                 vec2(camera_config.ortho_half_extents),

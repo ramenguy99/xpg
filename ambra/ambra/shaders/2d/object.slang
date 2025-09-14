@@ -1,4 +1,4 @@
-module common_object;
+module object;
 
 public struct ObjectConstants {
     public float3x3 transform;

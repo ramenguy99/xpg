@@ -1,4 +1,4 @@
-module common;
+module scene;
 
 public struct Constants {
     public float4x4 view;

@@ -6,7 +6,6 @@ from pyxpg import (
     BufferUsageFlags,
     CullMode,
     Depth,
-    DepthAttachment,
     DescriptorSet,
     DescriptorSetEntry,
     DescriptorType,
@@ -23,7 +22,6 @@ from pyxpg import (
     PipelineStageFlags,
     PrimitiveTopology,
     Rasterization,
-    RenderingAttachment,
     Sampler,
     SamplerAddressMode,
     Shader,
@@ -111,7 +109,7 @@ class Lines(Object3D):
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame) -> None:
+    def render(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
         self.constants["transform"] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
@@ -123,7 +121,7 @@ class Lines(Object3D):
                 self.colors_buffer.get_current(),
             ],
             descriptor_sets=[
-                frame.descriptor_set,
+                descriptor_set,
                 constants_alloc.descriptor_set,
             ],
             dynamic_offsets=[constants_alloc.offset],
@@ -132,12 +130,7 @@ class Lines(Object3D):
             self.line_width.get_current().item() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
         )
 
-        with frame.cmd.rendering(
-            frame.rect,
-            color_attachments=[RenderingAttachment(frame.image)],
-            depth=DepthAttachment(r.depth_buffer),
-        ):
-            frame.cmd.draw(self.lines.get_current().shape[0])
+        frame.cmd.draw(self.lines.get_current().shape[0])
 
 
 class Image(Object3D):
@@ -214,7 +207,7 @@ class Image(Object3D):
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame) -> None:
+    def render(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
         self.constants["transform"] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
@@ -230,15 +223,14 @@ class Image(Object3D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             descriptor_sets=[
-                frame.descriptor_set,
+                descriptor_set,
                 constants_alloc.descriptor_set,
                 descriptor_set,
             ],
             dynamic_offsets=[constants_alloc.offset],
         )
 
-        with frame.cmd.rendering(frame.rect, color_attachments=[RenderingAttachment(frame.image)]):
-            frame.cmd.draw(4)
+        frame.cmd.draw(4)
 
 
 class Mesh(Object3D):
@@ -321,11 +313,58 @@ class Mesh(Object3D):
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame) -> None:
-        self.constants["transform"] = self.current_transform_matrix
-        constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
-        constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
+        depth_vert = r.get_builtin_shader("3d/mesh_depth.slang", "vertex_main")
 
+        # Instantiate the pipeline using the compiled shaders
+        self.depth_pipeline = GraphicsPipeline(
+            r.ctx,
+            stages=[
+                PipelineStage(Shader(r.ctx, depth_vert.code), Stage.VERTEX),
+            ],
+            vertex_bindings=[
+                VertexBinding(0, 12, VertexInputRate.VERTEX),
+            ],
+            vertex_attributes=[
+                VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
+            ],
+            rasterization=Rasterization(cull_mode=self.cull_mode, front_face=self.front_face),
+            input_assembly=InputAssembly(self.primitive_topology),
+            attachments=[],
+            depth=Depth(r.shadowmap_format, True, True, r.depth_compare_op),
+            descriptor_sets=[
+                r.descriptor_sets.get_current(),  # HACK: this only works because normal rendering and showmap layouts are currently equal
+                r.uniform_pool.descriptor_set,
+            ],
+        )
+
+        self.constants_alloc = None
+
+    def upload(self, r: Renderer, frame: RendererFrame) -> None:
+        self.constants["transform"] = self.current_transform_matrix
+        self.constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
+        self.constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
+
+    def render_depth(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
+        index_buffer = self.indices_buffer.get_current() if self.indices_buffer is not None else None
+        frame.cmd.bind_graphics_pipeline(
+            self.depth_pipeline,
+            vertex_buffers=[
+                self.positions_buffer.get_current(),
+            ],
+            index_buffer=index_buffer,
+            descriptor_sets=[
+                descriptor_set,
+                self.constants_alloc.descriptor_set,
+            ],
+            dynamic_offsets=[self.constants_alloc.offset],
+        )
+
+        if self.indices is not None:
+            frame.cmd.draw_indexed(self.indices.get_current().shape[0])
+        else:
+            frame.cmd.draw(self.positions.get_current().shape[0])
+
+    def render(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
         index_buffer = self.indices_buffer.get_current() if self.indices_buffer is not None else None
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -335,21 +374,16 @@ class Mesh(Object3D):
             ],
             index_buffer=index_buffer,
             descriptor_sets=[
-                frame.descriptor_set,
-                constants_alloc.descriptor_set,
+                descriptor_set,
+                self.constants_alloc.descriptor_set,
             ],
-            dynamic_offsets=[constants_alloc.offset],
+            dynamic_offsets=[self.constants_alloc.offset],
         )
 
-        with frame.cmd.rendering(
-            frame.rect,
-            color_attachments=[RenderingAttachment(frame.image)],
-            depth=DepthAttachment(r.depth_buffer),
-        ):
-            if self.indices is not None:
-                frame.cmd.draw_indexed(self.indices.get_current().shape[0])
-            else:
-                frame.cmd.draw(self.positions.get_current().shape[0])
+        if self.indices is not None:
+            frame.cmd.draw_indexed(self.indices.get_current().shape[0])
+        else:
+            frame.cmd.draw(self.positions.get_current().shape[0])
 
 
 class AnimatedMesh(Object3D):
@@ -533,7 +567,7 @@ class AnimatedMesh(Object3D):
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame) -> None:
+    def render(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
         self.constants["transform"] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
@@ -564,19 +598,14 @@ class AnimatedMesh(Object3D):
             ],
             index_buffer=index_buffer,
             descriptor_sets=[
-                frame.descriptor_set,
+                descriptor_set,
                 constants_alloc.descriptor_set,
                 descriptor_set,
             ],
             dynamic_offsets=[constants_alloc.offset],
         )
 
-        with frame.cmd.rendering(
-            frame.rect,
-            color_attachments=[RenderingAttachment(frame.image)],
-            depth=DepthAttachment(r.depth_buffer),
-        ):
-            if self.indices is not None:
-                frame.cmd.draw_indexed(self.indices.get_current().shape[0])
-            else:
-                frame.cmd.draw(self.positions.get_current().shape[0])
+        if self.indices is not None:
+            frame.cmd.draw_indexed(self.indices.get_current().shape[0])
+        else:
+            frame.cmd.draw(self.positions.get_current().shape[0])

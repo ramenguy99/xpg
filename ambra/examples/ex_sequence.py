@@ -14,6 +14,10 @@ from ambra.utils.io import (
     read_exact_at_offset_into,
 )
 from ambra.viewer import Action, Key, Modifiers, Viewer, imgui
+from ambra.lights import DirectionalLight
+
+from pyxpg import *
+from pyglm.glm import ivec2
 
 logging.basicConfig(
     level=logging.NOTSET,
@@ -69,6 +73,10 @@ mesh = Mesh(positions, indices=indices)
 
 
 class CustomViewer(Viewer):
+    def __init__(self, title = "ambra", config = None, key_map = None):
+        super().__init__(title, config, key_map)
+        self._texture = None
+
     @hook
     def on_gui(self):
         global scale
@@ -76,6 +84,36 @@ class CustomViewer(Viewer):
             u, scale = imgui.slider_float("SCALE", scale, 0.1, 10.0)
             if u:
                 mesh.positions_buffer.invalidate_frame(mesh.positions.current_frame_index)
+        imgui.end()
+        if imgui.begin("Image"):
+            if hasattr(light, "shadow_map"):
+                if self._texture is None:
+                    sampler = Sampler(
+                        viewer.ctx,
+                        u=SamplerAddressMode.CLAMP_TO_BORDER,
+                        v=SamplerAddressMode.CLAMP_TO_BORDER,
+                        border_color=BorderColor.FLOAT_OPAQUE_BLACK,
+                    )
+                    set = DescriptorSet(
+                        viewer.ctx,
+                        [
+                            DescriptorSetEntry(1, DescriptorType.COMBINED_IMAGE_SAMPLER),
+                        ],
+                    )
+                    set.write_combined_image_sampler(light.shadow_map, ImageLayout.SHADER_READ_ONLY_OPTIMAL, sampler, 0)
+                    self._texture = imgui.Texture(set)
+                avail = imgui.get_content_region_avail()
+                available = ivec2(avail.x, avail.y)
+
+                ar = 1.0
+
+                # height = available.x / ar
+                height = available.y
+                view_size = ivec2(ar * height, height)
+                imgui.image(
+                    self._texture,
+                    imgui.Vec2(*view_size),
+                )
         imgui.end()
 
     def on_key(self, key: Key, action: Action, modifiers: Modifiers):
@@ -124,6 +162,9 @@ viewer = CustomViewer(
     ),
 )
 
+light = DirectionalLight(np.array([1.0, 1.0, 1.0]))
+
 viewer.viewport.scene.objects.append(mesh)
+viewer.viewport.scene.objects.append(light)
 
 viewer.run()

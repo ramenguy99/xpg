@@ -9,6 +9,7 @@ from pyxpg import (
     BufferUsageFlags,
     CompareOp,
     Context,
+    DepthAttachment,
     DescriptorSet,
     DescriptorSetEntry,
     DescriptorType,
@@ -66,6 +67,7 @@ class Renderer:
         self.window = window
 
         self.output_format = window.swapchain_format
+        self.shadowmap_format = Format.D32_SFLOAT
 
         # Config
         self.background_color = config.background_color
@@ -286,41 +288,6 @@ class Renderer:
                 self.constants.view(np.uint8),
             )
 
-            cmd.set_viewport(viewport_rect)
-            cmd.set_scissors(rect)
-
-            cmd.image_barrier(
-                frame.image,
-                ImageLayout.TRANSFER_DST_OPTIMAL,
-                MemoryUsage.COLOR_ATTACHMENT,
-                MemoryUsage.TRANSFER_DST,
-                undefined=True,
-            )
-            cmd.clear_color_image(frame.image, self.background_color)
-            cmd.image_barrier(
-                frame.image,
-                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
-                MemoryUsage.TRANSFER_DST,
-                MemoryUsage.COLOR_ATTACHMENT,
-            )
-
-            cmd.image_barrier(
-                self.depth_buffer,
-                ImageLayout.TRANSFER_DST_OPTIMAL,
-                MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
-                MemoryUsage.TRANSFER_DST,
-                aspect_mask=ImageAspectFlags.DEPTH,
-                undefined=True,
-            )
-            cmd.clear_depth_stencil_image(self.depth_buffer, depth=self.depth_clear_value)
-            cmd.image_barrier(
-                self.depth_buffer,
-                ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                MemoryUsage.TRANSFER_DST,
-                MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
-                aspect_mask=ImageAspectFlags.DEPTH,
-            )
-
             if frame.transfer_command_buffer:
                 frame.transfer_command_buffer.begin()
 
@@ -331,7 +298,6 @@ class Renderer:
                 self.total_frame_index,
                 viewport_rect,
                 rect,
-                set,
                 [],
                 frame.transfer_command_buffer,
                 [],
@@ -344,8 +310,38 @@ class Renderer:
             for p in self.gpu_properties:
                 p.upload(f)
 
+            # Upload per-object data
+            viewport.scene.upload(self, f)
+
+            # Render shadows
+            viewport.scene.render_shadowmaps(self, f)
+
             # Render scene
-            viewport.scene.render(self, f)
+            cmd.image_barrier(
+                frame.image,
+                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                MemoryUsage.ALL,
+                MemoryUsage.COLOR_ATTACHMENT,
+                undefined=True,
+            )
+            cmd.image_barrier(
+                self.depth_buffer,
+                ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
+                MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
+                aspect_mask=ImageAspectFlags.DEPTH,
+                undefined=True,
+            )
+            cmd.set_viewport(viewport_rect)
+            cmd.set_scissors(rect)
+            with f.cmd.rendering(
+                f.rect,
+                color_attachments=[
+                    RenderingAttachment(frame.image, LoadOp.CLEAR, StoreOp.STORE, self.background_color)
+                ],
+                depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
+            ):
+                viewport.scene.render(self, f, set)
 
             # Render GUI
             with cmd.rendering(

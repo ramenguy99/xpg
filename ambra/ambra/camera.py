@@ -17,8 +17,8 @@ from .transform3d import RigidTransform3D
 
 @dataclass
 class CameraDepth:
-    z_min: float
-    z_max: float
+    z_near: float
+    z_far: float
 
 
 @dataclass
@@ -65,8 +65,8 @@ class OrthographicCamera(Camera):
         position: vec3,
         target: vec3,
         up: vec3,
-        z_min: float,
-        z_max: float,
+        z_near: float,
+        z_far: float,
         center: vec2,
         half_extents: vec2,
         ar: float,
@@ -74,7 +74,7 @@ class OrthographicCamera(Camera):
     ) -> "OrthographicCamera":
         return cls(
             camera_from_world=RigidTransform3D.look_at(position, target, up, handedness),
-            depth=CameraDepth(z_min, z_max),
+            depth=CameraDepth(z_near, z_far),
             ar=ar,
             center=center,
             half_extents=half_extents,
@@ -89,8 +89,8 @@ class OrthographicCamera(Camera):
             bottom_right.x,
             bottom_right.y,
             top_left.y,
-            self.depth.z_min,
-            self.depth.z_max,
+            self.depth.z_near,
+            self.depth.z_far,
         )
 
 
@@ -105,18 +105,18 @@ class PerspectiveCamera(Camera):
         position: vec3,
         target: vec3,
         up: vec3,
-        z_min: float,
-        z_max: float,
+        z_near: float,
+        z_far: float,
         fov: float,
         ar: float,
         handedness: Handedness,
     ) -> "PerspectiveCamera":
         return cls(
             camera_from_world=RigidTransform3D.look_at(position, target, up, handedness),
-            depth=CameraDepth(z_min, z_max),
+            depth=CameraDepth(z_near, z_far),
             ar=ar,
             fov=fov,
         )
 
     def projection(self) -> mat4:
-        return perspectiveRH_ZO(self.fov, self.ar, self.depth.z_min, self.depth.z_max)
+        return perspectiveRH_ZO(self.fov, self.ar, self.depth.z_near, self.depth.z_far)
