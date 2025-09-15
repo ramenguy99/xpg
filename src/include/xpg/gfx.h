@@ -1009,28 +1009,47 @@ VkResult CreateSampler(Sampler* sampler, const Context& vk, const SamplerDesc&& 
 void DestroySampler(Sampler* sampler, const Context& vk);
 
 //- Descriptors
-struct DescriptorSet
+struct DescriptorSetLayout
 {
-    VkDescriptorSet set;
     VkDescriptorSetLayout layout;
-    VkDescriptorPool pool;
 };
 
-struct DescriptorSetEntryDesc
+struct DescriptorSetBindingDesc
 {
-    u32 count;
-    VkDescriptorType type;
-};
-
-struct DescriptorSetDesc
-{
-    Span<DescriptorSetEntryDesc> entries;
+    VkDescriptorType         type;
+    u32                      count;
+    VkShaderStageFlags       stage_flags = VK_SHADER_STAGE_ALL;
+    Span<VkSampler*>         immutable_samplers;
     VkDescriptorBindingFlags flags;
 };
 
-VkResult CreateDescriptorSet(DescriptorSet* set, const Context& vk, const DescriptorSetDesc&& desc);
-void DestroyDescriptorSet(DescriptorSet* bindless, const Context& vk);
+struct DescriptorSetLayoutDesc
+{
+    Span<DescriptorSetBindingDesc> bindings;
+};
 
+VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Context& vk, const DescriptorSetLayoutDesc&& desc);
+void DestroyDescriptorSetLayout(DescriptorSetLayout* layout, const Context& vk);
+
+struct DescriptorPool
+{
+    VkDescriptorPool pool;
+};
+
+VkResult CreateDescriptorPool(DescriptorPool* pool, const Context& vk, const DescriptorSetLayoutDesc&& desc);
+void DestroyDescriptorPool(DescriptorPool* pool, const Context& vk);
+
+struct DescriptorSet
+{
+    VkDescriptorSet set;
+};
+
+struct DescriptorSetAllocDesc
+{
+    u32 variable_size_count = 0;
+};
+
+VkResult AllocateDescriptorSet(DescriptorSet* set, VkDescriptorPool pool, VkDescriptorSetLayout layout, const Context& vk, DescriptorSetAllocDesc desc);
 
 //- Descriptor writes
 struct BufferDescriptorWriteDesc {

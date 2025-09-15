@@ -2700,22 +2700,20 @@ DestroyImage(Image* image, const Context& vk)
     *image = {};
 }
 
-VkResult CreateDescriptorSet(DescriptorSet* set, const Context& vk, const DescriptorSetDesc&& desc)
+VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Context& vk, const DescriptorSetLayoutDesc&& desc)
 {
     VkResult vkr;
 
-    usize N = desc.entries.length;
+    usize N = desc.bindings.length;
     Array<VkDescriptorSetLayoutBinding> bindings(N);
     Array<VkDescriptorBindingFlags> flags(N);
-    Array<VkDescriptorPoolSize> descriptor_pool_sizes(N);
 
     for (uint32_t i = 0; i < N; i++) {
         bindings[i].binding = i;
-        bindings[i].descriptorType = desc.entries[i].type;
-        bindings[i].descriptorCount = desc.entries[i].count;
-        bindings[i].stageFlags = VK_SHADER_STAGE_ALL;
-        flags[i] = desc.flags;
-        descriptor_pool_sizes[i] = { desc.entries[i].type, desc.entries[i].count };
+        bindings[i].descriptorType = desc.bindings[i].type;
+        bindings[i].descriptorCount = desc.bindings[i].count;
+        bindings[i].stageFlags = desc.bindings[i].stage_flags;
+        flags[i] = desc.bindings[i].flags;
     }
 
     VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
@@ -2723,9 +2721,7 @@ VkResult CreateDescriptorSet(DescriptorSet* set, const Context& vk, const Descri
     binding_flags.pBindingFlags = flags.data;
 
     VkDescriptorSetLayoutCreateInfo create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-    if (desc.flags) {
-        create_info.pNext = &binding_flags;
-    }
+    create_info.pNext = &binding_flags;
     create_info.bindingCount = (uint32_t)bindings.length;
     create_info.pBindings = bindings.data;
     if (desc.flags & VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT) {
