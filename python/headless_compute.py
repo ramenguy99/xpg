@@ -1,5 +1,6 @@
 from pyxpg import *
 import PIL.Image
+from utils.descriptors import create_descriptor_layout_pool_and_set
 
 # Initialize without presentation for headless mode
 print("Initializing context...")
@@ -22,10 +23,10 @@ img = Image(ctx, W, H, format,
 buf = Buffer(ctx, W * H * 4, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
 
 # Descriptors
-set = DescriptorSet(
+layout, pool, set = create_descriptor_layout_pool_and_set(
     ctx,
     [
-        DescriptorSetEntry(1, DescriptorType.STORAGE_IMAGE),
+        (1, DescriptorType.STORAGE_IMAGE),
     ],
 )
 set.write_image(img, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0, 0)
@@ -62,7 +63,7 @@ void main(uint3 threadId : SV_DispatchThreadID)
 print("Compiling shaders...")
 comp = Shader(ctx, slang.compile_str(comp_source, filename="comp.slang").code)
 
-pipeline = ComputePipeline(ctx, comp, descriptor_sets=[ set ])
+pipeline = ComputePipeline(ctx, comp, descriptor_set_layouts=[ layout ])
 
 # Record commands
 print("Dispatching...")

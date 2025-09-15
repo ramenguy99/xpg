@@ -28,31 +28,68 @@ struct GfxObject: nanobind::intrusive_base {
     std::optional<nanobind::str> name;
 };
 
-struct DescriptorSetEntry: xpg::gfx::DescriptorSetEntryDesc {
-    DescriptorSetEntry(u32 count, VkDescriptorType type)
-        : xpg::gfx::DescriptorSetEntryDesc {
-            .count = count,
-            .type = type
-        }
-    {
-    };
-};
-static_assert(sizeof(DescriptorSetEntry) == sizeof(xpg::gfx::DescriptorSetEntryDesc));
-
 struct Buffer;
 struct Image;
 struct Sampler;
 struct AccelerationStructure;
 
+struct DescriptorSetBinding: nanobind::intrusive_base {
+    DescriptorSetBinding(u32 count, VkDescriptorType type, VkDescriptorBindingFlagBits flags, VkShaderStageFlagBits stage_flags, std::vector<nanobind::ref<Sampler>> immutable_samplers)
+        : count(count)
+        , type(type)
+        , flags((VkDescriptorBindingFlags)flags)
+        , stage_flags((VkShaderStageFlags)stage_flags)
+        , immutable_samplers(std::move(immutable_samplers))
+    { }
+
+    u32 count;
+    VkDescriptorType type;
+    VkDescriptorBindingFlags flags;
+    VkShaderStageFlags stage_flags;
+    std::vector<nanobind::ref<Sampler>> immutable_samplers;
+};
+
+struct DescriptorPoolSize: VkDescriptorPoolSize {
+    DescriptorPoolSize(u32 count, VkDescriptorType type)
+        : VkDescriptorPoolSize {
+            .type = type,
+            .descriptorCount = count,
+        }
+    {}
+};
+
+struct DescriptorSetLayout: GfxObject {
+    DescriptorSetLayout(nanobind::ref<Context> ctx, const std::vector<nanobind::ref<DescriptorSetBinding>>& bindings, VkDescriptorSetLayoutCreateFlagBits flags, std::optional<nanobind::str> name);
+    ~DescriptorSetLayout();
+    void destroy();
+
+    xpg::gfx::DescriptorSetLayout layout;
+};
+
+struct DescriptorSet;
+
+struct DescriptorPool: GfxObject {
+    DescriptorPool(nanobind::ref<Context> ctx, const std::vector<DescriptorPoolSize>& sizes, u32 max_sets, VkDescriptorPoolCreateFlagBits flags, std::optional<nanobind::str> name);
+    ~DescriptorPool();
+    void destroy();
+
+    nanobind::ref<DescriptorSet> allocate_descriptor_set(nanobind::ref<DescriptorSetLayout> layout, u32 variable_size_count, std::optional<nanobind::str> name);
+    void free_descriptor_set(nanobind::ref<DescriptorSet> set);
+    void reset();
+
+    xpg::gfx::DescriptorPool pool;
+};
+
 struct DescriptorSet: GfxObject {
-    DescriptorSet(nanobind::ref<Context> ctx, const std::vector<DescriptorSetEntry>& entries, VkDescriptorBindingFlagBits flags, std::optional<nanobind::str> name);
+    DescriptorSet(nanobind::ref<Context> ctx, nanobind::ref<DescriptorPool> pool, xpg::gfx::DescriptorSet set, std::optional<nanobind::str> name);
+
     void write_buffer(const Buffer& buffer, VkDescriptorType type, u32 binding, u32 element, VkDeviceSize offset, VkDeviceSize size);
     void write_image(const Image& image, VkImageLayout layout, VkDescriptorType type, u32 binding, u32 element);
     void write_combined_image_sampler(const Image& image, VkImageLayout layout, const Sampler& sampler, u32 binding, u32 element);
     void write_sampler(const Sampler& sampler, u32 binding, u32 element);
     void write_acceleration_structure(const AccelerationStructure& as, u32 binding, u32 element);
-    ~DescriptorSet();
-    void destroy();
+
+    nanobind::ref<DescriptorPool> pool;
     xpg::gfx::DescriptorSet set;
 };
 

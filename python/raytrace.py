@@ -8,9 +8,10 @@ from time import perf_counter
 
 from utils.pipelines import PipelineWatch, Pipeline, clear_cache
 from utils.reflection import to_dtype, DescriptorSetsReflection, to_descriptor_type
-from utils.render import PerFrameResource
 from utils.scene import parse_scene, MaterialParameter, MaterialParameterKind, ImageFormat
 from utils.buffers import UploadableBuffer
+from utils.ring_buffer import RingBuffer
+from utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 
 scene = parse_scene(Path("res", "bistro.bin"))
 
@@ -36,24 +37,31 @@ class RaytracePipeline(Pipeline):
         self.reflection = rt_prog.reflection
         self.desc_reflection =  DescriptorSetsReflection(self.reflection)
 
-        descs = []
+        bindings = []
+        pool_sizes = []
         for desc_info in self.desc_reflection.sets[0]:
-            if desc_info.name == "textures":
+            flags = DescriptorBindingFlags.NONE
+            if desc_info.count == 0:
+                flags |= DescriptorBindingFlags.VARIABLE_DESCRIPTOR_COUNT
                 count = len(scene.images)
             else:
                 count = desc_info.count
-            descs.append(DescriptorSetEntry(count, to_descriptor_type(desc_info.resource.binding_type)))
+            descriptor_type = to_descriptor_type(desc_info.resource.binding_type)
+            bindings.append(DescriptorSetBinding(count, descriptor_type, flags))
+            pool_sizes.append(DescriptorPoolSize(count, descriptor_type))
 
-        self.scene_descriptor_set = DescriptorSet(ctx, descs)
-        self.frame_descriptor_sets = PerFrameResource(DescriptorSet, window.num_frames, ctx,
-            [DescriptorSetEntry(d.count, to_descriptor_type(d.resource.binding_type)) for d in self.desc_reflection.sets[1]]
+        self.scene_descriptor_layout = DescriptorSetLayout(ctx, bindings)
+        self.scene_descriptor_pool = DescriptorPool(ctx, pool_sizes, 1)
+        self.scene_descriptor_set = self.scene_descriptor_pool.allocate_descriptor_set(self.scene_descriptor_layout, len(scene.images))
+        self.frame_descriptor_layout, self.frame_descriptor_pool, self.frame_descriptor_sets = create_descriptor_layout_pool_and_sets_ringbuffer(ctx,
+            [(d.count, to_descriptor_type(d.resource.binding_type)) for d in self.desc_reflection.sets[1]], window.num_frames
         )
+
         self.constants_dt = to_dtype(self.desc_reflection.descriptors["frame.constants"].resource.type)
 
         # Create a buffer to hold the constants with the required size.
-        self.u_bufs = PerFrameResource(UploadableBuffer, window.num_frames, ctx, self.constants_dt.itemsize, BufferUsageFlags.UNIFORM)
-        for set_1, u_buf in zip(self.frame_descriptor_sets.resources, self.u_bufs.resources):
-            set_1: DescriptorSet
+        self.u_bufs = RingBuffer([UploadableBuffer(ctx, self.constants_dt.itemsize, BufferUsageFlags.UNIFORM) for _ in range(window.num_frames)])
+        for set_1, u_buf in zip(self.frame_descriptor_sets, self.u_bufs):
             set_1.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
     def create(self, rt_prog: slang.Shader):
@@ -64,7 +72,7 @@ class RaytracePipeline(Pipeline):
         self.pipeline = ComputePipeline(
             ctx,
             shader=rt,
-            descriptor_sets = [ self.scene_descriptor_set, self.frame_descriptor_sets.get_current() ],
+            descriptor_set_layouts = [ self.scene_descriptor_layout, self.frame_descriptor_layout ],
         )
 
 rt = RaytracePipeline()

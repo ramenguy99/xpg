@@ -6,7 +6,7 @@
 using namespace xpg;
 
 ChunkCache::ChunkCache(const ZMipFile& zmip, usize cache_size, usize upload_buffers_count, usize num_workers, usize num_frames_in_flight,
-               const gfx::Context& vk, const gfx::DescriptorSet& descriptor_set)
+               const gfx::Context& vk, gfx::DescriptorSet descriptor_set)
                : zmip(zmip)
                , lru(cache_size)
                , upload_buffers(num_frames_in_flight)
@@ -41,7 +41,7 @@ void ChunkCache::destroy_resources(const gfx::Context& vk) {
     }
 }
 
-void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx::Context& vk, const gfx::DescriptorSet descriptor_set) {
+void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx::Context& vk, gfx::DescriptorSet descriptor_set) {
     // The cache does not shrink
     if (images.length < cache_size) {
         // Add missing images
@@ -59,7 +59,7 @@ void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx:
             });
 
             // Write descriptor
-            gfx::WriteImageDescriptor(descriptor_set.set, vk, {
+            gfx::WriteImageDescriptor(descriptor_set, vk, {
                 .view = images[i].view,
                 .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
@@ -130,7 +130,7 @@ void ChunkCache::worker_func(WorkerPool::WorkerInfo* worker_info, void* user_dat
     work.work_done_counter->signal();
 }
 
-void ChunkCache::request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32> output_descriptors, const gfx::Context& vk, const gfx::DescriptorSet& descriptor_set, VkCommandBuffer cmd, u32 frame_index) {
+void ChunkCache::request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32> output_descriptors, const gfx::Context& vk, gfx::DescriptorSet descriptor_set, VkCommandBuffer cmd, u32 frame_index) {
     // Debug check that the same chunk is not requested twice
     for (usize i = 0; i < chunk_ids.length; i++) {
         for (usize j = i + 1; j < chunk_ids.length; j++) {
@@ -282,7 +282,7 @@ void ChunkCache::request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32
     // logging::info("bigimage/cache/batch", "Chunks: %4llu / %4llu | Load: %12.6f | Commands: %12.6f",  uploaded_chunks, chunk_ids.length, platform::GetElapsed(begin, mid) * 1000.0, platform::GetElapsed(end, end) * 1000.0);
 }
 
-u32 ChunkCache::request_chunk_sync(ChunkId c, const gfx::Context& vk, const gfx::DescriptorSet& descriptor_set) {
+u32 ChunkCache::request_chunk_sync(ChunkId c, const gfx::Context& vk, gfx::DescriptorSet descriptor_set) {
     usize chunk_index = GetChunkIndex(zmip, c);
 
     // Lookup state in cache

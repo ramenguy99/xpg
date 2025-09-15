@@ -6,6 +6,7 @@ from pathlib import Path
 from utils.buffers import UploadableBuffer
 from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype, DescriptorSetsReflection
+from utils.descriptors import create_descriptor_layout_pool_and_set
 
 ctx = Context(
     required_features=
@@ -35,10 +36,10 @@ color_value = np.array([ 1.0, 0.0, 0.0], np.float32)
 v_buf = Buffer.from_data(ctx, V, BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 i_buf = Buffer.from_data(ctx, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 
-set = DescriptorSet(
+layout, pool, set = create_descriptor_layout_pool_and_set(
     ctx,
     [
-        DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
+        (1, DescriptorType.UNIFORM_BUFFER),
     ],
 )
 
@@ -92,7 +93,7 @@ class ColorPipeline(Pipeline):
                 VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
             ],
             input_assembly = InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
-            descriptor_sets = [ set ],
+            descriptor_set_layouts = [ layout ],
             attachments = [
                 Attachment(format=window.swapchain_format)
             ]

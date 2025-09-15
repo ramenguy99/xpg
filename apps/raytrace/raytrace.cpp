@@ -363,9 +363,17 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
+    size_t max_images = 65535;
+    if (images.length > max_images) {
+        logging::error("raytrace", "Number of images in scene (%zu) exceeds max amount (%zu)", images.length, max_images);
+        exit(100);
+    }
+
+    gfx::DescriptorSetLayout scene_descriptor_set_layout;
+    gfx::DescriptorPool scene_descriptor_pool;
     gfx::DescriptorSet scene_descriptor_set;
-    vkr = gfx::CreateDescriptorSet(&scene_descriptor_set, vk, {
-        .entries = {
+    vkr = gfx::CreateDescriptorSetLayout(&scene_descriptor_set_layout, vk, {
+        .bindings = {
             {
                 .count = 1,
                 .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -395,47 +403,103 @@ int main(int argc, char** argv) {
                 .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
             },
             {
-                .count = (u32)images.length,
+                .count = (u32)max_images,
                 .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                .flags = VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT,
             },
         }
     });
     if (vkr != VK_SUCCESS) {
-        logging::error("raytrace", "Failed to create scene descriptor set");
+        logging::error("raytrace", "Failed to create scene descriptor set layout");
         exit(100);
     }
 
-    gfx::WriteBufferDescriptor(scene_descriptor_set.set, vk, {
+    vkr = gfx::CreateDescriptorPool(&scene_descriptor_pool, vk, {
+        .sizes = {
+            {
+                .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+            },
+            {
+                .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+            },
+            {
+                .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+            },
+            {
+                .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+            },
+            {
+                .type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
+                .descriptorCount = 1,
+            },
+            {
+                .type = VK_DESCRIPTOR_TYPE_SAMPLER,
+                .descriptorCount = 1,
+            },
+            {
+                .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                .descriptorCount = 1,
+            },
+            {
+                .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                .descriptorCount = (u32)images.length,
+            },
+        },
+        .max_sets = 1,
+    });
+    if (vkr != VK_SUCCESS) {
+        logging::error("raytrace", "Failed to create scene descriptor pool");
+        exit(100);
+    }
+
+    vkr = gfx::AllocateDescriptorSet(&scene_descriptor_set, vk, {
+        .pool = scene_descriptor_pool,
+        .layout = scene_descriptor_set_layout,
+        .variable_size_count = (u32)images.length,
+    });
+
+    if (vkr != VK_SUCCESS) {
+        logging::error("raytrace", "Failed to allocate scene descriptor set in pool");
+        exit(100);
+    }
+
+
+
+    gfx::WriteBufferDescriptor(scene_descriptor_set, vk, {
         .buffer = normals_buffer.buffer,
         .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .binding = 0,
     });
-    gfx::WriteBufferDescriptor(scene_descriptor_set.set, vk, {
+    gfx::WriteBufferDescriptor(scene_descriptor_set, vk, {
         .buffer = uvs_buffer.buffer,
         .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .binding = 1,
     });
-    gfx::WriteBufferDescriptor(scene_descriptor_set.set, vk, {
+    gfx::WriteBufferDescriptor(scene_descriptor_set, vk, {
         .buffer = index_buffer.buffer,
         .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .binding = 2,
     });
-    gfx::WriteBufferDescriptor(scene_descriptor_set.set, vk, {
+    gfx::WriteBufferDescriptor(scene_descriptor_set, vk, {
         .buffer = instances_buffer.buffer,
         .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .binding = 3,
     });
-    gfx::WriteAccelerationStructureDescriptor(scene_descriptor_set.set, vk, {
+    gfx::WriteAccelerationStructureDescriptor(scene_descriptor_set, vk, {
         .acceleration_structure = as.tlas,
         .binding = 4,
     });
-    gfx::WriteSamplerDescriptor(scene_descriptor_set.set, vk, {
+    gfx::WriteSamplerDescriptor(scene_descriptor_set, vk, {
         .sampler = sampler.sampler,
         .binding = 5,
     });
 
     for(usize i = 0; i < images.length; i++) {
-        gfx::WriteImageDescriptor(scene_descriptor_set.set, vk, {
+        gfx::WriteImageDescriptor(scene_descriptor_set, vk, {
             .view = images[i].view,
             .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
@@ -458,7 +522,7 @@ int main(int argc, char** argv) {
     };
 
     Array<gfx::Buffer> constant_buffers(window.frames.length);
-    Array<gfx::DescriptorSet> descriptor_sets(window.frames.length);
+    Array<gfx::DescriptorPoolLayoutAndSet> descriptor_sets(window.frames.length);
     for(usize i = 0; i < descriptor_sets.length; i++) {
         vkr = gfx::CreateBuffer(&constant_buffers[i], vk, sizeof(Constants), {
             .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -469,8 +533,8 @@ int main(int argc, char** argv) {
             exit(100);
         }
 
-        vkr = gfx::CreateDescriptorSet(&descriptor_sets[i], vk, {
-            .entries = {
+        vkr = gfx::CreateDescriptorPoolLayoutAndSet(&descriptor_sets[i], vk, {
+            .bindings = {
                 {
                     .count = 1,
                     .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -501,7 +565,7 @@ int main(int argc, char** argv) {
     gfx::ComputePipeline compute_pipeline;
     vkr = gfx::CreateComputePipeline(&compute_pipeline, vk, {
         .shader = shader,
-        .descriptor_sets = { scene_descriptor_set.layout, descriptor_sets[0].layout },
+        .descriptor_sets = { scene_descriptor_set_layout.layout, descriptor_sets[0].layout.layout },
     });
     if (vkr != VK_SUCCESS) {
         logging::error("raytrace", "Failed to create compute pipeline");
@@ -528,7 +592,7 @@ int main(int argc, char** argv) {
         Array<gfx::Image> images;
         gfx::Image output_image;
         Array<gfx::Buffer> constant_buffers;
-        Array<gfx::DescriptorSet> descriptor_sets;
+        Array<gfx::DescriptorPoolLayoutAndSet> descriptor_sets;
         gfx::DescriptorSet scene_descriptor_set;
         gfx::ComputePipeline compute_pipeline;
         u32 frame_index = 0; // Rendering frame index, wraps around at the number of frames in flight
@@ -602,7 +666,7 @@ int main(int argc, char** argv) {
                 logging::error("raytrace", "Failed to create output image");
                 exit(100);
             }
-            gfx::WriteImageDescriptor(app.scene_descriptor_set.set, vk, {
+            gfx::WriteImageDescriptor(app.scene_descriptor_set, vk, {
                 .view = app.output_image.view,
                 .layout = VK_IMAGE_LAYOUT_GENERAL,
                 .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -680,7 +744,7 @@ int main(int argc, char** argv) {
             vkCmdBindPipeline(frame.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, app.compute_pipeline.pipeline);
             VkDescriptorSet sets[] = {
                 app.scene_descriptor_set.set,
-                app.descriptor_sets[app.frame_index].set,
+                app.descriptor_sets[app.frame_index].set.set,
             };
             vkCmdBindDescriptorSets(frame.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, app.compute_pipeline.layout, 0, ArrayCount(sets), sets, 0, 0);
             vkCmdDispatch(frame.command_buffer, DivCeil(window.fb_width, 8), DivCeil(window.fb_height, 8), 1);
@@ -806,9 +870,10 @@ int main(int argc, char** argv) {
     gfx::DestroyImage(&app.output_image, vk);
     for(usize i = 0; i < app.descriptor_sets.length; i++) {
         gfx::DestroyBuffer(&app.constant_buffers[i], vk);
-        gfx::DestroyDescriptorSet(&app.descriptor_sets[i], vk);
+        gfx::DestroyDescriptorPoolLayoutAndSet(&app.descriptor_sets[i], vk);
     }
-    gfx::DestroyDescriptorSet(&app.scene_descriptor_set, vk);
+    gfx::DestroyDescriptorSetLayout(&scene_descriptor_set_layout, vk);
+    gfx::DestroyDescriptorPool(&scene_descriptor_pool, vk);
 
     // Gui
     gui::DestroyImGuiImpl(&app.gui, vk);

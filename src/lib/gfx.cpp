@@ -539,7 +539,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     // descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
     // descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
     descriptor_indexing_features.descriptorBindingPartiallyBound = VK_TRUE;
-    // descriptor_indexing_features.descriptorBindingVariableDescriptorCount = VK_TRUE;
+    descriptor_indexing_features.descriptorBindingVariableDescriptorCount = VK_TRUE;
     descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
     CHAIN(descriptor_indexing_features, DeviceFeatures::DESCRIPTOR_INDEXING);
 
@@ -1220,6 +1220,28 @@ void WaitIdle(Context& vk) {
     vkDeviceWaitIdle(vk.device);
 }
 
+static VkResult
+GetSwapchainSize(const Window& w, const Context& vk, u32* out_width, u32* out_height) {
+    VkSurfaceCapabilitiesKHR surface_capabilities;
+    VkResult vkr = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk.physical_device, w.surface, &surface_capabilities);
+    if (vkr != VK_SUCCESS) {
+        logging::error("gfx/window", "vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed: %d", vkr);
+        return vkr;
+    }
+
+    if (surface_capabilities.currentExtent.width == 0xFFFFFFFF || surface_capabilities.currentExtent.height == 0xFFFFFFFF ) {
+        int fb_width = 0, fb_height = 0;
+        glfwGetFramebufferSize(w.window, &fb_width, &fb_height);
+        *out_width = (u32)fb_width;
+        *out_height = (u32)fb_height;
+    } else {
+        *out_width = surface_capabilities.currentExtent.width;
+        *out_height = surface_capabilities.currentExtent.height;
+    }
+
+    return VK_SUCCESS;
+}
+
 Result
 CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize swapchain_frames, VkPresentModeKHR present_mode, VkImageUsageFlags usage_flags, VkSwapchainKHR old_swapchain)
 {
@@ -1319,8 +1341,11 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
 
 SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
 {
-	int new_width = 0, new_height = 0;
-	glfwGetFramebufferSize(w->window, &new_width, &new_height);
+    u32 new_width = 0, new_height = 0;
+    VkResult vkr = GetSwapchainSize(*w, vk, &new_width, &new_height);
+    if (vkr != VK_SUCCESS) {
+        return SwapchainStatus::FAILED;
+    }
 
     if (new_width == 0 || new_height == 0)
         return SwapchainStatus::MINIMIZED;
@@ -1631,8 +1656,16 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     logging::info("gfx/window", "Swapchain picked format: %s", string_VkFormat(format));
 
     // Retrieve framebuffer size.
-	int fb_width = 0, fb_height = 0;
-	glfwGetFramebufferSize(window, &fb_width, &fb_height);
+	u32 fb_width = 0, fb_height = 0;
+    if (surface_capabilities.currentExtent.width == 0xFFFFFFFF || surface_capabilities.currentExtent.height == 0xFFFFFFFF ) {
+        int glfw_fb_width = 0, glfw_fb_height = 0;
+        glfwGetFramebufferSize(w->window, &glfw_fb_width, &glfw_fb_height);
+        fb_width = (u32)glfw_fb_width;
+        fb_height = (u32)glfw_fb_height;
+    } else {
+        fb_width = surface_capabilities.currentExtent.width;
+        fb_height = surface_capabilities.currentExtent.height;
+    }
 
     logging::info("gfx/window", "Surface extents: [%ux%u]", fb_width, fb_height);
 
@@ -2700,6 +2733,7 @@ DestroyImage(Image* image, const Context& vk)
     *image = {};
 }
 
+//- Descriptors
 VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Context& vk, const DescriptorSetLayoutDesc&& desc)
 {
     VkResult vkr;
@@ -2708,12 +2742,17 @@ VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Context& v
     Array<VkDescriptorSetLayoutBinding> bindings(N);
     Array<VkDescriptorBindingFlags> flags(N);
 
+    bool any_flags = false;
     for (uint32_t i = 0; i < N; i++) {
         bindings[i].binding = i;
         bindings[i].descriptorType = desc.bindings[i].type;
         bindings[i].descriptorCount = desc.bindings[i].count;
         bindings[i].stageFlags = desc.bindings[i].stage_flags;
+        bindings[i].pImmutableSamplers = desc.bindings[i].immutable_samplers.data;
         flags[i] = desc.bindings[i].flags;
+        if (desc.bindings[i].flags != 0) {
+            any_flags = true;
+        }
     }
 
     VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
@@ -2721,12 +2760,12 @@ VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Context& v
     binding_flags.pBindingFlags = flags.data;
 
     VkDescriptorSetLayoutCreateInfo create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-    create_info.pNext = &binding_flags;
+    if (any_flags) {
+        create_info.pNext = &binding_flags;
+    }
     create_info.bindingCount = (uint32_t)bindings.length;
     create_info.pBindings = bindings.data;
-    if (desc.flags & VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT) {
-        create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-    }
+    create_info.flags = desc.flags;
 
     // Create layout
     VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
@@ -2735,14 +2774,115 @@ VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Context& v
         return vkr;
     }
 
+    layout->layout = descriptor_layout;
+    return VK_SUCCESS;
+}
+
+VkResult
+ResetDescriptorPool(DescriptorPool pool, const Context& vk) {
+    return vkResetDescriptorPool(vk.device, pool.pool, 0);
+}
+
+void
+DestroyDescriptorSetLayout(DescriptorSetLayout* set, const Context& vk) {
+    vkDestroyDescriptorSetLayout(vk.device, set->layout, 0);
+    *set = {};
+}
+
+VkResult CreateDescriptorPool(DescriptorPool* pool, const Context& vk, const DescriptorPoolDesc&& desc) {
+    VkDescriptorPoolCreateInfo descriptor_pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    descriptor_pool_info.flags = desc.flags;
+    descriptor_pool_info.maxSets = desc.max_sets;
+    descriptor_pool_info.pPoolSizes = desc.sizes.data;
+    descriptor_pool_info.poolSizeCount = (uint32_t)desc.sizes.length;
+
+    VkDescriptorPool descriptor_pool = 0;
+    VkResult vkr = vkCreateDescriptorPool(vk.device, &descriptor_pool_info, 0, &descriptor_pool);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    pool->pool = descriptor_pool;
+    return VK_SUCCESS;
+}
+
+void
+DestroyDescriptorPool(DescriptorPool* pool, const Context& vk) {
+    vkDestroyDescriptorPool(vk.device, pool->pool, 0);
+    *pool = {};
+}
+
+VkResult AllocateDescriptorSet(DescriptorSet* set, const Context& vk, const DescriptorSetAllocDesc&& desc) {
+    VkDescriptorSetAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    allocate_info.descriptorPool = desc.pool.pool;
+    allocate_info.pSetLayouts = &desc.layout.layout;
+    allocate_info.descriptorSetCount = 1;
+
+    VkDescriptorSetVariableDescriptorCountAllocateInfo variable_count_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO };
+    variable_count_info.descriptorSetCount = 1;
+    variable_count_info.pDescriptorCounts = &desc.variable_size_count;
+
+    if (desc.variable_size_count) {
+        allocate_info.pNext = &variable_count_info;
+    }
+
+    VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
+    VkResult vkr = vkAllocateDescriptorSets(vk.device, &allocate_info, &descriptor_set);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    set->set = descriptor_set;
+    return VK_SUCCESS;
+}
+
+VkResult FreeDescriptorSet(DescriptorPool pool, DescriptorSet set, const Context& vk) {
+    return vkFreeDescriptorSets(vk.device, pool.pool, 1, &set.set);
+}
+
+VkResult CreateDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layout_set, const Context& vk, const DescriptorPoolLayoutAndSetDesc&& desc) {
+    VkResult vkr;
+
+    usize N = desc.bindings.length;
+    Array<VkDescriptorSetLayoutBinding> bindings(N);
+    Array<VkDescriptorBindingFlags> flags(N);
+    Array<VkDescriptorPoolSize> sizes(N);
+
+    for (uint32_t i = 0; i < N; i++) {
+        bindings[i].binding = i;
+        bindings[i].descriptorType = desc.bindings[i].type;
+        bindings[i].descriptorCount = desc.bindings[i].count;
+        bindings[i].stageFlags = desc.bindings[i].stage_flags;
+
+        flags[i] = desc.bindings[i].flags;
+
+        sizes[i].descriptorCount = desc.bindings[i].count;
+        sizes[i].type = desc.bindings[i].type;
+    }
+
+    // Create layout
+    VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+    binding_flags.bindingCount = (uint32_t)bindings.length;
+    binding_flags.pBindingFlags = flags.data;
+
+    VkDescriptorSetLayoutCreateInfo create_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+    create_info.pNext = &binding_flags;
+    create_info.bindingCount = (uint32_t)bindings.length;
+    create_info.pBindings = bindings.data;
+    create_info.flags = desc.layout_flags;
+
+    VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
+    vkr = vkCreateDescriptorSetLayout(vk.device, &create_info, 0, &descriptor_layout);
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
     // Create pool
     VkDescriptorPoolCreateInfo descriptor_pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-    if (desc.flags & VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT) {
-        descriptor_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-    }
+    descriptor_pool_info.flags = desc.pool_flags;
     descriptor_pool_info.maxSets = 1;
-    descriptor_pool_info.pPoolSizes = descriptor_pool_sizes.data;
-    descriptor_pool_info.poolSizeCount = (uint32_t)descriptor_pool_sizes.length;
+    descriptor_pool_info.pPoolSizes = sizes.data;
+    descriptor_pool_info.poolSizeCount = (uint32_t)sizes.length;
 
     VkDescriptorPool descriptor_pool = 0;
     vkr = vkCreateDescriptorPool(vk.device, &descriptor_pool_info, 0, &descriptor_pool);
@@ -2750,7 +2890,6 @@ VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Context& v
         return vkr;
     }
 
-    // Create descriptor set
     VkDescriptorSetAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
     allocate_info.descriptorPool = descriptor_pool;
     allocate_info.pSetLayouts = &descriptor_layout;
@@ -2762,19 +2901,16 @@ VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Context& v
         return vkr;
     }
 
-    set->set = descriptor_set;
-    set->layout = descriptor_layout;
-    set->pool = descriptor_pool;
-
+    pool_layout_set->pool.pool = descriptor_pool;
+    pool_layout_set->layout.layout = descriptor_layout;
+    pool_layout_set->set.set = descriptor_set;
     return VK_SUCCESS;
 }
 
-void
-DestroyDescriptorSet(DescriptorSet* set, const Context& vk)
-{
-    vkDestroyDescriptorPool(vk.device, set->pool, 0);
-    vkDestroyDescriptorSetLayout(vk.device, set->layout, 0);
-    *set = {};
+void DestroyDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layout_set, const Context& vk) {
+    vkDestroyDescriptorSetLayout(vk.device, pool_layout_set->layout.layout, 0);
+    vkDestroyDescriptorPool(vk.device, pool_layout_set->pool.pool, 0);
+    *pool_layout_set = {};
 }
 
 VkResult
@@ -2813,7 +2949,7 @@ DestroySampler(Sampler* sampler, const Context& vk) {
 }
 
 void
-WriteBufferDescriptor(VkDescriptorSet set, const Context& vk, const BufferDescriptorWriteDesc&& write)
+WriteBufferDescriptor(DescriptorSet set, const Context& vk, const BufferDescriptorWriteDesc&& write)
 {
     assert(
         write.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ||
@@ -2829,7 +2965,7 @@ WriteBufferDescriptor(VkDescriptorSet set, const Context& vk, const BufferDescri
     desc_info.range = write.size;
 
     VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    write_descriptor_set.dstSet = set;
+    write_descriptor_set.dstSet = set.set;
     write_descriptor_set.dstArrayElement = write.element;
     write_descriptor_set.descriptorCount = 1;
     write_descriptor_set.pBufferInfo = &desc_info;
@@ -2841,7 +2977,7 @@ WriteBufferDescriptor(VkDescriptorSet set, const Context& vk, const BufferDescri
 }
 
 void
-WriteImageDescriptor(VkDescriptorSet set, const Context& vk, const ImageDescriptorWriteDesc&& write)
+WriteImageDescriptor(DescriptorSet set, const Context& vk, const ImageDescriptorWriteDesc&& write)
 {
     assert(write.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || write.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
 
@@ -2851,7 +2987,7 @@ WriteImageDescriptor(VkDescriptorSet set, const Context& vk, const ImageDescript
     desc_info.imageLayout = write.layout;
 
     VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    write_descriptor_set.dstSet = set;
+    write_descriptor_set.dstSet = set.set;
     write_descriptor_set.dstArrayElement = write.element;
     write_descriptor_set.descriptorCount = 1;
     write_descriptor_set.pImageInfo = &desc_info;
@@ -2863,14 +2999,14 @@ WriteImageDescriptor(VkDescriptorSet set, const Context& vk, const ImageDescript
 }
 
 void
-WriteSamplerDescriptor(VkDescriptorSet set, const Context& vk, const SamplerDescriptorWriteDesc&& write)
+WriteSamplerDescriptor(DescriptorSet set, const Context& vk, const SamplerDescriptorWriteDesc&& write)
 {
     // Prepare descriptor and handle
     VkDescriptorImageInfo desc_info = {};
     desc_info.sampler = write.sampler;
 
     VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    write_descriptor_set.dstSet = set;
+    write_descriptor_set.dstSet = set.set;
     write_descriptor_set.dstArrayElement = write.element;
     write_descriptor_set.descriptorCount = 1;
     write_descriptor_set.pImageInfo = &desc_info;
@@ -2882,7 +3018,7 @@ WriteSamplerDescriptor(VkDescriptorSet set, const Context& vk, const SamplerDesc
 }
 
 void
-WriteCombinedImageSamplerDescriptor(VkDescriptorSet set, const Context& vk, const CombinedImageSamplerDescriptorWriteDesc&& write)
+WriteCombinedImageSamplerDescriptor(DescriptorSet set, const Context& vk, const CombinedImageSamplerDescriptorWriteDesc&& write)
 {
     // Prepare descriptor and handle
     VkDescriptorImageInfo desc_info = {};
@@ -2891,7 +3027,7 @@ WriteCombinedImageSamplerDescriptor(VkDescriptorSet set, const Context& vk, cons
     desc_info.imageLayout = write.layout;
 
     VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    write_descriptor_set.dstSet = set;
+    write_descriptor_set.dstSet = set.set;
     write_descriptor_set.dstArrayElement = write.element;
     write_descriptor_set.descriptorCount = 1;
     write_descriptor_set.pImageInfo = &desc_info;
@@ -2903,7 +3039,7 @@ WriteCombinedImageSamplerDescriptor(VkDescriptorSet set, const Context& vk, cons
 }
 
 void
-WriteAccelerationStructureDescriptor(VkDescriptorSet set, const Context& vk, const AccelerationStructureDescriptorWriteDesc&& write)
+WriteAccelerationStructureDescriptor(DescriptorSet set, const Context& vk, const AccelerationStructureDescriptorWriteDesc&& write)
 {
     // Prepare descriptor and handle
     VkWriteDescriptorSetAccelerationStructureKHR  write_as = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
@@ -2912,7 +3048,7 @@ WriteAccelerationStructureDescriptor(VkDescriptorSet set, const Context& vk, con
 
     VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
     write_descriptor_set.pNext = &write_as;
-    write_descriptor_set.dstSet = set;
+    write_descriptor_set.dstSet = set.set;
     write_descriptor_set.dstArrayElement = write.element;
     write_descriptor_set.descriptorCount = 1;
     write_descriptor_set.dstBinding = write.binding;

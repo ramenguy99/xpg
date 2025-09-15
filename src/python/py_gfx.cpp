@@ -2253,25 +2253,107 @@ struct AccelerationStructure: GfxObject {
     gfx::AccelerationStructure as;
 };
 
-
-
-DescriptorSet::DescriptorSet(nb::ref<Context> ctx, const std::vector<DescriptorSetEntry>& entries, VkDescriptorBindingFlagBits flags, std::optional<nb::str> name)
+DescriptorSetLayout::DescriptorSetLayout(nanobind::ref<Context> ctx, const std::vector<nb::ref<DescriptorSetBinding>>& bindings, VkDescriptorSetLayoutCreateFlagBits flags, std::optional<nanobind::str> name)
     : GfxObject(ctx, true, std::move(name))
 {
-    VkResult vkr = gfx::CreateDescriptorSet(&set, ctx->vk, {
-        .entries = ArrayView((gfx::DescriptorSetEntryDesc*)entries.data(), entries.size()),
-        .flags = (VkDescriptorBindingFlags)flags,
-    });
-    if (vkr != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create descriptor set");
+    Array<gfx::DescriptorSetBindingDesc> bindings_array(bindings.size());
+
+    ObjArray<Array<VkSampler>> immutable_samplers;
+    for (usize i = 0; i < bindings.size(); i++) {
+        const DescriptorSetBinding& binding = *bindings[i];
+
+        if (binding.immutable_samplers.size() > 0) {
+            Array<VkSampler> samplers(binding.immutable_samplers.size());
+            for (usize j = 0; j < binding.immutable_samplers.size(); i++) {
+                samplers[j] = binding.immutable_samplers[j]->sampler.sampler;
+            }
+            immutable_samplers.add(std::move(samplers));
+        }
+
+        bindings_array[i] = {
+            .count = binding.count,
+            .type = binding.type,
+            .stage_flags = binding.stage_flags,
+            .immutable_samplers = binding.immutable_samplers.size() > 0 ? ArrayView(immutable_samplers[immutable_samplers.length - 1]) : ArrayView<VkSampler>(),
+            .flags = binding.flags,
+        };
     }
-    DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_SET, set.set);
-    DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_POOL, set.pool);
-    DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, set.layout);
+    VkResult vkr = gfx::CreateDescriptorSetLayout(&layout, ctx->vk, {
+        .bindings = ArrayView(bindings_array),
+        .flags = (VkDescriptorSetLayoutCreateFlags)flags,
+    });
+
+    if (vkr != VK_SUCCESS) {
+        nanobind::raise("Failed to create descriptor set layout %d", vkr);
+    }
+
+    DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, layout.layout);
+}
+
+DescriptorSetLayout::~DescriptorSetLayout() {
+    destroy();
+}
+
+void DescriptorSetLayout::destroy() {
+    if(owned) {
+        gfx::DestroyDescriptorSetLayout(&layout, ctx->vk);
+    }
+}
+
+DescriptorPool::DescriptorPool(nanobind::ref<Context> ctx, const std::vector<DescriptorPoolSize>& sizes, u32 max_sets, VkDescriptorPoolCreateFlagBits flags, std::optional<nanobind::str> name)
+    : GfxObject(ctx, true, std::move(name))
+{
+    VkResult vkr = gfx::CreateDescriptorPool(&pool, ctx->vk, {
+        .sizes = ArrayView((VkDescriptorPoolSize*)sizes.data(), sizes.size()),
+        .max_sets = max_sets,
+        .flags = (VkDescriptorPoolCreateFlags)flags,
+    });
+
+    if (vkr != VK_SUCCESS) {
+        nanobind::raise("Failed to create descriptor set layout %d", vkr);
+    }
+
+    DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_POOL, pool.pool);
+}
+
+DescriptorPool::~DescriptorPool() {
+    destroy();
+}
+
+void DescriptorPool::destroy() {
+    if(owned) {
+        gfx::DestroyDescriptorPool(&pool, ctx->vk);
+    }
+}
+
+nb::ref<DescriptorSet> DescriptorPool::allocate_descriptor_set(nb::ref<DescriptorSetLayout> layout, u32 variable_size_count, std::optional<nb::str> name) {
+    gfx::DescriptorSet set = {};
+    VkResult vkr = gfx::AllocateDescriptorSet(&set, ctx->vk, {
+        .pool = pool,
+        .layout = layout->layout,
+        .variable_size_count = variable_size_count,
+    });
+    return new DescriptorSet(ctx, this, set, std::move(name));
+}
+
+void DescriptorPool::free_descriptor_set(nb::ref<DescriptorSet> set) {
+    gfx::FreeDescriptorSet(pool, set->set, ctx->vk);
+}
+
+void DescriptorPool::reset() {
+    gfx::ResetDescriptorPool(pool, ctx->vk);
+}
+
+DescriptorSet::DescriptorSet(nanobind::ref<Context> ctx, nb::ref<DescriptorPool> pool, gfx::DescriptorSet set, std::optional<nanobind::str> name)
+    : GfxObject(ctx, false, std::move(name))
+    , set(set)
+    , pool(pool)
+{
+    DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_SET, this->set.set);
 }
 
 void DescriptorSet::write_buffer(const Buffer& buffer, VkDescriptorType type, u32 binding, u32 element, VkDeviceSize offset, VkDeviceSize size) {
-    gfx::WriteBufferDescriptor(set.set, ctx->vk, {
+    gfx::WriteBufferDescriptor(set, ctx->vk, {
         .buffer = buffer.buffer.buffer,
         .type = type,
         .binding = binding,
@@ -2282,7 +2364,7 @@ void DescriptorSet::write_buffer(const Buffer& buffer, VkDescriptorType type, u3
 };
 
 void DescriptorSet::write_image(const Image& image, VkImageLayout layout, VkDescriptorType type, u32 binding, u32 element) {
-    gfx::WriteImageDescriptor(set.set, ctx->vk, {
+    gfx::WriteImageDescriptor(set, ctx->vk, {
         .view = image.image.view,
         .layout = layout,
         .type = type,
@@ -2292,7 +2374,7 @@ void DescriptorSet::write_image(const Image& image, VkImageLayout layout, VkDesc
 };
 
 void DescriptorSet::write_combined_image_sampler(const Image& image, VkImageLayout layout, const Sampler& sampler, u32 binding, u32 element) {
-    gfx::WriteCombinedImageSamplerDescriptor(set.set, ctx->vk, {
+    gfx::WriteCombinedImageSamplerDescriptor(set, ctx->vk, {
         .view = image.image.view,
         .layout = layout,
         .sampler = sampler.sampler.sampler,
@@ -2302,7 +2384,7 @@ void DescriptorSet::write_combined_image_sampler(const Image& image, VkImageLayo
 }
 
 void DescriptorSet::write_sampler(const Sampler& sampler, u32 binding, u32 element) {
-    gfx::WriteSamplerDescriptor(set.set, ctx->vk, {
+    gfx::WriteSamplerDescriptor(set, ctx->vk, {
         .sampler = sampler.sampler.sampler,
         .binding = binding,
         .element = element,
@@ -2310,26 +2392,12 @@ void DescriptorSet::write_sampler(const Sampler& sampler, u32 binding, u32 eleme
 }
 
 void DescriptorSet::write_acceleration_structure(const AccelerationStructure& as, u32 binding, u32 element) {
-    gfx::WriteAccelerationStructureDescriptor(set.set, ctx->vk, {
+    gfx::WriteAccelerationStructureDescriptor(set, ctx->vk, {
         .acceleration_structure = as.as.tlas,
         .binding = binding,
         .element = element,
     });
 }
-
-DescriptorSet::~DescriptorSet()
-{
-    destroy();
-}
-
-void DescriptorSet::destroy()
-{
-    if (owned) {
-        gfx::DestroyDescriptorSet(&set, ctx->vk);
-    }
-}
-
-
 
 struct Shader: GfxObject {
     Shader(nb::ref<Context> ctx, const nb::bytes& code, std::optional<nb::str> name)
@@ -2483,16 +2551,16 @@ struct ComputePipeline: GfxObject {
         nb::ref<Shader> shader,
         nb::str entry,
         const std::vector<PushConstantsRange>& push_constant_ranges,
-        const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+        const std::vector<nb::ref<DescriptorSetLayout>>& descriptor_set_layouts,
         std::optional<nb::str> name
         )
         : GfxObject(ctx, true, std::move(name))
     {
-        check_vector_of_ref_for_null(descriptor_sets, "elements of \"descriptor_sets\" must not be None");
+        check_vector_of_ref_for_null(descriptor_set_layouts, "elements of \"descriptor_set_layouts\" must not be None");
 
-        Array<VkDescriptorSetLayout> d(descriptor_sets.size());
+        Array<VkDescriptorSetLayout> d(descriptor_set_layouts.size());
         for(usize i = 0; i < d.length; i++) {
-            d[i] = descriptor_sets[i]->set.layout;
+            d[i] = descriptor_set_layouts[i]->layout.layout;
         }
 
         VkResult vkr = gfx::CreateComputePipeline(&pipeline, ctx->vk, {
@@ -2530,7 +2598,7 @@ struct GraphicsPipeline: GfxObject {
         InputAssembly input_assembly,
         Rasterization rasterization,
         const std::vector<PushConstantsRange>& push_constant_ranges,
-        const std::vector<nb::ref<DescriptorSet>>& descriptor_sets,
+        const std::vector<nb::ref<DescriptorSetLayout>>& descriptor_set_layouts,
         u32 samples,
         const std::vector<Attachment>& attachments,
         Depth depth,
@@ -2539,7 +2607,7 @@ struct GraphicsPipeline: GfxObject {
         : GfxObject(ctx, true, std::move(name))
     {
         check_vector_of_ref_for_null(stages, "elements of \"stages\" must not be None");
-        check_vector_of_ref_for_null(descriptor_sets, "elements of \"descriptor_sets\" must not be None");
+        check_vector_of_ref_for_null(descriptor_set_layouts, "elements of \"descriptor_set_layouts\" must not be None");
 
         Array<gfx::PipelineStageDesc> s(stages.size());
         for(usize i = 0; i < s.length; i++) {
@@ -2548,9 +2616,9 @@ struct GraphicsPipeline: GfxObject {
             s[i].entry = stages[i]->entry.c_str();
         }
 
-        Array<VkDescriptorSetLayout> d(descriptor_sets.size());
+        Array<VkDescriptorSetLayout> d(descriptor_set_layouts.size());
         for(usize i = 0; i < d.length; i++) {
-            d[i] = descriptor_sets[i]->set.layout;
+            d[i] = descriptor_set_layouts[i]->layout.layout;
         }
 
         VkResult vkr = gfx::CreateGraphicsPipeline(&pipeline, ctx->vk, {
@@ -4013,8 +4081,8 @@ void gfx_create_bindings(nb::module_& m)
         .value("MISS",                    VK_SHADER_STAGE_MISS_BIT_KHR)
         .value("INTERSECTION",            VK_SHADER_STAGE_INTERSECTION_BIT_KHR)
         .value("CALLABLE",                VK_SHADER_STAGE_CALLABLE_BIT_KHR)
-        .value("TASK_EXT",                VK_SHADER_STAGE_TASK_BIT_EXT)
-        .value("MESH_EXT",                VK_SHADER_STAGE_MESH_BIT_EXT)
+        .value("TASK",                    VK_SHADER_STAGE_TASK_BIT_EXT)
+        .value("MESH",                    VK_SHADER_STAGE_MESH_BIT_EXT)
     ;
 
     nb::class_<PipelineStage>(m, "PipelineStage",
@@ -4430,23 +4498,103 @@ void gfx_create_bindings(nb::module_& m)
         .value("MUTABLE",                VK_DESCRIPTOR_TYPE_MUTABLE_EXT)
     ;
 
-    nb::class_<DescriptorSetEntry>(m, "DescriptorSetEntry")
-        .def(nb::init<u32, VkDescriptorType>(), nb::arg("count"), nb::arg("type"))
-    ;
-
     nb::enum_<VkDescriptorBindingFlagBits>(m, "DescriptorBindingFlags", nb::is_arithmetic() , nb::is_flag())
+        .value("NONE",                        (VkDescriptorBindingFlagBits)0)
         .value("UPDATE_AFTER_BIND",           VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT)
         .value("UPDATE_UNUSED_WHILE_PENDING", VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT)
         .value("PARTIALLY_BOUND",             VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT)
         .value("VARIABLE_DESCRIPTOR_COUNT",   VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT)
     ;
 
+    nb::class_<DescriptorSetBinding>(m, "DescriptorSetBinding",
+        nb::intrusive_ptr<DescriptorSetBinding>([](DescriptorSetBinding *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def(
+            nb::init<
+                u32,
+                VkDescriptorType,
+                VkDescriptorBindingFlagBits,
+                VkShaderStageFlagBits,
+                std::vector<nb::ref<Sampler>>
+            >(),
+            nb::arg("count"),
+            nb::arg("type"),
+            nb::arg("flags") = (VkDescriptorBindingFlagBits)0,
+            nb::arg("stage_flags") = VK_SHADER_STAGE_ALL,
+            nb::arg("immutable_samplers") = std::vector<nb::ref<Sampler>>()
+        )
+    ;
+
+    nb::enum_<VkDescriptorSetLayoutCreateFlagBits>(m, "DescriptorSetLayoutCreateFlags", nb::is_flag(), nb::is_arithmetic())
+        .value("NONE",                        (VkDescriptorSetLayoutCreateFlagBits)0)
+        .value("UPDATE_AFTER_BIND_POOL",      VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT)
+        .value("PUSH_DESCRIPTOR",             VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT)
+        .value("DESCRIPTOR_BUFFER",           VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT)
+        .value("EMBEDDED_IMMUTABLE_SAMPLERS", VK_DESCRIPTOR_SET_LAYOUT_CREATE_EMBEDDED_IMMUTABLE_SAMPLERS_BIT_EXT)
+        .value("INDIRECT_BINDABLE",           VK_DESCRIPTOR_SET_LAYOUT_CREATE_INDIRECT_BINDABLE_BIT_NV)
+        .value("HOST_ONLY_POOL",              VK_DESCRIPTOR_SET_LAYOUT_CREATE_HOST_ONLY_POOL_BIT_EXT)
+        .value("PER_STAGE",                   VK_DESCRIPTOR_SET_LAYOUT_CREATE_PER_STAGE_BIT_NV)
+    ;
+
+    nb::class_<DescriptorSetLayout, GfxObject>(m, "DescriptorSetLayout")
+        .def(
+            nb::init<
+                nanobind::ref<Context>,
+                const std::vector<nb::ref<DescriptorSetBinding>>&,
+                VkDescriptorSetLayoutCreateFlagBits,
+                std::optional<nanobind::str>
+            >(),
+            nb::arg("ctx"),
+            nb::arg("bindings"),
+            nb::arg("flags") = 0,
+            nb::arg("name") = nb::none()
+        )
+        .def("__repr__", [](DescriptorSetLayout& layout) {
+            return nb::str("DescriptorSetLayout(layout={})").format(layout.name);
+        })
+        .def("destroy", &DescriptorSetLayout::destroy)
+    ;
+
+    nb::enum_<VkDescriptorPoolCreateFlagBits>(m, "DescriptorPoolCreateFlags", nb::is_flag(), nb::is_arithmetic())
+        .value("NONE",                       (VkDescriptorPoolCreateFlagBits)0)
+        .value("FREE_DESCRIPTOR_SET",        VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT)
+        .value("UPDATE_AFTER_BIND",          VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT)
+        .value("HOST_ONLY",                  VK_DESCRIPTOR_POOL_CREATE_HOST_ONLY_BIT_EXT)
+        .value("ALLOW_OVERALLOCATION_SETS",  VK_DESCRIPTOR_POOL_CREATE_ALLOW_OVERALLOCATION_SETS_BIT_NV)
+        .value("ALLOW_OVERALLOCATION_POOLS", VK_DESCRIPTOR_POOL_CREATE_ALLOW_OVERALLOCATION_POOLS_BIT_NV)
+    ;
+
+    nb::class_<DescriptorPoolSize>(m, "DescriptorPoolSize")
+        .def(nb::init<u32, VkDescriptorType>(), nb::arg("count"), nb::arg("type"))
+    ;
+
+    nb::class_<DescriptorPool, GfxObject>(m, "DescriptorPool")
+        .def(
+            nb::init<
+                nanobind::ref<Context>,
+                const std::vector<DescriptorPoolSize>&,
+                u32,
+                VkDescriptorPoolCreateFlagBits,
+                std::optional<nanobind::str>
+            >(),
+            nb::arg("ctx"),
+            nb::arg("sizes"),
+            nb::arg("max_sets") = 0,
+            nb::arg("flags") = 0,
+            nb::arg("name") = nb::none()
+        )
+        .def("__repr__", [](DescriptorPool& pool) {
+            return nb::str("DescriptorPool(name={})").format(pool.name);
+        })
+        .def("destroy", &DescriptorPool::destroy)
+        .def("allocate_descriptor_set", &DescriptorPool::allocate_descriptor_set, nb::arg("layout"), nb::arg("variable_size_count") = 0, nb::arg("name") = nb::none())
+        .def("free_descriptor_set", &DescriptorPool::free_descriptor_set, nb::arg("set"))
+        .def("reset", &DescriptorPool::reset)
+    ;
+
     nb::class_<DescriptorSet, GfxObject>(m, "DescriptorSet")
-        .def(nb::init<nb::ref<Context>, const std::vector<DescriptorSetEntry>&, VkDescriptorBindingFlagBits, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("entries"), nb::arg("flags") = VkDescriptorBindingFlagBits(), nb::arg("name") = nb::none())
         .def("__repr__", [](DescriptorSet& set) {
             return nb::str("DescriptorSet(name={})").format(set.name);
         })
-        .def("destroy", &DescriptorSet::destroy)
         .def("write_buffer", &DescriptorSet::write_buffer, nb::arg("buffer"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0, nb::arg("offset") = 0, nb::arg("size") = VK_WHOLE_SIZE)
         .def("write_image", &DescriptorSet::write_image, nb::arg("image"), nb::arg("layout"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0)
         .def("write_sampler", &DescriptorSet::write_sampler, nb::arg("sampler"), nb::arg("binding"), nb::arg("element") = 0)
@@ -4601,14 +4749,14 @@ void gfx_create_bindings(nb::module_& m)
                 nb::ref<Shader>,
                 nb::str,
                 const std::vector<PushConstantsRange>&,
-                const std::vector<nb::ref<DescriptorSet>>&,
+                const std::vector<nb::ref<DescriptorSetLayout>>&,
                 std::optional<nb::str>
             >(),
             nb::arg("ctx"),
             nb::arg("shader"),
             nb::arg("entry") = "main",
             nb::arg("push_constants_ranges") = std::vector<PushConstantsRange>(),
-            nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("descriptor_set_layouts") = std::vector<nb::ref<DescriptorSetLayout>>(),
             nb::arg("name") = nb::none()
         )
         .def("__repr__", [](ComputePipeline& pipeline) {
@@ -4624,7 +4772,7 @@ void gfx_create_bindings(nb::module_& m)
                 InputAssembly,
                 Rasterization,
                 const std::vector<PushConstantsRange>&,
-                const std::vector<nb::ref<DescriptorSet>>&,
+                const std::vector<nb::ref<DescriptorSetLayout>>&,
                 u32,
                 const std::vector<Attachment>&,
                 Depth,
@@ -4637,7 +4785,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("input_assembly") = InputAssembly(),
             nb::arg("rasterization") = Rasterization(),
             nb::arg("push_constants_ranges") = std::vector<PushConstantsRange>(),
-            nb::arg("descriptor_sets") = std::vector<nb::ref<DescriptorSet>>(),
+            nb::arg("descriptor_set_layouts") = std::vector<nb::ref<DescriptorSetLayout>>(),
             nb::arg("samples") = 1,
             nb::arg("attachments") = std::vector<Attachment>(),
             nb::arg("depth") = Depth(VK_FORMAT_UNDEFINED),

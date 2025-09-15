@@ -73,9 +73,9 @@ int main(int argc, char** argv) {
     VkResult vkr;
 
     // Descriptors
-    gfx::DescriptorSet descriptor_set = {};
-    vkr = gfx::CreateDescriptorSet(&descriptor_set, vk, {
-        .entries = {
+    gfx::DescriptorPoolLayoutAndSet descriptor_pool_layout_and_set = {};
+    vkr = gfx::CreateDescriptorPoolLayoutAndSet(&descriptor_pool_layout_and_set, vk, {
+        .bindings = {
             {
                 .count = (u32)window.frames.length,
                 .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -87,11 +87,12 @@ int main(int argc, char** argv) {
             {
                 .count = 1024,
                 .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                .flags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
             },
         },
-        .flags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT ||
-            VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
-        });
+        .layout_flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
+        .pool_flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT,
+    });
 
     if (result != gfx::Result::SUCCESS) {
         logging::error("bigimage", "Failed to create descriptor set\n");
@@ -109,7 +110,7 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    gfx::WriteSamplerDescriptor(descriptor_set.set, vk, {
+    gfx::WriteSamplerDescriptor(descriptor_pool_layout_and_set.set, vk, {
         .sampler = sampler.sampler,
         .binding = 1,
         .element = 0,
@@ -172,7 +173,7 @@ int main(int argc, char** argv) {
             },
         },
         .descriptor_sets = {
-            descriptor_set.layout,
+            descriptor_pool_layout_and_set.layout.layout,
         },
         .attachments = {
             {
@@ -236,7 +237,7 @@ int main(int argc, char** argv) {
         // - Rendering
         VkPipeline pipeline;
         VkPipelineLayout layout;
-        VkDescriptorSet descriptor_set;
+        gfx::DescriptorSet descriptor_set;
         Array<gfx::Buffer> chunks_buffers; // Buffer containing chunk metadata, one per frame in flight
         gfx::Buffer vertex_buffer;
         u32 frame_index = 0; // Rendering frame index, wraps around at the number of frames in flight
@@ -247,13 +248,13 @@ int main(int argc, char** argv) {
     app.last_frame_timestamp = platform::GetTimestamp();
     app.pipeline = pipeline.pipeline;
     app.layout = pipeline.layout;
-    app.descriptor_set = descriptor_set.set;
+    app.descriptor_set = descriptor_pool_layout_and_set.set;
     app.chunks_buffers = Array<gfx::Buffer>(window.frames.length);
     app.cpu_chunks = ObjArray<Array<usize>>(window.frames.length);
     app.vertex_buffer = vertex_buffer;
     app.max_zoom = (s32)(zmip.levels.length - 1);
 
-    ChunkCache cache(zmip, 0, 0, 8, window.frames.length, vk, descriptor_set);
+    ChunkCache cache(zmip, 0, 0, 8, window.frames.length, vk, descriptor_pool_layout_and_set.set);
 
     auto MouseMoveEvent = [&app](ivec2 pos) {
         if (app.dragging) {
@@ -288,7 +289,7 @@ int main(int argc, char** argv) {
         app.offset += (new_image_pos - old_image_pos) >> app.zoom;
     };
 
-    auto Draw = [&app, &vk, &window, &descriptor_set, &zmip, &cache]() {
+    auto Draw = [&app, &vk, &window, &descriptor_pool_layout_and_set, &zmip, &cache]() {
         if (app.closed) return;
 
         platform::Timestamp timestamp = platform::GetTimestamp();
@@ -321,7 +322,7 @@ int main(int argc, char** argv) {
                         .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                         .alloc = gfx::AllocPresets::DeviceMapped,
                     });
-                    gfx::WriteBufferDescriptor(descriptor_set.set, vk, {
+                    gfx::WriteBufferDescriptor(descriptor_pool_layout_and_set.set, vk, {
                         .buffer = app.chunks_buffers[i].buffer,
                         .binding = 0,
                         .element = (u32)i,
@@ -345,7 +346,7 @@ int main(int argc, char** argv) {
                 }
 
                 // Resize cache
-                cache.resize(total_max_chunks * window.frames.length, total_max_chunks, vk, descriptor_set);
+                cache.resize(total_max_chunks * window.frames.length, total_max_chunks, vk, descriptor_pool_layout_and_set.set);
                 app.batch_inputs.resize(total_max_chunks);
                 app.batch_outputs.resize(total_max_chunks);
             }
@@ -400,7 +401,7 @@ int main(int argc, char** argv) {
                     app.batch_inputs.add(id);
                 }
                 else {
-                    desc_index = cache.request_chunk_sync(id, vk, descriptor_set);
+                    desc_index = cache.request_chunk_sync(id, vk, descriptor_pool_layout_and_set.set);
                 }
                 GpuChunk c = {
                     .position = offset + chunk * chunk_size,
@@ -424,7 +425,7 @@ int main(int argc, char** argv) {
             // Upload chunks
             if (app.batched_chunk_upload) {
                 app.batch_outputs.resize(app.batch_inputs.length);
-                cache.request_chunk_batch(app.batch_inputs, app.batch_outputs, vk, descriptor_set, frame.command_buffer, app.frame_index);
+                cache.request_chunk_batch(app.batch_inputs, app.batch_outputs, vk, descriptor_pool_layout_and_set.set, frame.command_buffer, app.frame_index);
                 for (usize i = 0; i < app.batch_outputs.length; i++) {
                     app.gpu_chunks[i].desc_index = app.batch_outputs[i];
 
@@ -565,7 +566,7 @@ int main(int argc, char** argv) {
             scissor.extent.height = window.fb_height;
             vkCmdSetScissor(frame.command_buffer, 0, 1, &scissor);
 
-            vkCmdBindDescriptorSets(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app.layout, 0, 1, &app.descriptor_set, 0, 0);
+            vkCmdBindDescriptorSets(frame.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app.layout, 0, 1, &app.descriptor_set.set, 0, 0);
 
             struct Constants {
                 vec2 scale;
@@ -652,7 +653,7 @@ int main(int argc, char** argv) {
     gfx::DestroyShader(&vert_shader, vk);
     gfx::DestroyShader(&frag_shader, vk);
     gfx::DestroyGraphicsPipeline(&pipeline, vk);
-    gfx::DestroyDescriptorSet(&descriptor_set, vk);
+    gfx::DestroyDescriptorPoolLayoutAndSet(&descriptor_pool_layout_and_set, vk);
 
     // Gui
     gui::DestroyImGuiImpl(&imgui_impl, vk);

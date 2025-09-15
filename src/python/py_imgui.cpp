@@ -35,7 +35,6 @@ struct Texture: nb::intrusive_base {
 
     void destroy() {
         if (descriptor_set) {
-            descriptor_set->destroy();
             descriptor_set.reset();
         }
     }

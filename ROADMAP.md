@@ -105,15 +105,16 @@ Python:
     - [x] Fine grained pipeline binding
         - [x] Custom index type
     - [x] blit and resolve cmds
-    - [ ] Finer grained descriptor API:
-        - [ ] Split layout from pool
+    - [x] Finer grained descriptor API:
+        - [x] Split layout from pool
               Layout is used in 2 places
                 - when creating a VkPipelineLayout in pipeline creation
                 - when allocating descriptors from a pool with VkAllocateDescriptorSets
-        - [ ] Allow specifying stages that use the descriptor instead of just defaulting to ALL, (useful to prevent validation errors for imgui interop)
-        - [ ] Enable bindless by allowing last descriptor set to be variable size
-            - [ ] When creating layout need to give upper bound (leave to application to specify large number, potentially looking at device limits for that descriptor type)
-            - [ ] When allocating descriptor set need to specify how much to allocate with appended VkDescriptorSetVariableDescriptorCountAllocateInfo to VkDescriptorSetAllocateInfo.
+        - [x] Allow specifying stages that use the descriptor instead of just defaulting to ALL, (useful to prevent validation errors for imgui interop)
+        - [x] Enable bindless by allowing last descriptor set to be variable size
+            - When creating layout need to give upper bound (leave to application to specify large number, potentially looking at device limits for that descriptor type)
+            - When allocating descriptor set need to specify how much to allocate with appended VkDescriptorSetVariableDescriptorCountAllocateInfo to VkDescriptorSetAllocateInfo.
+    - [ ] VulkanError exception type that wraps VkResult for better error reporting over all bindings
 - [ ] Clean examples
     - [x] Headless graphics and compute
     - [x] Minimal

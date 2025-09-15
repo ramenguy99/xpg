@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype
+from utils.descriptors import create_descriptor_layout_pool_and_set
 from time import perf_counter
 import os
 
@@ -26,10 +27,10 @@ I = np.array([
 rot = np.eye(4, dtype=np.float32)
 push_constants = np.array([ 1.0, 0.0, 0.0], np.float32)
 i_buf = Buffer.from_data(ctx, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
-set = DescriptorSet(
+layout, pool, set = create_descriptor_layout_pool_and_set(
     ctx,
     [
-        DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
+        (1, DescriptorType.UNIFORM_BUFFER),
     ],
 )
 
@@ -100,7 +101,7 @@ class ColorPipeline(Pipeline):
             push_constants_ranges = [
                 PushConstantsRange(12),
             ],
-            descriptor_sets = [ set ],
+            descriptor_set_layout = [ layout ],
             attachments = [
                 Attachment(format=window.swapchain_format)
             ]

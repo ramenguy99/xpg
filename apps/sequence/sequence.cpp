@@ -61,8 +61,8 @@ int main(int argc, char** argv) {
     }
     gfx::Window window = {};
     if (gfx::CreateWindowWithSwapchain(&window, vk, "XPG", 1600, 900) != gfx::Result::SUCCESS) {
-        printf("Failed to create vulkan window\n");
-        return 1;
+        logging::error("sequence", "Failed to create vulkan window\n");
+        exit(100);
     }
 
     struct App {
@@ -196,7 +196,11 @@ int main(int argc, char** argv) {
         .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
         .alloc = gfx::AllocPresets::DeviceMapped,
     });
-    assert(vkr == VK_SUCCESS);
+    if (vkr != VK_SUCCESS) {
+        logging::error("sequence", "Failed to create index buffer");
+        exit(100);
+    }
+
 
     // Create graphics pipeline.
     Array<u8> vertex_code;
@@ -212,14 +216,14 @@ int main(int argc, char** argv) {
 
     gfx::Shader vertex_shader = {};
     vkr = gfx::CreateShader(&vertex_shader, vk, vertex_code);
-    if (result != gfx::Result::SUCCESS) {
+    if (vkr != VK_SUCCESS) {
         logging::error("sequence", "Failed to create vertex shader");
         exit(100);
     }
 
     gfx::Shader fragment_shader = {};
     vkr = gfx::CreateShader(&fragment_shader, vk, fragment_code);
-    if (result != gfx::Result::SUCCESS) {
+    if (vkr != VK_SUCCESS) {
         logging::error("sequence", "Failed to create fragment shader");
         exit(100);
     }
@@ -227,20 +231,43 @@ int main(int argc, char** argv) {
     // Layout
 
     // Create a descriptor set for shader constnats.
-    // @API[descriptors]: here we need more granularity. The all in one helper is nice
-    // but I would like to also be able to share layout and pools.
+    gfx::DescriptorPool descriptor_pool = {};
+    gfx::DescriptorSetLayout descriptor_set_layout = {};
     Array<gfx::DescriptorSet> descriptor_sets(window.frames.length);
-    for(usize i = 0; i < window.frames.length; i++) {
-        vkr = gfx::CreateDescriptorSet(&descriptor_sets[i], vk, {
-            .entries {
-                {
-                    .count = 1,
-                    .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                },
+
+    vkr = gfx::CreateDescriptorSetLayout(&descriptor_set_layout, vk, {
+        .bindings = {
+            {
+                .count = 1,
+                .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             },
-        });
+        },
+    });
+    if (vkr != VK_SUCCESS) {
+        logging::error("sequence", "Failed to create descriptor set layout");
+        exit(100);
     }
-    assert(vkr == VK_SUCCESS);
+
+    vkr = gfx::CreateDescriptorPool(&descriptor_pool, vk, {
+        .sizes = {
+            {
+                .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = (u32)window.frames.length,
+            },
+        },
+        .max_sets = (u32)window.frames.length,
+    });
+
+    for(usize i = 0; i < window.frames.length; i++) {
+        vkr = gfx::AllocateDescriptorSet(&descriptor_sets[i], vk, {
+            .pool = descriptor_pool,
+            .layout = descriptor_set_layout,
+        });
+        if (vkr != VK_SUCCESS) {
+            logging::error("sequence", "Failed to allocate descriptor set");
+            exit(100);
+        }
+    }
 
     gfx::GraphicsPipeline pipeline = {};
     vkr = gfx::CreateGraphicsPipeline(&pipeline, vk, {
@@ -274,7 +301,7 @@ int main(int argc, char** argv) {
             .format = VK_FORMAT_D32_SFLOAT,
         },
         .descriptor_sets = {
-           descriptor_sets[0].layout,
+           descriptor_set_layout.layout,
         },
         .attachments = {
             {
@@ -292,7 +319,7 @@ int main(int argc, char** argv) {
         });
         assert(vkr == VK_SUCCESS);
 
-        gfx::WriteBufferDescriptor(descriptor_sets[i].set, vk, {
+        gfx::WriteBufferDescriptor(descriptor_sets[i], vk, {
             .buffer = uniform_buffers[i].buffer,
             .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             .binding = 0,
@@ -772,9 +799,8 @@ int main(int argc, char** argv) {
 
     gfx::DestroyImage(&app.depth_buffer, vk);
 
-    for (usize i = 0; i < app.descriptor_sets.length; i++) {
-        gfx::DestroyDescriptorSet(&app.descriptor_sets[i], vk);
-    }
+    gfx::DestroyDescriptorSetLayout(&descriptor_set_layout, vk);
+    gfx::DestroyDescriptorPool(&descriptor_pool, vk);
 
     for (usize i = 0; i < app.uniform_buffers.length; i++) {
         gfx::DestroyBuffer(&app.uniform_buffers[i], vk);

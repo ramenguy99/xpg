@@ -228,12 +228,12 @@ int main(int argc, char** argv) {
     gui::ImGuiImpl imgui_impl;
     gui::CreateImGuiImpl(&imgui_impl, window, vk, {});
 
-    // BINDLES SLIM SETUP START
+    // DESCRIPTORS SETUP START
     uint32_t MAX_DESCRIPTOR_COUNT = 100000;
 
-    gfx::DescriptorSet bindless = {};
-    gfx::CreateDescriptorSet(&bindless, vk, {
-        .entries = {
+    gfx::DescriptorPoolLayoutAndSet pool_layout_set = {};
+    gfx::CreateDescriptorPoolLayoutAndSet(&pool_layout_set, vk, {
+        .bindings = {
             {
                 .count = 1000,
                 .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -248,9 +248,7 @@ int main(int argc, char** argv) {
             },
         },
     });
-
-    // BINDLESS SLIM SETUP END
-
+    // DESCRIPTORS SETUP END
 
     // PIPELINE SETUP START
     VkResult vkr;
@@ -314,7 +312,7 @@ int main(int argc, char** argv) {
                 },
             },
             .descriptor_sets = {
-                bindless.layout,
+                pool_layout_set.layout.layout,
             },
             .attachments = {
                 {
@@ -379,7 +377,7 @@ int main(int argc, char** argv) {
         buffer_info.range = VK_WHOLE_SIZE;
 
         VkWriteDescriptorSet write_descriptor_set = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        write_descriptor_set.dstSet = bindless.set;
+        write_descriptor_set.dstSet = pool_layout_set.set.set;
         write_descriptor_set.dstArrayElement = handle;
         write_descriptor_set.descriptorCount = 1;
         write_descriptor_set.pBufferInfo = &buffer_info;
@@ -400,7 +398,7 @@ int main(int argc, char** argv) {
     app.vertex_buffer = vertex_buffer;
     app.pipeline = pipeline.pipeline;
     app.layout = pipeline.layout;
-    app.descriptor_set = bindless.set;
+    app.descriptor_set = pool_layout_set.set.set;
 
     glfwSetWindowUserPointer(window.window, &app);
     glfwSetWindowRefreshCallback(window.window, Callback_WindowRefresh);
@@ -433,7 +431,7 @@ int main(int argc, char** argv) {
     gfx::DestroyShader(&vertex_shader, vk);
     gfx::DestroyShader(&fragment_shader, vk);
     gfx::DestroyGraphicsPipeline(&pipeline, vk);
-    gfx::DestroyDescriptorSet(&bindless, vk);
+    gfx::DestroyDescriptorPoolLayoutAndSet(&pool_layout_set, vk);
 
     // Gui
     gui::DestroyImGuiImpl(&imgui_impl, vk);

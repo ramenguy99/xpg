@@ -9,9 +9,10 @@ from pyxpg import slang
 
 from utils.pipelines import PipelineWatch, Pipeline
 from utils import reflection
-from utils import render
 from utils.camera import Camera
 from utils.buffers import UploadableBuffer
+from utils.ring_buffer import RingBuffer
+from utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 
 def grid3d(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
     x, y, z = np.meshgrid(x, y, z)
@@ -50,16 +51,16 @@ gui = Gui(window)
 index_buf = Buffer.from_data(ctx, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 voxels_buf = Buffer.from_data(ctx, voxels, BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 
-descriptor_sets = render.PerFrameResource(DescriptorSet, window.num_frames,
+layout, pool, descriptor_sets = create_descriptor_layout_pool_and_sets_ringbuffer(
     ctx,
     [
-        DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
-        DescriptorSetEntry(1, DescriptorType.STORAGE_BUFFER),
+        (1, DescriptorType.UNIFORM_BUFFER),
+        (1, DescriptorType.STORAGE_BUFFER),
     ],
+    window.num_frames,
 )
 
-for set in descriptor_sets.resources:
-    set: DescriptorSet
+for set in descriptor_sets:
     set.write_buffer(voxels_buf, DescriptorType.STORAGE_BUFFER, 1, 0)
 
 
@@ -78,9 +79,8 @@ class VoxelPipeline(Pipeline):
         descs = reflection.DescriptorSetsReflection(refl)
         dt = reflection.to_dtype(descs.descriptors["u"].resource.type)
 
-        u_bufs = render.PerFrameResource(UploadableBuffer, window.num_frames, ctx, dt.itemsize, BufferUsageFlags.UNIFORM)
-        for set, u_buf in zip(descriptor_sets.resources, u_bufs.resources):
-            set: DescriptorSet
+        u_bufs = RingBuffer([UploadableBuffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM) for _ in range(window.num_frames)])
+        for set, u_buf in zip(descriptor_sets, u_bufs):
             set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         vert = Shader(ctx, vert_prog.code)
@@ -93,7 +93,7 @@ class VoxelPipeline(Pipeline):
                 PipelineStage(frag, Stage.FRAGMENT),
             ],
             input_assembly = InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
-            descriptor_sets = [ set ],
+            descriptor_set_layouts = [ layout ],
             samples=SAMPLES,
             attachments = [
                 Attachment(format=window.swapchain_format)

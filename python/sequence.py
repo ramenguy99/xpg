@@ -12,12 +12,13 @@ import numpy as np
 
 from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype, DescriptorSetsReflection
-from utils.render import PerFrameResource
 from utils.threadpool import ThreadPool, Promise
 from utils.profiler import Profiler, ProfilerFrame, gui_profiler_graph, gui_profiler_list
 from utils.loaders import LRUPool
 from utils.utils import profile, read_exact, read_exact_at_offset, read_exact_at_offset_into
 from utils.buffers import UploadableBuffer
+from utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
+from utils.ring_buffer import RingBuffer
 
 # Config
 VSYNC = True
@@ -55,11 +56,12 @@ window = Window(ctx, "Sequence", 1600, 900)
 gui = Gui(window)
 
 
-sets = PerFrameResource(DescriptorSet, window.num_frames,
+layout, pool, sets = create_descriptor_layout_pool_and_sets_ringbuffer(
     ctx,
     [
-        DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
+        (1, DescriptorType.UNIFORM_BUFFER),
     ],
+    window.num_frames,
     name="per-frame-descriptors"
 )
 
@@ -77,9 +79,8 @@ class SequencePipeline(Pipeline):
         constants_dt = to_dtype(desc_refl.descriptors["constants"].resource.type)
 
         # Create uniform buffers and write descriptors
-        u_bufs = PerFrameResource(UploadableBuffer, window.num_frames, ctx, constants_dt.itemsize, BufferUsageFlags.UNIFORM, name="per-frame-uniform-buffer")
-        for set, u_buf in zip(sets.resources, u_bufs.resources):
-            set: DescriptorSet
+        u_bufs = RingBuffer([UploadableBuffer(ctx, constants_dt.itemsize, BufferUsageFlags.UNIFORM, name="per-frame-uniform-buffer") for _ in range(window.num_frames)])
+        for set, u_buf in zip(sets, u_bufs):
             set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         # Turn SPIR-V code into vulkan shader modules
@@ -100,7 +101,7 @@ class SequencePipeline(Pipeline):
                 VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
             ],
             input_assembly = InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
-            descriptor_sets = [ set ],
+            descriptor_set_layouts = [ layout ],
             attachments = [
                 Attachment(format=window.swapchain_format)
             ],
