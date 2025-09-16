@@ -189,19 +189,19 @@ void imgui_create_bindings(nb::module_& mod_imgui)
             switch (dtype.code) { \
                 case (int)nb::dlpack::dtype_code::Int: { \
                     switch(dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (int8_t *)values.data(), count, __VA_ARGS__, 0, stride * 1); break; \
-                        case 16: ImPlot::func(name.c_str(), (int16_t*)values.data(), count, __VA_ARGS__, 0, stride * 2); break; \
-                        case 32: ImPlot::func(name.c_str(), (int32_t*)values.data(), count, __VA_ARGS__, 0, stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (int64_t*)values.data(), count, __VA_ARGS__, 0, stride * 8); break; \
+                        case  8: ImPlot::func(name.c_str(), (ImS8 *)values.data(), count, __VA_ARGS__, 0, stride * 1); break; \
+                        case 16: ImPlot::func(name.c_str(), (ImS16*)values.data(), count, __VA_ARGS__, 0, stride * 2); break; \
+                        case 32: ImPlot::func(name.c_str(), (ImS32*)values.data(), count, __VA_ARGS__, 0, stride * 4); break; \
+                        case 64: ImPlot::func(name.c_str(), (ImS64*)values.data(), count, __VA_ARGS__, 0, stride * 8); break; \
                         default: nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); break; \
                     } \
                 } break; \
                 case (int)nb::dlpack::dtype_code::UInt: { \
                     switch(dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (uint8_t *)values.data(), count, __VA_ARGS__, 0, stride * 1); break; \
-                        case 16: ImPlot::func(name.c_str(), (uint16_t*)values.data(), count, __VA_ARGS__, 0, stride * 2); break; \
-                        case 32: ImPlot::func(name.c_str(), (uint32_t*)values.data(), count, __VA_ARGS__, 0, stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (uint64_t*)values.data(), count, __VA_ARGS__, 0, stride * 8); break; \
+                        case  8: ImPlot::func(name.c_str(), (ImU8 *)values.data(), count, __VA_ARGS__, 0, stride * 1); break; \
+                        case 16: ImPlot::func(name.c_str(), (ImU16*)values.data(), count, __VA_ARGS__, 0, stride * 2); break; \
+                        case 32: ImPlot::func(name.c_str(), (ImU32*)values.data(), count, __VA_ARGS__, 0, stride * 4); break; \
+                        case 64: ImPlot::func(name.c_str(), (ImU64*)values.data(), count, __VA_ARGS__, 0, stride * 8); break; \
                         default: nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); break; \
                     } \
                 } break; \
@@ -228,19 +228,19 @@ void imgui_create_bindings(nb::module_& mod_imgui)
             switch (dtype.code) { \
                 case (int)nb::dlpack::dtype_code::Int: { \
                     switch(dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (int8_t *)values.data(), count, __VA_ARGS__); break; \
-                        case 16: ImPlot::func(name.c_str(), (int16_t*)values.data(), count, __VA_ARGS__); break; \
-                        case 32: ImPlot::func(name.c_str(), (int32_t*)values.data(), count, __VA_ARGS__); break; \
-                        case 64: ImPlot::func(name.c_str(), (int64_t*)values.data(), count, __VA_ARGS__); break; \
+                        case  8: ImPlot::func(name.c_str(), (ImS8 *)values.data(), count, __VA_ARGS__); break; \
+                        case 16: ImPlot::func(name.c_str(), (ImS16*)values.data(), count, __VA_ARGS__); break; \
+                        case 32: ImPlot::func(name.c_str(), (ImS32*)values.data(), count, __VA_ARGS__); break; \
+                        case 64: ImPlot::func(name.c_str(), (ImS64*)values.data(), count, __VA_ARGS__); break; \
                         default: nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); break; \
                     } \
                 } break; \
                 case (int)nb::dlpack::dtype_code::UInt: { \
                     switch(dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (uint8_t *)values.data(), count, __VA_ARGS__); break; \
-                        case 16: ImPlot::func(name.c_str(), (uint16_t*)values.data(), count, __VA_ARGS__); break; \
-                        case 32: ImPlot::func(name.c_str(), (uint32_t*)values.data(), count, __VA_ARGS__); break; \
-                        case 64: ImPlot::func(name.c_str(), (uint64_t*)values.data(), count, __VA_ARGS__); break; \
+                        case  8: ImPlot::func(name.c_str(), (ImU8 *)values.data(), count, __VA_ARGS__); break; \
+                        case 16: ImPlot::func(name.c_str(), (ImU16*)values.data(), count, __VA_ARGS__); break; \
+                        case 32: ImPlot::func(name.c_str(), (ImU32*)values.data(), count, __VA_ARGS__); break; \
+                        case 64: ImPlot::func(name.c_str(), (ImU64*)values.data(), count, __VA_ARGS__); break; \
                         default: nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); break; \
                     } \
                 } break; \
@@ -280,19 +280,19 @@ void imgui_create_bindings(nb::module_& mod_imgui)
             switch (x_dtype.code) { \
                 case (int)nb::dlpack::dtype_code::Int: { \
                     switch(x_dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (int8_t *)xs.data(), (int8_t *)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 1); break; \
-                        case 16: ImPlot::func(name.c_str(), (int16_t*)xs.data(), (int16_t*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 2); break; \
-                        case 32: ImPlot::func(name.c_str(), (int32_t*)xs.data(), (int32_t*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (int64_t*)xs.data(), (int64_t*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
+                        case  8: ImPlot::func(name.c_str(), (ImS8 *)xs.data(), (ImS8 *)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 1); break; \
+                        case 16: ImPlot::func(name.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 2); break; \
+                        case 32: ImPlot::func(name.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
+                        case 64: ImPlot::func(name.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
                         default: nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", x_dtype.code, x_dtype.bits); break; \
                     } \
                 } break; \
                 case (int)nb::dlpack::dtype_code::UInt: { \
                     switch(x_dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (uint8_t *)xs.data(), (uint8_t *)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 1); break; \
-                        case 16: ImPlot::func(name.c_str(), (uint16_t*)xs.data(), (uint16_t*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 2); break; \
-                        case 32: ImPlot::func(name.c_str(), (uint32_t*)xs.data(), (uint32_t*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (uint64_t*)xs.data(), (uint64_t*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
+                        case  8: ImPlot::func(name.c_str(), (ImU8 *)xs.data(), (ImU8 *)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 1); break; \
+                        case 16: ImPlot::func(name.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 2); break; \
+                        case 32: ImPlot::func(name.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
+                        case 64: ImPlot::func(name.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
                         default: nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", x_dtype.code, x_dtype.bits); break; \
                     } \
                 } break; \
@@ -345,19 +345,19 @@ void imgui_create_bindings(nb::module_& mod_imgui)
             switch (x_dtype.code) { \
                 case (int)nb::dlpack::dtype_code::Int: { \
                     switch(x_dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (int8_t *)xs.data(), (int8_t *)ys1.data(), (int8_t *)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 1); break; \
-                        case 16: ImPlot::func(name.c_str(), (int16_t*)xs.data(), (int16_t*)ys1.data(), (int16_t*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 2); break; \
-                        case 32: ImPlot::func(name.c_str(), (int32_t*)xs.data(), (int32_t*)ys1.data(), (int32_t*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (int64_t*)xs.data(), (int64_t*)ys1.data(), (int64_t*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
+                        case  8: ImPlot::func(name.c_str(), (ImS8 *)xs.data(), (ImS8 *)ys1.data(), (ImS8 *)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 1); break; \
+                        case 16: ImPlot::func(name.c_str(), (ImS16*)xs.data(), (ImS16*)ys1.data(), (ImS16*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 2); break; \
+                        case 32: ImPlot::func(name.c_str(), (ImS32*)xs.data(), (ImS32*)ys1.data(), (ImS32*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
+                        case 64: ImPlot::func(name.c_str(), (ImS64*)xs.data(), (ImS64*)ys1.data(), (ImS64*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
                         default: nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", x_dtype.code, x_dtype.bits); break; \
                     } \
                 } break; \
                 case (int)nb::dlpack::dtype_code::UInt: { \
                     switch(x_dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (uint8_t *)xs.data(), (uint8_t *)ys1.data(), (uint8_t *)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 1); break; \
-                        case 16: ImPlot::func(name.c_str(), (uint16_t*)xs.data(), (uint16_t*)ys1.data(), (uint16_t*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 2); break; \
-                        case 32: ImPlot::func(name.c_str(), (uint32_t*)xs.data(), (uint32_t*)ys1.data(), (uint32_t*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (uint64_t*)xs.data(), (uint64_t*)ys1.data(), (uint64_t*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
+                        case  8: ImPlot::func(name.c_str(), (ImU8 *)xs.data(), (ImU8 *)ys1.data(), (ImU8 *)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 1); break; \
+                        case 16: ImPlot::func(name.c_str(), (ImU16*)xs.data(), (ImU16*)ys1.data(), (ImU16*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 2); break; \
+                        case 32: ImPlot::func(name.c_str(), (ImU32*)xs.data(), (ImU32*)ys1.data(), (ImU32*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
+                        case 64: ImPlot::func(name.c_str(), (ImU64*)xs.data(), (ImU64*)ys1.data(), (ImU64*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
                         default: nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", x_dtype.code, x_dtype.bits); break; \
                     } \
                 } break; \
