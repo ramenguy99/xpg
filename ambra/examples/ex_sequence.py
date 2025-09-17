@@ -3,7 +3,7 @@ import struct
 from pathlib import Path
 
 import numpy as np
-from pyglm.glm import ivec2, quatLookAtRH, vec3, normalize
+from pyglm.glm import ivec2, normalize, quatLookAtRH, vec3
 from pyxpg import *
 
 from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig, RendererConfig, UploadMethod
@@ -169,7 +169,12 @@ light_position = vec3(5, 5, 5)
 light_target = vec3(0, 0, 0)
 
 rotation = quatLookAtRH(normalize(light_target - light_position), vec3(0, 1, 0))
-light = DirectionalLight(np.array([1.0, 1.0, 1.0]), shadow_settings=DirectionalShadowSettings(half_extent=5.0), translation=light_position, rotation=rotation)
+light = DirectionalLight(
+    np.array([1.0, 1.0, 1.0]),
+    shadow_settings=DirectionalShadowSettings(half_extent=5.0),
+    translation=light_position,
+    rotation=rotation,
+)
 
 viewer.viewport.scene.objects.append(mesh)
 viewer.viewport.scene.objects.append(light)

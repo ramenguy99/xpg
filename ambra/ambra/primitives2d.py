@@ -4,6 +4,7 @@ import numpy as np
 from pyxpg import (
     Attachment,
     BufferUsageFlags,
+    Depth,
     DescriptorSet,
     DescriptorSetBinding,
     DescriptorType,
@@ -79,8 +80,6 @@ class Lines(Object2D):
         vert = r.get_builtin_shader("2d/basic.slang", "vertex_main")
         frag = r.get_builtin_shader("2d/basic.slang", "pixel_main")
 
-        print(type(r.scene_descriptor_set_layout), type(r.uniform_pool.descriptor_set_layout))
-
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
             r.ctx,
@@ -101,6 +100,7 @@ class Lines(Object2D):
                 PrimitiveTopology.LINE_STRIP if self.is_strip else PrimitiveTopology.LINE_LIST
             ),
             attachments=[Attachment(format=r.output_format)],
+            depth=Depth(r.depth_format, False, False, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
                 r.uniform_pool.descriptor_set_layout,
@@ -197,6 +197,7 @@ class Image(Object2D):
             ],
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_STRIP),
             attachments=[Attachment(format=r.output_format)],
+            depth=Depth(r.depth_format, False, False, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
                 r.uniform_pool.descriptor_set_layout,

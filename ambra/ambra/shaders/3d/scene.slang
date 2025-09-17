@@ -28,12 +28,15 @@ struct PointLight : ILight
     }
 }
 
-struct DirectionalLight : ILight
+public struct DirectionalLight : ILight
 {
-    float3 radiance;
-    float3 direction;
+    public float4 orthographic_camera;
+    public float3 radiance;
+    public uint32_t shadowmap_index;
+    public float3 direction;
+    public float bias;
 
-    float3 eval(float3 world_position, float3 world_normal)
+    public float3 eval(float3 world_position, float3 world_normal)
     {
         return radiance * max(-dot(direction, world_normal), 1.0);
     }
@@ -57,3 +60,6 @@ public struct Constants {
 
 [vk::binding(0, 0)]
 public ConstantBuffer<Constants> g_constants;
+
+[vk::binding(1, 0)]
+public StructuredBuffer<DirectionalLight> g_lights;

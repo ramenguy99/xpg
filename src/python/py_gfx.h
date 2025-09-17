@@ -59,11 +59,12 @@ struct DescriptorPoolSize: VkDescriptorPoolSize {
 };
 
 struct DescriptorSetLayout: GfxObject {
-    DescriptorSetLayout(nanobind::ref<Context> ctx, const std::vector<nanobind::ref<DescriptorSetBinding>>& bindings, VkDescriptorSetLayoutCreateFlagBits flags, std::optional<nanobind::str> name);
+    DescriptorSetLayout(nanobind::ref<Context> ctx, std::vector<nanobind::ref<DescriptorSetBinding>> bindings, VkDescriptorSetLayoutCreateFlagBits flags, std::optional<nanobind::str> name);
     ~DescriptorSetLayout();
     void destroy();
 
     xpg::gfx::DescriptorSetLayout layout;
+    std::vector<nanobind::ref<DescriptorSetBinding>> bindings;
 };
 
 struct DescriptorSet;

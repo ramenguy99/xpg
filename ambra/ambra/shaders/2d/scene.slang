@@ -10,3 +10,6 @@ public struct Constants {
 
 [vk::binding(0, 0)]
 public ConstantBuffer<Constants> g_constants;
+
+[vk::binding(1, 0)]
+public StructuredBuffer<uint8_t> g_lights;

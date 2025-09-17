@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from enum import Enum, auto
+from enum import Enum
 from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
@@ -201,17 +201,31 @@ class Object3D(Object):
             parent.current_transform_matrix if parent is not None else mat4(1.0)
         ) * self.current_relative_transform.as_mat4()  # type: ignore
 
+
 class LightTypes(Enum):
     DIRECTIONAL = 0
+
 
 @dataclass
 class LightInfo:
     size: int
 
 
+directional_light_dtype = np.dtype(
+    {
+        "orthographic_camera": (np.dtype((np.float32, (4, 4))), 0),
+        "radiance": (np.dtype((np.float32, (3,))), 64),
+        "shadowmap_index": (np.dtype((np.uint32, (1,))), 76),
+        "direction": (np.dtype((np.float32, (3,))), 80),
+        "bias": (np.dtype((np.float32, (1,))), 84),
+    }
+)
+
+# When adding a new light type, this also has to be added with a matching type to "shaders/2d/scene.slang" and "shaders/3d/scene.slang"
 LIGHT_TYPES_INFO = [
-    LightInfo(64 + 12 + 4 + 12 + 4) # DIRECTIONAL: camera matrix, color, shadowmap_index, direction, bias
+    LightInfo(directional_light_dtype.itemsize),
 ]
+
 
 class Light(Object3D):
     def render_shadowmaps(self, renderer, frame, scene: "Scene") -> None:  # type: ignore

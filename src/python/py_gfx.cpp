@@ -2253,14 +2253,17 @@ struct AccelerationStructure: GfxObject {
     gfx::AccelerationStructure as;
 };
 
-DescriptorSetLayout::DescriptorSetLayout(nanobind::ref<Context> ctx, const std::vector<nb::ref<DescriptorSetBinding>>& bindings, VkDescriptorSetLayoutCreateFlagBits flags, std::optional<nanobind::str> name)
+DescriptorSetLayout::DescriptorSetLayout(nanobind::ref<Context> ctx, std::vector<nb::ref<DescriptorSetBinding>> bindings, VkDescriptorSetLayoutCreateFlagBits flags, std::optional<nanobind::str> name)
     : GfxObject(ctx, true, std::move(name))
+    , bindings(std::move(bindings))
 {
-    Array<gfx::DescriptorSetBindingDesc> bindings_array(bindings.size());
+    check_vector_of_ref_for_null(bindings, "elements of \"bindings\" must not be None");
+
+    Array<gfx::DescriptorSetBindingDesc> bindings_array(this->bindings.size());
 
     ObjArray<Array<VkSampler>> immutable_samplers;
-    for (usize i = 0; i < bindings.size(); i++) {
-        const DescriptorSetBinding& binding = *bindings[i];
+    for (usize i = 0; i < this->bindings.size(); i++) {
+        const DescriptorSetBinding& binding = *this->bindings[i];
 
         if (binding.immutable_samplers.size() > 0) {
             Array<VkSampler> samplers(binding.immutable_samplers.size());
@@ -4544,7 +4547,7 @@ void gfx_create_bindings(nb::module_& m)
         .def(
             nb::init<
                 nanobind::ref<Context>,
-                const std::vector<nb::ref<DescriptorSetBinding>>&,
+                std::vector<nb::ref<DescriptorSetBinding>>,
                 VkDescriptorSetLayoutCreateFlagBits,
                 std::optional<nanobind::str>
             >(),
@@ -4557,6 +4560,7 @@ void gfx_create_bindings(nb::module_& m)
             return nb::str("DescriptorSetLayout(layout={})").format(layout.name);
         })
         .def("destroy", &DescriptorSetLayout::destroy)
+        .def_ro("bindings", &DescriptorSetLayout::bindings)
     ;
 
     nb::enum_<VkDescriptorPoolCreateFlagBits>(m, "DescriptorPoolCreateFlags", nb::is_flag(), nb::is_arithmetic())

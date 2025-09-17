@@ -10,8 +10,9 @@ from pyxpg import (
     CompareOp,
     Context,
     DepthAttachment,
-    DescriptorType,
     DescriptorSetBinding,
+    DescriptorSetLayout,
+    DescriptorType,
     DeviceFeatures,
     Format,
     Gui,
@@ -34,6 +35,7 @@ from .config import RendererConfig, UploadMethod
 from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .property import BufferProperty, ImageProperty
 from .renderer_frame import RendererFrame
+from .scene import LIGHT_TYPES_INFO
 from .shaders import compile
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import (
@@ -46,7 +48,6 @@ from .utils.gpu import (
 from .utils.ring_buffer import RingBuffer
 from .utils.threadpool import ThreadPool
 from .viewport import Viewport
-from .scene import LIGHT_TYPES_INFO, LightTypes
 
 SHADERS_PATH = Path(__file__).parent.joinpath("shaders")
 
@@ -79,12 +80,20 @@ class Renderer:
                 ctx,
                 [
                     DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
-                    # (len(LIGHT_TYPES_INFO), DescriptorType.STORAGE_BUFFER),
-                    # (config.max_shadowmaps, DescriptorType.COMBINED_IMAGE_SAMPLER),
+                    *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in LIGHT_TYPES_INFO],
+                    DescriptorSetBinding(config.max_shadowmaps, DescriptorType.COMBINED_IMAGE_SAMPLER),
                 ],
                 window.num_frames,
                 name="scene-descriptors",
             )
+        )
+
+        self.scene_depth_descriptor_set_layout = DescriptorSetLayout(
+            ctx,
+            [
+                DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
+            ],
+            name="scene-depth-descriptor-set-layout",
         )
 
         constants_dtype = np.dtype(
@@ -98,22 +107,27 @@ class Renderer:
 
         self.constants = np.zeros((1,), constants_dtype)
         self.uniform_buffers = RingBuffer(
-            [UploadableBuffer(ctx, constants_dtype.itemsize, BufferUsageFlags.UNIFORM) for _ in range(window.num_frames)]
+            [
+                UploadableBuffer(ctx, constants_dtype.itemsize, BufferUsageFlags.UNIFORM)
+                for _ in range(window.num_frames)
+            ]
         )
 
         self.num_lights = [0] * len(LIGHT_TYPES_INFO)
         self.light_buffers = RingBuffer(
             [
-                [UploadableBuffer(ctx, info.size * config.max_lights, BufferUsageFlags.UNIFORM) for info in LIGHT_TYPES_INFO]
+                [
+                    UploadableBuffer(ctx, info.size * config.max_lights, BufferUsageFlags.STORAGE)
+                    for info in LIGHT_TYPES_INFO
+                ]
                 for _ in range(window.num_frames)
             ]
         )
 
         for set, buf, light_bufs in zip(self.scene_descriptor_sets, self.uniform_buffers, self.light_buffers):
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
-            # for i, light_buf in enumerate(light_bufs):
-            #     set.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 1, i)
-            # TODO: write shadowmap descs (?)
+            for i, light_buf in enumerate(light_bufs):
+                set.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 1, i)
 
         self.uniform_pool = UniformPool(ctx, window.num_frames, config.uniform_pool_block_size)
 
@@ -256,6 +270,10 @@ class Renderer:
         )
         self.gpu_properties.append(prop)
         return prop
+
+    def add_light(self, shadow_map: Optional[Image]):
+        # TODO: register shadowmap here (write descriptor, return index)
+        pass
 
     def get_builtin_shader(self, name: str, entry: str) -> slang.Shader:
         path = SHADERS_PATH.joinpath(name)

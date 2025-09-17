@@ -331,7 +331,7 @@ class Mesh(Object3D):
             attachments=[],
             depth=Depth(r.shadowmap_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,  # HACK: this only works because normal rendering and showmap layouts are currently equal
+                r.scene_depth_descriptor_set_layout,
                 r.uniform_pool.descriptor_set_layout,
             ],
         )
