@@ -10,8 +10,6 @@ from pyxpg import (
     CompareOp,
     Context,
     DepthAttachment,
-    DescriptorSet,
-    DescriptorSetEntry,
     DescriptorType,
     DeviceFeatures,
     Format,
@@ -36,6 +34,7 @@ from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .property import BufferProperty, ImageProperty
 from .renderer_frame import RendererFrame
 from .shaders import compile
+from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import (
     BufferUploadInfo,
     BulkUploader,
@@ -73,16 +72,15 @@ class Renderer:
         self.background_color = config.background_color
 
         # Scene descriptors
-        self.descriptor_sets = RingBuffer(
-            [
-                DescriptorSet(
-                    ctx,
-                    [
-                        DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
-                    ],
-                )
-                for _ in range(window.num_frames)
-            ]
+        self.scene_descriptor_set_layout, self.scene_descriptor_pool, self.scene_descriptor_sets = (
+            create_descriptor_layout_pool_and_sets_ringbuffer(
+                ctx,
+                [
+                    (1, DescriptorType.UNIFORM_BUFFER),
+                ],
+                window.num_frames,
+                name="scene-descriptors",
+            )
         )
 
         constants_dtype = np.dtype(
@@ -98,7 +96,7 @@ class Renderer:
             [UploadableBuffer(ctx, 64 * 2 + 12, BufferUsageFlags.UNIFORM) for _ in range(window.num_frames)]
         )
 
-        for set, buf in zip(self.descriptor_sets.items, self.uniform_buffers.items):
+        for set, buf in zip(self.scene_descriptor_sets, self.uniform_buffers):
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         self.uniform_pool = UniformPool(ctx, window.num_frames, config.uniform_pool_block_size)
@@ -276,8 +274,8 @@ class Renderer:
                 viewport.rect.height,
             )
 
-            set: DescriptorSet = self.descriptor_sets.get_current_and_advance()
-            buf: UploadableBuffer = self.uniform_buffers.get_current_and_advance()
+            set = self.scene_descriptor_sets.get_current_and_advance()
+            buf = self.uniform_buffers.get_current_and_advance()
 
             self.constants["projection"] = viewport.camera.projection()
             self.constants["view"] = viewport.camera.view()

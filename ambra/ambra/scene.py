@@ -86,10 +86,10 @@ class Object:
     def upload(self, renderer, frame):  # type: ignore
         pass
 
-    def render(self, renderer, frame, descriptor_set):  # type: ignore
+    def render(self, renderer, frame, scene_descriptor_set):  # type: ignore
         pass
 
-    def render_depth(self, renderer, frame, descriptor_set):  # type: ignore
+    def render_depth(self, renderer, frame, scene_descriptor_set):  # type: ignore
         pass
 
     def destroy(self) -> None:

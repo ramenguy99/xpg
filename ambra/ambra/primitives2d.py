@@ -5,7 +5,6 @@ from pyxpg import (
     Attachment,
     BufferUsageFlags,
     DescriptorSet,
-    DescriptorSetEntry,
     DescriptorType,
     DeviceFeatures,
     Filter,
@@ -32,7 +31,7 @@ from .property import BufferProperty, ImageProperty
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object2D
-from .utils.ring_buffer import RingBuffer
+from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 
 
 class Lines(Object2D):
@@ -79,6 +78,8 @@ class Lines(Object2D):
         vert = r.get_builtin_shader("2d/basic.slang", "vertex_main")
         frag = r.get_builtin_shader("2d/basic.slang", "pixel_main")
 
+        print(type(r.scene_descriptor_set_layout), type(r.uniform_pool.descriptor_set_layout))
+
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
             r.ctx,
@@ -99,13 +100,13 @@ class Lines(Object2D):
                 PrimitiveTopology.LINE_STRIP if self.is_strip else PrimitiveTopology.LINE_LIST
             ),
             attachments=[Attachment(format=r.output_format)],
-            descriptor_sets=[
-                r.descriptor_sets.get_current(),
-                r.uniform_pool.descriptor_set,
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+                r.uniform_pool.descriptor_set_layout,
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
+    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         self.constants["transform"][0, :3, :3] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
@@ -117,7 +118,7 @@ class Lines(Object2D):
                 self.colors_buffer.get_current(),
             ],
             descriptor_sets=[
-                descriptor_set,
+                scene_descriptor_set,
                 constants_alloc.descriptor_set,
             ],
             dynamic_offsets=[constants_alloc.offset],
@@ -169,19 +170,18 @@ class Image(Object2D):
             }
         )  # type: ignore
         self.constants = np.zeros((1,), constants_dtype)
-        self.descriptor_sets = RingBuffer(
-            [
-                DescriptorSet(
-                    r.ctx,
-                    [
-                        DescriptorSetEntry(1, DescriptorType.SAMPLER),
-                        DescriptorSetEntry(1, DescriptorType.SAMPLED_IMAGE),
-                    ],
-                )
-                for _ in range(r.window.num_frames)
-            ]
+        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
+            create_descriptor_layout_pool_and_sets_ringbuffer(
+                r.ctx,
+                [
+                    (1, DescriptorType.SAMPLER),
+                    (1, DescriptorType.SAMPLED_IMAGE),
+                ],
+                r.window.num_frames,
+                name=f"{self.name}-descriptors",
+            )
         )
-        for set in self.descriptor_sets.items:
+        for set in self.descriptor_sets:
             set.write_sampler(self.sampler, 0)
 
         vert = r.get_builtin_shader("2d/basic_texture.slang", "vertex_main")
@@ -196,14 +196,14 @@ class Image(Object2D):
             ],
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_STRIP),
             attachments=[Attachment(format=r.output_format)],
-            descriptor_sets=[
-                r.descriptor_sets.get_current(),
-                r.uniform_pool.descriptor_set,
-                self.descriptor_sets.get_current(),
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+                r.uniform_pool.descriptor_set_layout,
+                self.descriptor_set_layout,
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
+    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         self.constants["transform"][0, :3, :3] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
@@ -219,7 +219,7 @@ class Image(Object2D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             descriptor_sets=[
-                descriptor_set,
+                scene_descriptor_set,
                 constants_alloc.descriptor_set,
                 descriptor_set,
             ],

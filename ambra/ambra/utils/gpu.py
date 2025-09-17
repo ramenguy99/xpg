@@ -8,8 +8,9 @@ from pyxpg import (
     BufferUsageFlags,
     CommandBuffer,
     Context,
+    DescriptorPool,
     DescriptorSet,
-    DescriptorSetEntry,
+    DescriptorSetLayout,
     DescriptorType,
     Fence,
     Format,
@@ -20,6 +21,7 @@ from pyxpg import (
     get_format_info,
 )
 
+from .descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .ring_buffer import RingBuffer
 
 
@@ -139,7 +141,7 @@ class BulkUploader:
                             info.image.width, info.image.height, info.image.format
                         )
                         if input_pitch * total_rows != len(info.data):
-                            print(type(info.data), info.data.shape)
+                            # print(type(info.data), info.data.shape)
                             raise ValueError(
                                 f"ImageUploadInfo data size ({len(info.data)}) does not match pitch and rows ({input_pitch} x {total_rows} = {input_pitch * total_rows})"
                             )
@@ -165,7 +167,7 @@ class BulkUploader:
 
                         # Copy image data to staging buffer expanding to correct pitch
                         upload_buffer_range = state.buffer.data[offset : offset + fitting_size]
-                        print(upload_buffer_range.shape, info.data.shape)
+                        # print(upload_buffer_range.shape, info.data.shape)
                         upload_buffer_2d_view = np.frombuffer(upload_buffer_range, np.uint8).reshape(
                             (fitting_rows, pitch), copy=False
                         )
@@ -173,7 +175,7 @@ class BulkUploader:
                             (total_rows, input_pitch), copy=False
                         )
 
-                        print(upload_buffer_2d_view.shape, data_buffer_2d_view.shape)
+                        # print(upload_buffer_2d_view.shape, data_buffer_2d_view.shape)
 
                         # TODO: correctly handle block formats here, need to think about data shape looks for those
                         upload_buffer_2d_view[:, :input_pitch] = data_buffer_2d_view[
@@ -421,6 +423,8 @@ class UniformBlockAllocation:
 
 @dataclass
 class UniformBlock:
+    descriptor_set_layout: DescriptorSetLayout
+    descriptor_pool: DescriptorPool
     descriptor_sets: RingBuffer[DescriptorSet]
     buffers: RingBuffer[UploadableBuffer]
     size: int
@@ -459,38 +463,38 @@ class UniformPool:
         self._alloc_block(block_size)
 
         # Grab a descriptor set for pipeline layouts
-        self.descriptor_set = self.blocks[0].descriptor_sets.get_current()
+        self.descriptor_set_layout = self.blocks[0].descriptor_set_layout
 
     def _alloc_block(self, min_size: int) -> UniformBlock:
         size = max(min_size, self.block_size)
         block_idx = len(self.blocks)
+        layout, pool, sets = create_descriptor_layout_pool_and_sets_ringbuffer(
+            self.ctx,
+            [
+                (1, DescriptorType.UNIFORM_BUFFER_DYNAMIC),
+            ],
+            self.num_frames,
+            name="uniform-pool-block-descs",
+        )
+
         block = UniformBlock(
-            descriptor_sets=RingBuffer(
-                [
-                    DescriptorSet(
-                        self.ctx,
-                        [
-                            DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER_DYNAMIC),
-                        ],
-                        name=f"set - uniform pool block {block_idx}",
-                    )
-                    for _ in range(self.num_frames)
-                ]
-            ),
+            descriptor_set_layout=layout,
+            descriptor_pool=pool,
+            descriptor_sets=sets,
             buffers=RingBuffer(
                 [
                     UploadableBuffer(
                         self.ctx,
                         size,
                         BufferUsageFlags.UNIFORM,
-                        name=f"set - uniform pool block {block_idx}",
+                        name=f"uniform-pool-block-buf{block_idx}",
                     )
                     for _ in range(self.num_frames)
                 ]
             ),
             size=size,
         )
-        for s, b in zip(block.descriptor_sets.items, block.buffers.items):
+        for s, b in zip(block.descriptor_sets, block.buffers):
             s.write_buffer(
                 b,
                 DescriptorType.UNIFORM_BUFFER_DYNAMIC,
