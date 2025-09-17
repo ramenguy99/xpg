@@ -107,11 +107,10 @@ sampler = Sampler(
     border_color=BorderColor.FLOAT_OPAQUE_BLACK,
 )
 
-# TODO: fix this to use new stuff
 layout, pool, set = create_descriptor_layout_pool_and_set(
     viewer.ctx,
     [
-        (1, DescriptorType.COMBINED_IMAGE_SAMPLER),
+        DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT),
     ],
 )
 set.write_combined_image_sampler(img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, sampler, 0)

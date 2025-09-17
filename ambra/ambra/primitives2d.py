@@ -5,6 +5,7 @@ from pyxpg import (
     Attachment,
     BufferUsageFlags,
     DescriptorSet,
+    DescriptorSetBinding,
     DescriptorType,
     DeviceFeatures,
     Filter,
@@ -174,8 +175,8 @@ class Image(Object2D):
             create_descriptor_layout_pool_and_sets_ringbuffer(
                 r.ctx,
                 [
-                    (1, DescriptorType.SAMPLER),
-                    (1, DescriptorType.SAMPLED_IMAGE),
+                    DescriptorSetBinding(1, DescriptorType.SAMPLER),
+                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
                 ],
                 r.window.num_frames,
                 name=f"{self.name}-descriptors",

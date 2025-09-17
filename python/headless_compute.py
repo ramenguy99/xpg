@@ -26,7 +26,7 @@ buf = Buffer(ctx, W * H * 4, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
 layout, pool, set = create_descriptor_layout_pool_and_set(
     ctx,
     [
-        (1, DescriptorType.STORAGE_IMAGE),
+        DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),
     ],
 )
 set.write_image(img, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0, 0)

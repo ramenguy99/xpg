@@ -3,11 +3,11 @@ import struct
 from pathlib import Path
 
 import numpy as np
-from pyglm.glm import ivec2
+from pyglm.glm import ivec2, quatLookAtRH, vec3, normalize
 from pyxpg import *
 
 from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig, RendererConfig, UploadMethod
-from ambra.lights import DirectionalLight
+from ambra.lights import DirectionalLight, DirectionalShadowSettings
 from ambra.primitives3d import Mesh
 from ambra.property import BufferProperty, UploadSettings
 from ambra.utils.descriptors import create_descriptor_layout_pool_and_set
@@ -97,12 +97,13 @@ class CustomViewer(Viewer):
                     layout, pool, set = create_descriptor_layout_pool_and_set(
                         viewer.ctx,
                         [
-                            (1, DescriptorType.COMBINED_IMAGE_SAMPLER),
+                            DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT),
                         ],
                     )
                     set.write_combined_image_sampler(
                         light.shadow_map, ImageLayout.SHADER_READ_ONLY_OPTIMAL, sampler, 0
                     )
+                    self._sampler = sampler
                     self._texture = imgui.Texture(set)
                 avail = imgui.get_content_region_avail()
                 available = ivec2(avail.x, avail.y)
@@ -164,7 +165,11 @@ viewer = CustomViewer(
     ),
 )
 
-light = DirectionalLight(np.array([1.0, 1.0, 1.0]))
+light_position = vec3(5, 5, 5)
+light_target = vec3(0, 0, 0)
+
+rotation = quatLookAtRH(normalize(light_target - light_position), vec3(0, 1, 0))
+light = DirectionalLight(np.array([1.0, 1.0, 1.0]), shadow_settings=DirectionalShadowSettings(half_extent=5.0), translation=light_position, rotation=rotation)
 
 viewer.viewport.scene.objects.append(mesh)
 viewer.viewport.scene.objects.append(light)

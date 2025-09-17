@@ -39,7 +39,7 @@ i_buf = Buffer.from_data(ctx, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED
 layout, pool, set = create_descriptor_layout_pool_and_set(
     ctx,
     [
-        (1, DescriptorType.UNIFORM_BUFFER),
+        DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
     ],
 )
 

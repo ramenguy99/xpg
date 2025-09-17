@@ -37,6 +37,8 @@ class RendererConfig:
     use_transfer_queue_if_available: bool = True
     force_buffer_upload_method: Optional[UploadMethod] = None
     force_image_upload_method: Optional[UploadMethod] = None
+    max_shadowmaps: int = 32
+    max_lights: int = 32
 
 
 @dataclass

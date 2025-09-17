@@ -59,7 +59,7 @@ gui = Gui(window)
 layout, pool, sets = create_descriptor_layout_pool_and_sets_ringbuffer(
     ctx,
     [
-        (1, DescriptorType.UNIFORM_BUFFER),
+        DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
     ],
     window.num_frames,
     name="per-frame-descriptors"

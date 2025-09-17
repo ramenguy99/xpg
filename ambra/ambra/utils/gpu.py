@@ -10,6 +10,7 @@ from pyxpg import (
     Context,
     DescriptorPool,
     DescriptorSet,
+    DescriptorSetBinding,
     DescriptorSetLayout,
     DescriptorType,
     Fence,
@@ -471,7 +472,7 @@ class UniformPool:
         layout, pool, sets = create_descriptor_layout_pool_and_sets_ringbuffer(
             self.ctx,
             [
-                (1, DescriptorType.UNIFORM_BUFFER_DYNAMIC),
+                DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER_DYNAMIC),
             ],
             self.num_frames,
             name="uniform-pool-block-descs",

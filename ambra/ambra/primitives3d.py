@@ -7,6 +7,7 @@ from pyxpg import (
     CullMode,
     Depth,
     DescriptorSet,
+    DescriptorSetBinding,
     DescriptorType,
     DeviceFeatures,
     Filter,
@@ -177,8 +178,8 @@ class Image(Object3D):
             create_descriptor_layout_pool_and_sets_ringbuffer(
                 r.ctx,
                 [
-                    (1, DescriptorType.SAMPLER),
-                    (1, DescriptorType.SAMPLED_IMAGE),
+                    DescriptorSetBinding(1, DescriptorType.SAMPLER),
+                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
                 ],
                 r.window.num_frames,
             )
@@ -518,9 +519,9 @@ class AnimatedMesh(Object3D):
             create_descriptor_layout_pool_and_sets_ringbuffer(
                 r.ctx,
                 [
-                    (1, DescriptorType.SAMPLER),
-                    (1, DescriptorType.SAMPLED_IMAGE),
-                    (1, DescriptorType.STORAGE_BUFFER),
+                    DescriptorSetBinding(1, DescriptorType.SAMPLER),
+                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
+                    DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),
                 ],
                 r.window.num_frames,
             )

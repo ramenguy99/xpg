@@ -4522,6 +4522,11 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("stage_flags") = VK_SHADER_STAGE_ALL,
             nb::arg("immutable_samplers") = std::vector<nb::ref<Sampler>>()
         )
+        .def_ro("count", &DescriptorSetBinding::count)
+        .def_ro("type", &DescriptorSetBinding::type)
+        .def_ro("flags", &DescriptorSetBinding::flags)
+        .def_ro("stage_flags", &DescriptorSetBinding::stage_flags)
+        .def_ro("immutable_samplers", &DescriptorSetBinding::immutable_samplers)
     ;
 
     nb::enum_<VkDescriptorSetLayoutCreateFlagBits>(m, "DescriptorSetLayoutCreateFlags", nb::is_flag(), nb::is_arithmetic())

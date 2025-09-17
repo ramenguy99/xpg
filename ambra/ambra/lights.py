@@ -8,6 +8,7 @@ from pyxpg import (
     BufferUsageFlags,
     DepthAttachment,
     DescriptorSet,
+    DescriptorSetBinding,
     DescriptorType,
     Image,
     ImageAspectFlags,
@@ -95,13 +96,15 @@ class DirectionalLight(Light):
             AllocType.DEVICE,
             name=f"{self.name}-shadowmap",
         )
+        # r.add_light(self.shadow_map)
+
         self.shadow_map_viewport = [0, 0, self.shadow_settings.shadow_map_size, self.shadow_settings.shadow_map_size]
 
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
                 r.ctx,
                 [
-                    (1, DescriptorType.UNIFORM_BUFFER),
+                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
                 ],
                 r.window.num_frames,
                 name="scene-descriptors",
@@ -123,6 +126,8 @@ class DirectionalLight(Light):
         for set, buf in zip(self.descriptor_sets, self.uniform_buffers):
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
+        # TODO: this and other matrices should be using config to know what is the deafult data handedness
+        # we should also have default front/back face winding andr require dynamic state for culling mode.
         self.projection = orthoRH_ZO(
             -self.shadow_settings.half_extent,
             self.shadow_settings.half_extent,

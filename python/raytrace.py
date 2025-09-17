@@ -54,7 +54,7 @@ class RaytracePipeline(Pipeline):
         self.scene_descriptor_pool = DescriptorPool(ctx, pool_sizes, 1)
         self.scene_descriptor_set = self.scene_descriptor_pool.allocate_descriptor_set(self.scene_descriptor_layout, len(scene.images))
         self.frame_descriptor_layout, self.frame_descriptor_pool, self.frame_descriptor_sets = create_descriptor_layout_pool_and_sets_ringbuffer(ctx,
-            [(d.count, to_descriptor_type(d.resource.binding_type)) for d in self.desc_reflection.sets[1]], window.num_frames
+            [DescriptorSetBinding(d.count, to_descriptor_type(d.resource.binding_type)) for d in self.desc_reflection.sets[1]], window.num_frames
         )
 
         self.constants_dt = to_dtype(self.desc_reflection.descriptors["frame.constants"].resource.type)

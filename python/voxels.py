@@ -54,8 +54,8 @@ voxels_buf = Buffer.from_data(ctx, voxels, BufferUsageFlags.STORAGE, AllocType.D
 layout, pool, descriptor_sets = create_descriptor_layout_pool_and_sets_ringbuffer(
     ctx,
     [
-        (1, DescriptorType.UNIFORM_BUFFER),
-        (1, DescriptorType.STORAGE_BUFFER),
+        DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
+        DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),
     ],
     window.num_frames,
 )

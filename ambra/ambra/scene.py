@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from enum import Enum, auto
 from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
@@ -199,6 +201,17 @@ class Object3D(Object):
             parent.current_transform_matrix if parent is not None else mat4(1.0)
         ) * self.current_relative_transform.as_mat4()  # type: ignore
 
+class LightTypes(Enum):
+    DIRECTIONAL = 0
+
+@dataclass
+class LightInfo:
+    size: int
+
+
+LIGHT_TYPES_INFO = [
+    LightInfo(64 + 12 + 4 + 12 + 4) # DIRECTIONAL: camera matrix, color, shadowmap_index, direction, bias
+]
 
 class Light(Object3D):
     def render_shadowmaps(self, renderer, frame, scene: "Scene") -> None:  # type: ignore
