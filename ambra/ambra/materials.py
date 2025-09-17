@@ -1,7 +1,8 @@
 from typing import List, Optional, Union
 
 import numpy as np
-from property import BufferProperty, ImageProperty, as_buffer_property, as_image_property
+
+from .property import BufferProperty, ImageProperty, as_buffer_property, as_image_property
 
 
 class ValueMaterialProperty:
@@ -19,11 +20,16 @@ class Material:
         pass
 
 
-def check_material_property(property: Union[ValueMaterialProperty, TextureMaterialProperty], channels: int):
+def check_material_property(
+    property: Union[ValueMaterialProperty, TextureMaterialProperty], channels: int
+) -> Union[ValueMaterialProperty, TextureMaterialProperty]:
     if isinstance(property, ValueMaterialProperty):
         pass
     elif isinstance(property, ValueMaterialProperty):
         pass
+    else:
+        raise TypeError(f"Unhandled type: {type(property)}")
+    return property
 
 
 class BaseColorMaterial(Material):
@@ -47,6 +53,10 @@ class RoughnessMetallicMaterial(Material):
         roughness_metallic: Optional[Union[ValueMaterialProperty, TextureMaterialProperty]],
     ):
         self.albedo = check_material_property(albedo, 3)
+        self.metallic_roughness: Optional[Union[ValueMaterialProperty, TextureMaterialProperty]] = None
+        self.roughness: Optional[Union[ValueMaterialProperty, TextureMaterialProperty]] = None
+        self.metallic: Optional[Union[ValueMaterialProperty, TextureMaterialProperty]] = None
+
         properties = [albedo]
         if roughness is not None or metallic is not None:
             if roughness is None or metallic is None:
@@ -55,14 +65,11 @@ class RoughnessMetallicMaterial(Material):
                 raise ValueError("if roughness or metallic are not None, roughness_metallic must be None")
             self.roughness = check_material_property(roughness, 1)
             self.metallic = check_material_property(metallic, 1)
-            self.metallic_roughness = None
             properties.append(roughness)
             properties.append(metallic)
         else:
             if roughness_metallic is None:
                 raise ValueError("roughness, metallic, or roughness_metallic must be not None")
-            self.roughness = None
-            self.metallic = None
             self.roughness_metallic = check_material_property(roughness_metallic, 2)
             properties.append(roughness_metallic)
 

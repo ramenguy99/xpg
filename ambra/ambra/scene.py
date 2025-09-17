@@ -201,7 +201,7 @@ class Object3D(Object):
 
 
 class Light(Object3D):
-    def render_shadowmaps(self, renderer, frame, scene: "Scene") -> None:
+    def render_shadowmaps(self, renderer, frame, scene: "Scene") -> None:  # type: ignore
         pass
 
 
@@ -286,6 +286,6 @@ class Scene:
     def render_shadowmaps(self, renderer, frame) -> None:  # type: ignore
         def visit(o: Object) -> None:
             if isinstance(o, Light):
-                o.render_shadowmaps(renderer, frame, self)  # type: ignore
+                o.render_shadowmaps(renderer, frame, self)
 
         self.visit_objects(visit)

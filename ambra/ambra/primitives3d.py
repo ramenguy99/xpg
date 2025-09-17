@@ -7,7 +7,6 @@ from pyxpg import (
     CullMode,
     Depth,
     DescriptorSet,
-    DescriptorSetEntry,
     DescriptorType,
     DeviceFeatures,
     Filter,
@@ -35,7 +34,8 @@ from .property import BufferProperty, ImageProperty
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object3D
-from .utils.ring_buffer import RingBuffer
+from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
+from .utils.gpu import UniformBlockAllocation
 
 
 class Lines(Object3D):
@@ -103,13 +103,13 @@ class Lines(Object3D):
             ),
             attachments=[Attachment(format=r.output_format)],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
-            descriptor_sets=[
-                r.descriptor_sets.get_current(),
-                r.uniform_pool.descriptor_set,
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+                r.uniform_pool.descriptor_set_layout,
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
+    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         self.constants["transform"] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
@@ -121,7 +121,7 @@ class Lines(Object3D):
                 self.colors_buffer.get_current(),
             ],
             descriptor_sets=[
-                descriptor_set,
+                scene_descriptor_set,
                 constants_alloc.descriptor_set,
             ],
             dynamic_offsets=[constants_alloc.offset],
@@ -173,19 +173,17 @@ class Image(Object3D):
             }
         )  # type: ignore
         self.constants = np.zeros((1,), constants_dtype)
-        self.descriptor_sets = RingBuffer(
-            [
-                DescriptorSet(
-                    r.ctx,
-                    [
-                        DescriptorSetEntry(1, DescriptorType.SAMPLER),
-                        DescriptorSetEntry(1, DescriptorType.SAMPLED_IMAGE),
-                    ],
-                )
-                for _ in range(r.window.num_frames)
-            ]
+        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
+            create_descriptor_layout_pool_and_sets_ringbuffer(
+                r.ctx,
+                [
+                    (1, DescriptorType.SAMPLER),
+                    (1, DescriptorType.SAMPLED_IMAGE),
+                ],
+                r.window.num_frames,
+            )
         )
-        for set in self.descriptor_sets.items:
+        for set in self.descriptor_sets:
             set.write_sampler(self.sampler, 0)
 
         vert = r.get_builtin_shader("3d/basic_texture.slang", "vertex_main")
@@ -200,14 +198,14 @@ class Image(Object3D):
             ],
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_STRIP),
             attachments=[Attachment(format=r.output_format)],
-            descriptor_sets=[
-                r.descriptor_sets.get_current(),
-                r.uniform_pool.descriptor_set,
-                self.descriptor_sets.get_current(),
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+                r.uniform_pool.descriptor_set_layout,
+                self.descriptor_set_layout,
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
+    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         self.constants["transform"] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
@@ -223,7 +221,7 @@ class Image(Object3D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             descriptor_sets=[
-                descriptor_set,
+                scene_descriptor_set,
                 constants_alloc.descriptor_set,
                 descriptor_set,
             ],
@@ -307,9 +305,9 @@ class Mesh(Object3D):
             input_assembly=InputAssembly(self.primitive_topology),
             attachments=[Attachment(format=r.output_format)],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
-            descriptor_sets=[
-                r.descriptor_sets.get_current(),
-                r.uniform_pool.descriptor_set,
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+                r.uniform_pool.descriptor_set_layout,
             ],
         )
 
@@ -331,20 +329,21 @@ class Mesh(Object3D):
             input_assembly=InputAssembly(self.primitive_topology),
             attachments=[],
             depth=Depth(r.shadowmap_format, True, True, r.depth_compare_op),
-            descriptor_sets=[
-                r.descriptor_sets.get_current(),  # HACK: this only works because normal rendering and showmap layouts are currently equal
-                r.uniform_pool.descriptor_set,
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,  # HACK: this only works because normal rendering and showmap layouts are currently equal
+                r.uniform_pool.descriptor_set_layout,
             ],
         )
 
-        self.constants_alloc = None
+        self.constants_alloc: Optional[UniformBlockAllocation] = None
 
     def upload(self, r: Renderer, frame: RendererFrame) -> None:
         self.constants["transform"] = self.current_transform_matrix
         self.constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         self.constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
 
-    def render_depth(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
+    def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        assert self.constants_alloc is not None
         index_buffer = self.indices_buffer.get_current() if self.indices_buffer is not None else None
         frame.cmd.bind_graphics_pipeline(
             self.depth_pipeline,
@@ -353,7 +352,7 @@ class Mesh(Object3D):
             ],
             index_buffer=index_buffer,
             descriptor_sets=[
-                descriptor_set,
+                scene_descriptor_set,
                 self.constants_alloc.descriptor_set,
             ],
             dynamic_offsets=[self.constants_alloc.offset],
@@ -364,7 +363,8 @@ class Mesh(Object3D):
         else:
             frame.cmd.draw(self.positions.get_current().shape[0])
 
-    def render(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
+    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        assert self.constants_alloc is not None
         index_buffer = self.indices_buffer.get_current() if self.indices_buffer is not None else None
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -374,7 +374,7 @@ class Mesh(Object3D):
             ],
             index_buffer=index_buffer,
             descriptor_sets=[
-                descriptor_set,
+                scene_descriptor_set,
                 self.constants_alloc.descriptor_set,
             ],
             dynamic_offsets=[self.constants_alloc.offset],
@@ -514,18 +514,16 @@ class AnimatedMesh(Object3D):
         )  # type: ignore
         self.constants = np.zeros((1,), constants_dtype)
 
-        self.descriptor_sets = RingBuffer(
-            [
-                DescriptorSet(
-                    r.ctx,
-                    [
-                        DescriptorSetEntry(1, DescriptorType.SAMPLER),
-                        DescriptorSetEntry(1, DescriptorType.SAMPLED_IMAGE),
-                        DescriptorSetEntry(1, DescriptorType.STORAGE_BUFFER),
-                    ],
-                )
-                for _ in range(r.window.num_frames)
-            ]
+        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
+            create_descriptor_layout_pool_and_sets_ringbuffer(
+                r.ctx,
+                [
+                    (1, DescriptorType.SAMPLER),
+                    (1, DescriptorType.SAMPLED_IMAGE),
+                    (1, DescriptorType.STORAGE_BUFFER),
+                ],
+                r.window.num_frames,
+            )
         )
         for set in self.descriptor_sets.items:
             set.write_sampler(self.sampler, 0)
@@ -560,14 +558,14 @@ class AnimatedMesh(Object3D):
             input_assembly=InputAssembly(self.primitive_topology),
             attachments=[Attachment(format=r.output_format)],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
-            descriptor_sets=[
-                r.descriptor_sets.get_current(),
-                r.uniform_pool.descriptor_set,
-                self.descriptor_sets.get_current(),
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+                r.uniform_pool.descriptor_set_layout,
+                self.descriptor_set_layout,
             ],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
+    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         self.constants["transform"] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
@@ -598,7 +596,7 @@ class AnimatedMesh(Object3D):
             ],
             index_buffer=index_buffer,
             descriptor_sets=[
-                descriptor_set,
+                scene_descriptor_set,
                 constants_alloc.descriptor_set,
                 descriptor_set,
             ],

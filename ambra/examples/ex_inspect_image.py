@@ -3,6 +3,7 @@ from pyglm.glm import ivec2, vec2
 from pyxpg import *
 
 from ambra.config import Config, GuiConfig
+from ambra.utils.descriptors import create_descriptor_layout_pool_and_set
 from ambra.utils.hook import hook
 from ambra.viewer import Viewer
 
@@ -105,10 +106,12 @@ sampler = Sampler(
     v=SamplerAddressMode.CLAMP_TO_BORDER,
     border_color=BorderColor.FLOAT_OPAQUE_BLACK,
 )
-set = DescriptorSet(
+
+# TODO: fix this to use new stuff
+layout, pool, set = create_descriptor_layout_pool_and_set(
     viewer.ctx,
     [
-        DescriptorSetEntry(1, DescriptorType.COMBINED_IMAGE_SAMPLER),
+        (1, DescriptorType.COMBINED_IMAGE_SAMPLER),
     ],
 )
 set.write_combined_image_sampler(img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, sampler, 0)

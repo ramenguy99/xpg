@@ -3,10 +3,14 @@ import struct
 from pathlib import Path
 
 import numpy as np
+from pyglm.glm import ivec2
+from pyxpg import *
 
 from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig, RendererConfig, UploadMethod
+from ambra.lights import DirectionalLight
 from ambra.primitives3d import Mesh
 from ambra.property import BufferProperty, UploadSettings
+from ambra.utils.descriptors import create_descriptor_layout_pool_and_set
 from ambra.utils.hook import hook
 from ambra.utils.io import (
     read_exact,
@@ -14,10 +18,6 @@ from ambra.utils.io import (
     read_exact_at_offset_into,
 )
 from ambra.viewer import Action, Key, Modifiers, Viewer, imgui
-from ambra.lights import DirectionalLight
-
-from pyxpg import *
-from pyglm.glm import ivec2
 
 logging.basicConfig(
     level=logging.NOTSET,
@@ -73,7 +73,7 @@ mesh = Mesh(positions, indices=indices)
 
 
 class CustomViewer(Viewer):
-    def __init__(self, title = "ambra", config = None, key_map = None):
+    def __init__(self, title="ambra", config=None, key_map=None):
         super().__init__(title, config, key_map)
         self._texture = None
 
@@ -94,13 +94,15 @@ class CustomViewer(Viewer):
                         v=SamplerAddressMode.CLAMP_TO_BORDER,
                         border_color=BorderColor.FLOAT_OPAQUE_BLACK,
                     )
-                    set = DescriptorSet(
+                    layout, pool, set = create_descriptor_layout_pool_and_set(
                         viewer.ctx,
                         [
-                            DescriptorSetEntry(1, DescriptorType.COMBINED_IMAGE_SAMPLER),
+                            (1, DescriptorType.COMBINED_IMAGE_SAMPLER),
                         ],
                     )
-                    set.write_combined_image_sampler(light.shadow_map, ImageLayout.SHADER_READ_ONLY_OPTIMAL, sampler, 0)
+                    set.write_combined_image_sampler(
+                        light.shadow_map, ImageLayout.SHADER_READ_ONLY_OPTIMAL, sampler, 0
+                    )
                     self._texture = imgui.Texture(set)
                 avail = imgui.get_content_region_avail()
                 available = ivec2(avail.x, avail.y)

@@ -4,14 +4,13 @@ from typing import Optional, Union
 import numpy as np
 from pyglm.glm import inverse, orthoRH_ZO
 from pyxpg import (
-    ImageAspectFlags,
     AllocType,
     BufferUsageFlags,
     DepthAttachment,
     DescriptorSet,
-    DescriptorSetEntry,
     DescriptorType,
     Image,
+    ImageAspectFlags,
     ImageLayout,
     ImageUsageFlags,
     LoadOp,
@@ -23,6 +22,7 @@ from .property import BufferProperty
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Light, Scene
+from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import UploadableBuffer
 from .utils.ring_buffer import RingBuffer
 
@@ -82,7 +82,7 @@ class DirectionalLight(Light):
         self.radiance = self.add_buffer_property(radiance, np.float32, (3,), name="radiance")
         self.shadow_settings = shadow_settings if shadow_settings is not None else DirectionalShadowSettings()
 
-    def create(self, r: Renderer):
+    def create(self, r: Renderer) -> None:
         if not self.shadow_settings.casts_shadow:
             return
 
@@ -97,17 +97,17 @@ class DirectionalLight(Light):
         )
         self.shadow_map_viewport = [0, 0, self.shadow_settings.shadow_map_size, self.shadow_settings.shadow_map_size]
 
-        self.descriptor_sets = RingBuffer(
-            [
-                DescriptorSet(
-                    r.ctx,
-                    [
-                        DescriptorSetEntry(1, DescriptorType.UNIFORM_BUFFER),
-                    ],
-                )
-                for _ in range(r.window.num_frames)
-            ]
+        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
+            create_descriptor_layout_pool_and_sets_ringbuffer(
+                r.ctx,
+                [
+                    (1, DescriptorType.UNIFORM_BUFFER),
+                ],
+                r.window.num_frames,
+                name="scene-descriptors",
+            )
         )
+
         constants_dtype = np.dtype(
             {
                 "camera": (np.dtype((np.float32, (4, 4))), 0),
@@ -120,7 +120,7 @@ class DirectionalLight(Light):
                 for _ in range(r.window.num_frames)
             ]
         )
-        for set, buf in zip(self.descriptor_sets.items, self.uniform_buffers.items):
+        for set, buf in zip(self.descriptor_sets, self.uniform_buffers):
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         self.projection = orthoRH_ZO(
@@ -132,14 +132,14 @@ class DirectionalLight(Light):
             self.shadow_settings.z_far,
         )
 
-    def render_shadowmaps(self, renderer: Renderer, frame: RendererFrame, scene: Scene):
+    def render_shadowmaps(self, renderer: Renderer, frame: RendererFrame, scene: Scene) -> None:
         if not self.shadow_settings.casts_shadow:
             return
 
         set: DescriptorSet = self.descriptor_sets.get_current_and_advance()
         buf: UploadableBuffer = self.uniform_buffers.get_current_and_advance()
 
-        self.constants["camera"] = self.projection * inverse(self.current_transform_matrix)  # type: ignore
+        self.constants["camera"] = self.projection * inverse(self.current_transform_matrix)
         buf.upload(
             frame.cmd,
             MemoryUsage.ANY_SHADER_UNIFORM,

@@ -14,7 +14,7 @@ from .ring_buffer import RingBuffer
 
 
 def create_descriptor_layout_pool_and_set(
-    ctx: Context, bindings: Tuple[int, DescriptorType], name: Optional[str] = None
+    ctx: Context, bindings: List[Tuple[int, DescriptorType]], name: Optional[str] = None
 ) -> Tuple[DescriptorSetLayout, DescriptorPool, DescriptorSet]:
     layout = DescriptorSetLayout(ctx, [DescriptorSetBinding(c, t) for c, t in bindings], name=name)
     pool = DescriptorPool(ctx, [DescriptorPoolSize(c, t) for c, t in bindings], 1, name=name)
@@ -23,7 +23,7 @@ def create_descriptor_layout_pool_and_set(
 
 
 def create_descriptor_layout_pool_and_sets(
-    ctx: Context, bindings: Tuple[int, DescriptorType], count: int, name: Optional[str] = None
+    ctx: Context, bindings: List[Tuple[int, DescriptorType]], count: int, name: Optional[str] = None
 ) -> Tuple[DescriptorSetLayout, DescriptorPool, List[DescriptorSet]]:
     layout = DescriptorSetLayout(ctx, [DescriptorSetBinding(c, t) for c, t in bindings], name=name)
     pool = DescriptorPool(ctx, [DescriptorPoolSize(c * count, t) for c, t in bindings], count, name=name)
@@ -32,7 +32,7 @@ def create_descriptor_layout_pool_and_sets(
 
 
 def create_descriptor_layout_pool_and_sets_ringbuffer(
-    ctx: Context, bindings: Tuple[int, DescriptorType], count: int, name: Optional[str] = None
+    ctx: Context, bindings: List[Tuple[int, DescriptorType]], count: int, name: Optional[str] = None
 ) -> Tuple[DescriptorSetLayout, DescriptorPool, RingBuffer[DescriptorSet]]:
     layout, pool, sets = create_descriptor_layout_pool_and_sets(ctx, bindings, count, name)
     return layout, pool, RingBuffer(sets)

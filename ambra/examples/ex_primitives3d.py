@@ -3,7 +3,7 @@ from pyglm.glm import vec3
 
 from ambra.config import CameraConfig, Config, PlaybackConfig
 from ambra.primitives3d import Lines
-from ambra.scene import (
+from ambra.property import (
     AnimationBoundary,
     FrameAnimation,
     as_buffer_property,
