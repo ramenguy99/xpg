@@ -81,7 +81,7 @@ class Renderer:
                 [
                     DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
                     *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in LIGHT_TYPES_INFO],
-                    DescriptorSetBinding(config.max_shadowmaps, DescriptorType.COMBINED_IMAGE_SAMPLER),
+                    DescriptorSetBinding(config.max_shadowmaps, DescriptorType.SAMPLED_IMAGE),
                 ],
                 window.num_frames,
                 name="scene-descriptors",
@@ -126,8 +126,8 @@ class Renderer:
 
         for set, buf, light_bufs in zip(self.scene_descriptor_sets, self.uniform_buffers, self.light_buffers):
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
-            for i, light_buf in enumerate(light_bufs):
-                set.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 1, i)
+            # for i, light_buf in enumerate(light_bufs):
+            #     set.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 1, i)
 
         self.uniform_pool = UniformPool(ctx, window.num_frames, config.uniform_pool_block_size)
 

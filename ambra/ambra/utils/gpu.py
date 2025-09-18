@@ -8,6 +8,7 @@ from pyxpg import (
     BufferUsageFlags,
     CommandBuffer,
     Context,
+    CullMode,
     DescriptorPool,
     DescriptorSet,
     DescriptorSetBinding,
@@ -500,7 +501,7 @@ class UniformPool:
                 b,
                 DescriptorType.UNIFORM_BUFFER_DYNAMIC,
                 0,
-                size=self.max_uniform_buffer_range,
+                size=min(self.max_uniform_buffer_range, size)
             )
 
         # Sync ringbuffer index, not necessary but makes for easier debugging
@@ -596,3 +597,12 @@ def format_from_channels_dtype(channels: int, dtype: np.dtype, integer: bool = F
         raise RuntimeError(
             f"Channels ({channels}) and dtype ({dtype}) combination does not match any format"
         ) from KeyError
+
+
+def cull_mode_opposite_face(mode: CullMode) -> CullMode:
+    if mode == CullMode.FRONT:
+        return CullMode.BACK
+    elif mode == CullMode.BACK:
+        return CullMode.FRONT
+    else:
+        return mode

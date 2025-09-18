@@ -36,7 +36,7 @@ from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object3D
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
-from .utils.gpu import UniformBlockAllocation
+from .utils.gpu import UniformBlockAllocation, cull_mode_opposite_face
 
 
 class Lines(Object3D):
@@ -326,7 +326,7 @@ class Mesh(Object3D):
             vertex_attributes=[
                 VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
             ],
-            rasterization=Rasterization(cull_mode=self.cull_mode, front_face=self.front_face),
+            rasterization=Rasterization(cull_mode=cull_mode_opposite_face(self.cull_mode), front_face=self.front_face),
             input_assembly=InputAssembly(self.primitive_topology),
             attachments=[],
             depth=Depth(r.shadowmap_format, True, True, r.depth_compare_op),

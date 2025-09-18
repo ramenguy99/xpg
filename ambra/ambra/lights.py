@@ -116,8 +116,8 @@ class DirectionalLight(Light):
                 for _ in range(r.window.num_frames)
             ]
         )
-        for set, buf in zip(self.descriptor_sets, self.uniform_buffers):
-            set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
+        # for set, buf in zip(self.descriptor_sets, self.uniform_buffers):
+        #     set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0, size=18446744073709551615)
 
         # TODO: this and other matrices should be using config to know what is the deafult data handedness
         # we should also have default front/back face winding andr require dynamic state for culling mode.
