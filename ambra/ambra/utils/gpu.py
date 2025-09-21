@@ -497,12 +497,7 @@ class UniformPool:
             size=size,
         )
         for s, b in zip(block.descriptor_sets, block.buffers):
-            s.write_buffer(
-                b,
-                DescriptorType.UNIFORM_BUFFER_DYNAMIC,
-                0,
-                size=min(self.max_uniform_buffer_range, size)
-            )
+            s.write_buffer(b, DescriptorType.UNIFORM_BUFFER_DYNAMIC, 0, size=min(self.max_uniform_buffer_range, size))
 
         # Sync ringbuffer index, not necessary but makes for easier debugging
         if self.blocks:

@@ -189,7 +189,7 @@ Dynamic light count notes:
 - There is a world where we focus really on the bindless and can cache most
   object draws, materials and lights into indirect execution buffers and render a
   lot of objects really fast in python. However this comes at a cost of complexity
-  in terms of delta tracking and manual invalidation tracking. This trades ease of
+  in terms of tracking changes and manual invalidation. This trades ease of
   use for perf, but it's not currently obvious how worth the trade is.
 
 Bindless:

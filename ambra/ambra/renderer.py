@@ -1,11 +1,12 @@
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 from pyxpg import (
     AllocType,
+    BorderColor,
     BufferUsageFlags,
     CompareOp,
     Context,
@@ -14,6 +15,7 @@ from pyxpg import (
     DescriptorSetLayout,
     DescriptorType,
     DeviceFeatures,
+    Filter,
     Format,
     Gui,
     Image,
@@ -25,6 +27,8 @@ from pyxpg import (
     PhysicalDeviceType,
     PipelineStageFlags,
     RenderingAttachment,
+    Sampler,
+    SamplerAddressMode,
     StoreOp,
     SwapchainOutOfDateError,
     Window,
@@ -35,7 +39,7 @@ from .config import RendererConfig, UploadMethod
 from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .property import BufferProperty, ImageProperty
 from .renderer_frame import RendererFrame
-from .scene import LIGHT_TYPES_INFO
+from .scene import LIGHT_TYPES_INFO, LightTypes
 from .shaders import compile
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import (
@@ -75,13 +79,28 @@ class Renderer:
         self.background_color = config.background_color
 
         # Scene descriptors
+        self.max_shadowmaps = config.max_shadowmaps
+        self.num_shadowmaps = 0
+
+        self.shadow_sampler = Sampler(
+            ctx,
+            Filter.LINEAR,
+            Filter.LINEAR,
+            u=SamplerAddressMode.CLAMP_TO_BORDER,
+            v=SamplerAddressMode.CLAMP_TO_BORDER,
+            compare_enable=True,
+            compare_op=CompareOp.LESS,
+            border_color=BorderColor.FLOAT_OPAQUE_WHITE,
+            name="shadow-sampler",
+        )
         self.scene_descriptor_set_layout, self.scene_descriptor_pool, self.scene_descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
                 ctx,
                 [
                     DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
                     *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in LIGHT_TYPES_INFO],
-                    DescriptorSetBinding(config.max_shadowmaps, DescriptorType.SAMPLED_IMAGE),
+                    DescriptorSetBinding(self.max_shadowmaps, DescriptorType.SAMPLED_IMAGE),
+                    DescriptorSetBinding(1, DescriptorType.SAMPLER),
                 ],
                 window.num_frames,
                 name="scene-descriptors",
@@ -113,11 +132,12 @@ class Renderer:
             ]
         )
 
+        self.max_lights_per_type = config.max_lights_per_type
         self.num_lights = [0] * len(LIGHT_TYPES_INFO)
         self.light_buffers = RingBuffer(
             [
                 [
-                    UploadableBuffer(ctx, info.size * config.max_lights, BufferUsageFlags.STORAGE)
+                    UploadableBuffer(ctx, info.size * self.max_lights_per_type, BufferUsageFlags.STORAGE)
                     for info in LIGHT_TYPES_INFO
                 ]
                 for _ in range(window.num_frames)
@@ -126,8 +146,9 @@ class Renderer:
 
         for set, buf, light_bufs in zip(self.scene_descriptor_sets, self.uniform_buffers, self.light_buffers):
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
-            # for i, light_buf in enumerate(light_bufs):
-            #     set.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 1, i)
+            set.write_sampler(self.shadow_sampler, 3, 0)
+            for i, light_buf in enumerate(light_bufs):
+                set.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 1, i)
 
         self.uniform_pool = UniformPool(ctx, window.num_frames, config.uniform_pool_block_size)
 
@@ -271,9 +292,42 @@ class Renderer:
         self.gpu_properties.append(prop)
         return prop
 
-    def add_light(self, shadow_map: Optional[Image]):
-        # TODO: register shadowmap here (write descriptor, return index)
-        pass
+    def add_light(self, light_type: LightTypes, shadowmap: Optional[Image]) -> Tuple[int, int]:
+        if self.num_lights[light_type.value] >= self.max_lights_per_type:
+            raise RuntimeError(
+                f'Too many ligths of type: {light_type}. Increase "config.renderer.max_lights_per_type" (current value: {self.max_lights_per_type}) to allow more lights.'
+            )
+
+        # Allocate light
+        light_idx = self.num_lights[light_type.value]
+        self.num_lights[light_type.value] += 1
+
+        shadowmap_idx = -1
+        if shadowmap is not None:
+            if self.num_shadowmaps >= self.max_shadowmaps:
+                raise RuntimeError(
+                    f'Too many shadowmaps. Increase "config.renderer.max_shadowmaps" (current value: {self.max_shadowmaps}) to allow more shadowmaps.'
+                )
+
+            # Allocate light
+            shadowmap_idx = self.num_shadowmaps
+            self.num_shadowmaps += 1
+
+            for s in self.scene_descriptor_sets:
+                s.write_image(
+                    shadowmap,
+                    ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                    DescriptorType.SAMPLED_IMAGE,
+                    1 + len(LIGHT_TYPES_INFO),
+                    shadowmap_idx,
+                )
+
+        return light_idx * LIGHT_TYPES_INFO[light_type.value].size, shadowmap_idx
+
+    def upload_light(self, frame: RendererFrame, light_type: LightTypes, data: memoryview, offset: int) -> None:
+        self.light_buffers.get_current()[light_type.value].upload(
+            frame.cmd, MemoryUsage.SHADER_READ_ONLY, data, offset
+        )
 
     def get_builtin_shader(self, name: str, entry: str) -> slang.Shader:
         path = SHADERS_PATH.joinpath(name)
@@ -314,6 +368,8 @@ class Renderer:
             self.constants["projection"] = viewport.camera.projection()
             self.constants["view"] = viewport.camera.view()
             self.constants["camera_position"] = -viewport.camera.camera_from_world.translation
+            self.constants["num_lights"] = self.num_lights
+
             buf.upload(
                 cmd,
                 MemoryUsage.ANY_SHADER_UNIFORM,
@@ -418,4 +474,5 @@ class Renderer:
             p.prefetch()
 
         self.uniform_pool.advance()
+        self.light_buffers.advance()
         self.total_frame_index += 1

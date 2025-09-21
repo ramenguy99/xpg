@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 import numpy as np
-from pyglm.glm import inverse, orthoRH_ZO
+from pyglm.glm import inverse, orthoRH_ZO, vec3, vec4
 from pyxpg import (
     AllocType,
     BufferUsageFlags,
@@ -17,10 +17,10 @@ from pyxpg import (
     StoreOp,
 )
 
-from .property import BufferProperty
+from .property import BufferProperty, view_bytes
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
-from .scene import Light, Scene
+from .scene import Light, LightTypes, Scene, directional_light_dtype
 from .utils.descriptors import create_descriptor_pool_and_sets_ringbuffer
 from .utils.gpu import UploadableBuffer
 from .utils.ring_buffer import RingBuffer
@@ -81,68 +81,79 @@ class DirectionalLight(Light):
         super().__init__(name, translation, rotation, scale)
         self.radiance = self.add_buffer_property(radiance, np.float32, (3,), name="radiance")
         self.shadow_settings = shadow_settings if shadow_settings is not None else DirectionalShadowSettings()
+        self.shadow_map: Optional[Image] = None
 
     def create(self, r: Renderer) -> None:
-        if not self.shadow_settings.casts_shadow:
-            return
-
-        self.shadow_map = Image(
-            r.ctx,
-            self.shadow_settings.shadow_map_size,
-            self.shadow_settings.shadow_map_size,
-            r.shadowmap_format,
-            ImageUsageFlags.SAMPLED | ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT,
-            AllocType.DEVICE,
-            name=f"{self.name}-shadowmap",
-        )
-        self.shadow_map_index = r.add_light(self.shadow_map)
-        self.shadow_map_viewport = [0, 0, self.shadow_settings.shadow_map_size, self.shadow_settings.shadow_map_size]
-
-        self.descriptor_pool, self.descriptor_sets = create_descriptor_pool_and_sets_ringbuffer(
-            r.ctx, r.scene_depth_descriptor_set_layout, r.window.num_frames, name="scene-descriptors"
-        )
-
-        constants_dtype = np.dtype(
-            {
-                "camera_matrix": (np.dtype((np.float32, (4, 4))), 0),
-            }
-        )
-
-        self.constants = np.zeros((1,), constants_dtype)
-
-        self.uniform_buffers = RingBuffer(
-            [
-                UploadableBuffer(r.ctx, constants_dtype.itemsize, BufferUsageFlags.UNIFORM)
-                for _ in range(r.window.num_frames)
+        if self.shadow_settings.casts_shadow:
+            self.shadow_map = Image(
+                r.ctx,
+                self.shadow_settings.shadow_map_size,
+                self.shadow_settings.shadow_map_size,
+                r.shadowmap_format,
+                ImageUsageFlags.SAMPLED | ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT,
+                AllocType.DEVICE,
+                name=f"{self.name}-shadowmap",
+            )
+            self.shadow_map_viewport = [
+                0,
+                0,
+                self.shadow_settings.shadow_map_size,
+                self.shadow_settings.shadow_map_size,
             ]
-        )
-        # for set, buf in zip(self.descriptor_sets, self.uniform_buffers):
-        #     set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0, size=18446744073709551615)
 
-        # TODO: this and other matrices should be using config to know what is the deafult data handedness
-        # we should also have default front/back face winding andr require dynamic state for culling mode.
-        self.projection = orthoRH_ZO(
-            -self.shadow_settings.half_extent,
-            self.shadow_settings.half_extent,
-            -self.shadow_settings.half_extent,
-            self.shadow_settings.half_extent,
-            self.shadow_settings.z_near,
-            self.shadow_settings.z_far,
-        )
+            self.descriptor_pool, self.descriptor_sets = create_descriptor_pool_and_sets_ringbuffer(
+                r.ctx, r.scene_depth_descriptor_set_layout, r.window.num_frames, name="scene-descriptors"
+            )
+
+            constants_dtype = np.dtype(
+                {
+                    "camera_matrix": (np.dtype((np.float32, (4, 4))), 0),
+                }
+            )  # type: ignore
+
+            self.constants = np.zeros((1,), constants_dtype)
+
+            self.uniform_buffers = RingBuffer(
+                [
+                    UploadableBuffer(r.ctx, constants_dtype.itemsize, BufferUsageFlags.UNIFORM)
+                    for _ in range(r.window.num_frames)
+                ]
+            )
+            for set, buf in zip(self.descriptor_sets, self.uniform_buffers):
+                set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
+
+            # TODO: this and other matrices should be using config to know what is the deafult data handedness
+            # we should also have default front/back face winding andr require dynamic state for culling mode.
+            self.projection = orthoRH_ZO(
+                -self.shadow_settings.half_extent,
+                self.shadow_settings.half_extent,
+                -self.shadow_settings.half_extent,
+                self.shadow_settings.half_extent,
+                self.shadow_settings.z_near,
+                self.shadow_settings.z_far,
+            )
+
+        self.light_buffer_offset, self.shadowmap_index = r.add_light(LightTypes.DIRECTIONAL, self.shadow_map)
+        self.light_info = np.zeros((1,), directional_light_dtype)
+
+    def upload(self, renderer: Renderer, frame: RendererFrame) -> None:
+        view = inverse(self.current_transform_matrix)
+        direction = vec3(self.current_transform_matrix * vec4(0, 0, 1, 0))
+        self.light_info["orthographic_camera"] = self.projection * view
+        self.light_info["radiance"] = self.radiance.get_current()
+        self.light_info["shadowmap_index"] = self.shadowmap_index
+        self.light_info["direction"] = direction
+        self.light_info["bias"] = self.shadow_settings.bias
+        renderer.upload_light(frame, LightTypes.DIRECTIONAL, view_bytes(self.light_info), self.light_buffer_offset)
 
     def render_shadowmaps(self, renderer: Renderer, frame: RendererFrame, scene: Scene) -> None:
         if not self.shadow_settings.casts_shadow:
             return
 
+        assert self.shadow_map is not None
+
         view = inverse(self.current_transform_matrix)
         self.constants["camera_matrix"] = self.projection * view
-
-        # direction = vec3(view * vec4(0, 0, 1, 0))
-        # self.constants["orthographic_camera"] = self.projection * view
-        # self.constants["radiance"] = self.radiance.get_current()
-        # self.constants["shadow_map_index"] = self.shadow_map_index
-        # self.constants["direction"] = direction
-        # self.constants["bias"] = self.shadow_settings.bias
 
         set = self.descriptor_sets.get_current_and_advance()
         buf = self.uniform_buffers.get_current_and_advance()

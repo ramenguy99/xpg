@@ -217,9 +217,9 @@ directional_light_dtype = np.dtype(
         "radiance": (np.dtype((np.float32, (3,))), 64),
         "shadowmap_index": (np.dtype((np.uint32, (1,))), 76),
         "direction": (np.dtype((np.float32, (3,))), 80),
-        "bias": (np.dtype((np.float32, (1,))), 84),
+        "bias": (np.dtype((np.float32, (1,))), 92),
     }
-)
+)  # type: ignore
 
 # When adding a new light type, this also has to be added with a matching type to "shaders/2d/scene.slang" and "shaders/3d/scene.slang"
 LIGHT_TYPES_INFO = [
