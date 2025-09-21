@@ -3438,6 +3438,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("RIGHT_ALT",             gfx::Key::RightAlt)
         .value("RIGHT_SUPER",           gfx::Key::RightSuper)
         .value("MENU",                  gfx::Key::Menu)
+        .value("UNKNOWN",               gfx::Key::Unknown)
     ;
 
     nb::enum_<gfx::MouseButton>(m, "MouseButton")

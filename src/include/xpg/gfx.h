@@ -267,7 +267,7 @@ enum class Modifiers: u32 {
     Super = GLFW_MOD_SUPER,
 };
 
-enum class Key: u32 {
+enum class Key: s32 {
     Space         = GLFW_KEY_SPACE,
     Apostrophe    = GLFW_KEY_APOSTROPHE,
     Comma         = GLFW_KEY_COMMA,
@@ -388,6 +388,8 @@ enum class Key: u32 {
     RightAlt      = GLFW_KEY_RIGHT_ALT,
     RightSuper    = GLFW_KEY_RIGHT_SUPER,
     Menu          = GLFW_KEY_MENU,
+
+    Unknown       = GLFW_KEY_UNKNOWN,
 };
 
 struct WindowCallbacks {

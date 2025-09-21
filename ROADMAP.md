@@ -291,6 +291,9 @@ Python:
             - Remove deprecated stuff (breaks parsing)
             - Remove usage of imgui macors (also breaksparsing)
     - [ ] See if there is a way to fix direct _pyxpg.imgui imports to use pyxpg.imgui instead, same for _pyxpg.DescriptorSet in imgui
+    - [ ] Window callbacks with values from GLFW that we do not directly expose as python enums fail with std::runtime_error Bad Cast from nanobind
+          trying to cast when converting arguments. We should either catch and handle this or make sure to expose all the options.
+          Currently known potential issueare MouseButton and maybe some missing Key, Modifier, Action?
 
 ## Future
 
