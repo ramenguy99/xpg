@@ -412,22 +412,18 @@ class UploadableImage(Image):
 
 @dataclass
 class UniformBlockAllocation:
-    descriptor_set: DescriptorSet
     buffer: UploadableBuffer
     offset: int
     size: int
 
     def upload(self, cmd: CommandBuffer, data: Union[memoryview, np.ndarray]) -> None:
-        if self.size < len(data):
+        if len(data) > self.size:
             raise IndexError("data is larger than buffer allocation")
         self.buffer.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM, data, self.offset)
 
 
 @dataclass
 class UniformBlock:
-    descriptor_set_layout: DescriptorSetLayout
-    descriptor_pool: DescriptorPool
-    descriptor_sets: RingBuffer[DescriptorSet]
     buffers: RingBuffer[UploadableBuffer]
     size: int
     used: int = 0
@@ -435,7 +431,6 @@ class UniformBlock:
     def alloc(self, size: int, alignment: int) -> UniformBlockAllocation:
         assert self.used + size < self.size
         alloc = UniformBlockAllocation(
-            self.descriptor_sets.get_current(),
             self.buffers.get_current(),
             self.used,
             size,
@@ -444,7 +439,6 @@ class UniformBlock:
         return alloc
 
     def advance(self) -> None:
-        self.descriptor_sets.advance()
         self.buffers.advance()
         self.used = 0
 
@@ -464,9 +458,6 @@ class UniformPool:
         # Warmup first block
         self._alloc_block(block_size)
 
-        # Grab a descriptor set for pipeline layouts
-        self.descriptor_set_layout = self.blocks[0].descriptor_set_layout
-
     def _alloc_block(self, min_size: int) -> UniformBlock:
         size = max(min_size, self.block_size)
         block_idx = len(self.blocks)
@@ -480,9 +471,6 @@ class UniformPool:
         )
 
         block = UniformBlock(
-            descriptor_set_layout=layout,
-            descriptor_pool=pool,
-            descriptor_sets=sets,
             buffers=RingBuffer(
                 [
                     UploadableBuffer(
@@ -496,14 +484,11 @@ class UniformPool:
             ),
             size=size,
         )
-        for s, b in zip(block.descriptor_sets, block.buffers):
-            s.write_buffer(b, DescriptorType.UNIFORM_BUFFER_DYNAMIC, 0, size=min(self.max_uniform_buffer_range, size))
 
         # Sync ringbuffer index, not necessary but makes for easier debugging
         if self.blocks:
             index = self.blocks[0].buffers.index
             block.buffers.set(index)
-            block.descriptor_sets.set(index)
 
         self.blocks.append(block)
         return block

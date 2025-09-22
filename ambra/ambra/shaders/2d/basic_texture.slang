@@ -7,10 +7,10 @@ struct VSOutput
     float2 uv;
 };
 
-[vk::binding(0, 2)]
+[vk::binding(1, 1)]
 SamplerState g_sampler;
 
-[vk::binding(1, 2)]
+[vk::binding(2, 1)]
 Texture2D g_texture;
 
 [shader("vertex")]

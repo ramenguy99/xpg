@@ -77,6 +77,16 @@ class Lines(Object2D):
         )  # type: ignore
         self.constants = np.zeros((1,), constants_dtype)
 
+        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
+            create_descriptor_layout_pool_and_sets_ringbuffer(
+                r.ctx,
+                [
+                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
+                ],
+                r.window.num_frames,
+            )
+        )
+
         vert = r.get_builtin_shader("2d/basic.slang", "vertex_main")
         frag = r.get_builtin_shader("2d/basic.slang", "pixel_main")
 
@@ -103,7 +113,7 @@ class Lines(Object2D):
             depth=Depth(r.depth_format, False, False, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
-                r.uniform_pool.descriptor_set_layout,
+                self.descriptor_set_layout,
             ],
         )
 
@@ -111,6 +121,9 @@ class Lines(Object2D):
         self.constants["transform"][0, :3, :3] = self.current_transform_matrix
         constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
+
+        descriptor_set = self.descriptor_sets.get_current_and_advance()
+        descriptor_set.write_buffer(constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size)
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -120,9 +133,8 @@ class Lines(Object2D):
             ],
             descriptor_sets=[
                 scene_descriptor_set,
-                constants_alloc.descriptor_set,
+                descriptor_set,
             ],
-            dynamic_offsets=[constants_alloc.offset],
         )
         frame.cmd.set_line_width(
             self.line_width.get_current().item() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
@@ -175,6 +187,7 @@ class Image(Object2D):
             create_descriptor_layout_pool_and_sets_ringbuffer(
                 r.ctx,
                 [
+                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
                     DescriptorSetBinding(1, DescriptorType.SAMPLER),
                     DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
                 ],
@@ -183,7 +196,7 @@ class Image(Object2D):
             )
         )
         for set in self.descriptor_sets:
-            set.write_sampler(self.sampler, 0)
+            set.write_sampler(self.sampler, 1)
 
         vert = r.get_builtin_shader("2d/basic_texture.slang", "vertex_main")
         frag = r.get_builtin_shader("2d/basic_texture.slang", "pixel_main")
@@ -200,7 +213,6 @@ class Image(Object2D):
             depth=Depth(r.depth_format, False, False, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
-                r.uniform_pool.descriptor_set_layout,
                 self.descriptor_set_layout,
             ],
         )
@@ -211,21 +223,20 @@ class Image(Object2D):
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
 
         descriptor_set = self.descriptor_sets.get_current_and_advance()
+        descriptor_set.write_buffer(constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size)
         descriptor_set.write_image(
             self.images.get_current(),
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
             DescriptorType.SAMPLED_IMAGE,
-            1,
+            2,
         )
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             descriptor_sets=[
                 scene_descriptor_set,
-                constants_alloc.descriptor_set,
                 descriptor_set,
             ],
-            dynamic_offsets=[constants_alloc.offset],
         )
 
         frame.cmd.draw(4)

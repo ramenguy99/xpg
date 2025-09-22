@@ -36,6 +36,11 @@ TODO:
     - [ ] Unified render targets? Maybe with opt-out mechanism or special queues?
         - Need to think what level of control the renderables need over how they are rendered.
           Things like transparency and shadow map rendering might want to have something like this anyways.
+- [ ] Descriptors
+    - [ ] See what patterns we can find in primitives and if we can reduce amount of scene / material / object bindings by using
+          Custom renderables might still want to have full control of bindings, but we can't interleave draws that want to reuse existing bound sets,
+          in that case we would need to render those at the end? Can be somehow similar to material based sorting, it it becomes a thing.
+    - [ ] Check if use of descriptor update templates can be useful to unify and speed up descriptor writes
 - [ ] Buffer and image management:
     - [ ] UploadableBuffer and UploadableImage are currently only used
           by renderer for bulk uniforms. I think the main issue with this
@@ -73,10 +78,10 @@ TODO:
     - [x] Transform 2D
     - [x] Cleanup constants dup
 - [x] Uniform pool helper
-    - [ ] Rework how we do descriptors for this. It seems reasonable to me that we will keep the pool
-          for memory managemnt / suballocation, but we need to have custom descriptors written every frame
-          with / without update templates (could be useful in general) or push descriptors.
-          Anyways most primitives will have a set per object
+    - [x] Rework how we do descriptors for this. It seems reasonable to me that we will keep the pool
+          for memory managemnt / suballocation, but we need to have custom descriptors written every frame.
+          Anyways most primitives will have a set per object, right now plan is to have the object contants to
+          be the first binding of the object set.
 - [x] Images and upload
 - [x] .create currently has to be called manually on primitives
 - [x] Streaming properties
@@ -126,9 +131,9 @@ TODO:
     - [ ] Port built-in profiler
     - [ ] Memory breakdown view -> also plot of usage per-frame to spot mid-frame allocs
 - [ ] Shaders
-    - [ ] cache
+    - [ ] cache + hot reloading for dev (?)
     - [ ] export to spirv during package
-    - [ ] hot reloading
+    - [ ] do we want a pipeline / layout cache? Can we do something using frozen dataclasses as hash keys?
 - [x] Config:
     - [x] Improve camera initialization (especially ortho for 2D case)
     - [x] vulkan validation options

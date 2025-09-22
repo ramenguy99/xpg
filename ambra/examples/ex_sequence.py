@@ -87,12 +87,11 @@ class CustomViewer(Viewer):
         imgui.end()
         if imgui.begin("Image"):
             if hasattr(light, "shadow_map"):
-                if self._texture is None:
+                if self._texture is None and light.shadow_map is not None:
                     sampler = Sampler(
                         viewer.ctx,
-                        u=SamplerAddressMode.CLAMP_TO_BORDER,
-                        v=SamplerAddressMode.CLAMP_TO_BORDER,
-                        border_color=BorderColor.FLOAT_OPAQUE_BLACK,
+                        u=SamplerAddressMode.REPEAT,
+                        v=SamplerAddressMode.REPEAT,
                     )
                     layout, pool, set = create_descriptor_layout_pool_and_set(
                         viewer.ctx,
@@ -105,18 +104,21 @@ class CustomViewer(Viewer):
                     )
                     self._sampler = sampler
                     self._texture = imgui.Texture(set)
-                avail = imgui.get_content_region_avail()
-                available = ivec2(avail.x, avail.y)
 
-                ar = 1.0
+                if self._texture is not None:
+                    avail = imgui.get_content_region_avail()
+                    available = ivec2(avail.x, avail.y)
 
-                # height = available.x / ar
-                height = available.y
-                view_size = ivec2(ar * height, height)
-                imgui.image(
-                    self._texture,
-                    imgui.Vec2(*view_size),
-                )
+                    ar = 1.0
+
+                    # height = available.x / ar
+                    height = available.y
+                    view_size = ivec2(ar * height, height)
+                    imgui.image(
+                        self._texture,
+                        imgui.Vec2(*view_size),
+                        uv1=(1, -1),
+                    )
         imgui.end()
 
     def on_key(self, key: Key, action: Action, modifiers: Modifiers):
