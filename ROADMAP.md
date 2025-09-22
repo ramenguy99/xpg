@@ -114,6 +114,7 @@ Python:
         - [x] Enable bindless by allowing last descriptor set to be variable size
             - When creating layout need to give upper bound (leave to application to specify large number, potentially looking at device limits for that descriptor type)
             - When allocating descriptor set need to specify how much to allocate with appended VkDescriptorSetVariableDescriptorCountAllocateInfo to VkDescriptorSetAllocateInfo.
+    - [ ] Expose push descriptors and update template
     - [ ] VulkanError exception type that wraps VkResult for better error reporting over all bindings
 - [ ] Clean examples
     - [x] Headless graphics and compute

@@ -73,6 +73,10 @@ TODO:
     - [x] Transform 2D
     - [x] Cleanup constants dup
 - [x] Uniform pool helper
+    - [ ] Rework how we do descriptors for this. It seems reasonable to me that we will keep the pool
+          for memory managemnt / suballocation, but we need to have custom descriptors written every frame
+          with / without update templates (could be useful in general) or push descriptors.
+          Anyways most primitives will have a set per object
 - [x] Images and upload
 - [x] .create currently has to be called manually on primitives
 - [x] Streaming properties
@@ -252,6 +256,7 @@ Bindless:
           we need to anyways have usage code get a buffer index to index the descriptor + a buffer offset to index within the buffer.
         - For buffers especially we could just switch to doing pointers then and just use 64bit addresses without worring about descriptors at all.
         - We still have to use descriptors for images and samplers, but that might simplify things a bit.
+
 Tools:
 - [x] mypy:
     # configured in tool.mypy
