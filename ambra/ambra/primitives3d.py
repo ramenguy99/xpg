@@ -36,7 +36,7 @@ from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object3D
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
-from .utils.gpu import UniformBlockAllocation
+from .utils.gpu import UniformBlockAllocation, cull_mode_opposite_face
 
 
 class Lines(Object3D):
@@ -314,9 +314,6 @@ class Mesh(Object3D):
 
         depth_vert = r.get_builtin_shader("3d/mesh_depth.slang", "vertex_main")
 
-        # Instantiate the pipeline using the compiled shaders
-        # TODO: not sure why I don't have to flip this here, check determinant of shadow view/proj
-        depth_cull = self.cull_mode
         self.depth_pipeline = GraphicsPipeline(
             r.ctx,
             stages=[
@@ -328,7 +325,7 @@ class Mesh(Object3D):
             vertex_attributes=[
                 VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
             ],
-            rasterization=Rasterization(cull_mode=depth_cull, front_face=self.front_face),
+            rasterization=Rasterization(cull_mode=cull_mode_opposite_face(self.cull_mode), front_face=self.front_face),
             input_assembly=InputAssembly(self.primitive_topology),
             attachments=[],
             depth=Depth(r.shadowmap_format, True, True, r.depth_compare_op),

@@ -127,8 +127,8 @@ class DirectionalLight(Light):
             self.projection = orthoRH_ZO(
                 -self.shadow_settings.half_extent,
                 self.shadow_settings.half_extent,
-                -self.shadow_settings.half_extent,
                 self.shadow_settings.half_extent,
+                -self.shadow_settings.half_extent,
                 self.shadow_settings.z_near,
                 self.shadow_settings.z_far,
             )
