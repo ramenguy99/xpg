@@ -72,7 +72,7 @@ class Viewer:
 
         # Context
         self.ctx = Context(
-            required_features=DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.DYNAMIC_RENDERING,
+            required_features=DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.DESCRIPTOR_INDEXING,
             optional_features=DeviceFeatures.RAY_QUERY
             | DeviceFeatures.HOST_QUERY_RESET
             | DeviceFeatures.WIDE_LINES
