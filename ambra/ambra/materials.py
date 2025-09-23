@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 from typing import List, Optional, Union
 
 import numpy as np

@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 import math
 from dataclasses import dataclass
 from typing import Union

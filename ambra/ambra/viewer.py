@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 import logging
 from queue import Empty, Queue
 from time import perf_counter_ns

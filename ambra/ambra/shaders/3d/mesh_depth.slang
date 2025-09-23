@@ -1,3 +1,6 @@
+// Copyright Dario Mylonopoulos
+// SPDX-License-Identifier: MIT
+
 import "scene_depth";
 import "object";
 

@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 from dataclasses import dataclass
 
 from pyxpg import Key, Modifiers, MouseButton

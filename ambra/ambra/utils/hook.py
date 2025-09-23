@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 from typing import Any, Callable
 
 

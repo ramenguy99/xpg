@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 from contextlib import contextmanager
 from time import perf_counter_ns
 

@@ -1,3 +1,6 @@
+# Copyright 2023-2025 Dario Mylonopulos
+# SPDX-License-Identifier: Apache-2.0
+
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Dict
 from queue import Queue
@@ -48,5 +51,5 @@ class Pipeline:
     def produces(self, frm: Tuple[str, str], to: Tuple[str, str], resource_name: str, ratio=(1, 1)):
         frm_task = self._task(*frm)
         to_task = self._task(*to)
-        frm_task.outputs.append(Output(to_task, resource_name, ratio, ratio[1] - 1)) 
+        frm_task.outputs.append(Output(to_task, resource_name, ratio, ratio[1] - 1))
         to_task.resources.setdefault(resource_name, Queue())

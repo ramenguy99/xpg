@@ -1,3 +1,6 @@
+# Copyright 2023-2025 Dario Mylonopulos
+# SPDX-License-Identifier: Apache-2.0
+
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 

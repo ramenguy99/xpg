@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 from dataclasses import dataclass
 
 from pyglm.glm import mat3, rotate, vec2

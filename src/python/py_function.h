@@ -1,3 +1,8 @@
+// Copyright Dario Mylonopoulos
+// SPDX-License-Identifier: MIT
+
+#pragma once
+
 #include <nanobind/stl/function.h>
 #include <xpg/function.h>
 

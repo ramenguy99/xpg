@@ -1,3 +1,6 @@
+// Copyright Dario Mylonopoulos
+// SPDX-License-Identifier: MIT
+
 #include <xpg/platform.h>
 
 namespace xpg {

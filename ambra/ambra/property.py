@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import List, Optional, Tuple, Union

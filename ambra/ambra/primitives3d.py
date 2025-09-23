@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 from typing import Optional, Union
 
 import numpy as np
@@ -126,7 +129,9 @@ class Lines(Object3D):
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
 
         descriptor_set = self.descriptor_sets.get_current_and_advance()
-        descriptor_set.write_buffer(constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size)
+        descriptor_set.write_buffer(
+            constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size
+        )
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -225,7 +230,9 @@ class Image(Object3D):
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
 
         descriptor_set = self.descriptor_sets.get_current_and_advance()
-        descriptor_set.write_buffer(constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size)
+        descriptor_set.write_buffer(
+            constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size
+        )
         descriptor_set.write_image(
             self.images.get_current(),
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
@@ -364,7 +371,14 @@ class Mesh(Object3D):
         self.constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
         self.constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
         self.descriptor_set = self.descriptor_sets.get_current_and_advance()
-        self.descriptor_set.write_buffer(self.constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, self.constants_alloc.offset, self.constants_alloc.size)
+        self.descriptor_set.write_buffer(
+            self.constants_alloc.buffer,
+            DescriptorType.UNIFORM_BUFFER,
+            0,
+            0,
+            self.constants_alloc.offset,
+            self.constants_alloc.size,
+        )
 
     def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         assert self.constants_alloc is not None
@@ -594,7 +608,9 @@ class AnimatedMesh(Object3D):
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
 
         descriptor_set = self.descriptor_sets.get_current_and_advance()
-        descriptor_set.write_buffer(constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size)
+        descriptor_set.write_buffer(
+            constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size
+        )
         descriptor_set.write_image(
             self.texture_image.get_current(),
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,

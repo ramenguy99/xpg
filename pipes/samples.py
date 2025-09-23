@@ -1,3 +1,6 @@
+# Copyright 2023-2025 Dario Mylonopulos
+# SPDX-License-Identifier: Apache-2.0
+
 from pipelines import Thread, Task, Pipeline
 from colors import *
 

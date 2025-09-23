@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 from typing import Generic, Iterator, List, TypeVar
 
 R = TypeVar("R")

@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
@@ -9,10 +12,7 @@ from pyxpg import (
     CommandBuffer,
     Context,
     CullMode,
-    DescriptorPool,
-    DescriptorSet,
     DescriptorSetBinding,
-    DescriptorSetLayout,
     DescriptorType,
     Fence,
     Format,

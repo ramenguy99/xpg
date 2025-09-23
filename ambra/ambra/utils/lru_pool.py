@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Callable, Dict, Generic, List, Optional, Sequence, Tuple, TypeVar

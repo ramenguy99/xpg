@@ -1,3 +1,6 @@
+// Copyright Dario Mylonopoulos
+// SPDX-License-Identifier: MIT
+
 #define VOLK_IMPLEMENTATION
 #define VMA_IMPLEMENTATION
 

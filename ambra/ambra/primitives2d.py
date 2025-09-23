@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 from typing import Optional, Union
 
 import numpy as np
@@ -123,7 +126,9 @@ class Lines(Object2D):
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
 
         descriptor_set = self.descriptor_sets.get_current_and_advance()
-        descriptor_set.write_buffer(constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size)
+        descriptor_set.write_buffer(
+            constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size
+        )
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -223,7 +228,9 @@ class Image(Object2D):
         constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
 
         descriptor_set = self.descriptor_sets.get_current_and_advance()
-        descriptor_set.write_buffer(constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size)
+        descriptor_set.write_buffer(
+            constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size
+        )
         descriptor_set.write_image(
             self.images.get_current(),
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,

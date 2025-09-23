@@ -1,3 +1,6 @@
+# Copyright Dario Mylonopoulos
+# SPDX-License-Identifier: MIT
+
 import atexit
 from queue import Queue
 from threading import Event, Thread
