@@ -18,7 +18,8 @@ license-files = [ "LICENSE" ]
 dependencies = [
     "numpy>=1.20",      # Required for numpy.typing
     "pyglm>=2,<3",
-    "pyxpg==0.0.4",
+    "platformdirs>=4,<5",
+    #"pyxpg",
 ]
 
 [project.urls]
