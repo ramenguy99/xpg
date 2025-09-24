@@ -133,6 +133,7 @@ TODO:
 - [ ] Shaders
     - [ ] cache + hot reloading for dev (?)
     - [ ] export to spirv during package
+    - [ ] run spirv-optimizer (for sure on export, but maybe even during slang build)
     - [ ] do we want a pipeline / layout cache? Can we do something using frozen dataclasses as hash keys?
 - [x] Config:
     - [x] Improve camera initialization (especially ortho for 2D case)
@@ -159,7 +160,7 @@ TODO:
     - [ ] Pointclouds
     - [ ] Framegraph
 - [ ] Why does @cache on shader break refcounting on context, especially for an object that does not have any reference to ctx
-      -> investigate further and maybe make minimal repo if it's actually a nanobind issue
+      -> investigate further and maybe make minimal repro if it's actually a nanobind issue
 - [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
 
 Material notes:
@@ -174,6 +175,31 @@ Material notes:
     - [ ] How do we allow materials to be used by multiple objects, but without duplicating things like gpu upload
 - [ ] How do we handle textures gpu upload, descriptors, shader permutations, uniform upload?
 - [ ] How does this generalize to a path tracing shader? Try both raster and ray design together early.
+- Bindings:
+    - Two options. Full bindless (anyways needed for raytracing) vs per-material descriptor set
+    - Full bindless:
+        - Either use scene descriptor set (but need to find some other solution for lights) or some other one just for materials.
+        - All textures will be 2D and sampled, so no need to manage that
+        - All material definitions go into a buffer, similar to what we do with lights, we have to decide if better to do
+          one buffer for each type or better to do a single buffer with the biggest size for all.
+        - Only one buffer for all is maybe fine and is easier for ray-tracing, but limits a bit more complex materials in the
+          future.
+        - Can send material index / type as push constant or per-object uniform
+    - Descriptor set:
+        - One uniform binding with material data
+        - Set of texture bindings with all textures needed for this material.
+            - Either always specify the max number of textures and maybe don't set them
+                3 options for unused descriptors:
+                - use PARTIALLY_BOUND flag on descriptor binding to allow not bound if dynamically not used
+                - use null descriptor -> requires roubstness2 and nullDescriptor (not available everywhere, e.g. on mac)
+                - use dummy zero texture -> can substitute with null descritpor if available
+            - Otherwise specify only the textures that are actually in use by this material
+                -> more shader permutations, likely not worth it
+- Shader permutations:
+    - If we go the descriptor set way we then need to handle shader permutations based on which material type is going to be bound.
+    - We anyways plan to have a cache for other things so that does not sound too bad
+    - Thought we will need to pass through shader defines and handle them somehow.
+        -> could also complicate a bit lookup for caching or precompilation because now shaders are also keyed by map of defines.
 
 Light notes:
 - Shadow plan:

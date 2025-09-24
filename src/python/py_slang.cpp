@@ -359,9 +359,14 @@ nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISes
         },
     };
 
+    std::vector<slang::PreprocessorMacroDesc> preprocessor_macros;
+    // TODO: fill from parameter
+
     slang::SessionDesc session_desc = {
         .targets = targets,
         .targetCount = ArrayCount(targets),
+        .preprocessorMacros = preprocessor_macros.data(),
+        .preprocessorMacroCount = (SlangInt)preprocessor_macros.size(),
     };
 
     Slang::ComPtr<slang::ISession> session;

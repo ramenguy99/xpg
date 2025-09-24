@@ -27,8 +27,9 @@ def check_material_property(
     property: Union[ValueMaterialProperty, TextureMaterialProperty], channels: int
 ) -> Union[ValueMaterialProperty, TextureMaterialProperty]:
     if isinstance(property, ValueMaterialProperty):
+        # if property.value.shape
         pass
-    elif isinstance(property, ValueMaterialProperty):
+    elif isinstance(property, TextureMaterialProperty):
         pass
     else:
         raise TypeError(f"Unhandled type: {type(property)}")
