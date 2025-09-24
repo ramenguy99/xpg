@@ -332,9 +332,9 @@ class Renderer:
             frame.cmd, MemoryUsage.SHADER_READ_ONLY, data, offset
         )
 
-    def get_builtin_shader(self, name: str, entry: str) -> slang.Shader:
+    def get_builtin_shader(self, name: str, entry: str, defines: Optional[List[Tuple[str, str]]] = None) -> slang.Shader:
         path = SHADERS_PATH.joinpath(name)
-        return compile(path, entry)
+        return compile(path, entry, defines=defines)
 
     def render(self, viewport: Viewport, gui: Gui) -> None:
         # Create new objects, if any

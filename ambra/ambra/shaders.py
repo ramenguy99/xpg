@@ -5,7 +5,7 @@ import hashlib
 import pickle
 import shutil
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from platformdirs import user_cache_path
 from pyxpg import slang
@@ -45,8 +45,10 @@ def vulkan_version_to_minimum_supported_spirv_version(
     return "spirv_1_6"
 
 
-def compile(file: Path, entry: str = "main", target: str = "spirv_1_3") -> slang.Shader:
-    name = f"{hashlib.sha256(file.read_bytes()).hexdigest()}_{entry}_{target}_{CACHE_VERSION}.shdr"
+def compile(file: Path, entry: str = "main", target: str = "spirv_1_3", defines: Optional[List[Tuple[str, str]]] = None) -> slang.Shader:
+    defines_list = defines if defines is not None else []
+    defines_bytes = b"".join([ f"{k}\0{v}\0".encode("utf-8") for k, v in defines_list])
+    name = f"{hashlib.sha256(defines_bytes + file.read_bytes()).hexdigest()}_{entry}_{target}_{CACHE_VERSION}.shdr"
 
     # Check cache
     path = Path(CACHE_DIR, name)
@@ -62,14 +64,14 @@ def compile(file: Path, entry: str = "main", target: str = "spirv_1_3") -> slang
             assert len(prog.dependencies) == len(old_hashes)
             new_hashes = [hashlib.sha256(Path(d).read_bytes()).hexdigest() for d in sorted(prog.dependencies)]
             if new_hashes == old_hashes:
-                print(f"Cache hit: {file}")
+                print(f"Cache hit: {file} -> {path}")
                 return prog
         except Exception as e:
             print(f"Shader cache hit invalid: {e}")
 
     # Create prog
     print(f"Shader cache miss: {file}")
-    prog = slang.compile(str(file), entry, target)
+    prog = slang.compile(str(file), entry, target, defines_list)
     hashes = [hashlib.sha256(Path(d).read_bytes()).hexdigest() for d in sorted(prog.dependencies)]
 
     # Populate cache
