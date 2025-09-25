@@ -1,8 +1,9 @@
 import os
 import subprocess
+from pathlib import Path
 
-shaders_dir = os.path.join(os.path.dirname(__file__), "shaders")
-res_dir = os.path.join(os.path.dirname(__file__), "res")
+shaders_dir = Path(__file__).parent.parent.joinpath("apps", "shaders")
+res_dir = Path(__file__).parent.joinpath("res")
 
 kinds = {
     'vert',
@@ -21,8 +22,8 @@ for f in os.listdir(shaders_dir):
     if kind not in kinds:
         continue
 
-    in_path = os.path.join(shaders_dir, f)
-    out_path = os.path.join(res_dir, filename + ".spirv")
+    in_path = shaders_dir.joinpath(f)
+    out_path = res_dir.joinpath(filename + ".spirv")
 
     glsl_args = [
         "glslangValidator",

@@ -24,7 +24,21 @@ Ubuntu build (X11 only):
         -> we probably want to autogen implementation of the nanobind bindings on the C++ side
         -> we probably want a set of manually generated pythonic helpers for commonly used stuff
 - Slang:
-    - ReflectioN:
+    - Installation:
+        - Source build:
+            - Doable but fairly slow
+            - If done through cmake add_subdirectory then debug/release matches the build (annoying during dev)
+            - Also compiles slang-stdlib.bin on first use (can somehow disable this?)
+            - can be useful for debugging slang itself but painful otherwise
+            - Ok for python module because compiled only once, but still annoying for debug versions and for stdlib
+        - Binary releases:
+            - Can potentially include / fetch binary releases from slang github
+            - Likely much
+        - Vulkan SDK:
+            - Dynamic lib (annoying)
+            - No cmake (requires manually finding or getting there through SDK vars)
+            - Likely an older version that was shipped with SDK (annoying because slang dev going fast)
+    - Reflection:
         - XPG provides only bindings, usage of reflection up to app
         - See at least 2 potential use cases from python:
             - Auto resolve -> use names in python, descriptor set creation and set/binding/offset computation is automatic

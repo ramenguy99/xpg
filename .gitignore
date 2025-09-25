@@ -42,3 +42,5 @@ imgui.ini
 *.tar
 
 lint.bat
+
+.venv

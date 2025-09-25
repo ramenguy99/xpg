@@ -26,7 +26,7 @@ overloading for bounds checks and vector math.
 The project currently contains 3 main components:
 
 - **XPG**: C++ library. Source is in `src/include/` and `src/lib/`. Example
-  applications are in `apps/` and shaders in `shaders/`.
+  applications are in `apps/` and shaders in `apps/shaders/`.
 - **PyXPG**: Python bindings for XPG using nanobind. Source of the bindings is
   in `src/python/` and examples are in `python/`.
 - **Ambra**: Ambra is a pure-Python 3D viewer based on PyXPG. Source is in
@@ -164,11 +164,10 @@ for more details on build configuration.
 
 ## Ambra
 
-Ambra is a pure-Python 3D viewer based on PyXPG. The goal of Ambra is to be an
-easy-to-use and easy-to-customize library for creating 3D visualization and GUI
-tools. Ambra is a tool that can be quickly installed in most environments and
-can bring any data from any source to the screen in as few lines of code as
-possible.
+Ambra is a pure-Python library based on PyXPG for creating 3D visualization and
+GUI tools. Ambra aims to be a tool that can be quickly installed in most
+environments and can bring any data from any source to the screen in as few
+lines of code as possible.
 
 The main motivation for writing Ambra in Python is to minimize the effort and
 time required for setup and customizations. Compared to other 3D tools, Ambra is
@@ -179,9 +178,9 @@ or small part of the library. For example, you can add your own primitives,
 shaders, render passes, data streaming systems, etc..
 
 Even though Python isn't the fastest language, Ambra tries to provide fast
-primitives that limit the overhead of the interpreter. This includes exposing
-asynchronous data streaming, GPU driven rendering, and APIs that operate on
-batches of elements.
+primitives that limit the overhead of the interpreter. This includes supporting
+modern GPU features like asynchronous streaming, GPU driven rendering, and
+bindless resources.
 
 Ambra has minimal dependencies and should be easy to integrate into any Python
 3.8+ environment alongside other packages.
