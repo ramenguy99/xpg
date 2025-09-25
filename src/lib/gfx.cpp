@@ -1662,7 +1662,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
 	u32 fb_width = 0, fb_height = 0;
     if (surface_capabilities.currentExtent.width == 0xFFFFFFFF || surface_capabilities.currentExtent.height == 0xFFFFFFFF ) {
         int glfw_fb_width = 0, glfw_fb_height = 0;
-        glfwGetFramebufferSize(w->window, &glfw_fb_width, &glfw_fb_height);
+        glfwGetFramebufferSize(window, &glfw_fb_width, &glfw_fb_height);
         fb_width = (u32)glfw_fb_width;
         fb_height = (u32)glfw_fb_height;
     } else {
