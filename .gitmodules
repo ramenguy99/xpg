@@ -30,7 +30,7 @@
 	url = https://github.com/dearimgui/dear_bindings.git
 [submodule "ext/slang"]
 	path = ext/slang
-	url = https://github.com/ramenguy99/slang.git
+	url = https://github.com/shader-slang/slang.git
 [submodule "ext/Vulkan-Headers"]
 	path = ext/Vulkan-Headers
 	url = https://github.com/KhronosGroup/Vulkan-Headers.git
