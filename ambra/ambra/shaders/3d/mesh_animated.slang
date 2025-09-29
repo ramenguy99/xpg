@@ -28,13 +28,13 @@ struct VSOutput
     float2 uv : TEXCOORD;
 };
 
-[vk::binding(0, 2)]
+[vk::binding(1, 1)]
 SamplerState g_sampler;
 
-[vk::binding(1, 2)]
+[vk::binding(2, 1)]
 Texture2D g_texture;
 
-[vk::binding(2, 2)]
+[vk::binding(3, 1)]
 StructuredBuffer<float4x4> g_joints;
 
 [shader("vertex")]
