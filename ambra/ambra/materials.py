@@ -10,13 +10,6 @@ from .utils.gpu import get_format_info
 
 MaterialData: TypeAlias = Union[np.ndarray, BufferProperty, ImageProperty]
 
-# TODO: rename diffuse to diffuse_color and specular to specular_color. Albedo maybe fine?
-
-class Material:
-    def __init__(self, properties: List[Union[BufferProperty, ImageProperty]]):
-        self.properties = properties
-
-
 def as_material_property(
     property: MaterialData, channels: int, name: str
 ) -> MaterialData:
@@ -27,6 +20,10 @@ def as_material_property(
             raise ValueError(f"Material property \"{name}\" image must have at least {channels}, but {img.format} only has {info.channels}")
     else:
         return as_buffer_property(property, np.float32, (channels,), name=name)
+
+class Material:
+    def __init__(self, properties: List[Union[BufferProperty, ImageProperty]]):
+        self.properties = properties
 
 # Unlit flat color
 class BaseColorMaterial(Material):
@@ -47,7 +44,7 @@ class DiffuseSpecularMaterial(Material):
                  specular: MaterialData,
                  ):
         self.diffuse = as_material_property(diffuse, 3, "diffuse")
-        self.specular = as_material_property(diffuse, 3, "specular")
+        self.specular = as_material_property(diffuse, 1, "specular")
         super().__init__([diffuse, specular])
 
 # PBR metallic roughness
@@ -58,7 +55,7 @@ class PBRMaterial(Material):
         roughness: Optional[MaterialData],
         metallic: Optional[MaterialData],
     ):
-        self.albedo = as_material_property(albedo, 3)
-        self.roughness = as_material_property(roughness, 1)
-        self.metallic = as_material_property(roughness, 1)
+        self.albedo = as_material_property(albedo, 3, "albedo")
+        self.roughness = as_material_property(roughness, 1, "roughness")
+        self.metallic = as_material_property(metallic, 1, "metallic")
         super().__init__([albedo, roughness, metallic])

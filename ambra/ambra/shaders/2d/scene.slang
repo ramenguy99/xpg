@@ -7,8 +7,8 @@ public struct Constants {
     public float4x4 view;
     public float4x4 projection;
 
-    public float3 camera_position;
-    public uint32_t num_direcrional_lights;
+    public float3 world_camera_position;
+    public uint32_t num_directional_lights;
 };
 
 [vk::binding(0, 0)]
