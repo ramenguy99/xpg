@@ -35,7 +35,8 @@ float4 pixel_main(VSOutput in) : SV_Target0
 
     float3 L = float3(0, 0, 0);
     for (uint32_t i = 0; i < g_constants.directional_lights_count; i++) {
-        L += g_directional_lights[i].eval(in.world_position, N);
+        LightEvaluation l = g_directional_lights[i].eval(in.world_position, N);
+        L += l.L * max(dot(l.direction, N), 0.0);
     }
 
     float3 color = L;

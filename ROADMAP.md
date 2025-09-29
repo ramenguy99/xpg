@@ -314,6 +314,19 @@ Maintenance:
     - Slow to resize, people point to libdecor: https://github.com/glfw/glfw/issues/2493
     - Window goes unresponsive when alt-tabbed on hyprland: https://github.com/glfw/glfw/issues/2723
     - Window does not show immediately: need to draw before waiting for input. To fix this we can invert the loop or skip waiting the first frame (something that we might anyways do for imgui)
+- [ ] Tests plan -> leverage pytest and pyxpg, we expect this to cover most use-cases:
+    - [ ] Platform tests (macOS, ubuntu x11, ubuntu wayland, windows)
+        - Create window, ideally resize, send input and capture framebuffer if possible
+            - For window install compositor manually and run in headless mode / virtual display
+            - For input try /dev/uinput in CI
+            - For resize depends what is possible with compositors / OSs
+    - [ ] gfx tests (runs only on ubuntu x64 and ubuntu arm64)
+        - install specific version of mesa (for lavapipe) and Vulkan SDK
+        - fully reproduceable references
+        - experiment with profiles layer to enable / disable features and check expected errors / fallbacks
+        - try to cover most of APIs and bindings
+    - [ ] ambra tests -> same setup as gfx tests but with ambra specific stuff
+        - test all fallback paths that depend on GPU type, memory types and available features if possible
 
 Docs:
 - [ ] Doc comments and documentation website

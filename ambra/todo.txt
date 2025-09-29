@@ -2,6 +2,13 @@ Priority:
 - [ ] Finalize Property API:
     - [ ] update, append, insert, remove frames
     - [ ] customize property options (maybe just as_buffer_property, but calling DataBufferProperty directly)
+    - [ ] Free / release GPU properties
+        - [ ] Move ownership of GPU property to Property?
+              - Helps with sharing data and freeing
+              - Not sure how to handle things like usage flags, image layout and synchronization
+    - [ ] Buffer suballocation / texture array for huge number of frames:
+        -> can't afford one buffer per-frame when uploading lots of frames
+        -> currently can work around this with streaming API
 - [ ] Directional lights, simple materials and shader permutations
 - [ ] Basic client/server example and initial set of APIs
 - [ ] Important 3D primitives
@@ -36,6 +43,13 @@ TODO:
     - [ ] Unified render targets? Maybe with opt-out mechanism or special queues?
         - Need to think what level of control the renderables need over how they are rendered.
           Things like transparency and shadow map rendering might want to have something like this anyways.
+    - [ ] Immediate mode 3D api for things like I am hovering on this pixel / object and I want to see a
+    - [ ] Auxiliary buffers for picking and inspection:
+        - [ ] gl_PrimitiveID is expensive on modern hardware when using the traditional pipeline.
+              It can be cheaper with a mesh-shader based pipeline bat MoltenVK does not support that atm.
+        - [ ] it could potentially be possible to have an option for it but that also increases number
+              of shader permutations.
+        - [ ] also not sure if we need to always render this or if we can only render it on-demand, depending on UI
 - [ ] Descriptors
     - [ ] See what patterns we can find in primitives and if we can reduce amount of scene / material / object bindings by using
           Custom renderables might still want to have full control of bindings, but we can't interleave draws that want to reuse existing bound sets,
@@ -163,6 +177,11 @@ TODO:
       -> investigate further and maybe make minimal repro if it's actually a nanobind issue
 - [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
 
+Benchmarks:
+- [ ] Big sequence
+- [ ] Big frames (e.g. DM dataset)
+- [ ] Lots of objects -> create synthetic benchmark with variations in property types
+
 Material notes:
 - Channels:
     -> every material property is a single channel or a set of channels
@@ -171,10 +190,25 @@ Material notes:
        I think we want max flexibility here. Can we have an API that makes the easy case easy but still allows full flexibilit?
     -> alpha could be optionally part of color / albedo or separate
     -> optional channels could also be useful, but how do we deal with permutations? can we have default values for some?
-- [ ] How does the usage code look like? How do we check that materials are correctly specified at creation time? No missing channels, no doubly defined.
-    - [ ] How do we allow materials to be used by multiple objects, but without duplicating things like gpu upload
+- [ ] How does the usage code look like?
+    - Make example
+    - Think about:
+        - Simple primitives like sphere and line can have a color per object, which does not really make sense as a material
+        - They can also all have the same color, in that case it kinda does make sense to allow it
+        - Mesh is the primary usage of materials -> start with that?
 - [ ] How do we handle textures gpu upload, descriptors, shader permutations, uniform upload?
+    - Gpu upload -> just gpu properties
+    - Shader permutations -> we pre-compile all possibilities (primitives + materials if we have compatible fragment shader inputs, otherwise primitives x materials)
+    - Descriptors and uniforms -> every renderable will have uniform buffer data and bind their material: make common interface / helpers for this
 - [ ] How does this generalize to a path tracing shader? Try both raster and ray design together early.
+- [ ] Raster shaders approach:
+    - Rasterizer lighting is not really as streamlined as path tracer lighting where we can have a clear distinction between lights and materials.
+      Things like environment light does not affect all materials equally.
+    - I think for this design it makes more sense to have a full "shader" per material that does the light iteration and evaluation
+    - We can make helper functions and try to share as much code as possible, but the high level flow will be in control of the "material" itself.
+    - This can also be an opportunity for user to hook in and define their own fragment shaders / materials
+- [ ] Path tracer approach:
+    - The path tracer will still reuse material definitions, but will be a fully bindless design where materials for a frame will be uploaded before start of rendering.
 - Bindings:
     - Two options. Full bindless (anyways needed for raytracing) vs per-material descriptor set
     - Full bindless:
