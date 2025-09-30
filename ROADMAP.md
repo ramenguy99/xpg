@@ -310,6 +310,10 @@ Maintenance:
 - [ ] Add Vulkan API tests taking advantage of vulkan profiles simulation: https://vulkan.lunarg.com/doc/sdk/1.4.321.1/windows/profiles_layer.html
     - Simulate multiple variants of supported extensions and features
     - Check if possible to simulate different memory heaps and types too
+- [ ] Wayland GLFW issues:
+    - Slow to resize, people point to libdecor: https://github.com/glfw/glfw/issues/2493
+    - Window goes unresponsive when alt-tabbed on hyprland: https://github.com/glfw/glfw/issues/2723
+    - Window does not show immediately: need to draw before waiting for input. To fix this we can invert the loop or skip waiting the first frame (something that we might anyways do for imgui)
 
 Docs:
 - [ ] Doc comments and documentation website
