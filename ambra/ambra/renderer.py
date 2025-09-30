@@ -370,7 +370,7 @@ class Renderer:
 
             self.constants["projection"] = viewport.camera.projection()
             self.constants["view"] = viewport.camera.view()
-            self.constants["camera_position"] = -viewport.camera.camera_from_world.translation
+            self.constants["camera_position"] = viewport.camera.position()
             self.constants["num_lights"] = self.num_lights
 
             buf.upload(
