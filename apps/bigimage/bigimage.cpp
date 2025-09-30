@@ -284,7 +284,7 @@ int main(int argc, char** argv) {
         if (ImGui::GetIO().WantCaptureMouse) return;
 
         ivec2 old_image_pos = (pos - (ivec2)app.offset) << app.zoom;
-        app.zoom = Clamp(app.zoom - scroll.y, 0, (s32)app.max_zoom);
+        app.zoom = Clamp(app.zoom - (int)scroll.y, 0, (s32)app.max_zoom);
         ivec2 new_image_pos = (pos - (ivec2)app.offset) << app.zoom;
         app.offset += (new_image_pos - old_image_pos) >> app.zoom;
     };

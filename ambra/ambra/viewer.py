@@ -7,7 +7,7 @@ from time import perf_counter_ns
 from typing import Any, Optional, Tuple, Union
 
 import numpy as np
-from pyglm.glm import ivec2, vec3
+from pyglm.glm import ivec2, vec3, dvec2
 from pyxpg import (
     Action,
     Context,
@@ -105,7 +105,7 @@ class Viewer:
                 ivec2(pos), button, action, modifiers
             ),
             mouse_move_event=lambda pos: self.on_mouse_move(ivec2(pos)),
-            mouse_scroll_event=lambda pos, scroll: self.on_scroll(ivec2(pos), ivec2(scroll)),
+            mouse_scroll_event=lambda pos, scroll: self.on_scroll(ivec2(pos), dvec2(scroll)),
         )
 
         # GUI

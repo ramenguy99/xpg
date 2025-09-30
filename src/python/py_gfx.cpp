@@ -1794,7 +1794,7 @@ struct Window: nb::intrusive_base {
                         e.restore();
                     }
                 },
-                .mouse_scroll_event = [this] (glm::ivec2 p, glm::ivec2 s) {
+                .mouse_scroll_event = [this] (glm::ivec2 p, glm::dvec2 s) {
                     nb::gil_scoped_acquire gil;
                     try {
                         if(this->mouse_scroll_event)

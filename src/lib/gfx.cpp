@@ -126,7 +126,7 @@ void Callback_Scroll(GLFWwindow* window, double x, double y) {
     if (w && w->callbacks.mouse_scroll_event) {
         glm::dvec2 pos = {};
         glfwGetCursorPos(window, &pos.x, &pos.y);
-        w->callbacks.mouse_scroll_event((glm::ivec2)pos, glm::ivec2((s32)x, (s32)y));
+        w->callbacks.mouse_scroll_event((glm::ivec2)pos, glm::dvec2(x, y));
     }
 
     if(w && w->callbacks.prev_callback_scroll) {

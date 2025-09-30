@@ -398,7 +398,7 @@ enum class Key: s32 {
 struct WindowCallbacks {
     Function<void(glm::ivec2)> mouse_move_event;
     Function<void(glm::ivec2, MouseButton, Action, Modifiers)> mouse_button_event;
-    Function<void(glm::ivec2, glm::ivec2)> mouse_scroll_event;
+    Function<void(glm::ivec2, glm::dvec2)> mouse_scroll_event;
     Function<void(Key, Action, Modifiers)> key_event;
     Function<void()> draw;
 
