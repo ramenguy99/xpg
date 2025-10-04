@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 import "scene_depth";
-import "object";
 
 struct VSInput
 {

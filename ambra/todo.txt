@@ -12,7 +12,6 @@ Priority:
 - [ ] Directional lights, simple materials and shader permutations
 - [ ] Basic client/server example and initial set of APIs
 - [ ] Important 3D primitives
-- [ ] ImGui plots
 - [ ] Multi-viewport
 - [ ] Shaders / fonts build and packaging into wheel
 
@@ -40,10 +39,10 @@ TODO:
         - [ ] Materials
         - [ ] Instancing
         - [ ] Support both raster and path tracing with accumulation
-    - [ ] Unified render targets? Maybe with opt-out mechanism or special queues?
+    - [x] Unified render targets? Maybe with opt-out mechanism or special queues?
         - Need to think what level of control the renderables need over how they are rendered.
           Things like transparency and shadow map rendering might want to have something like this anyways.
-    - [ ] Immediate mode 3D api for things like I am hovering on this pixel / object and I want to see a
+    - [ ] Immediate mode 3D api for things like I am hovering on this pixel / object and I want to see an arrow / sphere / lines
     - [ ] Auxiliary buffers for picking and inspection:
         - [ ] gl_PrimitiveID is expensive on modern hardware when using the traditional pipeline.
               It can be cheaper with a mesh-shader based pipeline bat MoltenVK does not support that atm.
@@ -51,9 +50,9 @@ TODO:
               of shader permutations.
         - [ ] also not sure if we need to always render this or if we can only render it on-demand, depending on UI
 - [ ] Descriptors
-    - [ ] See what patterns we can find in primitives and if we can reduce amount of scene / material / object bindings by using
+    - [ ] See what patterns we can find in primitives and if we can reduce amount of scene / material / object bindings by using compatible pipeline layouts.
           Custom renderables might still want to have full control of bindings, but we can't interleave draws that want to reuse existing bound sets,
-          in that case we would need to render those at the end? Can be somehow similar to material based sorting, it it becomes a thing.
+          in that case we would need to render those at the end? Can be somehow similar to material based sorting, if it becomes a thing.
     - [ ] Check if use of descriptor update templates can be useful to unify and speed up descriptor writes
 - [ ] Buffer and image management:
     - [ ] UploadableBuffer and UploadableImage are currently only used
@@ -149,6 +148,7 @@ TODO:
     - [ ] export to spirv during package
     - [ ] run spirv-optimizer (for sure on export, but maybe even during slang build)
     - [ ] do we want a pipeline / layout cache? Can we do something using frozen dataclasses as hash keys?
+    - [ ] check if there is a way for users that are writing custom shaders to impor ambra modules (like scene.slang)
 - [x] Config:
     - [x] Improve camera initialization (especially ortho for 2D case)
     - [x] vulkan validation options
@@ -173,9 +173,14 @@ TODO:
     - [ ] Marching cubes
     - [ ] Pointclouds
     - [ ] Framegraph
+- [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
+- [ ] Improve external primitives workflow with shader imports
+- [ ] Exception often results in unfreed allocations
+
+Bugs:
 - [ ] Why does @cache on shader break refcounting on context, especially for an object that does not have any reference to ctx
       -> investigate further and maybe make minimal repro if it's actually a nanobind issue
-- [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
+- [ ] Fix non-unit world_up results in nans in camera
 
 Benchmarks:
 - [ ] Big sequence
