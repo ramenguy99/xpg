@@ -1,32 +1,27 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
-from typing import Optional, Union
+from typing import Optional, Union, List, Tuple
 
 import numpy as np
+from pyglm.glm import inverse, mat3x3, mat4x3, transpose
 from pyxpg import (
     Attachment,
     BufferUsageFlags,
     CullMode,
     Depth,
     DescriptorSet,
-    DescriptorSetBinding,
-    DescriptorType,
     DeviceFeatures,
-    Filter,
     Format,
     FrontFace,
     GraphicsPipeline,
-    ImageLayout,
-    ImageUsageFlags,
     InputAssembly,
     MemoryUsage,
     PipelineStage,
     PipelineStageFlags,
     PrimitiveTopology,
+    PushConstantsRange,
     Rasterization,
-    Sampler,
-    SamplerAddressMode,
     Shader,
     Stage,
     VertexAttribute,
@@ -34,13 +29,12 @@ from pyxpg import (
     VertexInputRate,
 )
 
-from .property import BufferProperty, ImageProperty
+from .materials import ColorMaterial, DiffuseMaterial, Material
+from .property import BufferProperty, ImageProperty, as_image_property
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
-from .scene import Object3D
-from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
-from .utils.gpu import UniformBlockAllocation, cull_mode_opposite_face
-from .materials import Material, DiffuseMaterial
+from .scene import Object3D, Object
+from .utils.gpu import cull_mode_opposite_face
 
 
 class Lines(Object3D):
@@ -55,6 +49,13 @@ class Lines(Object3D):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
     ):
+        self.constants_dtype = np.dtype(
+            {
+                "transform": (np.dtype((np.float32, (3, 4))), 0),
+            }
+        )  # type: ignore
+        self.constants = np.zeros((1,), self.constants_dtype)
+
         super().__init__(name, translation, rotation, scale)
         self.is_strip = is_strip
         self.lines = self.add_buffer_property(lines, np.float32, (-1, 3), name="lines")
@@ -75,23 +76,6 @@ class Lines(Object3D):
             MemoryUsage.VERTEX_INPUT,
             PipelineStageFlags.VERTEX_INPUT,
             name=f"{self.name}-colors-3d",
-        )
-
-        constants_dtype = np.dtype(
-            {
-                "transform": (np.dtype((np.float32, (4, 4))), 0),
-            }
-        )  # type: ignore
-        self.constants = np.zeros((1,), constants_dtype)
-
-        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
-            create_descriptor_layout_pool_and_sets_ringbuffer(
-                r.ctx,
-                [
-                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
-                ],
-                r.window.num_frames,
-            )
         )
 
         vert = r.get_builtin_shader("3d/basic.slang", "vertex_main")
@@ -121,20 +105,15 @@ class Lines(Object3D):
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
-                self.descriptor_set_layout,
             ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
+
+    def update_transform(self, parent: Optional[Object]) -> None:
+        super().update_transform(parent)
+        self.constants["transform"] = mat4x3(self.current_transform_matrix)
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        self.constants["transform"] = self.current_transform_matrix
-        constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
-        constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
-
-        descriptor_set = self.descriptor_sets.get_current_and_advance()
-        descriptor_set.write_buffer(
-            constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size
-        )
-
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[
@@ -143,8 +122,8 @@ class Lines(Object3D):
             ],
             descriptor_sets=[
                 scene_descriptor_set,
-                descriptor_set,
             ],
+            push_constants=self.constants.tobytes(),
         )
         frame.cmd.set_line_width(
             self.line_width.get_current().item() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
@@ -153,141 +132,48 @@ class Lines(Object3D):
         frame.cmd.draw(self.lines.get_current().shape[0])
 
 
-class Image(Object3D):
-    def __init__(
-        self,
-        image: ImageProperty,
-        name: Optional[str] = None,
-        translation: Optional[BufferProperty] = None,
-        rotation: Optional[BufferProperty] = None,
-        scale: Optional[BufferProperty] = None,
-    ):
-        super().__init__(name, translation, rotation, scale)
-        self.image = self.add_image_property(image, name="image")
-
-    def create(self, r: Renderer) -> None:
-        if not (r.ctx.device_features & DeviceFeatures.SHADER_DRAW_PARAMETERS):
-            raise RuntimeError(
-                f"Image primitive requires {DeviceFeatures.SHADER_DRAW_PARAMETERS} whis is not available on current device."
-            )
-
-        self.images = r.add_gpu_image_property(
-            self.image,
-            ImageUsageFlags.SAMPLED,
-            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-            MemoryUsage.SHADER_READ_ONLY,
-            PipelineStageFlags.FRAGMENT_SHADER,
-            name=f"{self.name}-image",
-        )
-        self.sampler = Sampler(
-            r.ctx,
-            min_filter=Filter.LINEAR,
-            mag_filter=Filter.LINEAR,
-            u=SamplerAddressMode.CLAMP_TO_EDGE,
-            v=SamplerAddressMode.CLAMP_TO_EDGE,
-        )
-
-        constants_dtype = np.dtype(
-            {
-                "transform": (np.dtype((np.float32, (4, 4))), 0),
-            }
-        )  # type: ignore
-        self.constants = np.zeros((1,), constants_dtype)
-        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
-            create_descriptor_layout_pool_and_sets_ringbuffer(
-                r.ctx,
-                [
-                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
-                    DescriptorSetBinding(1, DescriptorType.SAMPLER),
-                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
-                ],
-                r.window.num_frames,
-            )
-        )
-        for set in self.descriptor_sets:
-            set.write_sampler(self.sampler, 1)
-
-        vert = r.get_builtin_shader("3d/basic_texture.slang", "vertex_main")
-        frag = r.get_builtin_shader("3d/basic_texture.slang", "pixel_main")
-
-        # Instantiate the pipeline using the compiled shaders
-        self.pipeline = GraphicsPipeline(
-            r.ctx,
-            stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
-            ],
-            input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_STRIP),
-            samples=r.msaa_samples,
-            attachments=[Attachment(format=r.output_format)],
-            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
-            descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,
-                self.descriptor_set_layout,
-            ],
-        )
-
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        self.constants["transform"] = self.current_transform_matrix
-        constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
-        constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
-
-        descriptor_set = self.descriptor_sets.get_current_and_advance()
-        descriptor_set.write_buffer(
-            constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size
-        )
-        descriptor_set.write_image(
-            self.images.get_current(),
-            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-            DescriptorType.SAMPLED_IMAGE,
-            2,
-        )
-
-        frame.cmd.bind_graphics_pipeline(
-            self.pipeline,
-            descriptor_sets=[
-                scene_descriptor_set,
-                descriptor_set,
-            ],
-        )
-
-        frame.cmd.draw(4)
-
-
 class Mesh(Object3D):
     def __init__(
         self,
         positions: BufferProperty,
         indices: Optional[BufferProperty] = None,
         normals: Optional[BufferProperty] = None,
+        uvs: Optional[BufferProperty] = None,
         primitive_topology: PrimitiveTopology = PrimitiveTopology.TRIANGLE_LIST,
         cull_mode: CullMode = CullMode.NONE,
         front_face: FrontFace = FrontFace.COUNTER_CLOCKWISE,
-        material: Material = None,
+        material: Optional[Material] = None,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
     ):
-        super().__init__(name, translation, rotation, scale)
-
-        # TODO: think if making an helper for this, or if this should go to Object3D
-        self.material = material if material is not None else DiffuseMaterial((0.5, 0.5, 0.5))
-
-        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions")
-        self.normals = self.add_buffer_property(normals, np.float32, (-1, 3), name="normals") if normals is not None else None
-        # self.normals: Property = self.add_property(normals, np.float32, (-1, 3), name="normals")
-        self.indices = (
-            self.add_buffer_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
-        )
         self.primitive_topology = primitive_topology
         self.cull_mode = cull_mode
         self.front_face = front_face
+        self.constants_dtype = np.dtype(
+            {
+                "transform": (np.dtype((np.float32, (3, 4))), 0),
+                "normal_matrix": (np.dtype((np.float32, (3, 4))), 48),
+            }
+        )  # type: ignore
+        self.constants = np.zeros((1,), self.constants_dtype)
+
+        super().__init__(
+            name, translation, rotation, scale, material if material is not None else DiffuseMaterial((0.5, 0.5, 0.5))
+        )
+
+        # Add properties
+        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions")
+        self.normals = (
+            self.add_buffer_property(normals, np.float32, (-1, 3), name="normals") if normals is not None else None
+        )
+        self.uvs = self.add_buffer_property(uvs, np.float32, (-1, 2), name="uvs") if uvs is not None else None
+        self.indices = (
+            self.add_buffer_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
+        )
 
     def create(self, r: Renderer) -> None:
-        # TODO: move out of this
-        self.material.create_if_needed(r)
-
         self.positions_buffer = r.add_gpu_buffer_property(
             self.positions,
             BufferUsageFlags.VERTEX,
@@ -295,13 +181,28 @@ class Mesh(Object3D):
             PipelineStageFlags.VERTEX_INPUT,
             name=f"{self.name}-positions",
         )
-        self.normals_buffer = r.add_gpu_buffer_property(
-            self.normals,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-normals",
-        ) if self.normals is not None else None
+        self.normals_buffer = (
+            r.add_gpu_buffer_property(
+                self.normals,
+                BufferUsageFlags.VERTEX,
+                MemoryUsage.VERTEX_INPUT,
+                PipelineStageFlags.VERTEX_INPUT,
+                name=f"{self.name}-normals",
+            )
+            if self.normals is not None
+            else None
+        )
+        self.uvs_buffer = (
+            r.add_gpu_buffer_property(
+                self.uvs,
+                BufferUsageFlags.VERTEX,
+                MemoryUsage.VERTEX_INPUT,
+                PipelineStageFlags.VERTEX_INPUT,
+                name=f"{self.name}-uvs",
+            )
+            if self.uvs is not None
+            else None
+        )
 
         self.indices_buffer = (
             r.add_gpu_buffer_property(
@@ -315,43 +216,35 @@ class Mesh(Object3D):
             else None
         )
 
-        constants_dtype = np.dtype(
-            {
-                "transform": (np.dtype((np.float32, (4, 4))), 0),
-                "material": (np.dtype(self.material.dtype), 64),
-            }
-        )  # type: ignore
-        self.constants = np.zeros((1,), constants_dtype)
-
-        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
-            create_descriptor_layout_pool_and_sets_ringbuffer(
-                r.ctx,
-                [
-                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
-                ],
-                r.window.num_frames,
-            )
-        )
-
-        defines = []
+        assert self.material is not None
+        defines: List[Tuple[str, str]] = []
         defines.extend(self.material.shader_defines)
 
-        # Instantiate the pipeline using the compiled shaders
-        vertex_bindings=[
+        vertex_bindings = [
             VertexBinding(0, 12, VertexInputRate.VERTEX),
         ]
-        vertex_attributes=[
+        vertex_attributes = [
             VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
         ]
 
+        vertex_binding_index = 1
         if self.normals is not None:
-            defines.append(("VERTEX_NORMALS", "1"))
-            vertex_bindings.append(VertexBinding(1, 12, VertexInputRate.VERTEX))
-            vertex_attributes.append(VertexAttribute(1, 1, Format.R32G32B32_SFLOAT))
+            defines.append(("VERTEX_NORMALS", str(vertex_binding_index)))
+            vertex_bindings.append(VertexBinding(vertex_binding_index, 12, VertexInputRate.VERTEX))
+            vertex_attributes.append(
+                VertexAttribute(vertex_binding_index, vertex_binding_index, Format.R32G32B32_SFLOAT)
+            )
+            vertex_binding_index += 1
+
+        vertex_binding_index = 1
+        if self.uvs is not None:
+            defines.append(("VERTEX_UVS", str(vertex_binding_index)))
+            vertex_bindings.append(VertexBinding(vertex_binding_index, 8, VertexInputRate.VERTEX))
+            vertex_attributes.append(VertexAttribute(vertex_binding_index, vertex_binding_index, Format.R32G32_SFLOAT))
+            vertex_binding_index += 1
 
         vert = r.get_builtin_shader("3d/mesh.slang", "vertex_main", defines=defines)
         frag = r.get_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
-
         self.pipeline = GraphicsPipeline(
             r.ctx,
             stages=[
@@ -367,13 +260,12 @@ class Mesh(Object3D):
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
-                self.descriptor_set_layout,
                 self.material.descriptor_set_layout,
             ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
         depth_vert = r.get_builtin_shader("3d/mesh_depth.slang", "vertex_main")
-
         self.depth_pipeline = GraphicsPipeline(
             r.ctx,
             stages=[
@@ -391,28 +283,14 @@ class Mesh(Object3D):
             depth=Depth(r.shadowmap_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_depth_descriptor_set_layout,
-                self.descriptor_set_layout,
             ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype["transform"].itemsize)],
         )
 
-        self.constants_alloc: Optional[UniformBlockAllocation] = None
-
-    def upload(self, r: Renderer, frame: RendererFrame) -> None:
-        # TODO: remove
-        self.material.upload(r, frame)
-
-        self.constants["transform"] = self.current_transform_matrix
-        constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
-        constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
-        self.descriptor_set = self.descriptor_sets.get_current_and_advance()
-        self.descriptor_set.write_buffer(
-            constants_alloc.buffer,
-            DescriptorType.UNIFORM_BUFFER,
-            0,
-            0,
-            constants_alloc.offset,
-            constants_alloc.size,
-        )
+    def update_transform(self, parent: Optional[Object]) -> None:
+        super().update_transform(parent)
+        self.constants["transform"] = mat4x3(self.current_transform_matrix)
+        self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3x3(self.current_transform_matrix)))
 
     def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         index_buffer = self.indices_buffer.get_current() if self.indices_buffer is not None else None
@@ -425,8 +303,8 @@ class Mesh(Object3D):
             index_buffer=index_buffer,
             descriptor_sets=[
                 scene_descriptor_set,
-                self.descriptor_set,
             ],
+            push_constants=self.constants["transform"].tobytes(),
         )
 
         if self.indices is not None:
@@ -435,12 +313,16 @@ class Mesh(Object3D):
             frame.cmd.draw(self.positions.get_current().shape[0])
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        assert self.material is not None
+
         index_buffer = self.indices_buffer.get_current() if self.indices_buffer is not None else None
-        vertex_buffers=[
+        vertex_buffers = [
             self.positions_buffer.get_current(),
         ]
         if self.normals_buffer is not None:
             vertex_buffers.append(self.normals_buffer.get_current())
+        if self.uvs_buffer is not None:
+            vertex_buffers.append(self.uvs_buffer.get_current())
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -448,9 +330,9 @@ class Mesh(Object3D):
             index_buffer=index_buffer,
             descriptor_sets=[
                 scene_descriptor_set,
-                self.descriptor_set,
                 self.material.descriptor_set,
             ],
+            push_constants=self.constants.tobytes(),
         )
 
         if self.indices is not None:
@@ -459,226 +341,51 @@ class Mesh(Object3D):
             frame.cmd.draw(self.positions.get_current().shape[0])
 
 
-class AnimatedMesh(Object3D):
+class Image(Mesh):
     def __init__(
         self,
-        positions: BufferProperty,
-        normals: BufferProperty,
-        tangents: BufferProperty,
-        uvs: BufferProperty,
-        joint_indices: BufferProperty,
-        weights: BufferProperty,
-        joints: BufferProperty,
-        texture: ImageProperty,
-        indices: Optional[BufferProperty] = None,
-        primitive_topology: PrimitiveTopology = PrimitiveTopology.TRIANGLE_LIST,
-        cull_mode: CullMode = CullMode.NONE,
-        front_face: FrontFace = FrontFace.COUNTER_CLOCKWISE,
+        image: ImageProperty,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
     ):
-        super().__init__(name, translation, rotation, scale)
-
-        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions")
-        self.normals = self.add_buffer_property(normals, np.float32, (-1, 3), name="normals")
-        self.tangents = self.add_buffer_property(tangents, np.float32, (-1, 3), name="tangents")
-        self.uvs = self.add_buffer_property(uvs, np.float32, (-1, 2), name="uvs")
-        self.joint_indices = self.add_buffer_property(joint_indices, np.int16, (-1, 4), name="joint_indices")
-        self.weights = self.add_buffer_property(weights, np.float32, (-1, 4), name="weights")
-
-        self.joints = self.add_buffer_property(joints, np.float32, (-1, 4, 4), name="joints")
-
-        self.texture = self.add_image_property(texture, name="base_color_texture")
-
-        self.indices = (
-            self.add_buffer_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
+        material = ColorMaterial(as_image_property(image))
+        positions = np.array(
+            [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                1.0,
+                1.0,
+                0.0,
+            ]
+        ).reshape((4, 3))
+        uvs = np.array(
+            [
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                1.0,
+                0.0,
+                1.0,
+                1.0,
+            ]
+        ).reshape((4, 2))
+        super().__init__(
+            positions, # type: ignore
+            uvs=uvs, # type: ignore
+            primitive_topology=PrimitiveTopology.TRIANGLE_STRIP,
+            material=material,
+            name=name,
+            translation=translation,
+            rotation=rotation,
+            scale=scale,
         )
-
-        self.primitive_topology = primitive_topology
-        self.cull_mode = cull_mode
-        self.front_face = front_face
-
-    def create(self, r: Renderer) -> None:
-        self.positions_buffer = r.add_gpu_buffer_property(
-            self.positions,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-positions",
-        )
-        self.normals_buffer = r.add_gpu_buffer_property(
-            self.normals,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-normals",
-        )
-        self.tangents_buffer = r.add_gpu_buffer_property(
-            self.tangents,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-tangents",
-        )
-        self.uvs_buffer = r.add_gpu_buffer_property(
-            self.uvs,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-uvs",
-        )
-        self.joint_indices_buffer = r.add_gpu_buffer_property(
-            self.joint_indices,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-joint_indices",
-        )
-        self.weights_buffer = r.add_gpu_buffer_property(
-            self.weights,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-weights",
-        )
-
-        self.joints_buffer = r.add_gpu_buffer_property(
-            self.joints,
-            BufferUsageFlags.STORAGE,
-            MemoryUsage.SHADER_READ_ONLY,
-            PipelineStageFlags.VERTEX_SHADER,
-            name=f"{self.name}-joints",
-        )
-
-        self.indices_buffer = (
-            r.add_gpu_buffer_property(
-                self.indices,
-                BufferUsageFlags.INDEX,
-                MemoryUsage.VERTEX_INPUT,
-                PipelineStageFlags.VERTEX_INPUT,
-                name=f"{self.name}-indices",
-            )
-            if self.indices is not None
-            else None
-        )
-
-        self.texture_image = r.add_gpu_image_property(
-            self.texture,
-            ImageUsageFlags.SAMPLED,
-            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-            MemoryUsage.SHADER_READ_ONLY,
-            PipelineStageFlags.FRAGMENT_SHADER,
-            name=f"{self.name}-image",
-        )
-        self.sampler = Sampler(
-            r.ctx,
-            min_filter=Filter.LINEAR,
-            mag_filter=Filter.LINEAR,
-            u=SamplerAddressMode.CLAMP_TO_EDGE,
-            v=SamplerAddressMode.CLAMP_TO_EDGE,
-        )
-
-        constants_dtype = np.dtype(
-            {
-                "transform": (np.dtype((np.float32, (4, 4))), 0),
-            }
-        )  # type: ignore
-        self.constants = np.zeros((1,), constants_dtype)
-
-        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
-            create_descriptor_layout_pool_and_sets_ringbuffer(
-                r.ctx,
-                [
-                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
-                    DescriptorSetBinding(1, DescriptorType.SAMPLER),
-                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
-                    DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),
-                ],
-                r.window.num_frames,
-            )
-        )
-        for set in self.descriptor_sets.items:
-            set.write_sampler(self.sampler, 1)
-
-        vert = r.get_builtin_shader("3d/mesh_animated.slang", "vertex_main")
-        frag = r.get_builtin_shader("3d/mesh_animated.slang", "pixel_main")
-
-        # Instantiate the pipeline using the compiled shaders
-        self.pipeline = GraphicsPipeline(
-            r.ctx,
-            stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
-            ],
-            vertex_bindings=[
-                VertexBinding(0, 12, VertexInputRate.VERTEX),
-                VertexBinding(1, 12, VertexInputRate.VERTEX),
-                VertexBinding(2, 12, VertexInputRate.VERTEX),
-                VertexBinding(3, 8, VertexInputRate.VERTEX),
-                VertexBinding(4, 8, VertexInputRate.VERTEX),
-                VertexBinding(5, 16, VertexInputRate.VERTEX),
-            ],
-            vertex_attributes=[
-                VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
-                VertexAttribute(1, 1, Format.R32G32B32_SFLOAT),
-                VertexAttribute(2, 2, Format.R32G32B32_SFLOAT),
-                VertexAttribute(3, 3, Format.R32G32_SFLOAT),
-                VertexAttribute(4, 4, Format.R16G16B16A16_UINT),
-                VertexAttribute(5, 5, Format.R32G32B32A32_SFLOAT),
-            ],
-            rasterization=Rasterization(cull_mode=self.cull_mode, front_face=self.front_face),
-            input_assembly=InputAssembly(self.primitive_topology),
-            samples=r.msaa_samples,
-            attachments=[Attachment(format=r.output_format)],
-            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
-            descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,
-                self.descriptor_set_layout,
-            ],
-        )
-
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        self.constants["transform"] = self.current_transform_matrix
-        constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
-        constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
-
-        descriptor_set = self.descriptor_sets.get_current_and_advance()
-        descriptor_set.write_buffer(
-            constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size
-        )
-        descriptor_set.write_image(
-            self.texture_image.get_current(),
-            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-            DescriptorType.SAMPLED_IMAGE,
-            2,
-        )
-        descriptor_set.write_buffer(
-            self.joints_buffer.get_current(),
-            DescriptorType.STORAGE_BUFFER,
-            3,
-        )
-
-        index_buffer = self.indices_buffer.get_current() if self.indices_buffer is not None else None
-        frame.cmd.bind_graphics_pipeline(
-            self.pipeline,
-            vertex_buffers=[
-                self.positions_buffer.get_current(),
-                self.normals_buffer.get_current(),
-                self.tangents_buffer.get_current(),
-                self.uvs_buffer.get_current(),
-                self.joint_indices_buffer.get_current(),
-                self.weights_buffer.get_current(),
-            ],
-            index_buffer=index_buffer,
-            descriptor_sets=[
-                scene_descriptor_set,
-                descriptor_set,
-            ],
-        )
-
-        if self.indices is not None:
-            frame.cmd.draw_indexed(self.indices.get_current().shape[0])
-        else:
-            frame.cmd.draw(self.positions.get_current().shape[0])

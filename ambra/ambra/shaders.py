@@ -5,7 +5,7 @@ import hashlib
 import pickle
 import shutil
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
 
 from platformdirs import user_cache_path
 from pyxpg import slang
@@ -45,9 +45,11 @@ def vulkan_version_to_minimum_supported_spirv_version(
     return "spirv_1_6"
 
 
-def compile(file: Path, entry: str = "main", target: str = "spirv_1_3", defines: Optional[List[Tuple[str, str]]] = None) -> slang.Shader:
+def compile(
+    file: Path, entry: str = "main", target: str = "spirv_1_3", defines: Optional[List[Tuple[str, str]]] = None
+) -> slang.Shader:
     defines_list = defines if defines is not None else []
-    defines_bytes = b"".join([ f"{k}\0{v}\0".encode("utf-8") for k, v in defines_list])
+    defines_bytes = b"".join([f"{k}\0{v}\0".encode() for k, v in defines_list])
     name = f"{hashlib.sha256(defines_bytes + file.read_bytes()).hexdigest()}_{entry}_{target}_{CACHE_VERSION}.shdr"
 
     # Check cache

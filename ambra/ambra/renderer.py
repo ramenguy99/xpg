@@ -39,11 +39,11 @@ from pyxpg import (
     slang,
 )
 
+from . import lights
 from .config import RendererConfig, UploadMethod
 from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .property import BufferProperty, ImageProperty
 from .renderer_frame import RendererFrame
-from .scene import LIGHT_TYPES_INFO, LightTypes
 from .shaders import compile
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import (
@@ -102,7 +102,7 @@ class Renderer:
                 ctx,
                 [
                     DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
-                    *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in LIGHT_TYPES_INFO],
+                    *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in lights.LIGHT_TYPES_INFO],
                     DescriptorSetBinding(self.max_shadowmaps, DescriptorType.SAMPLED_IMAGE),
                     DescriptorSetBinding(1, DescriptorType.SAMPLER),
                 ],
@@ -124,7 +124,7 @@ class Renderer:
                 "view": (np.dtype((np.float32, (4, 4))), 0),
                 "projection": (np.dtype((np.float32, (4, 4))), 64),
                 "camera_position": (np.dtype((np.float32, (3,))), 128),
-                "num_lights": (np.dtype((np.uint32, len(LIGHT_TYPES_INFO))), 140),
+                "num_lights": (np.dtype((np.uint32, len(lights.LIGHT_TYPES_INFO))), 140),
             }
         )  # type: ignore
 
@@ -137,12 +137,12 @@ class Renderer:
         )
 
         self.max_lights_per_type = config.max_lights_per_type
-        self.num_lights = [0] * len(LIGHT_TYPES_INFO)
+        self.num_lights = [0] * len(lights.LIGHT_TYPES_INFO)
         self.light_buffers = RingBuffer(
             [
                 [
                     UploadableBuffer(ctx, info.size * self.max_lights_per_type, BufferUsageFlags.STORAGE)
-                    for info in LIGHT_TYPES_INFO
+                    for info in lights.LIGHT_TYPES_INFO
                 ]
                 for _ in range(window.num_frames)
             ]
@@ -222,7 +222,17 @@ class Renderer:
             else:
                 self.image_upload_method = UploadMethod.GRAPHICS_QUEUE
 
-        self.zero_image = Image.from_data(ctx, np.zeros((1, 1, 4), np.uint8), ImageLayout.SHADER_READ_ONLY_OPTIMAL, 1, 1, Format.R8G8B8A8_UNORM, ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE, name="zero-image")
+        self.zero_image = Image.from_data(
+            ctx,
+            np.zeros((1, 1, 4), np.uint8),
+            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+            1,
+            1,
+            Format.R8G8B8A8_UNORM,
+            ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+            name="zero-image",
+        )
 
         self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
 
@@ -314,7 +324,7 @@ class Renderer:
         self.gpu_properties.append(prop)
         return prop
 
-    def add_light(self, light_type: LightTypes, shadowmap: Optional[Image]) -> Tuple[int, int]:
+    def add_light(self, light_type: "lights.LightTypes", shadowmap: Optional[Image]) -> Tuple[int, int]:
         if self.num_lights[light_type.value] >= self.max_lights_per_type:
             raise RuntimeError(
                 f'Too many ligths of type: {light_type}. Increase "config.renderer.max_lights_per_type" (current value: {self.max_lights_per_type}) to allow more lights.'
@@ -340,18 +350,22 @@ class Renderer:
                     shadowmap,
                     ImageLayout.SHADER_READ_ONLY_OPTIMAL,
                     DescriptorType.SAMPLED_IMAGE,
-                    1 + len(LIGHT_TYPES_INFO),
+                    1 + len(lights.LIGHT_TYPES_INFO),
                     shadowmap_idx,
                 )
 
-        return light_idx * LIGHT_TYPES_INFO[light_type.value].size, shadowmap_idx
+        return light_idx * lights.LIGHT_TYPES_INFO[light_type.value].size, shadowmap_idx
 
-    def upload_light(self, frame: RendererFrame, light_type: LightTypes, data: memoryview, offset: int) -> None:
+    def upload_light(
+        self, frame: RendererFrame, light_type: "lights.LightTypes", data: memoryview, offset: int
+    ) -> None:
         self.light_buffers.get_current()[light_type.value].upload(
             frame.cmd, MemoryUsage.SHADER_READ_ONLY, data, offset
         )
 
-    def get_builtin_shader(self, name: str, entry: str, defines: Optional[List[Tuple[str, str]]] = None) -> slang.Shader:
+    def get_builtin_shader(
+        self, name: str, entry: str, defines: Optional[List[Tuple[str, str]]] = None
+    ) -> slang.Shader:
         path = SHADERS_PATH.joinpath(name)
         return compile(path, entry, defines=defines)
 

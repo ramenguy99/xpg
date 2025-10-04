@@ -3,16 +3,16 @@
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
-from numpy.typing import DTypeLike
+from numpy.typing import DTypeLike, ArrayLike
 from pyxpg import Format
 
 from .utils.gpu import format_from_channels_dtype
 
 PropertyItem = np.ndarray
-PropertyData = Union[List[np.ndarray], np.ndarray]
+PropertyData = ArrayLike
 
 # class AnimationInterpolation(Enum):
 #     NEAREST = auto()
@@ -117,8 +117,15 @@ class Property:
 
         self.current_frame_index = 0
 
+        self.update_callbacks: List[Callable[[Property], None]] = []
+
     def update(self, time: float, playback_frame: int) -> None:
+        old_frame = self.current_frame_index
         self.current_frame_index = self.get_frame_index(time, playback_frame)
+
+        if old_frame != self.current_frame_index:
+            for c in self.update_callbacks:
+                c(self)
 
     def get_current(self) -> PropertyItem:
         return self.get_frame_by_index(self.current_frame_index)
@@ -297,7 +304,7 @@ class DataImageProperty(ImageProperty):
 
 
 def as_buffer_property(
-    value: Union[BufferProperty, PropertyData, int, float],
+    value: Union[BufferProperty, PropertyData, int, float, Tuple[float, ...], Tuple[int, ...]],
     dtype: Optional[DTypeLike] = None,
     shape: Optional[Tuple[int, ...]] = None,
     animation: Optional[Animation] = None,

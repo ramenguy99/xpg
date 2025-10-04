@@ -42,7 +42,7 @@ for i in range(H):
         end[i, j, 3] = 0
 image = (np.linspace(start, end, 100) * 255).astype(np.uint8)
 
-img = Image(image, Format.R8G8B8A8_UNORM, translation=translation, scale=(1, H / W, 1))
+img = Image(image, translation=translation, scale=(1, H / W, 1))
 viewer.viewport.scene.objects.extend([img])
 
 viewer.run()

@@ -2,13 +2,7 @@
 // SPDX-License-Identifier: MIT
 module scene;
 
-public struct Constants {
-    public float4x4 view;
-    public float4x4 projection;
-
-    public float3 world_camera_position;
-    public uint32_t directional_lights_count;
-};
+#define PI 3.1415926535897932384626433832795f
 
 public struct LightEvaluation {
     public float3 L;
@@ -94,20 +88,6 @@ public struct UniformEnvironmentLight : ILight
     }
 }
 
-[vk::binding(0, 0)]
-public ConstantBuffer<Constants> g_constants;
-
-[vk::binding(1, 0)]
-public StructuredBuffer<DirectionalLight> g_directional_lights;
-
-[vk::binding(2, 0)]
-public Texture2D g_directional_shadowmaps[];
-
-[vk::binding(3, 0)]
-public SamplerComparisonState g_directional_shadowmap_sampler;
-
-#define PI 3.1415926535897932384626433832795f
-
 public interface IMaterial
 {
     public float3 eval(float3 world_position, float2 uv, float3 world_normal);
@@ -121,7 +101,7 @@ public struct EmptyMaterial : IMaterial
     }
 }
 
-struct ColorMaterial : IMaterial
+public struct ColorMaterial : IMaterial
 {
     float3 color;
     bool has_color_texture;
@@ -198,12 +178,6 @@ public struct DiffuseSpecularMaterial : IMaterial
         } else {
             specular_strength = this.specular_strength;
         }
-        float specular_exponent;
-        if (has_diffuse_texture) {
-            specular_exponent = this.specular_exponent_texture.Sample(sampler, uv).r;
-        } else {
-            specular_exponent = this.specular_exponent;
-        }
 
         float3 view = normalize(g_constants.world_camera_position - world_position);
 
@@ -216,7 +190,7 @@ public struct DiffuseSpecularMaterial : IMaterial
             float specular = pow(max(dot(world_normal, half), 0.0f), specular_exponent) * specular_strength;
             float cosine = max(dot(light.direction, world_normal), 0.0);
 
-            outgoing_radiance += (cosine * diffuse + specular) * light.L;
+            outgoing_radiance += ((cosine * diffuse) + lerp(1.0, diffuse, specular_tint) * specular) * light.L;
         }
 
         return outgoing_radiance;
@@ -345,17 +319,29 @@ struct PBRMaterial : IMaterial
     }
 }
 
-public struct ObjectConstants {
-    public float4x4 transform;
+public struct Constants {
+    public float4x4 view;
+    public float4x4 projection;
 
+    public float3 world_camera_position;
+    public uint32_t directional_lights_count;
 };
 
-[vk::binding(0, 1)]
-public ConstantBuffer<ObjectConstants> g_object_constants;
+[vk::binding(0, 0)]
+public ConstantBuffer<Constants> g_constants;
+
+[vk::binding(1, 0)]
+public StructuredBuffer<DirectionalLight> g_directional_lights;
+
+[vk::binding(2, 0)]
+public Texture2D g_directional_shadowmaps[];
+
+[vk::binding(3, 0)]
+public SamplerComparisonState g_directional_shadowmap_sampler;
 
 // TODO: think if we can use entry point arguments for this instead,
 // but not sure if we have control over the descriptor set.
-[vk::binding(0, 2)]
+[vk::binding(0, 1)]
 #if defined(MATERIAL_COLOR)
 public ConstantBuffer<ColorMaterial> g_material;
 #elif defined(MATERIAL_DIFFUSE)

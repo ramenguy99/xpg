@@ -1,12 +1,12 @@
 from pyxpg import Action, Key, Modifiers, imgui
 
-import ambra
-from ambra.config import Config
+from ambra.config import Config, ServerConfig
 from ambra.server import Client, MessageId, RawMessage
 from ambra.utils.hook import hook
+from ambra.viewer import Viewer
 
 
-class Viewer(ambra.Viewer):
+class Viewer(Viewer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.messages = []
@@ -34,7 +34,7 @@ class Viewer(ambra.Viewer):
 
 
 config = Config(
-    server_enabled=True,
+    server=ServerConfig(enabled=True),
 )
-viewer = Viewer("Hello World", 1280, 720, config=config)
+viewer = Viewer("Server", config=config)
 viewer.run()

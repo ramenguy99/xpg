@@ -1,17 +1,20 @@
+from typing import Tuple
+
 import numpy as np
 
+
 # TODO: replace with array version
-def create_sphere(radius=1.0, rings=16, sectors=32):
-    R = 1.0 / (rings - 1)
-    S = 1.0 / (sectors - 1)
+def create_sphere(radius: float = 1.0, rings: int = 16, sectors: int = 32) -> Tuple[np.ndarray, np.ndarray]:
+    inv_r = 1.0 / (rings - 1)
+    inv_s = 1.0 / (sectors - 1)
 
     vertices = np.zeros((rings * sectors, 3))
     v, n = 0, 0
     for r in range(rings):
         for s in range(sectors):
-            y = np.sin(-np.pi / 2 + np.pi * r * R)
-            x = np.cos(2 * np.pi * s * S) * np.sin(np.pi * r * R)
-            z = np.sin(2 * np.pi * s * S) * np.sin(np.pi * r * R)
+            y = np.sin(-np.pi / 2 + np.pi * r * inv_r)
+            x = np.cos(2 * np.pi * s * inv_s) * np.sin(np.pi * r * inv_r)
+            z = np.sin(2 * np.pi * s * inv_s) * np.sin(np.pi * r * inv_r)
 
             vertices[v] = np.array([x, y, z]) * radius
 

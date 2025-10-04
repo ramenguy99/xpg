@@ -11,6 +11,7 @@ from pyglm.glm import (
     cross,
     distance,
     dot,
+    dvec2,
     ivec2,
     mat3,
     mat3_cast,
@@ -46,7 +47,7 @@ class Playback:
 
     def set_max_time(self, max_time: float) -> None:
         self.max_time = max(max_time, 0.0)
-        self.num_frames = int(self.max_time * self.frames_per_second)
+        self.num_frames = max(int(self.max_time * self.frames_per_second), 1)
 
     def step(self, dt: float) -> None:
         self.set_time(self.current_time + dt)
@@ -189,11 +190,11 @@ class Viewport:
             else:
                 raise RuntimeError(f"Unhandled control mode {self.camera_control_mode}")
 
-    def on_zoom(self, scroll: ivec2) -> None:
+    def on_zoom(self, scroll: dvec2) -> None:
         if not self.pan_pressed and not self.rotate_pressed:
             self.zoom(scroll, False)
 
-    def on_zoom_with_movement(self, scroll: ivec2) -> None:
+    def on_zoom_with_movement(self, scroll: dvec2) -> None:
         if not self.pan_pressed and not self.rotate_pressed:
             self.zoom(scroll, True)
 
@@ -253,7 +254,7 @@ class Viewport:
             self.drag_start_camera_position + delta_position, self.camera_target, self.camera_world_up, self.handedness
         )
 
-    def zoom(self, scroll: ivec2, move: bool) -> None:
+    def zoom(self, scroll: dvec2, move: bool) -> None:
         position = self.camera.position()
         dist = distance(position, self.camera_target)
         speed_scale = max(dist * self.camera_zoom_distance_speed_scale, self.camera_zoom_min_speed_scale)
