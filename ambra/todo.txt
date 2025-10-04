@@ -9,7 +9,15 @@ Priority:
     - [ ] Buffer suballocation / texture array for huge number of frames:
         -> can't afford one buffer per-frame when uploading lots of frames
         -> currently can work around this with streaming API
-- [ ] Directional lights, simple materials and shader permutations
+- [ ] Lights, materials and shader permutations
+    - [x] Cache shader compilations also in memory
+    - [x] Ambient light
+    - [x] PBR material
+    - [ ] IBL -> requires cubemaps
+    - [ ] Expose sampling options in materials
+    - [ ] Mips
+    - [ ] Cache pipelines -> requires hashable pyxpg objects
+- [ ] Stages presets in config (empty, origin, floor, lights, maybe more?)
 - [ ] Basic client/server example and initial set of APIs
 - [ ] Important 3D primitives
 - [ ] Multi-viewport

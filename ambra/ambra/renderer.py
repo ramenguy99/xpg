@@ -4,7 +4,7 @@
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from pyxpg import (
@@ -124,7 +124,8 @@ class Renderer:
                 "view": (np.dtype((np.float32, (4, 4))), 0),
                 "projection": (np.dtype((np.float32, (4, 4))), 64),
                 "camera_position": (np.dtype((np.float32, (3,))), 128),
-                "num_lights": (np.dtype((np.uint32, len(lights.LIGHT_TYPES_INFO))), 140),
+                "ambient_light": (np.dtype((np.float32, 3)), 144),
+                "num_lights": (np.dtype((np.uint32, len(lights.LIGHT_TYPES_INFO))), 156),
             }
         )  # type: ignore
 
@@ -153,6 +154,8 @@ class Renderer:
             set.write_sampler(self.shadow_sampler, 3, 0)
             for i, light_buf in enumerate(light_bufs):
                 set.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 1, i)
+
+        self.uniform_environment_lights: List[lights.UniformEnvironmentLight] = []
 
         self.uniform_pool = UniformPool(ctx, window.num_frames, config.uniform_pool_block_size)
 
@@ -258,6 +261,8 @@ class Renderer:
         self.depth_compare_op = CompareOp.LESS
         self.resize(window.fb_width, window.fb_height)
 
+        self.shader_cache: Dict[Tuple[Union[str, Sequence[str]], ...], slang.Shader] = {}
+
     def resize(self, width: int, height: int) -> None:
         if self.depth_buffer is not None:
             self.depth_buffer.destroy()
@@ -324,6 +329,9 @@ class Renderer:
         self.gpu_properties.append(prop)
         return prop
 
+    def add_uniform_environment_light(self, light: "lights.UniformEnvironmentLight") -> None:
+        self.uniform_environment_lights.append(light)
+
     def add_light(self, light_type: "lights.LightTypes", shadowmap: Optional[Image]) -> Tuple[int, int]:
         if self.num_lights[light_type.value] >= self.max_lights_per_type:
             raise RuntimeError(
@@ -366,8 +374,15 @@ class Renderer:
     def get_builtin_shader(
         self, name: str, entry: str, defines: Optional[List[Tuple[str, str]]] = None
     ) -> slang.Shader:
+        defines = defines or []
+        key = (name, entry, *defines)
+        if s := self.shader_cache.get(key):
+            return s
+
         path = SHADERS_PATH.joinpath(name)
-        return compile(path, entry, defines=defines)
+        shader = compile(path, entry, defines=defines)
+        self.shader_cache[key] = shader
+        return shader
 
     def render(self, viewport: Viewport, gui: Gui) -> None:
         # Create new objects, if any
@@ -405,6 +420,9 @@ class Renderer:
             self.constants["view"] = viewport.camera.view()
             self.constants["camera_position"] = viewport.camera.position()
             self.constants["num_lights"] = self.num_lights
+            self.constants["ambient_light"] = np.sum(
+                [l.radiance.get_current() for l in self.uniform_environment_lights]
+            )
 
             buf.upload(
                 cmd,

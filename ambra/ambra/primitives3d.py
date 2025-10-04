@@ -1,7 +1,7 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
-from typing import Optional, Union, List, Tuple
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 from pyglm.glm import inverse, mat3x3, mat4x3, transpose
@@ -33,7 +33,7 @@ from .materials import ColorMaterial, DiffuseMaterial, Material
 from .property import BufferProperty, ImageProperty, as_image_property
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
-from .scene import Object3D, Object
+from .scene import Object, Object3D
 from .utils.gpu import cull_mode_opposite_face
 
 
@@ -380,8 +380,8 @@ class Image(Mesh):
             ]
         ).reshape((4, 2))
         super().__init__(
-            positions, # type: ignore
-            uvs=uvs, # type: ignore
+            positions,  # type: ignore
+            uvs=uvs,  # type: ignore
             primitive_topology=PrimitiveTopology.TRIANGLE_STRIP,
             material=material,
             name=name,

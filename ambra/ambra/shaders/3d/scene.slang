@@ -145,7 +145,7 @@ public struct DiffuseMaterial : IMaterial
             outgoing_radiance += cosine * diffuse * light.L;
         }
 
-        return outgoing_radiance;
+        return outgoing_radiance + g_constants.ambient_light * diffuse;
     }
 }
 
@@ -193,7 +193,7 @@ public struct DiffuseSpecularMaterial : IMaterial
             outgoing_radiance += ((cosine * diffuse) + lerp(1.0, diffuse, specular_tint) * specular) * light.L;
         }
 
-        return outgoing_radiance;
+        return outgoing_radiance + g_constants.ambient_light * diffuse;
     }
 }
 
@@ -248,7 +248,7 @@ float3 eval_roughness_metallic_brdf(float3 N, float3 V, float3 L, float3 Albedo,
 
     float NDF = distribution_ggx(N, H, Roughness);
     float G   = geometry_smith(N, V, L, Roughness);
-    float3 F  = fresnel_schlick(clamp(dot(H, V), 0.0, 1.0), F0);
+    float3 F  = fresnel_schlick(max(dot(H, V), 0.0), F0);
 
     float3 Numerator  = NDF * G * F;
     float Denominator = 4.0f * max(dot(N, V), 0.0f) * max(dot(N, L), 0.0f);
@@ -263,7 +263,8 @@ float3 eval_roughness_metallic_brdf(float3 N, float3 V, float3 L, float3 Albedo,
 
     return brdf;
 }
-struct PBRMaterial : IMaterial
+
+public struct PBRMaterial : IMaterial
 {
     float3 albedo;
     bool has_albedo_texture;
@@ -305,8 +306,7 @@ struct PBRMaterial : IMaterial
         float3 view = normalize(g_constants.world_camera_position - world_position);
         float3 outgoing_radiance = float3(0, 0, 0);
 
-        float3 f0 = float3(0.04f, 0.04f, 0.04f);
-        f0 = lerp(f0, albedo, metallic);
+        float3 f0 = lerp(0.04, albedo, metallic);
 
         for (uint32_t i = 0; i < g_constants.directional_lights_count; i++) {
             LightEvaluation light = g_directional_lights[i].eval(world_position, world_normal);
@@ -315,7 +315,15 @@ struct PBRMaterial : IMaterial
             outgoing_radiance += brdf_cosine * light.L;
         }
 
-        return outgoing_radiance;
+        float3 color = outgoing_radiance + albedo * g_constants.ambient_light;
+
+        // Tonemapping
+        color = color / (color + 1.0);
+
+        // To sRGB
+        color = pow(color, 1.0 / 2.2);
+
+        return color;
     }
 }
 
@@ -324,7 +332,9 @@ public struct Constants {
     public float4x4 projection;
 
     public float3 world_camera_position;
+    public float3 ambient_light;
     public uint32_t directional_lights_count;
+
 };
 
 [vk::binding(0, 0)]

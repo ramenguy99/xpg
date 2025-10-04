@@ -6,7 +6,7 @@ from enum import Enum, auto
 from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
-from numpy.typing import DTypeLike, ArrayLike
+from numpy.typing import ArrayLike, DTypeLike
 from pyxpg import Format
 
 from .utils.gpu import format_from_channels_dtype

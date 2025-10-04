@@ -228,12 +228,12 @@ class UniformEnvironmentLight(Light):
         self,
         radiance: Union[BufferProperty, np.ndarray],
         name: Optional[str] = None,
-        translation: Optional[BufferProperty] = None,
-        rotation: Optional[BufferProperty] = None,
-        scale: Optional[BufferProperty] = None,
     ):
-        super().__init__(name, translation, rotation, scale)
-        self.radiance = self.add_buffer_property(radiance, np.float32, (-1, 3), name="radiance")
+        super().__init__(name)
+        self.radiance = self.add_buffer_property(radiance, np.float32, (3,), name="radiance")
+
+    def create(self, r: "renderer.Renderer") -> None:
+        r.add_uniform_environment_light(self)
 
 
 # class AreaLight(Light):

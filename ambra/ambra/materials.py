@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
-from typing import List, Optional, TypeAlias, Union, Tuple
+from typing import List, Tuple, TypeAlias, Union
 
 import numpy as np
 from pyxpg import (
@@ -75,7 +75,7 @@ class Material:
             fields[p.name] = (np.dtype((np.float32, (p.channels,))), offset)
             offset += p.channels * 4
             if p.allow_image:
-                fields[f"has_{p.name}_texture"] = (np.uint32, offset) # type: ignore
+                fields[f"has_{p.name}_texture"] = (np.uint32, offset)  # type: ignore
                 offset += 4
         self.dtype = np.dtype(fields)  # type: ignore
 
