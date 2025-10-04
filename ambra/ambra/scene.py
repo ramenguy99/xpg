@@ -1,15 +1,14 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
-from dataclasses import dataclass
-from enum import Enum
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from numpy.typing import DTypeLike
 from pyglm.glm import mat3, mat4, quat, vec2, vec3
-from pyxpg import imgui
+from pyxpg import DescriptorSet, imgui
 
+from . import lights, materials, renderer
 from .property import (
     Animation,
     BufferProperty,
@@ -20,6 +19,7 @@ from .property import (
     as_buffer_property,
     as_image_property,
 )
+from .renderer_frame import RendererFrame
 from .transform2d import Transform2D
 from .transform3d import Transform3D
 
@@ -27,11 +27,16 @@ _counter = 0
 
 
 class Object:
-    def __init__(self, name: Optional[str] = None):
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        material: Optional["materials.Material"] = None,
+    ):
         self.uid = Object.next_id()
         self.name = name or f"{type(self).__name__}<{self.uid}>"
         self.children: List[Object] = []
         self.properties: List[Property] = []
+        self.material = material
 
         self.created = False
         self.gui_expanded = False
@@ -68,33 +73,42 @@ class Object:
         self.properties.append(property)
         return property
 
-    def create_if_needed(self, renderer):  # type: ignore
+    def create_if_needed(self, renderer: "renderer.Renderer") -> None:
+        if self.material is not None:
+            self.material.create_if_needed(renderer)
+
         if not self.created:
-            self.create(renderer)  # type: ignore
+            self.create(renderer)
             self.created = True
 
-    def create(self, renderer):  # type: ignore
+    def create(self, renderer: "renderer.Renderer") -> None:
         pass
 
-    def update(self, time: float, frame: int) -> None:
-        # TODO: potentially the same property is updated more than once if added to multiple nodes
-        # decide if this is ok because update will be idempotent or if we should dedup this.
-        #
-        # Currently update is idempotent because it's only doing frame lookup and caching of frame index / time
+    def collect_dynamic_properties(self, all_properties: Set[Property]) -> None:
         for p in self.properties:
-            p.update(time, frame)
+            if p.num_frames > 1:
+                all_properties.add(p)
+        if self.material is not None:
+            for mp in self.material.properties:
+                if mp.property.num_frames > 1:
+                    all_properties.add(mp.property)
+
+    def update(self, time: float, frame: int) -> None:
+        pass
 
     def update_transform(self, parent: Optional["Object"]) -> None:
         # TODO: can merge with udpate? Where to find parent? With link?
         pass
 
-    def upload(self, renderer, frame):  # type: ignore
+    def upload(self, renderer: "renderer.Renderer", frame: RendererFrame) -> None:
         pass
 
-    def render(self, renderer, frame, scene_descriptor_set):  # type: ignore
+    def render(self, renderer: "renderer.Renderer", frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         pass
 
-    def render_depth(self, renderer, frame, scene_descriptor_set):  # type: ignore
+    def render_depth(
+        self, renderer: "renderer.Renderer", frame: RendererFrame, scene_descriptor_set: DescriptorSet
+    ) -> None:
         pass
 
     def destroy(self) -> None:
@@ -169,8 +183,9 @@ class Object3D(Object):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
+        material: Optional["materials.Material"] = None,
     ):
-        super().__init__(name)
+        super().__init__(name, material)
         self.translation = self.add_buffer_property(
             translation if translation is not None else np.array([0, 0, 0]),
             np.float32,
@@ -189,7 +204,6 @@ class Object3D(Object):
             (3,),
             name="scale",
         )
-
         self.update_transform(None)
 
     def update_transform(self, parent: Optional[Object]) -> None:
@@ -203,36 +217,6 @@ class Object3D(Object):
         self.current_transform_matrix: mat4 = (
             parent.current_transform_matrix if parent is not None else mat4(1.0)
         ) * self.current_relative_transform.as_mat4()  # type: ignore
-
-
-class LightTypes(Enum):
-    DIRECTIONAL = 0
-
-
-@dataclass
-class LightInfo:
-    size: int
-
-
-directional_light_dtype = np.dtype(
-    {
-        "orthographic_camera": (np.dtype((np.float32, (4, 4))), 0),
-        "radiance": (np.dtype((np.float32, (3,))), 64),
-        "shadowmap_index": (np.dtype((np.uint32, (1,))), 76),
-        "direction": (np.dtype((np.float32, (3,))), 80),
-        "bias": (np.dtype((np.float32, (1,))), 92),
-    }
-)  # type: ignore
-
-# When adding a new light type, this also has to be added with a matching type to "shaders/2d/scene.slang" and "shaders/3d/scene.slang"
-LIGHT_TYPES_INFO = [
-    LightInfo(directional_light_dtype.itemsize),
-]
-
-
-class Light(Object3D):
-    def render_shadowmaps(self, renderer, frame, scene: "Scene") -> None:  # type: ignore
-        pass
 
 
 class Scene:
@@ -272,50 +256,63 @@ class Scene:
     def max_animation_time(self, frames_per_second: float) -> float:
         time = 0.0
 
+        all_dynamic_properties: Set[Property] = set()
+
         def visit(o: Object) -> None:
-            nonlocal time
-            time = max(
-                time,
-                max(p.max_animation_time(frames_per_second) for p in o.properties),
-            )
+            o.collect_dynamic_properties(all_dynamic_properties)
 
         self.visit_objects(visit)
+
+        for p in all_dynamic_properties:
+            time = max(time, p.max_animation_time(frames_per_second))
+
         return time
 
     def update(self, time: float, frame: int) -> None:
-        def visit(p: Optional[Object], o: Object) -> None:
-            o.update(time, frame)
+        all_dynamic_properties: Set[Property] = set()
+
+        def collect(o: Object) -> None:
+            o.collect_dynamic_properties(all_dynamic_properties)
+
+        self.visit_objects(collect)
+
+        for p in all_dynamic_properties:
+            p.update(time, frame)
+
+        def update(p: Optional[Object], o: Object) -> None:
             o.update_transform(p)
 
-        self.visit_objects_with_parent(visit)
+        self.visit_objects_with_parent(update)
 
-    def create_if_needed(self, renderer) -> None:  # type: ignore
+    def create_if_needed(self, renderer: "renderer.Renderer") -> None:
         def visit(o: Object) -> None:
-            o.create_if_needed(renderer)  # type: ignore
+            o.create_if_needed(renderer)
 
         self.visit_objects(visit)
 
-    def render(self, renderer, frame, descriptor_set) -> None:  # type: ignore
+    def render(self, renderer: "renderer.Renderer", frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
         def visit(o: Object) -> None:
-            o.render(renderer, frame, descriptor_set)  # type: ignore
+            o.render(renderer, frame, descriptor_set)
 
         self.visit_objects(visit)
 
-    def upload(self, renderer, frame) -> None:  # type: ignore
+    def upload(self, renderer: "renderer.Renderer", frame: RendererFrame) -> None:
         def visit(o: Object) -> None:
-            o.upload(renderer, frame)  # type: ignore
+            if o.material is not None:
+                o.material.upload(renderer, frame)
+            o.upload(renderer, frame)
 
         self.visit_objects(visit)
 
-    def render_depth(self, renderer, frame, descriptor_set) -> None:  # type: ignore
+    def render_depth(self, renderer: "renderer.Renderer", frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
         def visit(o: Object) -> None:
-            o.render_depth(renderer, frame, descriptor_set)  # type: ignore
+            o.render_depth(renderer, frame, descriptor_set)
 
         self.visit_objects(visit)
 
-    def render_shadowmaps(self, renderer, frame) -> None:  # type: ignore
+    def render_shadowmaps(self, renderer: "renderer.Renderer", frame: RendererFrame) -> None:
         def visit(o: Object) -> None:
-            if isinstance(o, Light):
+            if isinstance(o, lights.Light):
                 o.render_shadowmaps(renderer, frame, self)
 
         self.visit_objects(visit)

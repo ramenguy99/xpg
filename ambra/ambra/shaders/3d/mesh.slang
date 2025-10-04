@@ -1,8 +1,14 @@
 // Copyright Dario Mylonopoulos
 // SPDX-License-Identifier: MIT
-
 import "scene";
-import "object";
+
+public struct ObjectConstants {
+    public float3x4 transform;
+    public float3x3 normal_matrix;
+};
+
+[vk::push_constant]
+public ConstantBuffer<ObjectConstants> g_object_constants;
 
 struct VSInput
 {
@@ -10,8 +16,13 @@ struct VSInput
     float3 position;
 
 #ifdef VERTEX_NORMALS
-    [[vk::location(1)]]
+    [[vk::location(VERTEX_NORMALS)]]
     float3 normal;
+#endif
+
+#ifdef VERTEX_UVS
+    [[vk::location(VERTEX_UVS)]]
+    float2 uv;
 #endif
 };
 
@@ -22,17 +33,23 @@ struct VSOutput
 #ifdef VERTEX_NORMALS
     float3 world_normal;
 #endif
+#ifdef VERTEX_UVS
+    float2 uv;
+#endif
 };
 
 [shader("vertex")]
 VSOutput vertex_main(VSInput in)
 {
     VSOutput out;
-    float4 world_position = mul(g_object_constants.transform, float4(in.position, 1.0));
-    out.position = mul(g_constants.projection, mul(g_constants.view, world_position));
-    out.world_position = world_position.xyz;
+    float3 world_position = mul(g_object_constants.transform, float4(in.position, 1.0));
+    out.position = mul(g_constants.projection, mul(g_constants.view, float4(world_position, 1.0)));
+    out.world_position = world_position;
 #ifdef VERTEX_NORMALS
-    out.world_normal = mul(g_object_constants.transform, float4(in.normal, 0.0)).xyz;
+    out.world_normal = mul(g_object_constants.normal_matrix, in.normal);
+#endif
+#ifdef VERTEX_UVS
+    out.uv = in.uv;
 #endif
 
     return out;
@@ -49,7 +66,13 @@ float4 pixel_main(VSOutput in) : SV_Target0
     float3 N = normalize(cross(b, t));
 #endif
 
-    float3 color = g_material.eval(in.world_position, 0.0, N);
+#ifdef VERTEX_UVS
+    float2 uv = in.uv;
+#else
+    float2 uv = 0.0;
+#endif
+
+    float3 color = g_material.eval(in.world_position, uv, N);
 
     return float4(color, 1.0);
 }

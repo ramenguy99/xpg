@@ -20,7 +20,6 @@ class ServerConfig:
     enabled: bool = False
     address: str = "localhost"
     port: int = 9168
-    max_connections: int = 4
 
 
 class UploadMethod(Enum):

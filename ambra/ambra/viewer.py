@@ -7,7 +7,7 @@ from time import perf_counter_ns
 from typing import Any, Optional, Tuple, Union
 
 import numpy as np
-from pyglm.glm import ivec2, vec3, dvec2
+from pyglm.glm import dvec2, ivec2, vec3
 from pyxpg import (
     Action,
     Context,
@@ -72,7 +72,9 @@ class Viewer:
 
         # Context
         self.ctx = Context(
-            required_features=DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.DESCRIPTOR_INDEXING,
+            required_features=DeviceFeatures.SYNCHRONIZATION_2
+            | DeviceFeatures.DYNAMIC_RENDERING
+            | DeviceFeatures.DESCRIPTOR_INDEXING,
             optional_features=DeviceFeatures.RAY_QUERY
             | DeviceFeatures.HOST_QUERY_RESET
             | DeviceFeatures.WIDE_LINES
@@ -192,7 +194,7 @@ class Viewer:
     def on_mouse_move(self, position: ivec2) -> None:
         self.viewport.on_move(position)
 
-    def on_scroll(self, position: ivec2, scroll: ivec2) -> None:
+    def on_scroll(self, position: ivec2, scroll: dvec2) -> None:
         if imgui.get_io().want_capture_mouse:
             return
 

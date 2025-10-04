@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional, Union
 
 import numpy as np
@@ -20,13 +21,43 @@ from pyxpg import (
     StoreOp,
 )
 
+from . import renderer
 from .property import BufferProperty, view_bytes
-from .renderer import Renderer
 from .renderer_frame import RendererFrame
-from .scene import Light, LightTypes, Scene, directional_light_dtype
+from .scene import Object3D, Scene
 from .utils.descriptors import create_descriptor_pool_and_sets_ringbuffer
 from .utils.gpu import UploadableBuffer
 from .utils.ring_buffer import RingBuffer
+
+
+class LightTypes(Enum):
+    DIRECTIONAL = 0
+
+
+@dataclass
+class LightInfo:
+    size: int
+
+
+directional_light_dtype = np.dtype(
+    {
+        "orthographic_camera": (np.dtype((np.float32, (4, 4))), 0),
+        "radiance": (np.dtype((np.float32, (3,))), 64),
+        "shadowmap_index": (np.dtype((np.uint32, (1,))), 76),
+        "direction": (np.dtype((np.float32, (3,))), 80),
+        "bias": (np.dtype((np.float32, (1,))), 92),
+    }
+)  # type: ignore
+
+# When adding a new light type, this also has to be added with a matching type to "shaders/2d/scene.slang" and "shaders/3d/scene.slang"
+LIGHT_TYPES_INFO = [
+    LightInfo(directional_light_dtype.itemsize),
+]
+
+
+class Light(Object3D):
+    def render_shadowmaps(self, renderer: "renderer.Renderer", frame: RendererFrame, scene: Scene) -> None:
+        pass
 
 
 class PointLight(Light):
@@ -86,7 +117,7 @@ class DirectionalLight(Light):
         self.shadow_settings = shadow_settings if shadow_settings is not None else DirectionalShadowSettings()
         self.shadow_map: Optional[Image] = None
 
-    def create(self, r: Renderer) -> None:
+    def create(self, r: "renderer.Renderer") -> None:
         if self.shadow_settings.casts_shadow:
             self.shadow_map = Image(
                 r.ctx,
@@ -139,7 +170,7 @@ class DirectionalLight(Light):
         self.light_buffer_offset, self.shadowmap_index = r.add_light(LightTypes.DIRECTIONAL, self.shadow_map)
         self.light_info = np.zeros((1,), directional_light_dtype)
 
-    def upload(self, renderer: Renderer, frame: RendererFrame) -> None:
+    def upload(self, renderer: "renderer.Renderer", frame: RendererFrame) -> None:
         view = inverse(self.current_transform_matrix)
         direction = vec3(self.current_transform_matrix * vec4(0, 0, -1, 0))
         self.light_info["orthographic_camera"] = self.projection * view
@@ -149,7 +180,7 @@ class DirectionalLight(Light):
         self.light_info["bias"] = self.shadow_settings.bias
         renderer.upload_light(frame, LightTypes.DIRECTIONAL, view_bytes(self.light_info), self.light_buffer_offset)
 
-    def render_shadowmaps(self, renderer: Renderer, frame: RendererFrame, scene: Scene) -> None:
+    def render_shadowmaps(self, renderer: "renderer.Renderer", frame: RendererFrame, scene: Scene) -> None:
         if not self.shadow_settings.casts_shadow:
             return
 

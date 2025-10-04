@@ -3,6 +3,13 @@
 
 import "scene_depth";
 
+public struct ObjectConstants {
+    public float3x4 transform;
+};
+
+[vk::push_constant]
+public ConstantBuffer<ObjectConstants> g_object_constants;
+
 struct VSInput
 {
     [[vk::location(0)]]
@@ -18,6 +25,6 @@ struct VSOutput
 VSOutput vertex_main(VSInput in)
 {
     VSOutput out;
-    out.position = mul(g_constants.camera_matrix, mul(g_object_constants.transform, float4(in.position, 1.0)));
+    out.position = mul(g_constants.camera_matrix, float4(mul(g_object_constants.transform, float4(in.position, 1.0)), 1.0));
     return out;
 }
