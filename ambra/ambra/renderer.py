@@ -222,6 +222,8 @@ class Renderer:
             else:
                 self.image_upload_method = UploadMethod.GRAPHICS_QUEUE
 
+        self.zero_image = Image.from_data(ctx, np.zeros((1, 1, 4), np.uint8), ImageLayout.SHADER_READ_ONLY_OPTIMAL, 1, 1, Format.R8G8B8A8_UNORM, ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE, name="zero-image")
+
         self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
 
         # Allocate buffers for bulk upload

@@ -141,7 +141,7 @@ class DirectionalLight(Light):
 
     def upload(self, renderer: Renderer, frame: RendererFrame) -> None:
         view = inverse(self.current_transform_matrix)
-        direction = vec3(self.current_transform_matrix * vec4(0, 0, 1, 0))
+        direction = vec3(self.current_transform_matrix * vec4(0, 0, -1, 0))
         self.light_info["orthographic_camera"] = self.projection * view
         self.light_info["radiance"] = self.radiance.get_current()
         self.light_info["shadowmap_index"] = self.shadowmap_index

@@ -78,11 +78,3 @@ class Transform3D:
         m[3, 1] = self.translation.y
         m[3, 2] = self.translation.z
         return m
-
-    def inverse(self) -> "Transform3D":
-        inverse_rotation = inverse(self.rotation)
-        return Transform3D(
-            scale=1.0 / self.scale,
-            rotation=inverse_rotation,  # type:ignore
-            translation=-(inverse_rotation * self.translation),  # type:ignore
-        )
