@@ -9,45 +9,12 @@ from ambra.lights import DirectionalLight, DirectionalShadowSettings
 from ambra.utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer, create_descriptor_layout_pool_and_set, create_descriptor_layout_pool_and_sets
 from ambra.utils.profile import profile
 
-from pyglm.glm import inverse, ivec2, normalize, quatLookAtRH, vec3
+from pyglm.glm import normalize, quatLookAtRH, vec3
 
 from pyxpg import *
 
 import sys
 import imageio.v3 as iio
-
-cubemap_rotations = np.asarray([
-    [
-        [ 0,  0,  1],
-        [ 0, -1,  0],
-        [-1,  0,  0],
-    ],
-    [
-        [ 0,  0, -1],
-        [ 0, -1,  0],
-        [ 1,  0,  0],
-    ],
-    [
-        [ 1,  0,  0],
-        [ 0,  0,  1],
-        [ 0,  1,  0],
-    ],
-    [
-        [ 1,  0,  0],
-        [ 0,  0, -1],
-        [ 0, -1,  0],
-    ],
-    [
-        [ 1,  0,  0],
-        [ 0, -1,  0],
-        [ 0,  0,  1],
-    ],
-    [
-        [-1,  0,  0],
-        [ 0, -1,  0],
-        [ 0,  0, -1],
-    ],
-], np.float32)
 
 class DebugCube(Object3D):
     def __init__(
@@ -159,7 +126,7 @@ class DebugCube(Object3D):
 level = 0
 class CustomViewer(Viewer):
     def on_key(self, key: Key, action: Action, modifiers: Modifiers):
-        global level, skybox_mip_level
+        global level
         if action == Action.PRESS:
             if key == Key.Z:
                 level = max(level - 1, 0)
@@ -249,13 +216,10 @@ def skybox():
 
     constants_dtype = np.dtype(
         {
-            "rotation": (np.dtype((np.float32, (3, 4))), 0),
-            "size": (np.uint32, 48),
-            "layer": (np.uint32, 52),
+            "size": (np.uint32, 0),
         }
     )  # type: ignore
     constants = np.zeros((1,), constants_dtype)
-    constants["rotation"] = mat4x3(1.0)
     constants["size"] = skybox_size
 
     cubemap_array_view = ImageView(ctx, skybox_cubemap, ImageViewType.TYPE_2D_ARRAY, mip_level_count=1)
@@ -267,11 +231,8 @@ def skybox():
 
     with viewer.ctx.sync_commands() as cmd:
         cmd.image_barrier(skybox_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, undefined=True)
-        for i in range(6):
-            constants["rotation"][:, :3, :3] = cubemap_rotations[i]
-            constants["layer"] = i
-            cmd.bind_compute_pipeline(compute_pipeline, descriptor_sets=[descriptor_set], push_constants=constants.tobytes())
-            cmd.dispatch((skybox_size + 7) // 8, (skybox_size + 7) // 8)
+        cmd.bind_compute_pipeline(compute_pipeline, descriptor_sets=[descriptor_set], push_constants=constants.tobytes())
+        cmd.dispatch((skybox_size + 7) // 8, (skybox_size + 7) // 8, 6)
         cmd.image_barrier(skybox_cubemap, ImageLayout.GENERAL, MemoryUsage.IMAGE, MemoryUsage.ALL)
         for m in range(1, skybox_mip_levels):
             src_size = skybox_size >> m - 1
@@ -294,7 +255,6 @@ irradiance_cubemap = Image(
 
 # TODO:
 # - Try sampling cubemap instead of HDR directly
-# - Try launching all faces in the same kernel
 def irradiance():
     descriptor_set_layout, descriptor_pool, descriptor_set = create_descriptor_layout_pool_and_set(ctx, [
         DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),
@@ -303,35 +263,29 @@ def irradiance():
 
     constants_dtype = np.dtype(
         {
-            "rotation": (np.dtype((np.float32, (3, 4))), 0),
-            "size": (np.uint32, 48),
-            "layer": (np.uint32, 52),
-            "samples_phi": (np.uint32, 56),
-            "samples_theta": (np.uint32, 60),
-            "skybox_resolution": (np.float32, 64),
+            "size": (np.uint32, 0),
+            "samples_phi": (np.uint32, 4),
+            "samples_theta": (np.uint32, 8),
         }
     )  # type: ignore
     constants = np.zeros((1,), constants_dtype)
-    constants["rotation"] = mat4x3(1.0)
     constants["size"] = irradiance_size
     constants["samples_phi"] = 256
     constants["samples_theta"] = 64
-    constants["skybox_resolution"] = skybox_size
 
     cubemap_array_view = ImageView(ctx, irradiance_cubemap, ImageViewType.TYPE_2D_ARRAY, mip_level_count=1)
     descriptor_set.write_image(cubemap_array_view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0)
-    descriptor_set.write_combined_image_sampler(hdr_img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, hdr_sampler, 1)
+
+    cubemap_sampler = Sampler(ctx, Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR)
+    descriptor_set.write_combined_image_sampler(skybox_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, cubemap_sampler, 1)
 
     shader = viewer.renderer.get_builtin_shader("3d/ibl.slang", "entry_irradiance")
     compute_pipeline = ComputePipeline(ctx, Shader(ctx, shader.code), descriptor_set_layouts=[descriptor_set_layout], push_constants_ranges=[PushConstantsRange(constants_dtype.itemsize)])
 
     with profile("irradiance"), viewer.ctx.sync_commands() as cmd:
         cmd.image_barrier(irradiance_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, undefined=True)
-        for i in range(6):
-            constants["rotation"][:, :3, :3] = cubemap_rotations[i]
-            constants["layer"] = i
-            cmd.bind_compute_pipeline(compute_pipeline, descriptor_sets=[descriptor_set], push_constants=constants.tobytes())
-            cmd.dispatch((irradiance_size + 7) // 8, (irradiance_size + 7) // 8)
+        cmd.bind_compute_pipeline(compute_pipeline, descriptor_sets=[descriptor_set], push_constants=constants.tobytes())
+        cmd.dispatch((irradiance_size + 7) // 8, (irradiance_size + 7) // 8, 6)
         cmd.image_barrier(irradiance_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.IMAGE, MemoryUsage.ALL, undefined=False)
 
 mip_levels = 5
@@ -357,23 +311,21 @@ def specular():
 
     constants_dtype = np.dtype(
         {
-            "rotation": (np.dtype((np.float32, (3, 4))), 0),
-            "size": (np.uint32, 48),
-            "layer": (np.uint32, 52),
-            "samples": (np.uint32, 56),
-            "roughness": (np.float32, 60),
+            "size": (np.uint32, 0),
+            "samples": (np.uint32, 4),
+            "roughness": (np.float32, 8),
+            "skybox_resolution": (np.float32, 12),
         }
     )  # type: ignore
     constants = np.zeros((1,), constants_dtype)
-    constants["rotation"] = mat4x3(1.0)
     constants["samples"] = 1024
+    constants["skybox_resolution"] = skybox_size
 
     shader = viewer.renderer.get_builtin_shader("3d/ibl.slang", "entry_specular")
     compute_pipeline = ComputePipeline(ctx, Shader(ctx, shader.code), descriptor_set_layouts=[descriptor_set_layout], push_constants_ranges=[PushConstantsRange(constants_dtype.itemsize)])
 
     views = []
     with profile("specular"), viewer.ctx.sync_commands() as cmd:
-        cmd.image_barrier(skybox_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.NONE, MemoryUsage.SHADER_READ_ONLY)
         cmd.image_barrier(specular_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, undefined=True)
 
         for m in range(0, mip_levels):
@@ -386,11 +338,8 @@ def specular():
             mip_size = specular_size >> m
             constants["size"] = mip_size
             constants["roughness"] = m / (mip_levels - 1)
-            for i in range(6):
-                constants["rotation"][:, :3, :3] = cubemap_rotations[i]
-                constants["layer"] = i
-                cmd.bind_compute_pipeline(compute_pipeline, descriptor_sets=[descriptor_set], push_constants=constants.tobytes())
-                cmd.dispatch((mip_size + 7) // 8, (mip_size + 7) // 8)
+            cmd.bind_compute_pipeline(compute_pipeline, descriptor_sets=[descriptor_set], push_constants=constants.tobytes())
+            cmd.dispatch((mip_size + 7) // 8, (mip_size + 7) // 8, 6)
 
         cmd.image_barrier(specular_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.ALL, MemoryUsage.ALL)
 
@@ -399,7 +348,6 @@ irradiance()
 specular()
 
 cube_positions, cube_faces = create_cube()
-# cube = Mesh(cube_positions, cube_faces)
 cube = DebugCube(specular_cubemap, cube_positions, cube_faces)
 
 line_width = 4

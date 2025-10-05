@@ -1,9 +1,40 @@
 import "utils";
 
+static const float3x3 k_face_rotations[6] = {
+    float3x3(
+        0, 0, 1,
+        0, -1, 0,
+        -1, 0, 0,
+    ),
+    float3x3(
+        0, 0, -1,
+        0, -1, 0,
+        1, 0, 0,
+    ),
+    float3x3(
+        1, 0, 0,
+        0, 0, 1,
+        0, 1, 0,
+    ),
+    float3x3(
+        1, 0, 0,
+        0, 0, -1,
+        0, -1, 0,
+    ),
+    float3x3(
+        1, 0, 0,
+        0, -1, 0,
+        0, 0, 1,
+    ),
+    float3x3(
+        -1, 0, 0,
+        0, -1, 0,
+        0, 0, -1,
+    ),
+};
+
 public struct SkyboxConstants {
-    public float3x3 face_rotation;
     public uint size;
-    public uint layer;
 };
 
 [shader("compute")]
@@ -18,11 +49,11 @@ void entry_skybox(
 )
 {
     uint size = g_constants.size;
-    uint layer = g_constants.layer;
+    uint layer = threadId.z;
 
     if (all(threadId.xy < uint2(size, size))) {
         float2 face_uv = (threadId.xy + 0.5) / size * 2.0 - 1.0;
-        float3 dir = normalize(mul(g_constants.face_rotation, float3(face_uv, 1.0)));
+        float3 dir = normalize(mul(k_face_rotations[layer], float3(face_uv, 1.0)));
         float2 equirectangular_uv = direction_to_equirectangular(dir);
 
         r_output[uint3(threadId.xy, layer)] = r_equirectangular_map.SampleLevel(equirectangular_uv, 0);
@@ -30,10 +61,7 @@ void entry_skybox(
 }
 
 public struct IrradianceConstants {
-    public float3x3 face_rotation;
     public uint size;
-    public uint layer;
-
     public uint samples_phi;
     public uint samples_theta;
 };
@@ -45,16 +73,16 @@ void entry_irradiance(
     uniform IrradianceConstants g_constants, // Implicit pushconstants
     [vk::image_format("rgba16f")]
     RWTexture2DArray<float3> r_output,
-    [vk::image_format("rgba32f")]
-    Sampler2D<float3> r_equirectangular_map,
+    [vk::image_format("rgba16f")]
+    SamplerCube<float3> r_skybox,
 )
 {
     uint size = g_constants.size;
-    uint layer = g_constants.layer;
+    uint layer = threadId.z;
 
     if (all(threadId.xy < uint2(size, size))) {
         float2 face_uv = (threadId.xy + 0.5) / size * 2.0 - 1.0;
-        float3 normal = normalize(mul(g_constants.face_rotation, float3(face_uv, 1.0)));
+        float3 normal = normalize(mul(k_face_rotations[layer], float3(face_uv, 1.0)));
 
         Frame frame = frame_from_normal(normal);
 
@@ -74,10 +102,7 @@ void entry_irradiance(
                 // tangent space to world
                 float3 dir = to_world(frame, tangent_sample);
 
-                // direction to equirectangular
-                float2 uv = direction_to_equirectangular(dir);
-
-                irradiance += r_equirectangular_map.SampleLevel(uv, 0) * cos(theta) * sin(theta);
+                irradiance += r_skybox.SampleLevel(dir, 0) * cos(theta) * sin(theta);
             }
         }
 
@@ -87,10 +112,7 @@ void entry_irradiance(
 }
 
 public struct SpecularConstants {
-    public float3x3 face_rotation;
     public uint size;
-    public uint layer;
-
     public uint samples;
     public float roughness;
     public float skybox_resolution;
@@ -108,13 +130,13 @@ void entry_specular(
 )
 {
     uint size = g_constants.size;
-    uint layer = g_constants.layer;
+    uint layer = threadId.z;
     float roughness = g_constants.roughness;
     float alpha = square(roughness);
 
     if (all(threadId.xy < uint2(size, size))) {
         float2 face_uv = (threadId.xy + 0.5) / size * 2.0 - 1.0;
-        float3 normal = normalize(mul(g_constants.face_rotation, float3(face_uv, 1.0)));
+        float3 normal = normalize(mul(k_face_rotations[layer], float3(face_uv, 1.0)));
 
         if (roughness > 0) {
             Frame frame = frame_from_normal(normal);
@@ -122,7 +144,7 @@ void entry_specular(
             float total_weight = 0.0;
             float3 accumulator = 0.0;
 
-            uint4 seed = uint4(threadId.xy, g_constants.layer, 0);
+            uint4 seed = uint4(threadId.xy, layer, 0);
 
             float4 sample;
             for(uint32_t i = 0; i < g_constants.samples; i++)
@@ -136,14 +158,10 @@ void entry_specular(
 
                 float cosine = max(dot(normal, world_dir), 0.0);
                 if (cosine > 0.0) {
-#if 1
                     float pdf = pdf_gtr2(half, alpha);
                     float sa_texel = 4.0 * PI / (6.0 * square(g_constants.skybox_resolution));
                     float sa_sample = 1.0 / (g_constants.samples * pdf + 0.0001);
                     float mip_level = 0.5 * log2(sa_sample / sa_texel);
-#else
-                    float mip_level = 0;
-#endif
 
                     accumulator += r_skybox.SampleLevel(world_dir, mip_level) * cosine;
                     total_weight += cosine;
