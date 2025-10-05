@@ -13,7 +13,9 @@ Priority:
     - [x] Cache shader compilations also in memory
     - [x] Ambient light
     - [x] PBR material
-    - [ ] IBL -> requires cubemaps
+    - [x] IBL
+        - [x] Cubemaps
+        - [ ] Sampling
     - [ ] Expose sampling options in materials
     - [ ] Mips
     - [ ] Cache pipelines -> requires hashable pyxpg objects
@@ -187,9 +189,10 @@ TODO:
 - [ ] Exception often results in unfreed allocations
 
 Bugs:
+- [x] Fix non-unit world_up results in nans in camera
 - [ ] Why does @cache on shader break refcounting on context, especially for an object that does not have any reference to ctx
       -> investigate further and maybe make minimal repro if it's actually a nanobind issue
-- [ ] Fix non-unit world_up results in nans in camera
+- [ ] Exceptions sometimes cause vulkan validation errors on wrong frees
 
 Benchmarks:
 - [ ] Big sequence

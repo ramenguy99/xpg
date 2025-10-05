@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 module scene;
 
-#define PI 3.1415926535897932384626433832795f
+public static const float PI = 3.1415926535897932384626433832795f;
 
 public struct LightEvaluation {
     public float3 L;
@@ -197,6 +197,7 @@ public struct DiffuseSpecularMaterial : IMaterial
     }
 }
 
+// TODO: Change to use sample_gtr2 in utils
 float distribution_ggx(float3 N, float3 H, float Roughness)
 {
     float a      = Roughness*Roughness;

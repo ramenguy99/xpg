@@ -96,6 +96,10 @@ struct Reflection_Resource: Reflection_Obj {
         ConstantBuffer,
         StructuredBuffer,
         Texture2D,
+        Texture3D,
+        Texture2DArray,
+        TextureCube,
+        TextureCubeArray,
         AccelerationStructure,
         Sampler,
     };
@@ -281,6 +285,18 @@ nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
                 } break;
                 case SlangResourceShape::SLANG_TEXTURE_2D: {
                     r->kind = Reflection_Resource::Kind::Texture2D;
+                } break;
+                case SlangResourceShape::SLANG_TEXTURE_2D_ARRAY: {
+                    r->kind = Reflection_Resource::Kind::Texture2DArray;
+                } break;
+                case SlangResourceShape::SLANG_TEXTURE_3D: {
+                    r->kind = Reflection_Resource::Kind::Texture3D;
+                } break;
+                case SlangResourceShape::SLANG_TEXTURE_CUBE: {
+                    r->kind = Reflection_Resource::Kind::TextureCube;
+                } break;
+                case SlangResourceShape::SLANG_TEXTURE_CUBE_ARRAY: {
+                    r->kind = Reflection_Resource::Kind::TextureCubeArray;
                 } break;
                 case SlangResourceShape::SLANG_ACCELERATION_STRUCTURE: {
                     r->kind = Reflection_Resource::Kind::AccelerationStructure;
@@ -517,6 +533,10 @@ void slang_create_bindings(nb::module_& mod_slang)
         .value("CONSTANT_BUFFER", Reflection_Resource::Kind::ConstantBuffer)
         .value("STRUCTURED_BUFFER", Reflection_Resource::Kind::StructuredBuffer)
         .value("TEXTURE_2D", Reflection_Resource::Kind::Texture2D)
+        .value("TEXTURE_2D_ARRAY", Reflection_Resource::Kind::Texture2DArray)
+        .value("TEXTURE_3D", Reflection_Resource::Kind::Texture3D)
+        .value("TEXTURE_CUBE", Reflection_Resource::Kind::TextureCube)
+        .value("TEXTURE_CUBE_ARRAY", Reflection_Resource::Kind::TextureCubeArray)
         .value("ACCELERATION_STRUCTURE", Reflection_Resource::Kind::AccelerationStructure)
         .value("SAMPLER", Reflection_Resource::Kind::Sampler)
     ;

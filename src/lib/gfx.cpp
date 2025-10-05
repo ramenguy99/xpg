@@ -757,13 +757,12 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                         // The actual API would be:
                         //     VkBool32 presentationSupport = false;
                         //     vkGetPhysicalDeviceSurfaceSupportKHR(physical_devices[i], j, surface, &presentationSupport);
-                        bool supports_presentation = glfwGetPhysicalDevicePresentationSupport(instance, physical_devices[i], j);
-                        int presentation_ok = !desc.require_presentation || supports_presentation;
+                        int presentation_ok = !desc.require_presentation || glfwGetPhysicalDevicePresentationSupport(instance, physical_devices[i], j);
 
                         if (presentation_ok) {
                             info.queue_family_index = j;
                             info.queue_timestamp_queries = info.timestamp_period > 0 && properties.limits.timestampComputeAndGraphics && prop.timestampValidBits > 0;
-                            if (supports_presentation) {
+                            if (desc.require_presentation) {
                                 logging::trace("gfx/device", "    picked for presentation");
                             }
                         } else {
@@ -1907,10 +1906,10 @@ CmdImageBarrier(VkCommandBuffer cmd, const ImageBarrierDesc&& desc)
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = desc.image;
     barrier.subresourceRange.aspectMask = desc.aspect_mask;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
+    barrier.subresourceRange.baseMipLevel = desc.base_mip_level;
+    barrier.subresourceRange.levelCount = desc.mip_level_count;
+    barrier.subresourceRange.baseArrayLayer = desc.base_array_layer;
+    barrier.subresourceRange.layerCount = desc.array_layer_count;
     barrier.srcAccessMask = desc.src_access;
     barrier.dstAccessMask = desc.dst_access;
     barrier.srcStageMask = desc.src_stage;
@@ -2022,10 +2021,10 @@ void CmdCopyBufferToImage(VkCommandBuffer cmd, const CopyImageBufferDesc&& desc)
 void CmdBlitImage(VkCommandBuffer cmd, const BlitImageDesc&& desc) {
     VkImageBlit region = {};
 
-    region.srcSubresource.mipLevel = desc.src_mip,
-    region.srcSubresource.baseArrayLayer = desc.src_base_layer,
+    region.srcSubresource.mipLevel = desc.src_mip_level,
+    region.srcSubresource.baseArrayLayer = desc.src_base_array_layer,
     region.srcSubresource.aspectMask = desc.src_aspect;
-    region.srcSubresource.layerCount = desc.src_layer_count;
+    region.srcSubresource.layerCount = desc.src_array_layer_count;
     region.srcOffsets[0].x = desc.src_x;
     region.srcOffsets[0].y = desc.src_y;
     region.srcOffsets[0].z = desc.src_z;
@@ -2033,10 +2032,10 @@ void CmdBlitImage(VkCommandBuffer cmd, const BlitImageDesc&& desc) {
     region.srcOffsets[1].y = desc.src_y + desc.src_height;
     region.srcOffsets[1].z = desc.src_z + desc.src_depth;
 
-    region.dstSubresource.mipLevel = desc.dst_mip,
-    region.dstSubresource.baseArrayLayer = desc.dst_base_layer,
+    region.dstSubresource.mipLevel = desc.dst_mip_level,
+    region.dstSubresource.baseArrayLayer = desc.dst_base_array_layer,
     region.dstSubresource.aspectMask = desc.dst_aspect;
-    region.dstSubresource.layerCount = desc.dst_layer_count;
+    region.dstSubresource.layerCount = desc.dst_array_layer_count;
     region.dstOffsets[0].x = desc.dst_x;
     region.dstOffsets[0].y = desc.dst_y;
     region.dstOffsets[0].z = desc.dst_z;
@@ -2584,12 +2583,13 @@ VkResult
 CreateImage(Image* image, const Context& vk, const ImageDesc&& desc) {
     // Create a depth buffer.
     VkImageCreateInfo image_create_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-    image_create_info.imageType = VK_IMAGE_TYPE_2D;
+    image_create_info.imageType = desc.depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
+    image_create_info.flags = desc.flags;
     image_create_info.extent.width = desc.width;
     image_create_info.extent.height = desc.height;
-    image_create_info.extent.depth = 1;
-    image_create_info.mipLevels = 1;
-    image_create_info.arrayLayers = 1;
+    image_create_info.extent.depth = desc.depth;
+    image_create_info.mipLevels = desc.mip_levels;
+    image_create_info.arrayLayers = desc.array_layers;
     image_create_info.format = desc.format;
     image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -2603,8 +2603,8 @@ CreateImage(Image* image, const Context& vk, const ImageDesc&& desc) {
     alloc_create_info.preferredFlags = desc.alloc.memory_properties_preferred;
     alloc_create_info.priority = 1.0f;
 
-    VkImage img;
-    VmaAllocation allocation;
+    VkImage img = 0;
+    VmaAllocation allocation = 0;
     VkResult vkr = vmaCreateImage(vk.vma, &image_create_info, &alloc_create_info, &img, &allocation, nullptr);
     if (vkr != VK_SUCCESS) {
         return vkr;
@@ -2612,11 +2612,11 @@ CreateImage(Image* image, const Context& vk, const ImageDesc&& desc) {
 
     VkImageViewCreateInfo image_view_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
     image_view_info.image = img;
-    image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    image_view_info.viewType = desc.image_view_type;
     image_view_info.format = desc.format;
     image_view_info.subresourceRange.aspectMask = IsDepthFormat(desc.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-    image_view_info.subresourceRange.levelCount = 1;
-    image_view_info.subresourceRange.layerCount = 1;
+    image_view_info.subresourceRange.levelCount = desc.mip_levels;
+    image_view_info.subresourceRange.layerCount = desc.array_layers;
 
     VkImageView image_view = 0;
     vkr = vkCreateImageView(vk.device, &image_view_info, 0, &image_view);

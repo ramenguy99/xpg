@@ -582,9 +582,9 @@ struct ImageBarrierDesc
     VkImage                    image;
     VkImageAspectFlags         aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
     uint32_t                   base_mip_level = 0;
-    uint32_t                   level_count = 1;
+    uint32_t                   mip_level_count = 1;
     uint32_t                   base_array_layer = 0;
-    uint32_t                   layer_count = 1;
+    uint32_t                   array_layer_count = 1;
 };
 static_assert(sizeof(ImageBarrierDesc) == sizeof(VkImageMemoryBarrier2));
 
@@ -674,9 +674,9 @@ struct BlitImageDesc {
     u32 src_width;
     u32 src_height;
     u32 src_depth = 1;
-    u32 src_mip = 0;
-    u32 src_base_layer = 0;  // Index of first layer in array
-    u32 src_layer_count = 1; // Number of layers in array
+    u32 src_mip_level = 0;
+    u32 src_base_array_layer = 0;  // Index of first layer in array
+    u32 src_array_layer_count = 1; // Number of layers in array
     VkImageAspectFlags src_aspect = VK_IMAGE_ASPECT_COLOR_BIT;
 
     VkImage dst;
@@ -687,9 +687,9 @@ struct BlitImageDesc {
     u32 dst_width;
     u32 dst_height;
     u32 dst_depth = 1;
-    u32 dst_mip = 0;
-    u32 dst_base_layer = 0;  // Index of first layer in array
-    u32 dst_layer_count = 1; // Number of layers in array
+    u32 dst_mip_level = 0;
+    u32 dst_base_array_layer = 0;  // Index of first layer in array
+    u32 dst_array_layer_count = 1; // Number of layers in array
     VkImageAspectFlags dst_aspect = VK_IMAGE_ASPECT_COLOR_BIT;
 
     VkFilter filter;
@@ -959,8 +959,15 @@ struct Image
 struct ImageDesc {
     u32 width;
     u32 height;
+    u32 depth = 1;
     VkFormat format;
+    u32 mip_levels = 1;
+    u32 array_layers = 1;
     VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
+    VkImageCreateFlags flags = 0;
+
+    // Image view
+    VkImageViewType image_view_type = VK_IMAGE_VIEW_TYPE_2D;
 
     // Vulkan flags
     VkImageUsageFlags usage;

@@ -35,6 +35,7 @@ struct GfxObject: nanobind::intrusive_base {
 
 struct Buffer;
 struct Image;
+struct ImageView;
 struct Sampler;
 struct AccelerationStructure;
 
@@ -91,7 +92,9 @@ struct DescriptorSet: GfxObject {
 
     void write_buffer(const Buffer& buffer, VkDescriptorType type, u32 binding, u32 element, VkDeviceSize offset, VkDeviceSize size);
     void write_image(const Image& image, VkImageLayout layout, VkDescriptorType type, u32 binding, u32 element);
+    void write_image_view(const ImageView& view, VkImageLayout layout, VkDescriptorType type, u32 binding, u32 element);
     void write_combined_image_sampler(const Image& image, VkImageLayout layout, const Sampler& sampler, u32 binding, u32 element);
+    void write_combined_image_sampler_view(const ImageView& view, VkImageLayout layout, const Sampler& sampler, u32 binding, u32 element);
     void write_sampler(const Sampler& sampler, u32 binding, u32 element);
     void write_acceleration_structure(const AccelerationStructure& as, u32 binding, u32 element);
 

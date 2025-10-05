@@ -723,7 +723,7 @@ namespace MemoryUsagePresets {
     constexpr MemoryUsageState All = {
         .first_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .access = 0,
+        .access = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
     };
 
     MemoryUsageState Types[] = {
@@ -753,18 +753,46 @@ namespace MemoryUsagePresets {
 };
 
 struct Image: GfxObject {
-    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples, std::optional<nb::str> name)
+    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, u32 depth, u32 mip_levels, u32 array_layers, bool is_cube, int samples, std::optional<nb::str> name)
         : GfxObject(ctx, true, std::move(name))
         , width(width)
         , height(height)
         , format(format)
+        , depth(depth)
+        , mip_levels(mip_levels)
+        , array_layers(array_layers)
+        , is_cube(is_cube)
         , samples(samples)
     {
+        VkImageViewType view_type;
+        if (depth > 1) {
+            view_type = VK_IMAGE_VIEW_TYPE_3D;
+        } else {
+            if (is_cube) {
+                if (array_layers > 6) {
+                    view_type = VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+                } else {
+                    view_type = VK_IMAGE_VIEW_TYPE_CUBE;
+                }
+            } else {
+                if (array_layers > 1) {
+                    view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                } else {
+                    view_type = VK_IMAGE_VIEW_TYPE_2D;
+                }
+            }
+        }
+
         VkResult vkr = gfx::CreateImage(&image, ctx->vk, {
             .width = width,
             .height = height,
+            .depth = depth,
             .format = format,
+            .mip_levels = mip_levels,
+            .array_layers = array_layers,
             .samples = (VkSampleCountFlagBits)samples,
+            .flags = is_cube ? (VkImageCreateFlags)VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : (VkImageCreateFlags)0,
+            .image_view_type = view_type,
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
         });
@@ -851,12 +879,79 @@ struct Image: GfxObject {
     gfx::Image image = {};
     u32 width;
     u32 height;
+    u32 depth = 1;
     VkFormat format;
+    u32 mip_levels = 1;
+    u32 array_layers = 1;
+    bool is_cube = false;
     u32 samples;
     nb::ref<AllocInfo> alloc;
     VkImageLayout current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
+struct ImageView: GfxObject {
+    ImageView(
+        nb::ref<Context> ctx,
+        nb::ref<Image> image,
+        VkImageViewType type,
+        std::optional<VkFormat> format,
+        VkImageAspectFlagBits aspect_mask,
+        u32 base_mip_level,
+        u32 mip_level_count,
+        u32 base_array_layer,
+        u32 array_layer_count,
+        std::optional<nb::str> name
+    )
+        : GfxObject(ctx, true, std::move(name))
+        , image(image)
+        , type(type)
+        , format(format.value_or(image->format))
+        , aspect_mask(aspect_mask)
+        , base_mip_level(base_mip_level)
+        , mip_level_count(mip_level_count)
+        , base_array_layer(base_array_layer)
+        , array_layer_count(array_layer_count)
+    {
+        VkImageViewCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        info.image = image->image.image;
+        info.viewType = this->type;
+        info.format = this->format;
+        info.subresourceRange.aspectMask = (VkImageAspectFlags)this->aspect_mask;
+        info.subresourceRange.baseMipLevel = this->base_mip_level;
+        info.subresourceRange.levelCount = this->mip_level_count;
+        info.subresourceRange.baseArrayLayer = this->base_array_layer;
+        info.subresourceRange.layerCount = this->array_layer_count;
+        VkResult vkr = vkCreateImageView(ctx->vk.device, &info, NULL, &this->view);
+
+        if (vkr != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create image view");
+        }
+    }
+
+    ~ImageView() {
+        destroy();
+    }
+
+    void destroy() {
+        if(owned) {
+            vkDestroyImageView(ctx->vk.device, view, NULL);
+            view = VK_NULL_HANDLE;
+        }
+    }
+
+
+    nb::ref<Image> image;
+
+    VkImageViewType type;
+    VkFormat format;
+    VkImageAspectFlagBits aspect_mask;
+    u32 base_mip_level;
+    u32 mip_level_count;
+    u32 base_array_layer;
+    u32 array_layer_count;
+
+    VkImageView view;
+};
 
 struct Sampler: GfxObject {
     Sampler(
@@ -1099,7 +1194,20 @@ struct CommandBuffer: GfxObject {
         }
     }
 
-    void image_barrier(Image& image, VkImageLayout dst_layout, MemoryUsage src_usage, MemoryUsage dst_usage, u32 src_queue_family_index, u32 dst_queue_family_index, VkImageAspectFlagBits aspect_mask, bool undefined) {
+    void image_barrier(
+        Image& image,
+        VkImageLayout dst_layout,
+        MemoryUsage src_usage,
+        MemoryUsage dst_usage,
+        u32 src_queue_family_index,
+        u32 dst_queue_family_index,
+        VkImageAspectFlagBits aspect_mask,
+        u32 base_mip_level,
+        u32 mip_level_count,
+        u32 base_array_layer,
+        u32 array_layer_count,
+        bool undefined
+    ) {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
 
@@ -1129,6 +1237,10 @@ struct CommandBuffer: GfxObject {
                 .dst_queue   = dst_queue_family_index,
                 .image       = image.image.image,
                 .aspect_mask = (VkImageAspectFlags)aspect_mask,
+                .base_mip_level = base_mip_level,
+                .mip_level_count = mip_level_count,
+                .base_array_layer = base_array_layer,
+                .array_layer_count = array_layer_count,
             });
             image.current_layout = dst_layout;
         } else if (has_any_write_access(src_state.access | dst_state.access)) {
@@ -1478,32 +1590,54 @@ struct CommandBuffer: GfxObject {
         });
     }
 
-    void blit_image_range(Image& src, Image& dst, VkFilter filter,
+    void blit_image_range(Image& src, Image& dst,
         u32 src_width,
         u32 src_height,
-        u32 src_x,
-        u32 src_y,
-        VkImageAspectFlagBits src_aspect,
         u32 dst_width,
         u32 dst_height,
+        VkFilter filter,
+        u32 src_x,
+        u32 src_y,
+        u32 src_z,
+        u32 src_depth,
+        VkImageAspectFlagBits src_aspect,
+        u32 src_mip_level,
+        u32 src_base_array_layer,
+        u32 src_array_layer_count,
         u32 dst_x,
         u32 dst_y,
-        VkImageAspectFlagBits dst_aspect)
+        u32 dst_z,
+        u32 dst_depth,
+        VkImageAspectFlagBits dst_aspect,
+        u32 dst_mip_level,
+        u32 dst_base_array_layer,
+        u32 dst_array_layer_count
+    )
     {
         gfx::CmdBlitImage(buffer, {
             .src = src.image.image,
             .src_layout = src.current_layout,
             .src_x = src_x,
             .src_y = src_y,
+            .src_z = src_z,
             .src_width = src_width,
             .src_height = src_height,
+            .src_depth = src_depth,
+            .src_mip_level = src_mip_level,
+            .src_base_array_layer = src_base_array_layer,
+            .src_array_layer_count = src_array_layer_count,
             .src_aspect = (VkImageAspectFlags)src_aspect,
             .dst = dst.image.image,
             .dst_layout = dst.current_layout,
             .dst_x = dst_x,
             .dst_y = dst_y,
+            .dst_z = dst_z,
             .dst_width = dst_width,
             .dst_height = dst_height,
+            .dst_depth = dst_depth,
+            .dst_mip_level = dst_mip_level,
+            .dst_base_array_layer = dst_base_array_layer,
+            .dst_array_layer_count = dst_array_layer_count,
             .dst_aspect = (VkImageAspectFlags)dst_aspect,
             .filter = filter,
         });
@@ -2379,9 +2513,29 @@ void DescriptorSet::write_image(const Image& image, VkImageLayout layout, VkDesc
     });
 };
 
+void DescriptorSet::write_image_view(const ImageView& view, VkImageLayout layout, VkDescriptorType type, u32 binding, u32 element) {
+    gfx::WriteImageDescriptor(set, ctx->vk, {
+        .view = view.view,
+        .layout = layout,
+        .type = type,
+        .binding = binding,
+        .element = element,
+    });
+};
+
 void DescriptorSet::write_combined_image_sampler(const Image& image, VkImageLayout layout, const Sampler& sampler, u32 binding, u32 element) {
     gfx::WriteCombinedImageSamplerDescriptor(set, ctx->vk, {
         .view = image.image.view,
+        .layout = layout,
+        .sampler = sampler.sampler.sampler,
+        .binding = binding,
+        .element = element,
+    });
+}
+
+void DescriptorSet::write_combined_image_sampler_view(const ImageView& view, VkImageLayout layout, const Sampler& sampler, u32 binding, u32 element) {
+    gfx::WriteCombinedImageSamplerDescriptor(set, ctx->vk, {
+        .view = view.view,
         .layout = layout,
         .sampler = sampler.sampler.sampler,
         .binding = binding,
@@ -3625,15 +3779,15 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Image, GfxObject>(m, "Image")
-        .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, int, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("samples") = 1, nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, u32, u32, u32, bool, int, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("depth") = 1, nb::arg("mip_levels") = 1, nb::arg("array_layers") = 1, nb::arg("is_cube") = false, nb::arg("samples") = 1, nb::arg("name") = nb::none())
         .def("__repr__", [](Image& image) {
-            return nb::str("Image(name={}, width={}, height={}, format={}, samples={})").format(image.name, image.width, image.height, image.format, image.samples);
+            return nb::str("Image(name={}, width={}, height={}, depth={}, format={}, mip_levels={}, array_layers={}, is_cube={}, samples={})").format(image.name, image.width, image.height, image.depth, image.format, image.mip_levels, image.array_layers, image.is_cube, image.samples);
         })
         .def("destroy", &Image::destroy)
         .def_static("from_data", &Image::from_data,
             nb::arg("ctx"),
             nb::arg("data"),
-            nb::arg("usage"),
+            nb::arg("layout"),
             nb::arg("width"),
             nb::arg("height"),
             nb::arg("format"),
@@ -3644,10 +3798,79 @@ void gfx_create_bindings(nb::module_& m)
         )
         .def_ro("width", &Image::width)
         .def_ro("height", &Image::height)
+        .def_ro("depth", &Image::depth)
         .def_ro("format", &Image::format)
+        .def_ro("mip_levels", &Image::mip_levels)
+        .def_ro("array_layers", &Image::array_layers)
+        .def_ro("is_cube", &Image::is_cube)
         .def_ro("samples", &Image::samples)
         .def_ro("alloc", &Image::alloc)
     ;
+
+    nb::enum_<VkImageAspectFlagBits>(m, "ImageAspectFlags", nb::is_flag(), nb::is_arithmetic())
+        .value("NONE",           VK_IMAGE_ASPECT_NONE)
+        .value("COLOR",          VK_IMAGE_ASPECT_COLOR_BIT)
+        .value("DEPTH",          VK_IMAGE_ASPECT_DEPTH_BIT)
+        .value("STENCIL",        VK_IMAGE_ASPECT_STENCIL_BIT)
+        .value("METADATA",       VK_IMAGE_ASPECT_METADATA_BIT)
+        .value("PLANE_0",        VK_IMAGE_ASPECT_PLANE_0_BIT)
+        .value("PLANE_1",        VK_IMAGE_ASPECT_PLANE_1_BIT)
+        .value("PLANE_2",        VK_IMAGE_ASPECT_PLANE_2_BIT)
+        .value("MEMORY_PLANE_0", VK_IMAGE_ASPECT_MEMORY_PLANE_0_BIT_EXT)
+        .value("MEMORY_PLANE_1", VK_IMAGE_ASPECT_MEMORY_PLANE_1_BIT_EXT)
+        .value("MEMORY_PLANE_2", VK_IMAGE_ASPECT_MEMORY_PLANE_2_BIT_EXT)
+        .value("MEMORY_PLANE_3", VK_IMAGE_ASPECT_MEMORY_PLANE_3_BIT_EXT)
+    ;
+
+    nb::enum_<VkImageViewType>(m, "ImageViewType")
+        .value("TYPE_1D",         VK_IMAGE_VIEW_TYPE_1D)
+        .value("TYPE_2D",         VK_IMAGE_VIEW_TYPE_2D)
+        .value("TYPE_3D",         VK_IMAGE_VIEW_TYPE_3D)
+        .value("TYPE_CUBE",       VK_IMAGE_VIEW_TYPE_CUBE)
+        .value("TYPE_1D_ARRAY",   VK_IMAGE_VIEW_TYPE_1D_ARRAY)
+        .value("TYPE_2D_ARRAY",   VK_IMAGE_VIEW_TYPE_2D_ARRAY)
+        .value("TYPE_CUBE_ARRAY", VK_IMAGE_VIEW_TYPE_CUBE_ARRAY)
+    ;
+
+    nb::class_<ImageView, GfxObject>(m, "ImageView")
+        .def(nb::init<
+                nb::ref<Context>,
+                nb::ref<Image>,
+                VkImageViewType,
+                std::optional<VkFormat>,
+                VkImageAspectFlagBits,
+                u32,
+                u32,
+                u32,
+                u32,
+                std::optional<nb::str>
+            >(),
+            nb::arg("ctx"),
+            nb::arg("image"),
+            nb::arg("type"),
+            nb::arg("format") = nb::none(),
+            nb::arg("aspect_mask") = VK_IMAGE_ASPECT_COLOR_BIT,
+            nb::arg("base_mip_level") = 0,
+            nb::arg("mip_level_count") = VK_REMAINING_MIP_LEVELS,
+            nb::arg("base_array_layer") = 0,
+            nb::arg("array_layer_count") = VK_REMAINING_ARRAY_LAYERS,
+            nb::arg("name") = nb::none()
+        )
+        .def("__repr__", [](ImageView& view) {
+            return nb::str("ImageView(name={}, image={}, type={}, format={}, aspect_mask={}, base_mip_level={}, mip_level_count={}, base_array_layer={}, array_layer_count={})")
+                .format(view.name, view.image, view.type, view.format, view.aspect_mask, view.base_mip_level, view.mip_level_count, view.base_array_layer, view.array_layer_count);
+        })
+        .def("destroy", &ImageView::destroy)
+        .def_ro("image", &ImageView::image)
+        .def_ro("type", &ImageView::type)
+        .def_ro("format", &ImageView::format)
+        .def_ro("aspect_mask", &ImageView::aspect_mask)
+        .def_ro("base_mip_level", &ImageView::base_mip_level)
+        .def_ro("mip_level_count", &ImageView::mip_level_count)
+        .def_ro("base_array_layer", &ImageView::base_array_layer)
+        .def_ro("array_layer_count", &ImageView::array_layer_count)
+    ;
+
 
     nb::class_<Sampler, GfxObject>(m, "Sampler")
         .def(nb::init<
@@ -3870,21 +4093,6 @@ void gfx_create_bindings(nb::module_& m)
         .def("__exit__", &CommandBuffer::RenderingManager::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
     ;
 
-    nb::enum_<VkImageAspectFlagBits>(m, "ImageAspectFlags", nb::is_flag(), nb::is_arithmetic())
-        .value("NONE",           VK_IMAGE_ASPECT_NONE)
-        .value("COLOR",          VK_IMAGE_ASPECT_COLOR_BIT)
-        .value("DEPTH",          VK_IMAGE_ASPECT_DEPTH_BIT)
-        .value("STENCIL",        VK_IMAGE_ASPECT_STENCIL_BIT)
-        .value("METADATA",       VK_IMAGE_ASPECT_METADATA_BIT)
-        .value("PLANE_0",        VK_IMAGE_ASPECT_PLANE_0_BIT)
-        .value("PLANE_1",        VK_IMAGE_ASPECT_PLANE_1_BIT)
-        .value("PLANE_2",        VK_IMAGE_ASPECT_PLANE_2_BIT)
-        .value("MEMORY_PLANE_0", VK_IMAGE_ASPECT_MEMORY_PLANE_0_BIT_EXT)
-        .value("MEMORY_PLANE_1", VK_IMAGE_ASPECT_MEMORY_PLANE_1_BIT_EXT)
-        .value("MEMORY_PLANE_2", VK_IMAGE_ASPECT_MEMORY_PLANE_2_BIT_EXT)
-        .value("MEMORY_PLANE_3", VK_IMAGE_ASPECT_MEMORY_PLANE_3_BIT_EXT)
-    ;
-
     nb::enum_<VkIndexType>(m, "IndexType")
         .value("UINT16",    VK_INDEX_TYPE_UINT16)
         .value("UINT32",    VK_INDEX_TYPE_UINT32)
@@ -3905,7 +4113,20 @@ void gfx_create_bindings(nb::module_& m)
         .def("end", &CommandBuffer::end)
         .def("memory_barrier", &CommandBuffer::memory_barrier, nb::arg("src"), nb::arg("dst"))
         .def("buffer_barrier", &CommandBuffer::buffer_barrier, nb::arg("buffer"), nb::arg("src"), nb::arg("dst"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED)
-        .def("image_barrier", &CommandBuffer::image_barrier, nb::arg("image"), nb::arg("dst_layout"), nb::arg("src_usage"), nb::arg("dst_usage"), nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED, nb::arg("aspect_mask") = VK_IMAGE_ASPECT_COLOR_BIT, nb::arg("undefined") = false)
+        .def("image_barrier", &CommandBuffer::image_barrier,
+                nb::arg("image"),
+                nb::arg("dst_layout"),
+                nb::arg("src_usage"),
+                nb::arg("dst_usage"),
+                nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED,
+                nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED,
+                nb::arg("aspect_mask") = VK_IMAGE_ASPECT_COLOR_BIT,
+                nb::arg("base_mip_level") = 0,
+                nb::arg("mip_level_count") = VK_REMAINING_MIP_LEVELS,
+                nb::arg("base_array_layer") = 0,
+                nb::arg("array_layer_count") = VK_REMAINING_ARRAY_LAYERS,
+                nb::arg("undefined") = false
+        )
         .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("render_area"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
         .def("end_rendering", &CommandBuffer::end_rendering)
         .def("rendering", &CommandBuffer::rendering, nb::arg("render_area"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
@@ -4022,18 +4243,28 @@ void gfx_create_bindings(nb::module_& m)
         )
         .def("blit_image_range", &CommandBuffer::blit_image_range,
             nb::arg("src"),
+            nb::arg("dst"),
             nb::arg("src_width"),
             nb::arg("src_height"),
-            nb::arg("dst"),
             nb::arg("dst_width"),
             nb::arg("dst_height"),
             nb::arg("filter") = VK_FILTER_NEAREST,
             nb::arg("src_x") = 0,
             nb::arg("src_y") = 0,
+            nb::arg("src_z") = 0,
+            nb::arg("src_depth") = 1,
             nb::arg("src_aspect") = VK_IMAGE_ASPECT_COLOR_BIT,
+            nb::arg("src_mip_level") = 0,
+            nb::arg("src_base_array_layer") = 0,
+            nb::arg("src_array_layer_count") = VK_REMAINING_ARRAY_LAYERS,
             nb::arg("dst_x") = 0,
             nb::arg("dst_y") = 0,
-            nb::arg("dst_aspect") = VK_IMAGE_ASPECT_COLOR_BIT
+            nb::arg("dst_z") = 0,
+            nb::arg("dst_depth") = 1,
+            nb::arg("dst_aspect") = VK_IMAGE_ASPECT_COLOR_BIT,
+            nb::arg("dst_mip_level") = 0,
+            nb::arg("dst_base_array_layer") = 0,
+            nb::arg("dst_array_layer_count") = VK_REMAINING_ARRAY_LAYERS
         )
         .def("resolve_image", &CommandBuffer::resolve_image,
             nb::arg("src"),
@@ -4610,8 +4841,10 @@ void gfx_create_bindings(nb::module_& m)
         })
         .def("write_buffer", &DescriptorSet::write_buffer, nb::arg("buffer"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0, nb::arg("offset") = 0, nb::arg("size") = VK_WHOLE_SIZE)
         .def("write_image", &DescriptorSet::write_image, nb::arg("image"), nb::arg("layout"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0)
+        .def("write_image", &DescriptorSet::write_image_view, nb::arg("image_view"), nb::arg("layout"), nb::arg("type"), nb::arg("binding"), nb::arg("element") = 0)
         .def("write_sampler", &DescriptorSet::write_sampler, nb::arg("sampler"), nb::arg("binding"), nb::arg("element") = 0)
         .def("write_combined_image_sampler", &DescriptorSet::write_combined_image_sampler, nb::arg("image"), nb::arg("layout"), nb::arg("sampler"), nb::arg("binding"), nb::arg("element") = 0)
+        .def("write_combined_image_sampler", &DescriptorSet::write_combined_image_sampler_view, nb::arg("image_view"), nb::arg("layout"), nb::arg("sampler"), nb::arg("binding"), nb::arg("element") = 0)
         .def("write_acceleration_structure", &DescriptorSet::write_acceleration_structure, nb::arg("acceleration_structure"), nb::arg("binding"), nb::arg("element") = 0)
     ;
 
