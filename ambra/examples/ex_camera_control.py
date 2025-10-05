@@ -19,7 +19,7 @@ viewer = Viewer(
         ),
         world_up=(0, 1, 0),
         camera=CameraConfig(
-            position=(0, 3, 3),
+            position=(3, 3, 3),
             target=(0, 0, 0),
         ),
     ),

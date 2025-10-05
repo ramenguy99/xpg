@@ -153,7 +153,7 @@ class Viewport:
         self.drag_start_camera_right = right
         self.drag_start_camera_up = up
         d = -dot(front, self.camera_world_up)
-        self.drag_start_camera_pitch = acos(d)
+        self.drag_start_camera_pitch = acos(clamp(d, -1, 1))
 
     def on_rotate_press(self, position: ivec2) -> None:
         self.rotate_pressed = True
