@@ -7,7 +7,7 @@ from time import perf_counter_ns
 from typing import Any, Optional, Tuple, Union
 
 import numpy as np
-from pyglm.glm import ivec2, vec3, dvec2, normalize
+from pyglm.glm import dvec2, ivec2, normalize, vec3
 from pyxpg import (
     Action,
     Context,
