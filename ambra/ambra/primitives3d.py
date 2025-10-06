@@ -115,6 +115,7 @@ class Lines(Object3D):
             input_assembly=InputAssembly(
                 PrimitiveTopology.LINE_STRIP if self.is_strip else PrimitiveTopology.LINE_LIST
             ),
+            samples=r.msaa_samples,
             attachments=[Attachment(format=r.output_format)],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
@@ -216,6 +217,7 @@ class Image(Object3D):
                 PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
             ],
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_STRIP),
+            samples=r.msaa_samples,
             attachments=[Attachment(format=r.output_format)],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
@@ -333,6 +335,7 @@ class Mesh(Object3D):
             ],
             rasterization=Rasterization(cull_mode=self.cull_mode, front_face=self.front_face),
             input_assembly=InputAssembly(self.primitive_topology),
+            samples=r.msaa_samples,
             attachments=[Attachment(format=r.output_format)],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
@@ -594,6 +597,7 @@ class AnimatedMesh(Object3D):
             ],
             rasterization=Rasterization(cull_mode=self.cull_mode, front_face=self.front_face),
             input_assembly=InputAssembly(self.primitive_topology),
+            samples=r.msaa_samples,
             attachments=[Attachment(format=r.output_format)],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[

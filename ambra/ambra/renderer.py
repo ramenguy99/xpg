@@ -30,6 +30,7 @@ from pyxpg import (
     PhysicalDeviceType,
     PipelineStageFlags,
     RenderingAttachment,
+    ResolveMode,
     Sampler,
     SamplerAddressMode,
     StoreOp,
@@ -227,6 +228,17 @@ class Renderer:
         self.bulk_uploader = BulkUploader(self.ctx, config.upload_buffer_size, config.upload_buffer_count)
         self.bulk_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]] = []
 
+        # MSAA
+        # TODO:
+        # - proper thing to do would be to check max supported count for the color
+        #   and depth format in use.
+        # - additionally we could use StoreOP.DONT_CARE, TRANSIENT_ATTACHMENT and LAZILY_ALLOCATED memory
+        #   for best performance on tilers.
+        # - if at some point we want to expose multiple MSAA passes we can add a way to disable it.
+        # - For retrieving color/depth we can do it by returning the resolved framebuffer (allocating one more for depth).
+        self.msaa_samples = max(1, config.msaa_samples)
+        self.msaa_target: Optional[Image] = None
+
         # Will be populated in self.resize(), and will never be None after that
         self.depth_buffer: Image = None  # type: ignore
         self.depth_format = Format.D32_SFLOAT
@@ -244,8 +256,13 @@ class Renderer:
             self.depth_format,
             ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT | ImageUsageFlags.TRANSFER_DST,
             AllocType.DEVICE_DEDICATED,
+            samples=self.msaa_samples,
             name="depth",
         )
+        if self.msaa_samples > 1:
+            if self.msaa_target is not None:
+                self.msaa_target.destroy()
+            self.msaa_target = Image(self.ctx, width, height, self.window.swapchain_format, ImageUsageFlags.COLOR_ATTACHMENT, AllocType.DEVICE_DEDICATED, samples=self.msaa_samples)
 
     def add_gpu_buffer_property(
         self,
@@ -423,12 +440,17 @@ class Renderer:
                 aspect_mask=ImageAspectFlags.DEPTH,
                 undefined=True,
             )
+            if self.msaa_target is not None:
+                cmd.image_barrier(self.msaa_target, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.COLOR_ATTACHMENT, undefined=True)
+
             cmd.set_viewport(viewport_rect)
             cmd.set_scissors(rect)
             with f.cmd.rendering(
                 f.rect,
                 color_attachments=[
-                    RenderingAttachment(frame.image, LoadOp.CLEAR, StoreOp.STORE, self.background_color)
+                    (RenderingAttachment(self.msaa_target, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=self.background_color, resolve_mode=ResolveMode.AVERAGE, resolve_image=frame.image)
+                    if self.msaa_target is not None else
+                    RenderingAttachment(frame.image, LoadOp.CLEAR, StoreOp.STORE, self.background_color))
                 ],
                 depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
             ):

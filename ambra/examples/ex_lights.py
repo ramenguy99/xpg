@@ -2,7 +2,7 @@ import numpy as np
 from pyglm.glm import inverse, ivec2, normalize, quatLookAtRH, vec3
 from pyxpg import *
 
-from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig
+from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig, RendererConfig
 from ambra.lights import DirectionalLight, DirectionalShadowSettings
 from ambra.primitives3d import Lines, Mesh
 from ambra.utils.descriptors import create_descriptor_layout_pool_and_set
@@ -61,6 +61,9 @@ viewer = CustomViewer(
     config=Config(
         window_width=1920,
         window_height=1080,
+        renderer=RendererConfig(
+            msaa_samples=4,
+        ),
         playback=PlaybackConfig(
             enabled=True,
             playing=True,
