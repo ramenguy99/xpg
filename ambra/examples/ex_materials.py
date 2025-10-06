@@ -1,14 +1,20 @@
+import os
+import sys
+
+import cv2
 import numpy as np
 from pyglm.glm import normalize, quatLookAtRH, vec3
 from pyxpg import *
 
 from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig
 from ambra.geometry import create_sphere
-from ambra.lights import DirectionalLight, DirectionalShadowSettings, UniformEnvironmentLight
+from ambra.lights import DirectionalLight, DirectionalShadowSettings, EnvironmentLight, UniformEnvironmentLight
 from ambra.materials import DiffuseMaterial, DiffuseSpecularMaterial, PBRMaterial
 from ambra.primitives3d import Lines, Mesh
 from ambra.property import as_buffer_property
 from ambra.viewer import Viewer
+
+os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
 
 def main():
@@ -114,7 +120,11 @@ def main():
             )
         )
 
-    lights.append(UniformEnvironmentLight((0.03, 0.03, 0.03)))
+    # lights.append(UniformEnvironmentLight((0.03, 0.03, 0.03)))
+
+    equirectangular = cv2.imread(sys.argv[1], cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+    print(equirectangular.shape, equirectangular.dtype)
+    lights.append(EnvironmentLight.from_equirectangular(equirectangular))
 
     viewer.viewport.scene.objects.extend(spheres + [p, o] + lights)
     viewer.run()

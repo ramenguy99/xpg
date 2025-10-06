@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Union
+from typing import Any, List, Optional, Union
 
 import numpy as np
 from pyglm.glm import inverse, orthoRH_ZO, vec3, vec4
@@ -25,8 +25,6 @@ from pyxpg import (
     LoadOp,
     MemoryUsage,
     PushConstantsRange,
-    Sampler,
-    SamplerMipmapMode,
     Shader,
     StoreOp,
 )
@@ -267,10 +265,39 @@ class IBLParams:
 
 
 @dataclass
-class IBLResults:
+class EnvironmentCubemaps:
+    skybox_cubemap: np.ndarray
+    irradiance_cubemap: np.ndarray
+    specular_cubemap: List[np.ndarray]
+
+    @classmethod
+    def load(cls, file: Any, **kwargs) -> "EnvironmentCubemaps":
+        arrays = np.load(file, allow_pickle=False, **kwargs)
+        return cls(arrays["skybox_cubemap"], arrays["irradiance_cubemap"], arrays["specular_cubemap"])
+
+    def save(self, file: Any, **kwargs) -> None:
+        np.savez(
+            file,
+            allow_pickle=False,
+            skybox_cubemap=self.skybox_cubemap,
+            irradiance=self.irradiance_cubemap,
+            specular=self.specular_cubemap,
+        )
+
+    def gpu(self) -> "GpuEnvironmentCubemaps":
+        # TODO: upload
+        pass
+
+
+@dataclass
+class GpuEnvironmentCubemaps:
     skybox_cubemap: Image
     irradiance_cubemap: Image
     specular_cubemap: Image
+
+    def cpu() -> EnvironmentCubemaps:
+        # TODO: readback
+        pass
 
 
 class IBLPipeline:
@@ -288,7 +315,6 @@ class IBLPipeline:
                 self.params.specular_mips,
             )
         )
-        self.linear_sampler = Sampler(r.ctx, Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR)
 
         # Skybox
         self.skybox_constants_dtype = np.dtype(
@@ -340,7 +366,7 @@ class IBLPipeline:
             push_constants_ranges=[PushConstantsRange(self.specular_constants_dtype.itemsize)],
         )
 
-    def run(self, r: "renderer.Renderer", equirectangular: Image, params: IBLParams) -> IBLResults:
+    def run(self, r: "renderer.Renderer", equirectangular: Image, params: IBLParams) -> GpuEnvironmentCubemaps:
         skybox_size = params.skybox_size
         skybox_mip_levels = skybox_size.bit_length()
         skybox_cubemap = Image(
@@ -364,7 +390,7 @@ class IBLPipeline:
         cubemap_array_view = ImageView(r.ctx, skybox_cubemap, ImageViewType.TYPE_2D_ARRAY, mip_level_count=1)
         descriptor_set.write_image(cubemap_array_view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0)
         descriptor_set.write_combined_image_sampler(
-            equirectangular, ImageLayout.SHADER_READ_ONLY_OPTIMAL, self.linear_sampler, 1
+            equirectangular, ImageLayout.SHADER_READ_ONLY_OPTIMAL, r.linear_sampler, 1
         )
 
         with r.ctx.sync_commands() as cmd:
@@ -413,7 +439,7 @@ class IBLPipeline:
         cubemap_array_view = ImageView(r.ctx, irradiance_cubemap, ImageViewType.TYPE_2D_ARRAY, mip_level_count=1)
         descriptor_set.write_image(cubemap_array_view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0)
         descriptor_set.write_combined_image_sampler(
-            skybox_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, self.linear_sampler, 1
+            skybox_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, r.linear_sampler, 1
         )
 
         with r.ctx.sync_commands() as cmd:
@@ -463,7 +489,7 @@ class IBLPipeline:
                 )
                 descriptor_set.write_image(specular_mip_view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0)
                 descriptor_set.write_combined_image_sampler(
-                    skybox_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, self.linear_sampler, 1
+                    skybox_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, r.linear_sampler, 1
                 )
                 views.append(specular_mip_view)
 
@@ -479,11 +505,66 @@ class IBLPipeline:
 
             cmd.image_barrier(specular_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.ALL, MemoryUsage.ALL)
 
-        return IBLResults(skybox_cubemap, irradiance_cubemap, specular_cubemap)
+        return GpuEnvironmentCubemaps(skybox_cubemap, irradiance_cubemap, specular_cubemap)
 
 
-# class EnvironmentLight(Light):
-#     pass
-#
+class EnvironmentLight(Light):
+    def __init__(
+        self,
+        equirectangular: Optional[np.ndarray] = None,
+        cubemaps: Optional[EnvironmentCubemaps] = None,
+        ibl_params: Optional[IBLParams] = None,
+        name=None,
+    ):
+        if not ((equirectangular is None) ^ (cubemaps is None)):
+            print(equirectangular)
+            print(cubemaps)
+            raise RuntimeError('Exactly one of "equirectangular" and "cubemaps" must not be None')
+
+        if equirectangular is not None:
+            height, width, channels = equirectangular.shape
+            if not channels == 3 or not (equirectangular.dtype == np.float32 or equirectangular.dtype == np.float64):
+                raise ValueError(
+                    f"Equirectangular map must have 3 channels and be of float32 or float64 dtype. Got {channels} channels and {equirectangular.dtype} dtype."
+                )
+            # TODO: check if RGB_F32 is supported instead of defaulting to RGBA_F32
+            rgb_data = equirectangular.astype(np.float32, copy=False)
+            equirectangular = np.dstack((rgb_data, np.ones((height, width, 1), np.float32)))
+
+        self.equirectangular = equirectangular
+        self.cubemaps = cubemaps
+        self.ibl_params = ibl_params
+        super().__init__(name)
+
+    def create(self, r: "renderer.Renderer"):
+        if self.equirectangular is not None:
+            height, width, channels = self.equirectangular.shape
+            equirectangular_img = Image.from_data(
+                r.ctx,
+                self.equirectangular,
+                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                width,
+                height,
+                Format.R32G32B32A32_SFLOAT,
+                ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST,
+                AllocType.DEVICE,
+            )
+            self.gpu_cubemaps = r.run_ibl_pipeline(equirectangular_img, self.ibl_params)
+        else:
+            assert self.cubemaps is not None
+            self.gpu_cubemaps = self.cubemaps.gpu()
+        r.add_environment_light(self, self.gpu_cubemaps)
+
+    @classmethod
+    def from_equirectangular(
+        cls, equirectangular: np.ndarray, ibl_params: Optional[IBLParams] = None
+    ) -> "EnvironmentLight":
+        return cls(equirectangular=equirectangular, ibl_params=ibl_params)
+
+    @classmethod
+    def from_cubemaps(cls, cubemaps: EnvironmentCubemaps) -> "EnvironmentLight":
+        return cls(cubemaps=cubemaps)
+
+
 # class AreaLight(Light):
 #     pass

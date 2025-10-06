@@ -1546,7 +1546,7 @@ struct CommandBuffer: GfxObject {
     }
 
 
-    void clear_color_image(Image& image, std::array<float, 4> color) {
+    void clear_color_image(Image& image, std::array<float, 4> color, u32 base_mip_level, u32 mip_level_count, u32 base_array_layer, u32 array_layer_count) {
         VkClearColorValue clear;
         clear.float32[0] = color[0];
         clear.float32[1] = color[1];
@@ -1555,20 +1555,24 @@ struct CommandBuffer: GfxObject {
 
         VkImageSubresourceRange range = {};
         range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        range.layerCount = 1;
-        range.levelCount = 1;
+        range.baseMipLevel = base_mip_level;
+        range.levelCount = mip_level_count;
+        range.baseArrayLayer = base_array_layer;
+        range.layerCount = array_layer_count;
         vkCmdClearColorImage(buffer, image.image.image, image.current_layout, &clear, 1, &range);
     }
 
-    void clear_depth_stencil_image(Image& image, std::optional<float> depth, std::optional<u32> stencil) {
+    void clear_depth_stencil_image(Image& image, std::optional<float> depth, std::optional<u32> stencil, u32 base_mip_level, u32 mip_level_count, u32 base_array_layer, u32 array_layer_count) {
         VkClearDepthStencilValue clear;
         clear.depth = depth.value_or(0.0f);
         clear.stencil = stencil.value_or(0);
 
         VkImageSubresourceRange range = {};
         range.aspectMask = (depth.has_value() ? VK_IMAGE_ASPECT_DEPTH_BIT : 0) | (stencil.has_value() ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
-        range.layerCount = 1;
-        range.levelCount = 1;
+        range.baseMipLevel = base_mip_level;
+        range.levelCount = mip_level_count;
+        range.baseArrayLayer = base_array_layer;
+        range.layerCount = array_layer_count;
         vkCmdClearDepthStencilImage(buffer, image.image.image, image.current_layout, &clear, 1, &range);
     }
 
@@ -4227,12 +4231,20 @@ void gfx_create_bindings(nb::module_& m)
         )
         .def("clear_color_image", &CommandBuffer::clear_color_image,
             nb::arg("image"),
-            nb::arg("color")
+            nb::arg("color"),
+            nb::arg("base_mip_level") = 0,
+            nb::arg("mip_level_count") = VK_REMAINING_MIP_LEVELS,
+            nb::arg("base_array_layer") = 0,
+            nb::arg("array_layer_count") = VK_REMAINING_ARRAY_LAYERS
         )
         .def("clear_depth_stencil_image", &CommandBuffer::clear_depth_stencil_image,
             nb::arg("image"),
             nb::arg("depth") = nb::none(),
-            nb::arg("stencil") = nb::none()
+            nb::arg("stencil") = nb::none(),
+            nb::arg("base_mip_level") = 0,
+            nb::arg("mip_level_count") = VK_REMAINING_MIP_LEVELS,
+            nb::arg("base_array_layer") = 0,
+            nb::arg("array_layer_count") = VK_REMAINING_ARRAY_LAYERS
         )
         .def("blit_image", &CommandBuffer::blit_image,
             nb::arg("src"),

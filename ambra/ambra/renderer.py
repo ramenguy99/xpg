@@ -33,6 +33,7 @@ from pyxpg import (
     ResolveMode,
     Sampler,
     SamplerAddressMode,
+    SamplerMipmapMode,
     StoreOp,
     SwapchainOutOfDateError,
     Window,
@@ -86,6 +87,7 @@ class Renderer:
         self.max_shadowmaps = config.max_shadowmaps
         self.num_shadowmaps = 0
 
+        self.linear_sampler = Sampler(ctx, Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR)
         self.shadow_sampler = Sampler(
             ctx,
             Filter.LINEAR,
@@ -97,14 +99,55 @@ class Renderer:
             border_color=BorderColor.FLOAT_OPAQUE_WHITE,
             name="shadow-sampler",
         )
+
+        self.zero_image = Image.from_data(
+            ctx,
+            np.zeros((1, 1, 4), np.uint8),
+            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+            1,
+            1,
+            Format.R8G8B8A8_UNORM,
+            ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+            name="zero-image",
+        )
+        self.zero_cubemap = Image(
+            self.ctx,
+            1,
+            1,
+            Format.R16G16B16A16_SFLOAT,
+            ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+            array_layers=6,
+            is_cube=True,
+        )
+        with ctx.sync_commands() as cmd:
+            cmd.image_barrier(
+                self.zero_cubemap,
+                ImageLayout.TRANSFER_DST_OPTIMAL,
+                MemoryUsage.NONE,
+                MemoryUsage.TRANSFER_DST,
+                undefined=True,
+            )
+            cmd.clear_color_image(self.zero_cubemap, (0, 0, 0, 1))
+            cmd.image_barrier(
+                self.zero_cubemap,
+                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                MemoryUsage.TRANSFER_DST,
+                MemoryUsage.SHADER_READ_ONLY,
+            )
+
         self.scene_descriptor_set_layout, self.scene_descriptor_pool, self.scene_descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
                 ctx,
                 [
-                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
+                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),  # 0 - Constants
+                    DescriptorSetBinding(1, DescriptorType.SAMPLER),  # 1 - Shadowmap sampler
+                    DescriptorSetBinding(1, DescriptorType.SAMPLER),  # 2 - Cubemap sampler
+                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 3 - Environment irradiance cubemap
+                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 4 - Environment specular cubemap
                     *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in lights.LIGHT_TYPES_INFO],
                     DescriptorSetBinding(self.max_shadowmaps, DescriptorType.SAMPLED_IMAGE),
-                    DescriptorSetBinding(1, DescriptorType.SAMPLER),
                 ],
                 window.num_frames,
                 name="scene-descriptors",
@@ -150,12 +193,20 @@ class Renderer:
         )
 
         for set, buf, light_bufs in zip(self.scene_descriptor_sets, self.uniform_buffers, self.light_buffers):
-            set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
-            set.write_sampler(self.shadow_sampler, 3, 0)
+            set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0)
+            set.write_sampler(self.shadow_sampler, 1)
+            set.write_sampler(self.linear_sampler, 2)
+            set.write_image(self.zero_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 3)
+            set.write_image(self.zero_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 4)
             for i, light_buf in enumerate(light_bufs):
-                set.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 1, i)
+                set.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 5, i)
+            for i in range(self.max_shadowmaps):
+                set.write_image(
+                    self.zero_image, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 6, i
+                )
 
         self.uniform_environment_lights: List[lights.UniformEnvironmentLight] = []
+        self.environment_light: Optional[lights.EnvironmentLight] = None
 
         self.uniform_pool = UniformPool(ctx, window.num_frames, config.uniform_pool_block_size)
 
@@ -225,18 +276,6 @@ class Renderer:
             else:
                 self.image_upload_method = UploadMethod.GRAPHICS_QUEUE
 
-        self.zero_image = Image.from_data(
-            ctx,
-            np.zeros((1, 1, 4), np.uint8),
-            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-            1,
-            1,
-            Format.R8G8B8A8_UNORM,
-            ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST,
-            AllocType.DEVICE,
-            name="zero-image",
-        )
-
         self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
 
         # Allocate buffers for bulk upload
@@ -263,6 +302,10 @@ class Renderer:
 
         self.shader_cache: Dict[Tuple[Union[str, Sequence[str]], ...], slang.Shader] = {}
 
+        self.ibl_pipeline_params = lights.IBLPipelineParams()
+        self.ibl_default_params = lights.IBLParams()
+        self.ibl_pipeline: Optional[lights.IBLPipeline] = None
+
     def resize(self, width: int, height: int) -> None:
         if self.depth_buffer is not None:
             self.depth_buffer.destroy()
@@ -279,7 +322,15 @@ class Renderer:
         if self.msaa_samples > 1:
             if self.msaa_target is not None:
                 self.msaa_target.destroy()
-            self.msaa_target = Image(self.ctx, width, height, self.window.swapchain_format, ImageUsageFlags.COLOR_ATTACHMENT, AllocType.DEVICE_DEDICATED, samples=self.msaa_samples)
+            self.msaa_target = Image(
+                self.ctx,
+                width,
+                height,
+                self.window.swapchain_format,
+                ImageUsageFlags.COLOR_ATTACHMENT,
+                AllocType.DEVICE_DEDICATED,
+                samples=self.msaa_samples,
+            )
 
     def add_gpu_buffer_property(
         self,
@@ -329,8 +380,34 @@ class Renderer:
         self.gpu_properties.append(prop)
         return prop
 
+    def run_ibl_pipeline(
+        self, equirectangular: Image, ibl_params: Optional["lights.IBLParams"]
+    ) -> "lights.GpuEnvironmentCubemaps":
+        if self.ibl_pipeline is None:
+            self.ibl_pipeline = lights.IBLPipeline(self, self.ibl_pipeline_params)
+        if ibl_params is None:
+            ibl_params = self.ibl_default_params
+        return self.ibl_pipeline.run(self, equirectangular, ibl_params)
+
     def add_uniform_environment_light(self, light: "lights.UniformEnvironmentLight") -> None:
         self.uniform_environment_lights.append(light)
+
+    def add_environment_light(
+        self, light: "lights.EnvironmentLight", cubemaps: "lights.GpuEnvironmentCubemaps"
+    ) -> None:
+        if self.environment_light is not None:
+            raise RuntimeError(
+                "Attempting to add a second environment light. Only a single light environment light is currently supported"
+            )
+        self.environment_light = light
+
+        for set in self.scene_descriptor_sets:
+            set.write_image(
+                cubemaps.irradiance_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 3
+            )
+            set.write_image(
+                cubemaps.specular_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 4
+            )
 
     def add_light(self, light_type: "lights.LightTypes", shadowmap: Optional[Image]) -> Tuple[int, int]:
         if self.num_lights[light_type.value] >= self.max_lights_per_type:
@@ -353,12 +430,12 @@ class Renderer:
             shadowmap_idx = self.num_shadowmaps
             self.num_shadowmaps += 1
 
-            for s in self.scene_descriptor_sets:
-                s.write_image(
+            for set in self.scene_descriptor_sets:
+                set.write_image(
                     shadowmap,
                     ImageLayout.SHADER_READ_ONLY_OPTIMAL,
                     DescriptorType.SAMPLED_IMAGE,
-                    1 + len(lights.LIGHT_TYPES_INFO),
+                    5 + len(lights.LIGHT_TYPES_INFO),
                     shadowmap_idx,
                 )
 
@@ -475,16 +552,31 @@ class Renderer:
                 undefined=True,
             )
             if self.msaa_target is not None:
-                cmd.image_barrier(self.msaa_target, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.COLOR_ATTACHMENT, undefined=True)
+                cmd.image_barrier(
+                    self.msaa_target,
+                    ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                    MemoryUsage.COLOR_ATTACHMENT,
+                    MemoryUsage.COLOR_ATTACHMENT,
+                    undefined=True,
+                )
 
             cmd.set_viewport(viewport_rect)
             cmd.set_scissors(rect)
             with f.cmd.rendering(
                 f.rect,
                 color_attachments=[
-                    (RenderingAttachment(self.msaa_target, load_op=LoadOp.CLEAR, store_op=StoreOp.STORE, clear=self.background_color, resolve_mode=ResolveMode.AVERAGE, resolve_image=frame.image)
-                    if self.msaa_target is not None else
-                    RenderingAttachment(frame.image, LoadOp.CLEAR, StoreOp.STORE, self.background_color))
+                    (
+                        RenderingAttachment(
+                            self.msaa_target,
+                            load_op=LoadOp.CLEAR,
+                            store_op=StoreOp.STORE,
+                            clear=self.background_color,
+                            resolve_mode=ResolveMode.AVERAGE,
+                            resolve_image=frame.image,
+                        )
+                        if self.msaa_target is not None
+                        else RenderingAttachment(frame.image, LoadOp.CLEAR, StoreOp.STORE, self.background_color)
+                    )
                 ],
                 depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
             ):

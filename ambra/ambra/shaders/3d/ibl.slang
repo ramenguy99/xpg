@@ -151,14 +151,14 @@ void entry_specular(
             {
                 float2 u = hammersley(i, g_constants.samples);
 
-                float3 half = sample_gtr2(u, alpha);
-                float3 world_half = to_world(frame, half);
+                float3 half_v = sample_gtr2(u, alpha);
+                float3 world_half = to_world(frame, half_v);
                 float3 world_dir = normalize(2.0 * dot(normal, world_half) * world_half - normal);
 
 
                 float cosine = max(dot(normal, world_dir), 0.0);
                 if (cosine > 0.0) {
-                    float pdf = pdf_gtr2(half, alpha);
+                    float pdf = pdf_gtr2(half_v, alpha);
                     float sa_texel = 4.0 * PI / (6.0 * square(g_constants.skybox_resolution));
                     float sa_sample = 1.0 / (g_constants.samples * pdf + 0.0001);
                     float mip_level = 0.5 * log2(sa_sample / sa_texel);

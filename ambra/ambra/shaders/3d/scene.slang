@@ -335,20 +335,30 @@ public struct Constants {
     public float3 world_camera_position;
     public float3 ambient_light;
     public uint32_t directional_lights_count;
-
+    public uint32_t has_environment_light;
 };
 
 [vk::binding(0, 0)]
 public ConstantBuffer<Constants> g_constants;
 
 [vk::binding(1, 0)]
-public StructuredBuffer<DirectionalLight> g_directional_lights;
+public SamplerComparisonState g_directional_shadowmap_sampler;
 
 [vk::binding(2, 0)]
-public Texture2D g_directional_shadowmaps[];
+public SamplerState g_cubemap_sampler;
 
 [vk::binding(3, 0)]
-public SamplerComparisonState g_directional_shadowmap_sampler;
+public TextureCube g_irradiance_cubemap;
+
+[vk::binding(4, 0)]
+public TextureCube g_specular_cubemap;
+
+[vk::binding(5, 0)]
+public StructuredBuffer<DirectionalLight> g_directional_lights;
+
+[vk::binding(6, 0)]
+public Texture2D g_directional_shadowmaps[];
+
 
 // TODO: think if we can use entry point arguments for this instead,
 // but not sure if we have control over the descriptor set.
