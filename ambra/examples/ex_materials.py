@@ -28,7 +28,7 @@ def main():
                 playing=True,
             ),
             camera=CameraConfig(
-                position=vec3(10, 4, 10),
+                position=vec3(-7, 7, 1.7),
                 target=vec3(0),
             ),
             world_up=(0, 0, 1),
@@ -37,18 +37,6 @@ def main():
                 playback=True,
             ),
         ),
-    )
-
-    plane_positions = np.array(
-        [
-            [-10.0, -10.0, -2.0],
-            [10.0, -10.0, -2.0],
-            [10.0, 10.0, -2.0],
-            [-10.0, -10.0, -2.0],
-            [10.0, 10.0, -2.0],
-            [-10.0, 10.0, -2.0],
-        ],
-        np.float32,
     )
 
     origin_positions = (
@@ -78,7 +66,7 @@ def main():
         np.uint32,
     )
 
-    v, f = create_sphere(0.5)
+    v, f = create_sphere(0.5, rings=32, sectors=64)
     n = v / np.linalg.norm(v, axis=1, keepdims=True)
 
     p_v = as_buffer_property(v, np.float32, (-1, 3))
@@ -90,12 +78,13 @@ def main():
         for x in range(8):
             t_x = ((x + 0.5) / 8 * 2.0 - 1.0) * 5
             t_y = ((y + 0.5) / 8 * 2.0 - 1.0) * 5
-            # m = DiffuseSpecularMaterial((x / 8, 0.0, 0.0), y / 8.0, specular_exponent=128)
-            m = PBRMaterial((1, 0, 0), (x + 0.5) / 8, (y + 0.5) / 8)
+            if (y ^ x) & 1:
+                m = PBRMaterial((1.0, 1.0, 1.0), (x + 0.5) / 8, (y + 0.5) / 8)
+            else:
+                m = PBRMaterial((1.0, 0.0, 0.0), (x + 0.5) / 8, (y + 0.5) / 8)
             sphere = Mesh(p_v, p_f, normals=p_n, translation=(t_x, t_y, 0), material=m)
             spheres.append(sphere)
 
-    p = Mesh(plane_positions, material=DiffuseMaterial((0.2, 0.2, 0.2)))
     o = Lines(origin_positions, origin_colors, 4.0)
 
     light_position = vec3(5, 6, 7) * 4.0
@@ -114,19 +103,18 @@ def main():
         lights.append(
             DirectionalLight(
                 np.array([1.0, 1.0, 1.0]),
-                shadow_settings=DirectionalShadowSettings(half_extent=10.0, z_near=1.0, z_far=100),
+                shadow_settings=DirectionalShadowSettings(casts_shadow=False),
                 translation=light_position * s,
                 rotation=rotation,
             )
         )
 
-    # lights.append(UniformEnvironmentLight((0.03, 0.03, 0.03)))
 
-    equirectangular = cv2.imread(sys.argv[1], cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
-    print(equirectangular.shape, equirectangular.dtype)
+    equirectangular = cv2.imread(sys.argv[1], cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH | cv2.IMREAD_COLOR_RGB)
     lights.append(EnvironmentLight.from_equirectangular(equirectangular))
+    # lights.append(UniformEnvironmentLight((0.1, 0.1, 0.1)))
 
-    viewer.viewport.scene.objects.extend(spheres + [p, o] + lights)
+    viewer.viewport.scene.objects.extend(spheres + [o] + lights)
     viewer.run()
 
 

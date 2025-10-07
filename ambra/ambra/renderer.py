@@ -168,7 +168,9 @@ class Renderer:
                 "projection": (np.dtype((np.float32, (4, 4))), 64),
                 "camera_position": (np.dtype((np.float32, (3,))), 128),
                 "ambient_light": (np.dtype((np.float32, 3)), 144),
-                "num_lights": (np.dtype((np.uint32, len(lights.LIGHT_TYPES_INFO))), 156),
+                "has_environment_light": (np.uint32, 156),
+                "num_specular_mips": (np.float32, 160),
+                "num_lights": (np.dtype((np.uint32, len(lights.LIGHT_TYPES_INFO))), 164),
             }
         )  # type: ignore
 
@@ -302,7 +304,6 @@ class Renderer:
 
         self.shader_cache: Dict[Tuple[Union[str, Sequence[str]], ...], slang.Shader] = {}
 
-        self.ibl_pipeline_params = lights.IBLPipelineParams()
         self.ibl_default_params = lights.IBLParams()
         self.ibl_pipeline: Optional[lights.IBLPipeline] = None
 
@@ -381,10 +382,10 @@ class Renderer:
         return prop
 
     def run_ibl_pipeline(
-        self, equirectangular: Image, ibl_params: Optional["lights.IBLParams"]
+        self, equirectangular: Image, ibl_params: Optional["lights.IBLParams"] = None
     ) -> "lights.GpuEnvironmentCubemaps":
         if self.ibl_pipeline is None:
-            self.ibl_pipeline = lights.IBLPipeline(self, self.ibl_pipeline_params)
+            self.ibl_pipeline = lights.IBLPipeline(self)
         if ibl_params is None:
             ibl_params = self.ibl_default_params
         return self.ibl_pipeline.run(self, equirectangular, ibl_params)
@@ -500,6 +501,12 @@ class Renderer:
             self.constants["ambient_light"] = np.sum(
                 [l.radiance.get_current() for l in self.uniform_environment_lights]
             )
+            if self.environment_light is not None:
+                self.constants["has_environment_light"] = 1
+                self.constants["num_specular_mips"] = self.environment_light.gpu_cubemaps.specular_mips
+            else:
+                self.constants["has_environment_light"] = 0
+                self.constants["num_specular_mips"] = 0
 
             buf.upload(
                 cmd,

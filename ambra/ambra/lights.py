@@ -11,6 +11,7 @@ from pyxpg import (
     AllocType,
     BufferUsageFlags,
     ComputePipeline,
+    Context,
     DepthAttachment,
     DescriptorSetBinding,
     DescriptorType,
@@ -51,7 +52,7 @@ directional_light_dtype = np.dtype(
     {
         "orthographic_camera": (np.dtype((np.float32, (4, 4))), 0),
         "radiance": (np.dtype((np.float32, (3,))), 64),
-        "shadowmap_index": (np.dtype((np.uint32, (1,))), 76),
+        "shadowmap_index": (np.dtype((np.int32, (1,))), 76),
         "direction": (np.dtype((np.float32, (3,))), 80),
         "bias": (np.dtype((np.float32, (1,))), 92),
     }
@@ -166,14 +167,14 @@ class DirectionalLight(Light):
 
             # TODO: this and other matrices should be using config to know what is the deafult data handedness
             # we should also have default front/back face winding andr require dynamic state for culling mode.
-            self.projection = orthoRH_ZO(
-                -self.shadow_settings.half_extent,
-                self.shadow_settings.half_extent,
-                self.shadow_settings.half_extent,
-                -self.shadow_settings.half_extent,
-                self.shadow_settings.z_near,
-                self.shadow_settings.z_far,
-            )
+        self.projection = orthoRH_ZO(
+            -self.shadow_settings.half_extent,
+            self.shadow_settings.half_extent,
+            self.shadow_settings.half_extent,
+            -self.shadow_settings.half_extent,
+            self.shadow_settings.z_near,
+            self.shadow_settings.z_far,
+        )
 
         self.light_buffer_offset, self.shadowmap_index = r.add_light(LightTypes.DIRECTIONAL, self.shadow_map)
         self.light_info = np.zeros((1,), directional_light_dtype)
@@ -245,11 +246,6 @@ class UniformEnvironmentLight(Light):
 
 
 @dataclass(frozen=True)
-class IBLPipelineParams:
-    specular_mips: int = 5
-
-
-@dataclass(frozen=True)
 class IBLParams:
     # Skybox
     skybox_size: int = 1024
@@ -261,6 +257,7 @@ class IBLParams:
 
     # Specular
     specular_size: int = 1024
+    specular_mips: int = 5
     specular_samples: int = 1024
 
 
@@ -284,7 +281,7 @@ class EnvironmentCubemaps:
             specular=self.specular_cubemap,
         )
 
-    def gpu(self) -> "GpuEnvironmentCubemaps":
+    def gpu(self, ctx: Context) -> "GpuEnvironmentCubemaps":
         # TODO: upload
         pass
 
@@ -294,17 +291,17 @@ class GpuEnvironmentCubemaps:
     skybox_cubemap: Image
     irradiance_cubemap: Image
     specular_cubemap: Image
+    specular_mips: int
 
-    def cpu() -> EnvironmentCubemaps:
+    def cpu(self, ctx: Context) -> EnvironmentCubemaps:
         # TODO: readback
         pass
 
 
 class IBLPipeline:
-    def __init__(self, r: "renderer.Renderer", params: IBLPipelineParams):
-        self.params = params
-
+    def __init__(self, r: "renderer.Renderer"):
         # Common
+        self.max_specular_mips = 16
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
             create_descriptor_layout_pool_and_sets(
                 r.ctx,
@@ -312,7 +309,7 @@ class IBLPipeline:
                     DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),
                     DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER),
                 ],
-                self.params.specular_mips,
+                self.max_specular_mips,
             )
         )
 
@@ -461,6 +458,7 @@ class IBLPipeline:
             )
 
         # Specular
+        specular_mips = min(self.max_specular_mips, params.specular_mips, params.specular_size.bit_length())
         specular_size = params.specular_size
         specular_cubemap = Image(
             r.ctx,
@@ -470,7 +468,7 @@ class IBLPipeline:
             ImageUsageFlags.SAMPLED | ImageUsageFlags.STORAGE,
             AllocType.DEVICE,
             array_layers=6,
-            mip_levels=self.params.specular_mips,
+            mip_levels=specular_mips,
             is_cube=True,
         )
 
@@ -482,7 +480,7 @@ class IBLPipeline:
                 specular_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, undefined=True
             )
 
-            for m in range(self.params.specular_mips):
+            for m in range(specular_mips):
                 descriptor_set = self.descriptor_sets[m]
                 specular_mip_view = ImageView(
                     r.ctx, specular_cubemap, ImageViewType.TYPE_2D_ARRAY, base_mip_level=m, mip_level_count=1
@@ -495,7 +493,7 @@ class IBLPipeline:
 
                 mip_size = specular_size >> m
                 self.specular_constants["size"] = mip_size
-                self.specular_constants["roughness"] = m / (self.params.specular_mips - 1)
+                self.specular_constants["roughness"] = m / (specular_mips - 1)
                 cmd.bind_compute_pipeline(
                     self.specular_pipeline,
                     descriptor_sets=[descriptor_set],
@@ -505,7 +503,7 @@ class IBLPipeline:
 
             cmd.image_barrier(specular_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.ALL, MemoryUsage.ALL)
 
-        return GpuEnvironmentCubemaps(skybox_cubemap, irradiance_cubemap, specular_cubemap)
+        return GpuEnvironmentCubemaps(skybox_cubemap, irradiance_cubemap, specular_cubemap, specular_mips)
 
 
 class EnvironmentLight(Light):

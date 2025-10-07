@@ -265,6 +265,12 @@ float3 eval_roughness_metallic_brdf(float3 N, float3 V, float3 L, float3 Albedo,
     return brdf;
 }
 
+void ggx_brdf_approximation(float cosine, float roughness, out float scale, out float bias) {
+    float alpha = roughness * roughness;
+    bias = pow(2, -(7 * cosine + 4 * alpha));
+    scale = 1 - bias - alpha * max(bias, min(roughness, 0.739 + 0.323 * cosine) - 0.434);
+}
+
 public struct PBRMaterial : IMaterial
 {
     float3 albedo;
@@ -309,6 +315,7 @@ public struct PBRMaterial : IMaterial
 
         float3 f0 = lerp(0.04, albedo, metallic);
 
+        // Direct lights
         for (uint32_t i = 0; i < g_constants.directional_lights_count; i++) {
             LightEvaluation light = g_directional_lights[i].eval(world_position, world_normal);
 
@@ -316,7 +323,38 @@ public struct PBRMaterial : IMaterial
             outgoing_radiance += brdf_cosine * light.L;
         }
 
-        float3 color = outgoing_radiance + albedo * g_constants.ambient_light;
+        // Environment light
+        float cosine = max(dot(world_normal, view), 0.0f);
+
+        float3 f = fresnel_schlick_roughness(cosine, f0, roughness);
+        float3 kS = f;
+        float3 kD = (1.0 - kS) * (1.0 - metallic);
+
+        float3 irradiance;
+        if (g_constants.has_environment_light != 0) {
+            irradiance = g_irradiance_cubemap.SampleLevel(g_linear_sampler, world_normal, 0.0).rgb;
+        }
+        else {
+            irradiance = g_constants.ambient_light;
+        }
+        float3 diffuse = irradiance * albedo;
+
+        float3 prefiltered_specular;
+        if (g_constants.has_environment_light != 0) {
+            float3 reflection = reflect(-view, world_normal);
+            prefiltered_specular = g_specular_cubemap.SampleLevel(g_linear_sampler, reflection, roughness * g_constants.num_specular_mips).rgb;
+        } else {
+            prefiltered_specular = g_constants.ambient_light;
+        }
+
+        float scale;
+        float bias;
+        ggx_brdf_approximation(cosine, roughness, scale, bias);
+
+        float3 specular = prefiltered_specular * (f * scale + bias);
+        float3 environment = kD * diffuse + specular;
+
+        float3 color = outgoing_radiance + environment;
 
         // Tonemapping
         color = color / (color + 1.0);
@@ -334,8 +372,10 @@ public struct Constants {
 
     public float3 world_camera_position;
     public float3 ambient_light;
-    public uint32_t directional_lights_count;
     public uint32_t has_environment_light;
+
+    public float num_specular_mips;
+    public uint32_t directional_lights_count;
 };
 
 [vk::binding(0, 0)]
@@ -345,7 +385,7 @@ public ConstantBuffer<Constants> g_constants;
 public SamplerComparisonState g_directional_shadowmap_sampler;
 
 [vk::binding(2, 0)]
-public SamplerState g_cubemap_sampler;
+public SamplerState g_linear_sampler;
 
 [vk::binding(3, 0)]
 public TextureCube g_irradiance_cubemap;

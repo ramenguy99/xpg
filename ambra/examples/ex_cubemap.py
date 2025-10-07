@@ -1,14 +1,15 @@
+import os
 import sys
 from typing import Optional
 
-import imageio.v3 as iio
+import cv2
 import numpy as np
 from pyglm.glm import mat4x3, normalize, quatLookAtRH, vec3
 from pyxpg import *
 
 from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig
 from ambra.geometry import create_cube
-from ambra.lights import DirectionalLight, DirectionalShadowSettings, IBLParams, IBLPipeline, IBLPipelineParams
+from ambra.lights import DirectionalLight, DirectionalShadowSettings
 from ambra.primitives3d import Lines
 from ambra.renderer import Renderer
 from ambra.renderer_frame import RendererFrame
@@ -16,6 +17,7 @@ from ambra.scene import BufferProperty, Object3D
 from ambra.utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from ambra.viewer import Viewer
 
+os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
 class DebugCube(Object3D):
     def __init__(
@@ -198,7 +200,7 @@ def main():
     ctx = viewer.ctx
 
     # Load image
-    hdr_data = iio.imread(sys.argv[1])
+    hdr_data = cv2.imread(sys.argv[1], cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH | cv2.IMREAD_COLOR_RGB)
     hdr_height, hdr_width, hdr_channels = hdr_data.shape
     assert hdr_channels == 3 and hdr_data.dtype == np.float32, (
         f"Format not supported {hdr_channels} channels {hdr_data.dtype} type"
@@ -215,8 +217,7 @@ def main():
         AllocType.DEVICE,
     )
 
-    ibl = IBLPipeline(viewer.renderer, IBLPipelineParams())
-    result = ibl.run(viewer.renderer, hdr_img, IBLParams())
+    result = viewer.renderer.run_ibl_pipeline(hdr_img)
 
     cube_positions, cube_faces = create_cube()
     cube = DebugCube(result.specular_cubemap, cube_positions, cube_faces)
