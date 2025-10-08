@@ -1506,6 +1506,46 @@ struct CommandBuffer: GfxObject {
         });
     }
 
+    void copy_image_to_buffer_range(
+        Image& image,
+        Buffer& buf,
+        u32 image_width,
+        u32 image_height,
+        u32 image_x,
+        u32 image_y,
+        u64 buffer_offset_in_bytes,
+        u32 buffer_row_stride_in_texels,
+        u32 buffer_image_height_in_texels,
+        u32 image_depth,
+        u32 image_z,
+        u32 image_mip,
+        u32 image_base_layer,
+        u32 image_layer_count,
+        VkImageAspectFlagBits image_aspect_mask
+    ) {
+        // TODO: add error checking that image fits into buffer
+        // and that image range range fits into image
+
+        gfx::CmdCopyImageToBuffer(buffer, {
+            .image = image.image.image,
+            .image_layout = image.current_layout,
+            .image_x = image_x,
+            .image_y = image_y,
+            .image_z = image_z,
+            .image_width = image_width,
+            .image_height = image_height,
+            .image_depth = image_depth,
+            .image_aspect = image_aspect_mask,
+            .image_mip = image_mip,
+            .image_base_layer = image_base_layer,
+            .image_layer_count = image_layer_count,
+            .buffer = buf.buffer.buffer,
+            .buffer_offset_in_bytes = buffer_offset_in_bytes,
+            .buffer_row_stride_in_texels = buffer_row_stride_in_texels,
+            .buffer_image_height_in_texels = buffer_image_height_in_texels,
+        });
+    }
+
     void copy_buffer_to_image(Buffer& buf, Image& image, u64 buffer_offset_in_bytes) {
         // TODO: add error checking that image fits into buffer
 
@@ -1527,7 +1567,14 @@ struct CommandBuffer: GfxObject {
         u32 image_x,
         u32 image_y,
         u64 buffer_offset_in_bytes,
-        u32 buffer_row_stride_in_texels
+        u32 buffer_row_stride_in_texels,
+        u32 buffer_image_height_in_texels,
+        u32 image_depth,
+        u32 image_z,
+        u32 image_mip,
+        u32 image_base_layer,
+        u32 image_layer_count,
+        VkImageAspectFlagBits image_aspect_mask
     ) {
         // TODO: add error checking that image fits into buffer
         // and that image range range fits into image
@@ -1537,11 +1584,18 @@ struct CommandBuffer: GfxObject {
             .image_layout = image.current_layout,
             .image_x = image_x,
             .image_y = image_y,
+            .image_z = image_z,
             .image_width = image_width,
             .image_height = image_height,
+            .image_depth = image_depth,
+            .image_aspect = image_aspect_mask,
+            .image_mip = image_mip,
+            .image_base_layer = image_base_layer,
+            .image_layer_count = image_layer_count,
             .buffer = buf.buffer.buffer,
             .buffer_offset_in_bytes = buffer_offset_in_bytes,
             .buffer_row_stride_in_texels = buffer_row_stride_in_texels,
+            .buffer_image_height_in_texels = buffer_image_height_in_texels,
         });
     }
 
@@ -4214,6 +4268,23 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("buffer"),
             nb::arg("buffer_offset_in_bytes") = 0
         )
+        .def("copy_image_to_buffer_range", &CommandBuffer::copy_image_to_buffer_range,
+            nb::arg("image"),
+            nb::arg("buffer"),
+            nb::arg("image_width"),
+            nb::arg("image_height"),
+            nb::arg("image_x") = 0,
+            nb::arg("image_y") = 0,
+            nb::arg("buffer_offset_in_bytes") = 0,
+            nb::arg("buffer_row_stride_in_texels") = 0,
+            nb::arg("buffer_image_height_in_texels") = 0,
+            nb::arg("image_depth") = 1,
+            nb::arg("image_z") = 0,
+            nb::arg("image_mip") = 0,
+            nb::arg("image_base_layer") = 0,
+            nb::arg("image_layer_count") = 1,
+            nb::arg("image_aspect_mask") = VK_IMAGE_ASPECT_COLOR_BIT
+        )
         .def("copy_buffer_to_image", &CommandBuffer::copy_buffer_to_image,
             nb::arg("buffer"),
             nb::arg("image"),
@@ -4227,7 +4298,14 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("image_x") = 0,
             nb::arg("image_y") = 0,
             nb::arg("buffer_offset_in_bytes") = 0,
-            nb::arg("buffer_row_stride_in_texels") = 0
+            nb::arg("buffer_row_stride_in_texels") = 0,
+            nb::arg("buffer_image_height_in_texels") = 0,
+            nb::arg("image_depth") = 1,
+            nb::arg("image_z") = 0,
+            nb::arg("image_mip") = 0,
+            nb::arg("image_base_layer") = 0,
+            nb::arg("image_layer_count") = 1,
+            nb::arg("image_aspect_mask") = VK_IMAGE_ASPECT_COLOR_BIT
         )
         .def("clear_color_image", &CommandBuffer::clear_color_image,
             nb::arg("image"),

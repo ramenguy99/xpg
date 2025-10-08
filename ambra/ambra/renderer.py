@@ -503,7 +503,7 @@ class Renderer:
             )
             if self.environment_light is not None:
                 self.constants["has_environment_light"] = 1
-                self.constants["num_specular_mips"] = self.environment_light.gpu_cubemaps.specular_mips
+                self.constants["num_specular_mips"] = self.environment_light.gpu_cubemaps.specular_cubemap.mip_levels
             else:
                 self.constants["has_environment_light"] = 0
                 self.constants["num_specular_mips"] = 0

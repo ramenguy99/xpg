@@ -9,7 +9,7 @@ from pyxpg import *
 
 from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig
 from ambra.geometry import create_cube
-from ambra.lights import DirectionalLight, DirectionalShadowSettings
+from ambra.lights import DirectionalLight, DirectionalShadowSettings, EnvironmentCubemaps
 from ambra.primitives3d import Lines
 from ambra.renderer import Renderer
 from ambra.renderer_frame import RendererFrame
@@ -218,6 +218,13 @@ def main():
     )
 
     result = viewer.renderer.run_ibl_pipeline(hdr_img)
+
+    # Test round trip from GPU to CPU to disk and back.
+    cubemap_data = result.cpu(ctx)
+    file = "cubemap_ibl.npz"
+    cubemap_data.save(file)
+    cubemap_data = EnvironmentCubemaps.load(file)
+    result = cubemap_data.gpu(ctx)
 
     cube_positions, cube_faces = create_cube()
     cube = DebugCube(result.specular_cubemap, cube_positions, cube_faces)
