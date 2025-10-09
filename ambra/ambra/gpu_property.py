@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Dict, Generic, List, Optional, TypeVar, Union
 
-import numpy as np
 from pyxpg import (
     AllocType,
     Buffer,
@@ -21,7 +20,7 @@ from pyxpg import (
 )
 
 from .config import UploadMethod
-from .property import BufferProperty, ImageProperty, Property, view_bytes, PropertyItem
+from .property import BufferProperty, ImageProperty, Property, PropertyItem, view_bytes
 from .renderer_frame import RendererFrame, SemaphoreInfo
 from .utils.gpu import BufferUploadInfo, ImageUploadInfo, get_image_pitch_rows_and_texel_size
 from .utils.lru_pool import LRUPool

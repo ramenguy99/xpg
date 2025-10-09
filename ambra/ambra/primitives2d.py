@@ -4,6 +4,7 @@
 from typing import Optional, Union
 
 import numpy as np
+from pyglm.glm import mat3
 from pyxpg import (
     Attachment,
     BufferUsageFlags,
@@ -22,6 +23,7 @@ from pyxpg import (
     PipelineStage,
     PipelineStageFlags,
     PrimitiveTopology,
+    PushConstantsRange,
     Rasterization,
     Sampler,
     SamplerAddressMode,
@@ -35,7 +37,7 @@ from pyxpg import (
 from .property import BufferProperty, ImageProperty
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
-from .scene import Object2D
+from .scene import Object, Object2D
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 
 
@@ -51,6 +53,13 @@ class Lines(Object2D):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
     ):
+        self.constants_dtype = np.dtype(
+            {
+                "transform": (np.dtype((np.float32, (3, 4))), 0),
+            }
+        )  # type: ignore
+        self.constants = np.zeros((1,), self.constants_dtype)
+
         super().__init__(name, translation, rotation, scale)
         self.is_strip = is_strip
         self.lines = self.add_buffer_property(lines, np.float32, (-1, 2), name="lines")
@@ -71,23 +80,6 @@ class Lines(Object2D):
             MemoryUsage.VERTEX_INPUT,
             PipelineStageFlags.VERTEX_INPUT,
             name=f"{self.name}-colors-2d",
-        )
-
-        constants_dtype = np.dtype(
-            {
-                "transform": (np.dtype((np.float32, (3, 4))), 0),
-            }
-        )  # type: ignore
-        self.constants = np.zeros((1,), constants_dtype)
-
-        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
-            create_descriptor_layout_pool_and_sets_ringbuffer(
-                r.ctx,
-                [
-                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
-                ],
-                r.window.num_frames,
-            )
         )
 
         vert = r.get_builtin_shader("2d/basic.slang", "vertex_main")
@@ -117,20 +109,15 @@ class Lines(Object2D):
             depth=Depth(r.depth_format, False, False, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
-                self.descriptor_set_layout,
             ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
+
+    def update_transform(self, parent: Optional[Object]) -> None:
+        super().update_transform(parent)
+        self.constants["transform"][:, :3, :3] = mat3(self.current_transform_matrix)
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        self.constants["transform"][0, :3, :3] = self.current_transform_matrix
-        constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
-        constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
-
-        descriptor_set = self.descriptor_sets.get_current_and_advance()
-        descriptor_set.write_buffer(
-            constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size
-        )
-
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[
@@ -139,8 +126,8 @@ class Lines(Object2D):
             ],
             descriptor_sets=[
                 scene_descriptor_set,
-                descriptor_set,
             ],
+            push_constants=self.constants.tobytes(),
         )
         frame.cmd.set_line_width(
             self.line_width.get_current().item() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
@@ -158,6 +145,12 @@ class Image(Object2D):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
     ):
+        self.constants_dtype = np.dtype(
+            {
+                "transform": (np.dtype((np.float32, (3, 4))), 0),
+            }
+        )  # type: ignore
+        self.constants = np.zeros((1,), self.constants_dtype)
         super().__init__(name, translation, rotation, scale)
         self.image = self.add_image_property(image, name="image")
 
@@ -183,17 +176,10 @@ class Image(Object2D):
             v=SamplerAddressMode.CLAMP_TO_EDGE,
         )
 
-        constants_dtype = np.dtype(
-            {
-                "transform": (np.dtype((np.float32, (3, 4))), 0),
-            }
-        )  # type: ignore
-        self.constants = np.zeros((1,), constants_dtype)
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
                 r.ctx,
                 [
-                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
                     DescriptorSetBinding(1, DescriptorType.SAMPLER),
                     DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
                 ],
@@ -202,7 +188,7 @@ class Image(Object2D):
             )
         )
         for set in self.descriptor_sets:
-            set.write_sampler(self.sampler, 1)
+            set.write_sampler(self.sampler, 0)
 
         vert = r.get_builtin_shader("2d/basic_texture.slang", "vertex_main")
         frag = r.get_builtin_shader("2d/basic_texture.slang", "pixel_main")
@@ -222,22 +208,20 @@ class Image(Object2D):
                 r.scene_descriptor_set_layout,
                 self.descriptor_set_layout,
             ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
+
+    def update_transform(self, parent: Optional[Object]) -> None:
+        super().update_transform(parent)
+        self.constants["transform"][:, :3, :3] = mat3(self.current_transform_matrix)
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        self.constants["transform"][0, :3, :3] = self.current_transform_matrix
-        constants_alloc = r.uniform_pool.alloc(self.constants.itemsize)
-        constants_alloc.upload(frame.cmd, self.constants.view(np.uint8))
-
         descriptor_set = self.descriptor_sets.get_current_and_advance()
-        descriptor_set.write_buffer(
-            constants_alloc.buffer, DescriptorType.UNIFORM_BUFFER, 0, 0, constants_alloc.offset, constants_alloc.size
-        )
         descriptor_set.write_image(
             self.images.get_current(),
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
             DescriptorType.SAMPLED_IMAGE,
-            2,
+            1,
         )
 
         frame.cmd.bind_graphics_pipeline(
@@ -246,6 +230,7 @@ class Image(Object2D):
                 scene_descriptor_set,
                 descriptor_set,
             ],
+            push_constants=self.constants.tobytes(),
         )
 
         frame.cmd.draw(4)

@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 import "scene";
-import "object";
+
+public struct ObjectConstants {
+    public float3x3 transform;
+};
+
+[vk::push_constant]
+public ConstantBuffer<ObjectConstants> g_object_constants;
 
 struct VSInput
 {

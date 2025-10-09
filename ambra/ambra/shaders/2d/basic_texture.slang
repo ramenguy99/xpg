@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 import "scene";
-import "object";
+
+public struct ObjectConstants {
+    public float3x3 transform;
+};
+
+[vk::push_constant]
+public ConstantBuffer<ObjectConstants> g_object_constants;
 
 struct VSOutput
 {
@@ -10,10 +16,10 @@ struct VSOutput
     float2 uv;
 };
 
-[vk::binding(1, 1)]
+[vk::binding(0, 1)]
 SamplerState g_sampler;
 
-[vk::binding(2, 1)]
+[vk::binding(1, 1)]
 Texture2D g_texture;
 
 [shader("vertex")]
