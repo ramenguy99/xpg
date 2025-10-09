@@ -1,13 +1,16 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
+from enum import Enum
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
-from pyglm.glm import inverse, mat3x3, mat4x3, transpose
+from pyglm.glm import inverse, mat3, mat4x3, transpose
 from pyxpg import (
     Attachment,
     BufferUsageFlags,
+    BlendFactor,
+    BlendOp,
     CullMode,
     Depth,
     DescriptorSet,
@@ -290,7 +293,7 @@ class Mesh(Object3D):
     def update_transform(self, parent: Optional[Object]) -> None:
         super().update_transform(parent)
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
-        self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3x3(self.current_transform_matrix)))
+        self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3(self.current_transform_matrix)))
 
     def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         index_buffer = self.indices_buffer.get_current() if self.indices_buffer is not None else None
@@ -389,3 +392,128 @@ class Image(Mesh):
             rotation=rotation,
             scale=scale,
         )
+
+class GridType(Enum):
+    XY_PLANE = 0
+    YZ_PLANE = 1
+    XZ_PLANE = 2
+
+class Grid(Object3D):
+    def __init__(
+        self,
+        size: Tuple[float, float],
+        grid_type: GridType,
+        major_line_color: Tuple[float, float, float, float],
+        minor_line_color: Tuple[float, float, float, float],
+        base_color: Tuple[float, float, float, float],
+        grid_scale: float = 0.1,
+        major_grid_div: float = 10.0,
+        axis_line_width: float = 0.08,
+        major_line_width: float = 0.04,
+        minor_line_width: float = 0.01,
+        pos_axis_color_scale: float = 1.0,
+        neg_axis_color_scale: float = 0.5,
+        name: Optional[str] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
+    ):
+        self.constants_dtype = np.dtype(
+            {
+                "major_line_color": (np.dtype((np.float32, 4)), 0),
+                "minor_line_color": (np.dtype((np.float32, 4)), 16),
+                "base_color":(np.dtype((np.float32, 4)), 32),
+                "size": (np.dtype((np.float32, 2)),  48),
+                "grid_type": (np.uint32, 56),
+                "inv_grid_scale": (np.float32, 60),
+                "major_grid_div": (np.float32, 64),
+                "axis_line_width": (np.float32, 68),
+                "major_line_width": (np.float32, 72),
+                "minor_line_width": (np.float32, 76),
+                "pos_axis_color_scale": (np.float32, 80),
+                "neg_axis_color_scale": (np.float32, 84),
+            }
+        )  # type: ignore
+
+        self.constants = np.zeros((1,), self.constants_dtype)
+        self.constants["major_line_color"] = major_line_color
+        self.constants["minor_line_color"] = minor_line_color
+        self.constants["base_color"] = base_color
+        self.constants["size"] = size
+        self.constants["grid_type"] = grid_type.value
+        self.constants["inv_grid_scale"] = 1.0 / grid_scale
+        self.constants["major_grid_div"] = major_grid_div
+        self.constants["axis_line_width"] = axis_line_width
+        self.constants["major_line_width"] = major_line_width
+        self.constants["minor_line_width"] = minor_line_width
+        self.constants["pos_axis_color_scale"] =  pos_axis_color_scale
+        self.constants["neg_axis_color_scale"] = neg_axis_color_scale
+
+        self.is_transparent = base_color[3] < 1.0
+
+        super().__init__(name, translation, rotation, scale)
+
+    @classmethod
+    def white(cls, size: Tuple[float, float], grid_type: GridType, **kwargs) -> "Grid":
+        return cls(size, grid_type, (0, 0, 0, 1), (0, 0, 0, 1), (1, 1, 1, 1), **kwargs)
+
+    @classmethod
+    def black(cls, size: Tuple[float, float], grid_type: GridType, **kwargs) -> "Grid":
+        return cls(size, grid_type, (1, 1, 1, 1), (1, 1, 1, 1), (0, 0, 0, 1), **kwargs)
+
+    @classmethod
+    def transparent_white_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs) -> "Grid":
+        return cls(size, grid_type, (1, 1, 1, 1), (1, 1, 1, 1), (1, 1, 1, 0), **kwargs)
+
+    @classmethod
+    def transparent_black_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs) -> "Grid":
+        return cls(size, grid_type, (0, 0, 0, 1), (0, 0, 0, 1), (0, 0, 0, 0), **kwargs)
+
+    @classmethod
+    def dark_gray_white_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs) -> "Grid":
+        return cls(size, grid_type, (1, 1, 1, 1), (1, 1, 1, 1), (0.1, 0.1, 0.1, 1), **kwargs)
+
+    @classmethod
+    def light_gray_black_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs) -> "Grid":
+        return cls(size, grid_type, (0, 0, 0, 1), (0, 0, 0, 1), (0.9, 0.9, 0.9, 1), **kwargs)
+
+    def create(self, r: Renderer) -> None:
+        vert = r.get_builtin_shader("3d/grid.slang", "vertex_main")
+        frag = r.get_builtin_shader("3d/grid.slang", "pixel_main")
+        self.pipeline = GraphicsPipeline(
+            r.ctx,
+            stages=[
+                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+            ],
+            rasterization=Rasterization(cull_mode=CullMode.NONE),
+            input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_STRIP),
+            samples=r.msaa_samples,
+            attachments=[
+                Attachment(
+                    format=r.output_format,
+                    blend_enable=True,
+                    src_color_blend_factor=BlendFactor.SRC_ALPHA,
+                    dst_color_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
+                    color_blend_op=BlendOp.ADD,
+                    src_alpha_blend_factor=BlendFactor.ONE,
+                    dst_alpha_blend_factor=BlendFactor.ZERO,
+                    alpha_blend_op=BlendOp.ADD,
+                )
+            ],
+            depth=Depth(r.depth_format, True, not self.is_transparent, r.depth_compare_op),
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+            ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
+        )
+
+    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        frame.cmd.bind_graphics_pipeline(
+            self.pipeline,
+            descriptor_sets=[
+                scene_descriptor_set,
+            ],
+            push_constants=self.constants.tobytes(),
+        )
+        frame.cmd.draw(4)

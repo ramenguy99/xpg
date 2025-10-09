@@ -82,7 +82,7 @@ def main():
                 m = PBRMaterial((1.0, 1.0, 1.0), (x + 0.5) / 8, (y + 0.5) / 8)
             else:
                 m = PBRMaterial((1.0, 0.0, 0.0), (x + 0.5) / 8, (y + 0.5) / 8)
-            sphere = Mesh(p_v, p_f, normals=p_n, translation=(t_x, t_y, 0), material=m)
+            sphere = Mesh(p_v, p_f, normals=p_n, translation=(t_x, t_y, 1), material=m)
             spheres.append(sphere)
 
     o = Lines(origin_positions, origin_colors, 4.0)
@@ -102,13 +102,12 @@ def main():
         rotation = quatLookAtRH(normalize(light_target - light_position * s), vec3(0, 0, 1))
         lights.append(
             DirectionalLight(
-                np.array([1.0, 1.0, 1.0]),
-                shadow_settings=DirectionalShadowSettings(casts_shadow=False),
+                np.array([0.3, 0.3, 0.3]),
+                shadow_settings=DirectionalShadowSettings(casts_shadow=True),
                 translation=light_position * s,
                 rotation=rotation,
             )
         )
-
 
     equirectangular = cv2.imread(sys.argv[1], cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH | cv2.IMREAD_COLOR_RGB)
     lights.append(EnvironmentLight.from_equirectangular(equirectangular))

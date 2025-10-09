@@ -15,16 +15,20 @@ Priority:
     - [x] PBR material
     - [x] IBL
         - [x] Cubemaps
-        - [ ] Sampling
-    - [ ] Expose sampling options in materials
+        - [x] Sampling
     - [ ] Mips
+    - [ ] Expose sampling options in materials
     - [ ] Cache pipelines -> requires hashable pyxpg objects
+    - [ ] Try loading PBR model (e.g. helmet)
+        - [ ] sRGB textures -> already supported by specifying format on image property?
+        - [ ] normal mapping
 - [ ] Stages presets in config (empty, origin, floor, lights, maybe more?)
 - [ ] Basic client/server example and initial set of APIs
 - [ ] Important 3D primitives
+    - [ ] Grid floor
 - [ ] Multi-viewport
 - [ ] Shaders / fonts build and packaging into wheel
-- [ ] Explore using hatchlings instead of setuptools
+    - [ ] Explore using hatchlings instead of setuptools for better editable builds (read pep 517)
 
 TODO:
 - [ ] Primitives
@@ -165,17 +169,17 @@ TODO:
     - [x] vulkan validation options
     - [x] add a way to set viewer position in addition to size? (expose glfw for this)
     - [ ] load from disk / yaml + default locations (e.g. home? cwd?)
-    - [ ] Think about clean way to handle handedness / zy up conventions.
-        -> wrap things that care in a separate module, make different default symbols base on config ?
-        -> maybe math and camera utils should expose both, and viewer use config to pick
-        -> currently configurable but not used everywhere, double check that it is propagated where needed
+    - [x] Think about clean way to handle handedness / zy up conventions.
+        - [x] wrap things that care in a separate module, make different default symbols base on config ?
+        - [x] maybe math and camera utils should expose both, and viewer use config to pick
+        - [ ] currently configurable but not used everywhere, double check that it is propagated where needed
 - [x] Hook pyxpg logging into python logging
 - [ ] Cleanup before release:
     - [ ] Public vs private API (hide / protect internal stuff)
     - [ ] Unit tests on all python versions (likely with lavapipe on CI)
     - [x] Rename some badly named things:
         [x] UploadMethod constants
-    - [ ] Is StreamingProperty any useful? Should users instead just subclass Property?
+    - [x] Is StreamingProperty any useful? Should users instead just subclass Property? Removed
     - [ ] Re-organize utils directory, what really is a util anyway?
 - [ ] Extra Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
     - [ ] Meshoptimizer + meshlets
@@ -185,8 +189,9 @@ TODO:
     - [ ] Pointclouds
     - [ ] Framegraph
 - [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
-- [ ] Improve external primitives workflow with shader imports
-- [ ] Exception often results in unfreed allocations
+- [ ] Customization workflow
+    - [ ] Completely new shader
+    - [ ] Shader that reuses common scene stuff or utils (can allow to import from ambra shader directory?)
 
 Bugs:
 - [x] Fix non-unit world_up results in nans in camera
@@ -194,10 +199,36 @@ Bugs:
       -> investigate further and maybe make minimal repro if it's actually a nanobind issue
 - [ ] Exceptions sometimes cause vulkan validation errors on wrong frees
 
+Issues found while implementing skeletal animation:
+[ ] if passing [N, 1] instead of [N] we can end up creating LOTS of frames (and therefore LOTS of buffers)
+    -> we can likely check if last dimension is 1 in something that usually is not (e.g. indices) and warn / raise
+    -> We can anyways try to optimize number of buffers that we actually create with suballocation
+[ ] easy to pass an image as np.float64 if you are doing ops (e.g. dstacking alpha), warn / raise if dtype does not match format
+
 Benchmarks:
 - [ ] Big sequence
 - [ ] Big frames (e.g. DM dataset)
 - [ ] Lots of objects -> create synthetic benchmark with variations in property types
+
+Tools:
+- [x] mypy:
+    # configured in tool.mypy
+    pip install mypy
+    mypy ambra
+- [x] ruff:
+    # configured in tool.ruff.*
+    pip install ruff
+    # Sort imports
+    ruff check --select I --fix
+    # Format
+    ruff format
+    # Lint (not including examples)
+    ruff check --exclude examples
+    ruff check --exclude examples --fix
+- [ ] run on CI once we have automated build / tests
+
+
+Notes:
 
 Material notes:
 - Channels:
@@ -207,24 +238,18 @@ Material notes:
        I think we want max flexibility here. Can we have an API that makes the easy case easy but still allows full flexibilit?
     -> alpha could be optionally part of color / albedo or separate
     -> optional channels could also be useful, but how do we deal with permutations? can we have default values for some?
-- [ ] How does the usage code look like?
-    - Make example
-    - Think about:
-        - Simple primitives like sphere and line can have a color per object, which does not really make sense as a material
-        - They can also all have the same color, in that case it kinda does make sense to allow it
-        - Mesh is the primary usage of materials -> start with that?
-- [ ] How do we handle textures gpu upload, descriptors, shader permutations, uniform upload?
+- How do we handle textures gpu upload, descriptors, shader permutations, uniform upload?
     - Gpu upload -> just gpu properties
     - Shader permutations -> we pre-compile all possibilities (primitives + materials if we have compatible fragment shader inputs, otherwise primitives x materials)
     - Descriptors and uniforms -> every renderable will have uniform buffer data and bind their material: make common interface / helpers for this
-- [ ] How does this generalize to a path tracing shader? Try both raster and ray design together early.
-- [ ] Raster shaders approach:
+- How does this generalize to a path tracing shader? Try both raster and ray design together early -> plan is to reuse material object but serialize images into bindless descriptor set and collect data into storage buffers
+- Raster shaders approach:
     - Rasterizer lighting is not really as streamlined as path tracer lighting where we can have a clear distinction between lights and materials.
       Things like environment light does not affect all materials equally.
     - I think for this design it makes more sense to have a full "shader" per material that does the light iteration and evaluation
     - We can make helper functions and try to share as much code as possible, but the high level flow will be in control of the "material" itself.
     - This can also be an opportunity for user to hook in and define their own fragment shaders / materials
-- [ ] Path tracer approach:
+- Path tracer approach:
     - The path tracer will still reuse material definitions, but will be a fully bindless design where materials for a frame will be uploaded before start of rendering.
 - Bindings:
     - Two options. Full bindless (anyways needed for raytracing) vs per-material descriptor set
@@ -339,26 +364,6 @@ Bindless:
         - For buffers especially we could just switch to doing pointers then and just use 64bit addresses without worring about descriptors at all.
         - We still have to use descriptors for images and samplers, but that might simplify things a bit.
 
-Tools:
-- [x] mypy:
-    # configured in tool.mypy
-    pip install mypy
-    mypy ambra
-- [x] ruff:
-    # configured in tool.ruff.*
-    pip install ruff
-    # Sort imports
-    ruff check --select I --fix
-    # Format
-    ruff format
-    # Lint (not including examples)
-    ruff check --exclude examples
-    ruff check --exclude examples --fix
-- [ ] run on CI once we have automated build / tests
-
-
-Notes:
-
 Rendering features:
     - Raster (normal viewer):
         - 2D and 3D viewports
@@ -435,13 +440,7 @@ Thoughts:
     -> If properties are shared, how to handle their GPU counterparts? Are those owned by objects?
        Are they part of the property itself but optional? How does the user configure prefetching vs preload?
 
-Issues found while implementing skeletal animation:
-[ ] if passing [N, 1] instead of [N] we can end up creating LOTS of frames (and therefore LOTS of buffers)
-    -> we can likely check if last dimension is 1 in something that usually is not (e.g. indices) and warn / raise
-    -> We can anyways try to optimize number of buffers that we actually create with suballocation
-[ ] easy to pass an image as np.float64 if you are doing ops (e.g. dstacking alpha), warn / raise if dtype does not match format
-
-[ ] per frame uploadable property:
+- per frame uploadable property:
     -> per frame bar memory
     -> per frame cpu buffer backed by a single GPU buffer
         -> for some things this is similar to non-preuploaded resources
@@ -593,8 +592,7 @@ Issues found while implementing skeletal animation:
                 [ ] How to handle append, insert, remove -> also need to remove gpu properties from renderer
                 [ ] Improve UI of GPU property depending on various states
 
-Nice to have soon:
-[x] User texture for UI stuff, e.g. in imgui window (or tooltip)
+User texture for UI stuff, e.g. in imgui window (or tooltip):
     - ImGui uses VkDescriptorSet, must be a single COMBINED_IMAGE_SAMPLER in it
     - You can pass the descriptor pool from which to allocate to imgui directly, but we currently
       let ImGui do that and just pass a number

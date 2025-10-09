@@ -86,8 +86,8 @@ class GuiConfig:
 class CameraConfig:
     # Inital state
     projection: CameraProjection = CameraProjection.PERSPECTIVE
-    position: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-    target: Tuple[float, float, float] = (0.0, 0.0, 1.0)
+    position: Tuple[float, float, float] = (1.0, 1.0, 1.0)
+    target: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     z_near: float = 0.001
     z_far: float = 1000.0
 
@@ -132,7 +132,7 @@ class Config:
     enable_gpu_based_validation: bool = False
 
     # Scene
-    world_up: Tuple[float, float, float] = (0, 1, 0)
+    world_up: Tuple[float, float, float] = (0, 0, 1)
     handedness: Handedness = Handedness.RIGHT_HANDED
 
     # Stats
