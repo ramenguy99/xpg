@@ -10,6 +10,19 @@ public struct ObjectConstants {
 [vk::push_constant]
 public ConstantBuffer<ObjectConstants> g_object_constants;
 
+[vk::binding(0, 1)]
+#if defined(MATERIAL_COLOR)
+public ConstantBuffer<ColorMaterial> g_material;
+#elif defined(MATERIAL_DIFFUSE)
+public ConstantBuffer<DiffuseMaterial> g_material;
+#elif defined(MATERIAL_DIFFUSE_SPECULAR)
+public ConstantBuffer<DiffuseSpecularMaterial> g_material;
+#elif defined(MATERIAL_PBR)
+public ConstantBuffer<PBRMaterial> g_material;
+#else
+public ConstantBuffer<EmptyMaterial> g_material;
+#endif
+
 struct VSInput
 {
     [[vk::location(0)]]

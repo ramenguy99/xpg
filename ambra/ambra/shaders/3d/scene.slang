@@ -398,19 +398,3 @@ public StructuredBuffer<DirectionalLight> g_directional_lights;
 
 [vk::binding(6, 0)]
 public Texture2D g_directional_shadowmaps[];
-
-
-// TODO: think if we can use entry point arguments for this instead,
-// but not sure if we have control over the descriptor set.
-[vk::binding(0, 1)]
-#if defined(MATERIAL_COLOR)
-public ConstantBuffer<ColorMaterial> g_material;
-#elif defined(MATERIAL_DIFFUSE)
-public ConstantBuffer<DiffuseMaterial> g_material;
-#elif defined(MATERIAL_DIFFUSE_SPECULAR)
-public ConstantBuffer<DiffuseSpecularMaterial> g_material;
-#elif defined(MATERIAL_PBR)
-public ConstantBuffer<PBRMaterial> g_material;
-#else
-public ConstantBuffer<EmptyMaterial> g_material;
-#endif
