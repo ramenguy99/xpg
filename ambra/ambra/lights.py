@@ -278,7 +278,7 @@ class EnvironmentCubemaps:
                 break
             specular_cubemap.append(arrays[k])
         if len(specular_cubemap) == 0:
-            raise KeyError("no specular cubemap (\"specular_0\") found in the archive")
+            raise KeyError('no specular cubemap ("specular_0") found in the archive')
         return cls(irradiance_cubemap, specular_cubemap)
 
     def save(self, file: Any, **kwargs) -> None:
@@ -286,7 +286,7 @@ class EnvironmentCubemaps:
             file,
             allow_pickle=False,
             irradiance=self.irradiance_cubemap,
-            **{ f"specular_{i}": s for i, s in enumerate(self.specular_cubemap)},
+            **{f"specular_{i}": s for i, s in enumerate(self.specular_cubemap)},
         )
 
     def gpu(self, ctx: Context) -> "GpuEnvironmentCubemaps":
@@ -297,7 +297,10 @@ class EnvironmentCubemaps:
             irradiance_size,
             irradiance_size,
             Format.R16G16B16A16_SFLOAT,
-            ImageUsageFlags.SAMPLED | ImageUsageFlags.STORAGE | ImageUsageFlags.TRANSFER_SRC | ImageUsageFlags.TRANSFER_DST,
+            ImageUsageFlags.SAMPLED
+            | ImageUsageFlags.STORAGE
+            | ImageUsageFlags.TRANSFER_SRC
+            | ImageUsageFlags.TRANSFER_DST,
             AllocType.DEVICE,
             array_layers=6,
             is_cube=True,
@@ -307,7 +310,10 @@ class EnvironmentCubemaps:
             self.specular_cubemap[0].shape[2],
             self.specular_cubemap[0].shape[1],
             Format.R16G16B16A16_SFLOAT,
-            ImageUsageFlags.SAMPLED | ImageUsageFlags.STORAGE | ImageUsageFlags.TRANSFER_SRC | ImageUsageFlags.TRANSFER_DST,
+            ImageUsageFlags.SAMPLED
+            | ImageUsageFlags.STORAGE
+            | ImageUsageFlags.TRANSFER_SRC
+            | ImageUsageFlags.TRANSFER_DST,
             AllocType.DEVICE,
             array_layers=6,
             mip_levels=len(self.specular_cubemap),
@@ -315,24 +321,43 @@ class EnvironmentCubemaps:
         )
 
         # Create upload buffers
-        irradiance_buffer = Buffer.from_data(ctx, self.irradiance_cubemap, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST)
-        specular_buffers = []
-        for a in self.specular_cubemap:
-            specular_buffers.append(Buffer.from_data(ctx, a, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST))
+        irradiance_buffer = Buffer.from_data(
+            ctx, self.irradiance_cubemap, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST
+        )
+        specular_buffers = [
+            Buffer.from_data(ctx, a, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST) for a in self.specular_cubemap
+        ]
 
         # Upload
         with ctx.sync_commands() as cmd:
-            cmd.image_barrier(irradiance_cubemap, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST)
-            cmd.copy_buffer_to_image_range(irradiance_buffer, irradiance_cubemap, irradiance_size, irradiance_size, image_layer_count=6)
-            cmd.image_barrier(irradiance_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.TRANSFER_DST, MemoryUsage.SHADER_READ_ONLY)
+            cmd.image_barrier(
+                irradiance_cubemap, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST
+            )
+            cmd.copy_buffer_to_image_range(
+                irradiance_buffer, irradiance_cubemap, irradiance_size, irradiance_size, image_layer_count=6
+            )
+            cmd.image_barrier(
+                irradiance_cubemap,
+                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                MemoryUsage.TRANSFER_DST,
+                MemoryUsage.SHADER_READ_ONLY,
+            )
 
-            cmd.image_barrier(specular_cubemap, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST)
+            cmd.image_barrier(
+                specular_cubemap, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST
+            )
             for m, (b, a) in enumerate(zip(specular_buffers, self.specular_cubemap)):
-                cmd.copy_buffer_to_image_range(b, specular_cubemap, a.shape[1], a.shape[1], image_mip=m, image_layer_count=6)
-            cmd.image_barrier(specular_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.TRANSFER_DST, MemoryUsage.SHADER_READ_ONLY)
+                cmd.copy_buffer_to_image_range(
+                    b, specular_cubemap, a.shape[1], a.shape[1], image_mip=m, image_layer_count=6
+                )
+            cmd.image_barrier(
+                specular_cubemap,
+                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                MemoryUsage.TRANSFER_DST,
+                MemoryUsage.SHADER_READ_ONLY,
+            )
 
         return GpuEnvironmentCubemaps(irradiance_cubemap, specular_cubemap)
-
 
 
 @dataclass
@@ -352,19 +377,39 @@ class GpuEnvironmentCubemaps:
         for m in range(specular_mips):
             specular_mip_size = specular_size >> m
             specular_mip_shape = (6, specular_mip_size, specular_mip_size, 4)
-            specular_buffers.append(Buffer(ctx, np.prod(specular_mip_shape) * 2, BufferUsageFlags.TRANSFER_DST, AllocType.HOST))
+            specular_buffers.append(
+                Buffer(ctx, np.prod(specular_mip_shape) * 2, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
+            )
 
         # Readback
         with ctx.sync_commands() as cmd:
-            cmd.image_barrier(self.irradiance_cubemap, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC)
-            cmd.copy_image_to_buffer_range(self.irradiance_cubemap, irradiance_buffer, irradiance_size, irradiance_size, image_layer_count=6)
-            cmd.image_barrier(self.irradiance_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY)
+            cmd.image_barrier(
+                self.irradiance_cubemap, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC
+            )
+            cmd.copy_image_to_buffer_range(
+                self.irradiance_cubemap, irradiance_buffer, irradiance_size, irradiance_size, image_layer_count=6
+            )
+            cmd.image_barrier(
+                self.irradiance_cubemap,
+                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                MemoryUsage.TRANSFER_SRC,
+                MemoryUsage.SHADER_READ_ONLY,
+            )
 
-            cmd.image_barrier(self.specular_cubemap, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC)
+            cmd.image_barrier(
+                self.specular_cubemap, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC
+            )
             for m, b in enumerate(specular_buffers):
                 specular_mip_size = specular_size >> m
-                cmd.copy_image_to_buffer_range(self.specular_cubemap, b, specular_mip_size, specular_mip_size, image_mip=m, image_layer_count=6)
-            cmd.image_barrier(self.specular_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY)
+                cmd.copy_image_to_buffer_range(
+                    self.specular_cubemap, b, specular_mip_size, specular_mip_size, image_mip=m, image_layer_count=6
+                )
+            cmd.image_barrier(
+                self.specular_cubemap,
+                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                MemoryUsage.TRANSFER_SRC,
+                MemoryUsage.SHADER_READ_ONLY,
+            )
 
         # Copy into numpy arrays
         irradiance_array = np.frombuffer(irradiance_buffer, np.float16).reshape(irradiance_shape, copy=True)

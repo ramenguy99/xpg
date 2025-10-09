@@ -19,6 +19,7 @@ from ambra.viewer import Viewer
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
+
 class DebugCube(Object3D):
     def __init__(
         self,

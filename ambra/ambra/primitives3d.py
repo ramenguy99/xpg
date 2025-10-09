@@ -8,9 +8,9 @@ import numpy as np
 from pyglm.glm import inverse, mat3, mat4x3, transpose
 from pyxpg import (
     Attachment,
-    BufferUsageFlags,
     BlendFactor,
     BlendOp,
+    BufferUsageFlags,
     CullMode,
     Depth,
     DescriptorSet,
@@ -393,10 +393,12 @@ class Image(Mesh):
             scale=scale,
         )
 
+
 class GridType(Enum):
     XY_PLANE = 0
     YZ_PLANE = 1
     XZ_PLANE = 2
+
 
 class Grid(Object3D):
     def __init__(
@@ -422,8 +424,8 @@ class Grid(Object3D):
             {
                 "major_line_color": (np.dtype((np.float32, 4)), 0),
                 "minor_line_color": (np.dtype((np.float32, 4)), 16),
-                "base_color":(np.dtype((np.float32, 4)), 32),
-                "size": (np.dtype((np.float32, 2)),  48),
+                "base_color": (np.dtype((np.float32, 4)), 32),
+                "size": (np.dtype((np.float32, 2)), 48),
                 "grid_type": (np.uint32, 56),
                 "inv_grid_scale": (np.float32, 60),
                 "major_grid_div": (np.float32, 64),
@@ -446,7 +448,7 @@ class Grid(Object3D):
         self.constants["axis_line_width"] = axis_line_width
         self.constants["major_line_width"] = major_line_width
         self.constants["minor_line_width"] = minor_line_width
-        self.constants["pos_axis_color_scale"] =  pos_axis_color_scale
+        self.constants["pos_axis_color_scale"] = pos_axis_color_scale
         self.constants["neg_axis_color_scale"] = neg_axis_color_scale
 
         self.is_transparent = base_color[3] < 1.0

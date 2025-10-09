@@ -1,7 +1,5 @@
-import numpy as np
-
-from ambra.config import CameraConfig, CameraProjection, Config, PlaybackConfig, RendererConfig
-from ambra.primitives3d import Grid, Lines, GridType
+from ambra.config import Config, PlaybackConfig
+from ambra.primitives3d import Grid, GridType
 from ambra.viewer import Viewer
 
 viewer = Viewer(
