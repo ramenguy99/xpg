@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import numpy as np
 from pyxpg import DescriptorType, slang
@@ -104,7 +104,7 @@ _scalar_to_np = {
 }
 
 
-def to_dtype(typ: slang.Type) -> np.dtype:
+def to_dtype(typ: slang.Type) -> np.dtype[Any]:
     if isinstance(typ, slang.Scalar):
         return _scalar_to_np[typ.base]
     elif isinstance(typ, slang.Vector):

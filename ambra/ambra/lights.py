@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 from pyglm.glm import inverse, orthoRH_ZO, vec3, vec4
@@ -73,7 +73,7 @@ class Light(Object3D):
 class PointLight(Light):
     def __init__(
         self,
-        intensity: Union[BufferProperty, np.ndarray],
+        intensity: BufferProperty,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
@@ -86,9 +86,9 @@ class PointLight(Light):
 class SpotLight(Light):
     def __init__(
         self,
-        intensity: Union[BufferProperty, np.ndarray],
-        stop_cosine: Union[BufferProperty, np.ndarray],
-        falloff_start_cosine: Union[BufferProperty, np.ndarray],
+        intensity: BufferProperty,
+        stop_cosine: BufferProperty,
+        falloff_start_cosine: BufferProperty,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
@@ -115,7 +115,7 @@ class DirectionalShadowSettings:
 class DirectionalLight(Light):
     def __init__(
         self,
-        radiance: Union[BufferProperty, np.ndarray],
+        radiance: BufferProperty,
         shadow_settings: Optional[DirectionalShadowSettings] = None,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
@@ -236,7 +236,7 @@ class DirectionalLight(Light):
 class UniformEnvironmentLight(Light):
     def __init__(
         self,
-        radiance: Union[BufferProperty, np.ndarray],
+        radiance: BufferProperty,
         name: Optional[str] = None,
     ):
         super().__init__(name)
@@ -264,11 +264,11 @@ class IBLParams:
 
 @dataclass
 class EnvironmentCubemaps:
-    irradiance_cubemap: np.ndarray
-    specular_cubemap: List[np.ndarray]
+    irradiance_cubemap: np.ndarray[Tuple[int, int, int, int], np.dtype[np.float16]]
+    specular_cubemap: List[np.ndarray[Tuple[int, int, int, int], np.dtype[np.float16]]]
 
     @classmethod
-    def load(cls, file: Any, **kwargs) -> "EnvironmentCubemaps":
+    def load(cls, file: Any, **kwargs: Any) -> "EnvironmentCubemaps":
         arrays = np.load(file, allow_pickle=False, **kwargs)
         irradiance_cubemap = arrays["irradiance"]
         specular_cubemap = []
@@ -281,12 +281,13 @@ class EnvironmentCubemaps:
             raise KeyError('no specular cubemap ("specular_0") found in the archive')
         return cls(irradiance_cubemap, specular_cubemap)
 
-    def save(self, file: Any, **kwargs) -> None:
+    def save(self, file: Any, **kwargs: Any) -> None:
         np.savez(
             file,
             allow_pickle=False,
             irradiance=self.irradiance_cubemap,
             **{f"specular_{i}": s for i, s in enumerate(self.specular_cubemap)},
+            **kwargs,
         )
 
     def gpu(self, ctx: Context) -> "GpuEnvironmentCubemaps":
@@ -369,7 +370,7 @@ class GpuEnvironmentCubemaps:
         # Create buffers
         irradiance_size = self.irradiance_cubemap.width
         irradiance_shape = (6, irradiance_size, irradiance_size, 4)
-        irradiance_buffer = Buffer(ctx, np.prod(irradiance_shape) * 2, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
+        irradiance_buffer = Buffer(ctx, np.prod(irradiance_shape) * 2, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)  # type: ignore
 
         specular_size = self.specular_cubemap.width
         specular_mips = self.specular_cubemap.mip_levels
@@ -378,7 +379,7 @@ class GpuEnvironmentCubemaps:
             specular_mip_size = specular_size >> m
             specular_mip_shape = (6, specular_mip_size, specular_mip_size, 4)
             specular_buffers.append(
-                Buffer(ctx, np.prod(specular_mip_shape) * 2, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
+                Buffer(ctx, np.prod(specular_mip_shape) * 2, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)  # type: ignore
             )
 
         # Readback
@@ -412,12 +413,12 @@ class GpuEnvironmentCubemaps:
             )
 
         # Copy into numpy arrays
-        irradiance_array = np.frombuffer(irradiance_buffer, np.float16).reshape(irradiance_shape, copy=True)
+        irradiance_array = np.frombuffer(irradiance_buffer, np.float16).copy().reshape(irradiance_shape)
         specular_arrays = []
         for m, b in enumerate(specular_buffers):
             specular_mip_size = specular_size >> m
             specular_mip_shape = (6, specular_mip_size, specular_mip_size, 4)
-            specular_arrays.append(np.frombuffer(b, np.float16).reshape(specular_mip_shape, copy=True))
+            specular_arrays.append(np.frombuffer(b, np.float16).copy().reshape(specular_mip_shape))
 
         return EnvironmentCubemaps(irradiance_array, specular_arrays)
 
@@ -633,10 +634,10 @@ class IBLPipeline:
 class EnvironmentLight(Light):
     def __init__(
         self,
-        equirectangular: Optional[np.ndarray] = None,
+        equirectangular: Optional[np.ndarray[Tuple[int, int, int], np.dtype[np.float32]]] = None,
         cubemaps: Optional[EnvironmentCubemaps] = None,
         ibl_params: Optional[IBLParams] = None,
-        name=None,
+        name: Optional[str] = None,
     ):
         if not ((equirectangular is None) ^ (cubemaps is None)):
             print(equirectangular)
@@ -658,7 +659,7 @@ class EnvironmentLight(Light):
         self.ibl_params = ibl_params
         super().__init__(name)
 
-    def create(self, r: "renderer.Renderer"):
+    def create(self, r: "renderer.Renderer") -> None:
         if self.equirectangular is not None:
             height, width, channels = self.equirectangular.shape
             equirectangular_img = Image.from_data(
@@ -674,12 +675,14 @@ class EnvironmentLight(Light):
             self.gpu_cubemaps = r.run_ibl_pipeline(equirectangular_img, self.ibl_params)
         else:
             assert self.cubemaps is not None
-            self.gpu_cubemaps = self.cubemaps.gpu()
+            self.gpu_cubemaps = self.cubemaps.gpu(r.ctx)
         r.add_environment_light(self, self.gpu_cubemaps)
 
     @classmethod
     def from_equirectangular(
-        cls, equirectangular: np.ndarray, ibl_params: Optional[IBLParams] = None
+        cls,
+        equirectangular: np.ndarray[Tuple[int, int, int], np.dtype[np.float32]],
+        ibl_params: Optional[IBLParams] = None,
     ) -> "EnvironmentLight":
         return cls(equirectangular=equirectangular, ibl_params=ibl_params)
 

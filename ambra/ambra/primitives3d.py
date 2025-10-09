@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 from enum import Enum
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 from pyglm.glm import inverse, mat3, mat4x3, transpose
@@ -43,8 +43,8 @@ from .utils.gpu import cull_mode_opposite_face
 class Lines(Object3D):
     def __init__(
         self,
-        lines: Union[BufferProperty, np.ndarray],
-        colors: Union[BufferProperty, np.ndarray],
+        lines: BufferProperty,
+        colors: BufferProperty,
         line_width: Union[BufferProperty, float] = 1.0,
         is_strip: bool = False,
         name: Optional[str] = None,
@@ -456,27 +456,27 @@ class Grid(Object3D):
         super().__init__(name, translation, rotation, scale)
 
     @classmethod
-    def white(cls, size: Tuple[float, float], grid_type: GridType, **kwargs) -> "Grid":
+    def white(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
         return cls(size, grid_type, (0, 0, 0, 1), (0, 0, 0, 1), (1, 1, 1, 1), **kwargs)
 
     @classmethod
-    def black(cls, size: Tuple[float, float], grid_type: GridType, **kwargs) -> "Grid":
+    def black(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
         return cls(size, grid_type, (1, 1, 1, 1), (1, 1, 1, 1), (0, 0, 0, 1), **kwargs)
 
     @classmethod
-    def transparent_white_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs) -> "Grid":
+    def transparent_white_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
         return cls(size, grid_type, (1, 1, 1, 1), (1, 1, 1, 1), (1, 1, 1, 0), **kwargs)
 
     @classmethod
-    def transparent_black_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs) -> "Grid":
+    def transparent_black_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
         return cls(size, grid_type, (0, 0, 0, 1), (0, 0, 0, 1), (0, 0, 0, 0), **kwargs)
 
     @classmethod
-    def dark_gray_white_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs) -> "Grid":
+    def dark_gray_white_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
         return cls(size, grid_type, (1, 1, 1, 1), (1, 1, 1, 1), (0.1, 0.1, 0.1, 1), **kwargs)
 
     @classmethod
-    def light_gray_black_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs) -> "Grid":
+    def light_gray_black_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
         return cls(size, grid_type, (0, 0, 0, 1), (0, 0, 0, 1), (0.9, 0.9, 0.9, 1), **kwargs)
 
     def create(self, r: Renderer) -> None:

@@ -42,8 +42,8 @@ from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 class Lines(Object2D):
     def __init__(
         self,
-        lines: Union[BufferProperty, np.ndarray],
-        colors: Union[BufferProperty, np.ndarray],
+        lines: BufferProperty,
+        colors: BufferProperty,
         line_width: Union[BufferProperty, float] = 1.0,
         is_strip: bool = False,
         name: Optional[str] = None,

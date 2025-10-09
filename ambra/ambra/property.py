@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import ArrayLike, DTypeLike
@@ -11,7 +11,7 @@ from pyxpg import Format
 
 from .utils.gpu import format_from_channels_dtype
 
-PropertyItem = np.ndarray
+PropertyItem = np.ndarray[Tuple[int, ...], np.dtype[Any]]
 PropertyData = ArrayLike
 
 # class AnimationInterpolation(Enum):
@@ -26,8 +26,8 @@ PropertyData = ArrayLike
 #     SLERP = auto()
 
 
-def view_bytes(a: np.ndarray) -> memoryview:
-    return a.reshape((-1,), copy=False).view(np.uint8).data
+def view_bytes(a: np.ndarray[Tuple[int, ...], np.dtype[Any]]) -> memoryview:
+    return a.reshape((-1,)).view(np.uint8).data
 
 
 class AnimationBoundary(Enum):
@@ -224,11 +224,12 @@ class DataBufferProperty(BufferProperty):
         upload: Optional[UploadSettings] = None,
         name: str = "",
     ):
-        data: Union[List[np.ndarray], np.ndarray]
+        data: Union[List[PropertyItem], np.ndarray[Tuple[int, ...], np.dtype[Any]]]
         if shape is None:
-            data = np.atleast_1d(np.asarray(in_data, dtype, order="C"))
-            if len(data.shape) > 1:
-                raise ShapeError((1,), data.shape[1:])
+            array = np.atleast_1d(np.asarray(in_data, dtype, order="C"))
+            if len(array.shape) > 1:
+                raise ShapeError((1,), array.shape[1:])
+            data = array
         else:
             if isinstance(in_data, List):
                 data = in_data
@@ -270,7 +271,7 @@ class DataImageProperty(ImageProperty):
         upload: Optional[UploadSettings] = None,
         name: str = "",
     ):
-        data: Union[List[np.ndarray], np.ndarray]
+        data: Union[List[PropertyItem], np.ndarray[Tuple[int, ...], np.dtype[Any]]]
         if isinstance(in_data, List):
             data = in_data
             for i in range(len(in_data)):

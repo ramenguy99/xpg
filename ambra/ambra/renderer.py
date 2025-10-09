@@ -167,10 +167,10 @@ class Renderer:
                 "view": (np.dtype((np.float32, (4, 4))), 0),
                 "projection": (np.dtype((np.float32, (4, 4))), 64),
                 "camera_position": (np.dtype((np.float32, (3,))), 128),
-                "ambient_light": (np.dtype((np.float32, 3)), 144),
+                "ambient_light": (np.dtype((np.float32, (3,))), 144),
                 "has_environment_light": (np.uint32, 156),
                 "num_specular_mips": (np.float32, 160),
-                "num_lights": (np.dtype((np.uint32, len(lights.LIGHT_TYPES_INFO))), 164),
+                "num_lights": (np.dtype((np.uint32, (len(lights.LIGHT_TYPES_INFO),))), 164),
             }
         )  # type: ignore
 

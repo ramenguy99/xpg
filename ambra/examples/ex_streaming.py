@@ -27,7 +27,10 @@ viewer = Viewer(
         camera=CameraConfig(
             projection=CameraProjection.ORTHOGRAPHIC,
             ortho_half_extents=(10, 10),
+            position=(0, 0, 0),
+            target=(0, 0, 1),
         ),
+        world_up=(0, 1, 0),
         renderer=RendererConfig(
             force_buffer_upload_method=UploadMethod.GRAPHICS_QUEUE,
         ),

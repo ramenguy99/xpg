@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
-from typing import List, Tuple, TypeAlias, Union
+from typing import List, Tuple, Union
 
 import numpy as np
 from pyxpg import (
@@ -28,7 +28,9 @@ from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import UploadableBuffer, align_up
 from .utils.ring_buffer import RingBuffer
 
-MaterialData: TypeAlias = Union[float, Tuple[float, ...], np.ndarray, BufferProperty, ImageProperty]
+MaterialData = Union[
+    float, Tuple[float, ...], np.ndarray[Tuple[int], np.dtype[np.float32]], BufferProperty, ImageProperty
+]
 
 
 @dataclass

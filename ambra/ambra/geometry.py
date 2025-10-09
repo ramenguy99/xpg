@@ -1,15 +1,16 @@
 from typing import Tuple
 
 import numpy as np
-from pyglm.glm import vec3
 
 
 # TODO: replace with array version
-def create_sphere(radius: float = 1.0, rings: int = 16, sectors: int = 32) -> Tuple[np.ndarray, np.ndarray]:
+def create_sphere(
+    radius: float = 1.0, rings: int = 16, sectors: int = 32
+) -> Tuple[np.ndarray[Tuple[int, int], np.dtype[np.float32]], np.ndarray[Tuple[int], np.dtype[np.uint32]]]:
     inv_r = 1.0 / (rings - 1)
     inv_s = 1.0 / (sectors - 1)
 
-    vertices = np.zeros((rings * sectors, 3))
+    vertices = np.zeros((rings * sectors, 3), np.float32)
     v, n = 0, 0
     for r in range(rings):
         for s in range(sectors):
@@ -22,7 +23,7 @@ def create_sphere(radius: float = 1.0, rings: int = 16, sectors: int = 32) -> Tu
             v += 1
             n += 1
 
-    faces = np.zeros([(rings - 1) * (sectors - 1) * 2, 3], dtype=np.int32)
+    faces = np.zeros([(rings - 1) * (sectors - 1) * 2, 3], dtype=np.uint32)
     i = 0
     for r in range(rings - 1):
         for s in range(sectors - 1):
@@ -52,7 +53,9 @@ _cube_indices = np.array(
 )
 
 
-def create_cube(position: vec3 = (0, 0, 0), half_extents: vec3 = (1, 1, 1)):
+def create_cube(
+    position: Tuple[float, float, float] = (0, 0, 0), half_extents: Tuple[float, float, float] = (1, 1, 1)
+) -> Tuple[np.ndarray[Tuple[int, int], np.dtype[np.float32]], np.ndarray[Tuple[int], np.dtype[np.uint32]]]:
     return _cube_positions * np.asarray(half_extents, np.float32) + np.asarray(
         position, np.float32
     ), _cube_indices.copy()

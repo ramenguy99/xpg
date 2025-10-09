@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 from pyxpg import (
@@ -171,11 +171,9 @@ class BulkUploader:
                         upload_buffer_range = state.buffer.data[offset : offset + fitting_size]
                         # print(upload_buffer_range.shape, info.data.shape)
                         upload_buffer_2d_view = np.frombuffer(upload_buffer_range, np.uint8).reshape(
-                            (fitting_rows, pitch), copy=False
+                            (fitting_rows, pitch)
                         )
-                        data_buffer_2d_view = np.frombuffer(info.data, np.uint8).reshape(
-                            (total_rows, input_pitch), copy=False
-                        )
+                        data_buffer_2d_view = np.frombuffer(info.data, np.uint8).reshape((total_rows, input_pitch))
 
                         # print(upload_buffer_2d_view.shape, data_buffer_2d_view.shape)
 
@@ -282,7 +280,7 @@ class UploadableBuffer(Buffer):
         self,
         cmd: CommandBuffer,
         usage: MemoryUsage,
-        data: Union[memoryview, np.ndarray],
+        data: Union[memoryview, np.ndarray[Tuple[int], np.dtype[np.uint8]]],
         offset: int = 0,
     ) -> None:
         if self.is_mapped:
@@ -303,7 +301,9 @@ class UploadableBuffer(Buffer):
             if usage != MemoryUsage.NONE:
                 cmd.memory_barrier(MemoryUsage.TRANSFER_DST, usage)
 
-    def upload_sync(self, data: Union[memoryview, np.ndarray], offset: int = 0) -> None:
+    def upload_sync(
+        self, data: Union[memoryview, np.ndarray[Tuple[int], np.dtype[np.uint8]]], offset: int = 0
+    ) -> None:
         if self.is_mapped:
             # print(self.data.c_contiguous, data.c_contiguous )
             # print(self.data.shape       , data.shape        )
@@ -384,7 +384,7 @@ class UploadableImage(Image):
         layout: ImageLayout,
         src_usage: MemoryUsage,
         dst_usage: MemoryUsage,
-        data: Union[memoryview, np.ndarray],
+        data: Union[memoryview, np.ndarray[Tuple[int], np.dtype[np.uint8]]],
     ) -> None:
         # Upload to staging buffer
         if data.shape is None or len(data.shape) != 1:
@@ -405,7 +405,9 @@ class UploadableImage(Image):
         else:
             cmd.image_barrier(self, layout, MemoryUsage.TRANSFER_DST, dst_usage)
 
-    def upload_sync(self, data: Union[memoryview, np.ndarray], layout: ImageLayout) -> None:
+    def upload_sync(
+        self, data: Union[memoryview, np.ndarray[Tuple[int], np.dtype[np.uint8]]], layout: ImageLayout
+    ) -> None:
         with self.ctx.sync_commands() as cmd:
             self.upload(cmd, layout, MemoryUsage.NONE, MemoryUsage.NONE, data)
 
@@ -416,7 +418,7 @@ class UniformBlockAllocation:
     offset: int
     size: int
 
-    def upload(self, cmd: CommandBuffer, data: Union[memoryview, np.ndarray]) -> None:
+    def upload(self, cmd: CommandBuffer, data: Union[memoryview, np.ndarray[Tuple[int], np.dtype[np.uint8]]]) -> None:
         if len(data) > self.size:
             raise IndexError("data is larger than buffer allocation")
         self.buffer.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM, data, self.offset)
@@ -570,7 +572,7 @@ _channels_dtype_int_to_format_table = {
 }
 
 
-def format_from_channels_dtype(channels: int, dtype: np.dtype, integer: bool = False) -> Format:
+def format_from_channels_dtype(channels: int, dtype: np.dtype[Any], integer: bool = False) -> Format:
     try:
         return _channels_dtype_int_to_format_table[(channels, dtype, integer)]
     except KeyError:
