@@ -1,12 +1,13 @@
 from typing import Tuple
 
 import numpy as np
+from numpy.typing import NDArray
 
 
 # TODO: replace with array version
 def create_sphere(
     radius: float = 1.0, rings: int = 16, sectors: int = 32
-) -> Tuple[np.ndarray[Tuple[int, int], np.dtype[np.float32]], np.ndarray[Tuple[int], np.dtype[np.uint32]]]:
+) -> Tuple[NDArray[np.float32], NDArray[np.uint32]]:
     inv_r = 1.0 / (rings - 1)
     inv_s = 1.0 / (sectors - 1)
 
@@ -55,7 +56,7 @@ _cube_indices = np.array(
 
 def create_cube(
     position: Tuple[float, float, float] = (0, 0, 0), half_extents: Tuple[float, float, float] = (1, 1, 1)
-) -> Tuple[np.ndarray[Tuple[int, int], np.dtype[np.float32]], np.ndarray[Tuple[int], np.dtype[np.uint32]]]:
+) -> Tuple[NDArray[np.float32], NDArray[np.uint32]]:
     return _cube_positions * np.asarray(half_extents, np.float32) + np.asarray(
         position, np.float32
     ), _cube_indices.copy()

@@ -148,8 +148,6 @@ def main():
                     level = max(level - 1, 0)
                 if key == Key.X:
                     level = min(level + 1, 10)
-                if key == Key.C:
-                    cube.cubemap = result.skybox_cubemap
                 if key == Key.V:
                     cube.cubemap = result.irradiance_cubemap
                 if key == Key.B:

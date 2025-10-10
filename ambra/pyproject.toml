@@ -1,9 +1,6 @@
 [build-system]
-requires = [
-    "setuptools",
-    "wheel",
-]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "ambra"
@@ -14,7 +11,6 @@ authors = [
     { name = "Dario Mylonopoulos", email = "ramenguy99@gmail.com" },
 ]
 license = "MIT"
-license-files = [ "LICENSE" ]
 dependencies = [
     "numpy>=1.22",      # Required for numpy.typing
     "pyglm>=2,<3",

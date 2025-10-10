@@ -6,12 +6,12 @@ from enum import Enum, auto
 from typing import Any, Callable, List, Optional, Tuple, Union
 
 import numpy as np
-from numpy.typing import ArrayLike, DTypeLike
+from numpy.typing import ArrayLike, DTypeLike, NDArray
 from pyxpg import Format
 
 from .utils.gpu import format_from_channels_dtype
 
-PropertyItem = np.ndarray[Tuple[int, ...], np.dtype[Any]]
+PropertyItem = NDArray[Any]
 PropertyData = ArrayLike
 
 # class AnimationInterpolation(Enum):
@@ -26,7 +26,7 @@ PropertyData = ArrayLike
 #     SLERP = auto()
 
 
-def view_bytes(a: np.ndarray[Tuple[int, ...], np.dtype[Any]]) -> memoryview:
+def view_bytes(a: NDArray[Any]) -> memoryview:
     return a.reshape((-1,)).view(np.uint8).data
 
 
@@ -224,7 +224,7 @@ class DataBufferProperty(BufferProperty):
         upload: Optional[UploadSettings] = None,
         name: str = "",
     ):
-        data: Union[List[PropertyItem], np.ndarray[Tuple[int, ...], np.dtype[Any]]]
+        data: Union[List[PropertyItem], NDArray[Any]]
         if shape is None:
             array = np.atleast_1d(np.asarray(in_data, dtype, order="C"))
             if len(array.shape) > 1:
@@ -271,7 +271,7 @@ class DataImageProperty(ImageProperty):
         upload: Optional[UploadSettings] = None,
         name: str = "",
     ):
-        data: Union[List[PropertyItem], np.ndarray[Tuple[int, ...], np.dtype[Any]]]
+        data: Union[List[PropertyItem], NDArray[Any]]
         if isinstance(in_data, List):
             data = in_data
             for i in range(len(in_data)):

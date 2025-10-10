@@ -51,7 +51,7 @@ class FileStreamingProperty(BufferProperty):
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1):
         size, offset = FileStreamingProperty._get_size_offset(frame_index)
-        buf: np.ndarray = np.empty(size, np.uint8)
+        buf = np.empty(size, np.uint8)
         read_exact_at_offset_into(files[thread_index], offset, buf.data)
         return buf.view(np.float32).reshape((-1, 3)) * scale
 

@@ -3,9 +3,10 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional
 
 import numpy as np
+from numpy.typing import NDArray
 from pyglm.glm import inverse, orthoRH_ZO, vec3, vec4
 from pyxpg import (
     AllocType,
@@ -264,8 +265,8 @@ class IBLParams:
 
 @dataclass
 class EnvironmentCubemaps:
-    irradiance_cubemap: np.ndarray[Tuple[int, int, int, int], np.dtype[np.float16]]
-    specular_cubemap: List[np.ndarray[Tuple[int, int, int, int], np.dtype[np.float16]]]
+    irradiance_cubemap: NDArray[np.float16]
+    specular_cubemap: List[NDArray[np.float16]]
 
     @classmethod
     def load(cls, file: Any, **kwargs: Any) -> "EnvironmentCubemaps":
@@ -414,7 +415,7 @@ class GpuEnvironmentCubemaps:
 
         # Copy into numpy arrays
         irradiance_array = np.frombuffer(irradiance_buffer, np.float16).copy().reshape(irradiance_shape)
-        specular_arrays = []
+        specular_arrays: List[NDArray[np.float16]] = []
         for m, b in enumerate(specular_buffers):
             specular_mip_size = specular_size >> m
             specular_mip_shape = (6, specular_mip_size, specular_mip_size, 4)
@@ -634,7 +635,7 @@ class IBLPipeline:
 class EnvironmentLight(Light):
     def __init__(
         self,
-        equirectangular: Optional[np.ndarray[Tuple[int, int, int], np.dtype[np.float32]]] = None,
+        equirectangular: Optional[NDArray[np.float32]] = None,
         cubemaps: Optional[EnvironmentCubemaps] = None,
         ibl_params: Optional[IBLParams] = None,
         name: Optional[str] = None,
@@ -681,7 +682,7 @@ class EnvironmentLight(Light):
     @classmethod
     def from_equirectangular(
         cls,
-        equirectangular: np.ndarray[Tuple[int, int, int], np.dtype[np.float32]],
+        equirectangular: NDArray[np.float32],
         ibl_params: Optional[IBLParams] = None,
     ) -> "EnvironmentLight":
         return cls(equirectangular=equirectangular, ibl_params=ibl_params)

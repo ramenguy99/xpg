@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import List, Tuple, Union
 
 import numpy as np
+from numpy.typing import NDArray
 from pyxpg import (
     BufferUsageFlags,
     DescriptorSetBinding,
@@ -28,9 +29,7 @@ from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import UploadableBuffer, align_up
 from .utils.ring_buffer import RingBuffer
 
-MaterialData = Union[
-    float, Tuple[float, ...], np.ndarray[Tuple[int], np.dtype[np.float32]], BufferProperty, ImageProperty
-]
+MaterialData = Union[float, Tuple[float, ...], NDArray[np.float32], BufferProperty, ImageProperty]
 
 
 @dataclass
