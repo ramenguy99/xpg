@@ -6,10 +6,10 @@ import numpy as np
 from pyglm.glm import normalize, quatLookAtRH, vec3
 from pyxpg import *
 
-from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig
+from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig, RendererConfig
 from ambra.geometry import create_sphere
 from ambra.lights import DirectionalLight, DirectionalShadowSettings, EnvironmentLight, UniformEnvironmentLight
-from ambra.materials import DiffuseMaterial, DiffuseSpecularMaterial, PBRMaterial
+from ambra.materials import PBRMaterial
 from ambra.primitives3d import Lines, Mesh
 from ambra.property import as_buffer_property
 from ambra.viewer import Viewer
@@ -36,6 +36,7 @@ def main():
                 stats=True,
                 playback=True,
             ),
+            renderer=RendererConfig(msaa_samples=4, background_color=(0.1, 0.1, 0.1, 1.0)),
         ),
     )
 
@@ -99,11 +100,11 @@ def main():
 
     lights = []
     for s in signs:
-        rotation = quatLookAtRH(normalize(light_target - light_position * s), vec3(0, 0, 1))
+        rotation = quatLookAtRH(normalize(light_target - light_position * s), vec3(0, 1, 0))
         lights.append(
             DirectionalLight(
                 np.array([0.3, 0.3, 0.3]),
-                shadow_settings=DirectionalShadowSettings(casts_shadow=True),
+                shadow_settings=DirectionalShadowSettings(casts_shadow=False),
                 translation=light_position * s,
                 rotation=rotation,
             )

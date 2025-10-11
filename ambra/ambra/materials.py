@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
-from typing import List, Tuple, Union
+from enum import Flag, auto
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -23,7 +24,7 @@ from pyxpg import (
 
 from . import renderer
 from .gpu_property import GpuImageProperty
-from .property import BufferProperty, ImageProperty, as_buffer_property, as_image_property
+from .property import BufferProperty, ImageProperty, as_buffer_property, as_image_property, view_bytes
 from .renderer_frame import RendererFrame
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import UploadableBuffer, align_up
@@ -32,17 +33,24 @@ from .utils.ring_buffer import RingBuffer
 MaterialData = Union[float, Tuple[float, ...], NDArray[np.float32], BufferProperty, ImageProperty]
 
 
+class MaterialPropertyFlags(Flag):
+    ALLOW_IMAGE = auto()
+    HAS_VALUE = auto()
+
+
 @dataclass
 class MaterialProperty:
     name: str
     property: Union[BufferProperty, ImageProperty]
     channels: int
-    allow_image: bool
+    flags: MaterialPropertyFlags
 
 
-def as_material_property(property: MaterialData, channels: int, allow_image: bool, name: str) -> MaterialProperty:
+def as_material_property(
+    property: MaterialData, channels: int, flags: MaterialPropertyFlags, name: str
+) -> MaterialProperty:
     if isinstance(property, ImageProperty):
-        if not allow_image:
+        if not flags & MaterialPropertyFlags.ALLOW_IMAGE:
             raise ValueError(f'Material property "{name}" cannot be an image')
 
         img = as_image_property(property, name=name)
@@ -51,14 +59,10 @@ def as_material_property(property: MaterialData, channels: int, allow_image: boo
             raise ValueError(
                 f'Material property "{name}" image must have at least {channels}, but {img.format} only has {info.channels}'
             )
-        return MaterialProperty(name, img, channels, allow_image)
+        return MaterialProperty(name, img, channels, flags)
     else:
-        return MaterialProperty(
-            name,
-            as_buffer_property(property, np.float32, (channels,) if channels > 1 else None, name=name),
-            channels,
-            allow_image,
-        )
+        prop = as_buffer_property(property, np.float32, (channels,) if channels > 1 else None, name=name)
+        return MaterialProperty(name, prop, channels, flags)
 
 
 class Material:
@@ -70,12 +74,13 @@ class Material:
         offset = 0
         fields = {}
         for p in properties:
-            alignment = p.channels * 4 if p.channels != 3 else 16
-            offset = align_up(offset, alignment)
+            if p.flags & MaterialPropertyFlags.HAS_VALUE:
+                alignment = p.channels * 4 if p.channels != 3 else 16
+                offset = align_up(offset, alignment)
+                fields[p.name] = (np.dtype((np.float32, (p.channels,))), offset)
+                offset += p.channels * 4
 
-            fields[p.name] = (np.dtype((np.float32, (p.channels,))), offset)
-            offset += p.channels * 4
-            if p.allow_image:
+            if p.flags & MaterialPropertyFlags.ALLOW_IMAGE:
                 fields[f"has_{p.name}_texture"] = (np.uint32, offset)  # type: ignore
                 offset += 4
         self.dtype = np.dtype(fields)  # type: ignore
@@ -92,7 +97,11 @@ class Material:
                     DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
                     DescriptorSetBinding(1, DescriptorType.SAMPLER),
                 ]
-                + [DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE) for p in self.properties if p.allow_image],
+                + [
+                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE)
+                    for p in self.properties
+                    if p.flags & MaterialPropertyFlags.ALLOW_IMAGE
+                ],
                 r.window.num_frames,
             )
         )
@@ -151,21 +160,24 @@ class Material:
         image_index = 0
         for p in self.properties:
             if isinstance(p.property, BufferProperty):
-                self.constants[p.name] = p.property.get_current()
+                if p.flags & MaterialPropertyFlags.HAS_VALUE:
+                    self.constants[p.name] = p.property.get_current()
+                self.constants[f"has_{p.name}_texture"] = False
                 image = r.zero_image
             else:
-                self.constants[p.property.name] = 0.0
+                if p.flags & MaterialPropertyFlags.HAS_VALUE:
+                    self.constants[p.name] = 0.0
                 self.constants[f"has_{p.name}_texture"] = True
                 image = self.images[image_index].get_current()
 
-            if p.allow_image:
+            if p.flags & MaterialPropertyFlags.ALLOW_IMAGE:
                 self.descriptor_set.write_image(
                     image, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, image_index + 2
                 )
                 image_index += 1
 
         self.uniform_buffers.get_current_and_advance().upload(
-            frame.cmd, MemoryUsage.FRAGMENT_SHADER_UNIFORM, self.constants.view(np.uint8)
+            frame.cmd, MemoryUsage.FRAGMENT_SHADER_UNIFORM, view_bytes(self.constants)
         )
 
         self.need_upload = False
@@ -174,15 +186,20 @@ class Material:
 # Unlit flat color
 class ColorMaterial(Material):
     def __init__(self, color: MaterialData):
-        self.color = as_material_property(color, 3, True, "color")
+        self.color = as_material_property(
+            color, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "color"
+        )
         super().__init__([self.color], [("MATERIAL_COLOR", "1")])
 
 
 # Diffuse only
 class DiffuseMaterial(Material):
-    def __init__(self, diffuse: MaterialData):
-        self.diffuse = as_material_property(diffuse, 3, True, "diffuse")
-        super().__init__([self.diffuse], [("MATERIAL_DIFFUSE", "1")])
+    def __init__(self, diffuse: MaterialData, normal: Optional[BufferProperty] = None):
+        self.diffuse = as_material_property(
+            diffuse, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "diffuse"
+        )
+        self.normal = as_material_property(normal or (0.0, 0.0, 0.0), 3, MaterialPropertyFlags.ALLOW_IMAGE, "normal")
+        super().__init__([self.diffuse, self.normal], [("MATERIAL_DIFFUSE", "1")])
 
 
 # Blinn-phong
@@ -193,13 +210,22 @@ class DiffuseSpecularMaterial(Material):
         specular_strength: MaterialData,
         specular_exponent: Union[float, BufferProperty] = 32.0,
         specular_tint: Union[float, BufferProperty] = 0.0,
+        normal: Optional[BufferProperty] = None,
     ):
-        self.diffuse = as_material_property(diffuse, 3, True, "diffuse")
-        self.specular_strength = as_material_property(specular_strength, 1, True, "specular_strength")
-        self.specular_exponent = as_material_property(specular_exponent, 1, False, "specular_exponent")
-        self.specular_tint = as_material_property(specular_tint, 1, False, "specular_tint")
+        self.diffuse = as_material_property(
+            diffuse, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "diffuse"
+        )
+        self.specular_strength = as_material_property(
+            specular_strength,
+            1,
+            MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE,
+            "specular_strength",
+        )
+        self.specular_exponent = as_material_property(specular_exponent, 1, MaterialPropertyFlags.HAS_VALUE, "specular_exponent")
+        self.specular_tint = as_material_property(specular_tint, 1, MaterialPropertyFlags.HAS_VALUE, "specular_tint")
+        self.normal = as_material_property(normal or (0.0, 0.0, 0.0), 3, MaterialPropertyFlags.ALLOW_IMAGE, "normal")
         super().__init__(
-            [self.diffuse, self.specular_strength, self.specular_exponent, self.specular_tint],
+            [self.diffuse, self.specular_strength, self.specular_exponent, self.specular_tint, self.normal],
             [("MATERIAL_DIFFUSE_SPECULAR", "1")],
         )
 
@@ -211,8 +237,20 @@ class PBRMaterial(Material):
         albedo: MaterialData,
         roughness: MaterialData,
         metallic: MaterialData,
+        ao: Union[float, BufferProperty] = 1.0,
+        normal: Optional[BufferProperty] = None,
     ):
-        self.albedo = as_material_property(albedo, 3, True, "albedo")
-        self.roughness = as_material_property(roughness, 1, True, "roughness")
-        self.metallic = as_material_property(metallic, 1, True, "metallic")
-        super().__init__([self.albedo, self.roughness, self.metallic], [("MATERIAL_PBR", "1")])
+        self.albedo = as_material_property(
+            albedo, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "albedo"
+        )
+        self.roughness = as_material_property(
+            roughness, 1, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "roughness"
+        )
+        self.metallic = as_material_property(
+            metallic, 1, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "metallic"
+        )
+        self.ao = as_material_property(
+            ao, 1, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "ao"
+        )
+        self.normal = as_material_property(normal or (0.0, 0.0, 0.0), 3, MaterialPropertyFlags.ALLOW_IMAGE, "normal")
+        super().__init__([self.albedo, self.roughness, self.metallic, self.ao, self.normal], [("MATERIAL_PBR", "1")])

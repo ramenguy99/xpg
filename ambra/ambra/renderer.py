@@ -169,7 +169,7 @@ class Renderer:
                 "camera_position": (np.dtype((np.float32, (3,))), 128),
                 "ambient_light": (np.dtype((np.float32, (3,))), 144),
                 "has_environment_light": (np.uint32, 156),
-                "num_specular_mips": (np.float32, 160),
+                "max_specular_mip": (np.float32, 160),
                 "num_lights": (np.dtype((np.uint32, (len(lights.LIGHT_TYPES_INFO),))), 164),
             }
         )  # type: ignore
@@ -302,7 +302,7 @@ class Renderer:
         self.depth_compare_op = CompareOp.LESS
         self.resize(window.fb_width, window.fb_height)
 
-        self.shader_cache: Dict[Tuple[Union[str, Sequence[str]], ...], slang.Shader] = {}
+        self.shader_cache: Dict[Tuple[Union[str, Tuple[str, str], Path], ...], slang.Shader] = {}
 
         self.ibl_default_params = lights.IBLParams()
         self.ibl_pipeline: Optional[lights.IBLPipeline] = None
@@ -459,10 +459,10 @@ class Renderer:
     ) -> slang.Shader:
         defines = defines or []
         include_paths = include_paths or []
-        key = (path, entry, *defines, *include_paths)
+        key = (path, entry, target, *defines, *include_paths)
         if s := self.shader_cache.get(key):
             return s
-        shader = compile(Path(path), entry, defines=defines, include_paths=include_paths)
+        shader = compile(Path(path), entry, target, defines=defines, include_paths=include_paths)
         self.shader_cache[key] = shader
         return shader
 
@@ -517,10 +517,12 @@ class Renderer:
             )
             if self.environment_light is not None:
                 self.constants["has_environment_light"] = 1
-                self.constants["num_specular_mips"] = self.environment_light.gpu_cubemaps.specular_cubemap.mip_levels
+                self.constants["max_specular_mip"] = (
+                    self.environment_light.gpu_cubemaps.specular_cubemap.mip_levels - 1.0
+                )
             else:
                 self.constants["has_environment_light"] = 0
-                self.constants["num_specular_mips"] = 0
+                self.constants["max_specular_mip"] = 0
 
             buf.upload(
                 cmd,

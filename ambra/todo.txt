@@ -16,12 +16,12 @@ Priority:
     - [x] IBL
         - [x] Cubemaps
         - [x] Sampling
-    - [ ] Mips
     - [ ] Expose sampling options in materials
     - [ ] Cache pipelines -> requires hashable pyxpg objects
     - [ ] Try loading PBR model (e.g. helmet)
-        - [ ] sRGB textures -> already supported by specifying format on image property?
-        - [ ] normal mapping
+        - [x] sRGB textures -> already supported by specifying format on image property?
+        - [x] normal mapping
+        - [ ] Mips -> Integrate FFX?
 - [ ] Stages presets in config (empty, origin, floor, lights, maybe more?)
 - [ ] Basic client/server example and initial set of APIs
 - [ ] Important 3D primitives
@@ -159,11 +159,11 @@ TODO:
     - [ ] Port built-in profiler
     - [ ] Memory breakdown view -> also plot of usage per-frame to spot mid-frame allocs
 - [ ] Shaders
+    - [x] check if there is a way for users that are writing custom shaders to import ambra modules (like scene.slang)
     - [ ] cache + hot reloading for dev (?)
     - [ ] export to spirv during package
     - [ ] run spirv-optimizer (for sure on export, but maybe even during slang build)
     - [ ] do we want a pipeline / layout cache? Can we do something using frozen dataclasses as hash keys?
-    - [ ] check if there is a way for users that are writing custom shaders to impor ambra modules (like scene.slang)
 - [x] Config:
     - [x] Improve camera initialization (especially ortho for 2D case)
     - [x] vulkan validation options

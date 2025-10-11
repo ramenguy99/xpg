@@ -33,6 +33,11 @@ struct VSInput
     float3 normal;
 #endif
 
+#ifdef VERTEX_TANGENTS
+    [[vk::location(VERTEX_TANGENTS)]]
+    float3 tangent;
+#endif
+
 #ifdef VERTEX_UVS
     [[vk::location(VERTEX_UVS)]]
     float2 uv;
@@ -45,6 +50,9 @@ struct VSOutput
     float3 world_position;
 #ifdef VERTEX_NORMALS
     float3 world_normal;
+#endif
+#ifdef VERTEX_TANGENTS
+    float3 world_tangent;
 #endif
 #ifdef VERTEX_UVS
     float2 uv;
@@ -61,6 +69,9 @@ VSOutput vertex_main(VSInput in)
 #ifdef VERTEX_NORMALS
     out.world_normal = mul(g_object_constants.normal_matrix, in.normal);
 #endif
+#ifdef VERTEX_TANGENTS
+    out.world_tangent = mul(g_object_constants.transform, float4(in.tangent, 0.0));
+#endif
 #ifdef VERTEX_UVS
     out.uv = in.uv;
 #endif
@@ -74,10 +85,20 @@ float4 pixel_main(VSOutput in) : SV_Target0
 #ifdef VERTEX_NORMALS
     float3 N = normalize(in.world_normal);
 #else
-    float3 t = ddx(in.world_position);
-    float3 b = ddy(in.world_position);
-    float3 N = normalize(cross(b, t));
+    float3 T = ddx(in.world_position);
+    float3 B = ddy(in.world_position);
+    float3 N = normalize(cross(B, T));
 #endif
+
+#ifdef VERTEX_TANGENTS
+    float3 T = in.world_tangent;
+#else
+#ifdef VERTEX_NORMALS
+    float3 T = ddx(in.world_position);
+#endif
+#endif
+    // Re-orthogonalize T
+    T = normalize(T - dot(T, N) * N);
 
 #ifdef VERTEX_UVS
     float2 uv = in.uv;
@@ -85,7 +106,7 @@ float4 pixel_main(VSOutput in) : SV_Target0
     float2 uv = 0.0;
 #endif
 
-    float3 color = g_material.eval(in.world_position, uv, N);
+    float3 color = g_material.eval(in.world_position, uv, N, T);
 
     return float4(color, 1.0);
 }

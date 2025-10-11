@@ -63,7 +63,7 @@ class Server:
         def entry() -> None:
             async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
                 client_name = ""
-                client_address = ("", "")
+                client_address = ("", 0)
 
                 try:
                     client_address = writer.get_extra_info("peername")

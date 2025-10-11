@@ -90,12 +90,12 @@ public struct UniformEnvironmentLight : ILight
 
 public interface IMaterial
 {
-    public float3 eval(float3 world_position, float2 uv, float3 world_normal);
+    public float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent);
 }
 
 public struct EmptyMaterial : IMaterial
 {
-    float3 eval(float3 world_position, float2 uv, float3 world_normal)
+    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent)
     {
         return 0.0;
     }
@@ -103,13 +103,13 @@ public struct EmptyMaterial : IMaterial
 
 public struct ColorMaterial : IMaterial
 {
-    float3 color;
-    bool has_color_texture;
+    public float3 color;
+    public bool has_color_texture;
 
-    SamplerState sampler;
-    Texture2D color_texture;
+    public SamplerState sampler;
+    public Texture2D color_texture;
 
-    float3 eval(float3 world_position, float2 uv, float3 world_normal)
+    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent)
     {
         float3 color;
         if (has_color_texture) {
@@ -123,13 +123,15 @@ public struct ColorMaterial : IMaterial
 
 public struct DiffuseMaterial : IMaterial
 {
-    float3 diffuse;
-    bool has_diffuse_texture;
+    public float3 diffuse;
+    public bool has_diffuse_texture;
+    public bool has_normal_texture;
 
-    SamplerState sampler;
-    Texture2D diffuse_texture;
+    public SamplerState sampler;
+    public Texture2D diffuse_texture;
+    public Texture2D normal_texture;
 
-    float3 eval(float3 world_position, float2 uv, float3 world_normal)
+    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent)
     {
         float3 diffuse;
         if (has_diffuse_texture) {
@@ -138,33 +140,60 @@ public struct DiffuseMaterial : IMaterial
             diffuse = this.diffuse;
         }
 
+        float3 N = world_normal;
+        if (has_normal_texture != 0) {
+            float3 T = world_tangent;
+            float3 B = cross(N, T);
+            float3x3 world_from_tangent = transpose(float3x3(T, B, N));
+            N = mul(world_from_tangent, this.normal_texture.Sample(sampler, uv).rgb * 2.0 - 1.0);
+        }
+
         float3 outgoing_radiance = float3(0, 0, 0);
         for (uint32_t i = 0; i < g_constants.directional_lights_count; i++) {
-            LightEvaluation light = g_directional_lights[i].eval(world_position, world_normal);
-            float cosine = max(dot(light.direction, world_normal), 0.0);
+            LightEvaluation light = g_directional_lights[i].eval(world_position, N);
+            float cosine = max(dot(light.direction, N), 0.0);
             outgoing_radiance += cosine * diffuse * light.L;
         }
 
-        return outgoing_radiance + g_constants.ambient_light * diffuse;
+        float3 irradiance;
+        if (g_constants.has_environment_light != 0) {
+            irradiance = g_irradiance_cubemap.SampleLevel(g_linear_sampler, N, 0.0).rgb;
+        }
+        else {
+            irradiance = g_constants.ambient_light;
+        }
+
+        float3 color = outgoing_radiance + irradiance * diffuse;
+
+        // Tonemapping
+        color = color / (color + 1.0);
+
+        // To sRGB
+        color = pow(color, 1.0 / 2.2);
+
+        return color;
     }
 }
 
 public struct DiffuseSpecularMaterial : IMaterial
 {
-    float3 diffuse;
-    bool has_diffuse_texture;
+    public float3 diffuse;
+    public bool has_diffuse_texture;
 
-    float specular_strength;
-    bool has_specular_strength_texture;
+    public float specular_strength;
+    public bool has_specular_strength_texture;
 
-    float specular_exponent;
-    float specular_tint;
+    public float specular_exponent;
+    public float specular_tint;
 
-    SamplerState sampler;
-    Texture2D diffuse_texture;
-    Texture2D specular_strength_texture;
+    public bool has_normal_texture;
 
-    public float3 eval(float3 world_position, float2 uv, float3 world_normal)
+    public SamplerState sampler;
+    public Texture2D diffuse_texture;
+    public Texture2D specular_strength_texture;
+    public Texture2D normal_texture;
+
+    public float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent)
     {
         float3 diffuse;
         if (has_diffuse_texture) {
@@ -179,21 +208,45 @@ public struct DiffuseSpecularMaterial : IMaterial
             specular_strength = this.specular_strength;
         }
 
+        float3 N = world_normal;
+        if (has_normal_texture != 0) {
+            float3 T = world_tangent;
+            float3 B = cross(N, T);
+            float3x3 world_from_tangent = transpose(float3x3(T, B, N));
+            N = mul(world_from_tangent, this.normal_texture.Sample(sampler, uv).rgb * 2.0 - 1.0);
+        }
+
         float3 view = normalize(g_constants.world_camera_position - world_position);
 
         float3 outgoing_radiance = float3(0, 0, 0);
         for (uint32_t i = 0; i < g_constants.directional_lights_count; i++) {
-            LightEvaluation light = g_directional_lights[i].eval(world_position, world_normal);
+            LightEvaluation light = g_directional_lights[i].eval(world_position, N);
 
             float3 half = normalize(view + light.direction);
 
-            float specular = pow(max(dot(world_normal, half), 0.0f), specular_exponent) * specular_strength;
-            float cosine = max(dot(light.direction, world_normal), 0.0);
+            float specular = pow(max(dot(N, half), 0.0f), specular_exponent) * specular_strength;
+            float cosine = max(dot(light.direction, N), 0.0);
 
             outgoing_radiance += ((cosine * diffuse) + lerp(1.0, diffuse, specular_tint) * specular) * light.L;
         }
 
-        return outgoing_radiance + g_constants.ambient_light * diffuse;
+        float3 irradiance;
+        if (g_constants.has_environment_light != 0) {
+            irradiance = g_irradiance_cubemap.SampleLevel(g_linear_sampler, N, 0.0).rgb;
+        }
+        else {
+            irradiance = g_constants.ambient_light;
+        }
+
+        float3 color = outgoing_radiance + irradiance * diffuse;
+
+        // Tonemapping
+        color = color / (color + 1.0);
+
+        // To sRGB
+        color = pow(color, 1.0 / 2.2);
+
+        return color;
     }
 }
 
@@ -273,41 +326,61 @@ void ggx_brdf_approximation(float cosine, float roughness, out float scale, out 
 
 public struct PBRMaterial : IMaterial
 {
-    float3 albedo;
-    bool has_albedo_texture;
+    public float3 albedo;
+    public uint has_albedo_texture;
 
-    float roughness;
-    bool has_roughness_texture;
+    public float roughness;
+    public uint has_roughness_texture;
+    public float metallic;
+    public uint has_metallic_texture;
 
-    float metallic;
-    bool has_metallic_texture;
+    public float ao;
+    public uint has_ao_texture;
+    public uint has_normal_texture;
 
-    SamplerState sampler;
-    Texture2D albedo_texture;
-    Texture2D roughness_texture;
-    Texture2D metallic_texture;
+    public SamplerState sampler;
+    public Texture2D albedo_texture;
+    public Texture2D roughness_texture;
+    public Texture2D metallic_texture;
+    public Texture2D ao_texture;
+    public Texture2D normal_texture;
 
-    float3 eval(float3 world_position, float2 uv, float3 world_normal)
+    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent)
     {
         float3 albedo;
-        if (has_albedo_texture) {
+        if (has_albedo_texture != 0) {
             albedo = this.albedo_texture.Sample(sampler, uv).rgb;
         } else {
             albedo = this.albedo;
         }
 
         float roughness;
-        if (has_roughness_texture) {
+        if (has_roughness_texture != 0) {
             roughness = this.roughness_texture.Sample(sampler, uv).r;
         } else {
             roughness = this.roughness;
         }
 
         float metallic;
-        if (has_metallic_texture) {
+        if (has_metallic_texture != 0) {
             metallic = this.metallic_texture.Sample(sampler, uv).r;
         } else {
             metallic = this.metallic;
+        }
+
+        float ao;
+        if (has_ao_texture != 0) {
+            ao = this.ao_texture.Sample(sampler, uv).r;
+        } else {
+            ao = this.ao;
+        }
+
+        float3 N = world_normal;
+        if (has_normal_texture != 0) {
+            float3 T = world_tangent;
+            float3 B = cross(N, T);
+            float3x3 world_from_tangent = transpose(float3x3(T, B, N));
+            N = mul(world_from_tangent, this.normal_texture.Sample(sampler, uv).rgb * 2.0 - 1.0);
         }
 
         float3 view = normalize(g_constants.world_camera_position - world_position);
@@ -317,14 +390,14 @@ public struct PBRMaterial : IMaterial
 
         // Direct lights
         for (uint32_t i = 0; i < g_constants.directional_lights_count; i++) {
-            LightEvaluation light = g_directional_lights[i].eval(world_position, world_normal);
+            LightEvaluation light = g_directional_lights[i].eval(world_position, N);
 
-            float3 brdf_cosine = eval_roughness_metallic_brdf(world_normal, view, light.direction, albedo, f0, roughness, metallic);
+            float3 brdf_cosine = eval_roughness_metallic_brdf(N, view, light.direction, albedo, f0, roughness, metallic);
             outgoing_radiance += brdf_cosine * light.L;
         }
 
         // Environment light
-        float cosine = max(dot(world_normal, view), 0.0f);
+        float cosine = max(dot(N, view), 0.0f);
 
         float3 f = fresnel_schlick_roughness(cosine, f0, roughness);
         float3 kS = f;
@@ -332,7 +405,7 @@ public struct PBRMaterial : IMaterial
 
         float3 irradiance;
         if (g_constants.has_environment_light != 0) {
-            irradiance = g_irradiance_cubemap.SampleLevel(g_linear_sampler, world_normal, 0.0).rgb;
+            irradiance = g_irradiance_cubemap.SampleLevel(g_linear_sampler, N, 0.0).rgb;
         }
         else {
             irradiance = g_constants.ambient_light;
@@ -341,8 +414,8 @@ public struct PBRMaterial : IMaterial
 
         float3 prefiltered_specular;
         if (g_constants.has_environment_light != 0) {
-            float3 reflection = reflect(-view, world_normal);
-            prefiltered_specular = g_specular_cubemap.SampleLevel(g_linear_sampler, reflection, roughness * g_constants.num_specular_mips).rgb;
+            float3 reflection = reflect(-view, N);
+            prefiltered_specular = g_specular_cubemap.SampleLevel(g_linear_sampler, reflection, roughness * g_constants.max_specular_mip).rgb;
         } else {
             prefiltered_specular = g_constants.ambient_light;
         }
@@ -354,7 +427,7 @@ public struct PBRMaterial : IMaterial
         float3 specular = prefiltered_specular * (f * scale + bias);
         float3 environment = kD * diffuse + specular;
 
-        float3 color = outgoing_radiance + environment;
+        float3 color = outgoing_radiance + environment * ao;
 
         // Tonemapping
         color = color / (color + 1.0);
@@ -374,7 +447,7 @@ public struct Constants {
     public float3 ambient_light;
     public uint32_t has_environment_light;
 
-    public float num_specular_mips;
+    public float max_specular_mip;
     public uint32_t directional_lights_count;
 };
 

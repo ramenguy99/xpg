@@ -57,7 +57,7 @@ def compile(
     include_paths: Optional[List[Union[Path, str]]] = None,
 ) -> slang.Shader:
     defines_list = defines or []
-    include_paths_list = [str(p) for p in include_paths] or []
+    include_paths_list = [str(p) for p in include_paths] if include_paths is not None else []
 
     defines_bytes = b"".join([f"{k}\0{v}\0".encode() for k, v in sorted(defines_list)])
     include_paths_bytes = b"".join([f"{p}\0".encode() for p in sorted(include_paths_list)])

@@ -141,6 +141,7 @@ class Mesh(Object3D):
         positions: BufferProperty,
         indices: Optional[BufferProperty] = None,
         normals: Optional[BufferProperty] = None,
+        tangents: Optional[BufferProperty] = None,
         uvs: Optional[BufferProperty] = None,
         primitive_topology: PrimitiveTopology = PrimitiveTopology.TRIANGLE_LIST,
         cull_mode: CullMode = CullMode.NONE,
@@ -171,6 +172,9 @@ class Mesh(Object3D):
         self.normals = (
             self.add_buffer_property(normals, np.float32, (-1, 3), name="normals") if normals is not None else None
         )
+        self.tangents = (
+            self.add_buffer_property(tangents, np.float32, (-1, 3), name="tangents") if tangents is not None else None
+        )
         self.uvs = self.add_buffer_property(uvs, np.float32, (-1, 2), name="uvs") if uvs is not None else None
         self.indices = (
             self.add_buffer_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
@@ -193,6 +197,17 @@ class Mesh(Object3D):
                 name=f"{self.name}-normals",
             )
             if self.normals is not None
+            else None
+        )
+        self.tangents_buffer = (
+            r.add_gpu_buffer_property(
+                self.tangents,
+                BufferUsageFlags.VERTEX,
+                MemoryUsage.VERTEX_INPUT,
+                PipelineStageFlags.VERTEX_INPUT,
+                name=f"{self.name}-tangents",
+            )
+            if self.tangents is not None
             else None
         )
         self.uvs_buffer = (
@@ -239,7 +254,14 @@ class Mesh(Object3D):
             )
             vertex_binding_index += 1
 
-        vertex_binding_index = 1
+        if self.tangents is not None:
+            defines.append(("VERTEX_TANGENTS", str(vertex_binding_index)))
+            vertex_bindings.append(VertexBinding(vertex_binding_index, 12, VertexInputRate.VERTEX))
+            vertex_attributes.append(
+                VertexAttribute(vertex_binding_index, vertex_binding_index, Format.R32G32B32_SFLOAT)
+            )
+            vertex_binding_index += 1
+
         if self.uvs is not None:
             defines.append(("VERTEX_UVS", str(vertex_binding_index)))
             vertex_bindings.append(VertexBinding(vertex_binding_index, 8, VertexInputRate.VERTEX))
@@ -248,6 +270,7 @@ class Mesh(Object3D):
 
         vert = r.compile_builtin_shader("3d/mesh.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
+
         self.pipeline = GraphicsPipeline(
             r.ctx,
             stages=[
@@ -324,6 +347,8 @@ class Mesh(Object3D):
         ]
         if self.normals_buffer is not None:
             vertex_buffers.append(self.normals_buffer.get_current())
+        if self.tangents_buffer is not None:
+            vertex_buffers.append(self.tangents_buffer.get_current())
         if self.uvs_buffer is not None:
             vertex_buffers.append(self.uvs_buffer.get_current())
 
