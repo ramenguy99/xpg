@@ -4,15 +4,14 @@
 
 Trivia:
 - [ ] Better name
-- [ ] Better README
-    - [ ] Description
-    - [ ] C++:
+- [x] Better README
+    - [x] Description
+    - [x] C++:
         - Build instructions
         - Cmake variables
         - Example apps
-    - [ ] Python:
+    - [x] Python:
         - Pip install instructions (local modifiable install too, maybe in development section)
-        - Conda install instructions (`conda install conda-forge::vulkan-tools`)
 
 Build:
 - [x] Better cmake install with all apps
@@ -29,11 +28,11 @@ Build:
     - [ ] clang on linux
     - [ ] clang on macos
 - [ ] python builds
-    - [ ] sdist:
+    - [x] sdist:
         - [x] make sdist
             python -m build --sdist --verbose
-        - [ ] cleanup and test build from sdist
-    - [ ] conda build, likely require xcb dependency (similar to vulkan issue?),
+        - [x] cleanup and test build from sdist
+    - [-] conda build, likely require xcb dependency (similar to vulkan issue?),
             or at least check and document how to pip install in conda.
             conda install conda-forge::vulkan-tools
 
@@ -114,8 +113,8 @@ Python:
         - [x] Enable bindless by allowing last descriptor set to be variable size
             - When creating layout need to give upper bound (leave to application to specify large number, potentially looking at device limits for that descriptor type)
             - When allocating descriptor set need to specify how much to allocate with appended VkDescriptorSetVariableDescriptorCountAllocateInfo to VkDescriptorSetAllocateInfo.
+    - [x] VulkanError exception type that wraps VkResult for better error reporting over all bindings
     - [ ] Expose push descriptors and update template
-    - [ ] VulkanError exception type that wraps VkResult for better error reporting over all bindings
 - [ ] Clean examples
     - [x] Headless graphics and compute
     - [x] Minimal

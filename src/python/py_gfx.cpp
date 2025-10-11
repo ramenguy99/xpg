@@ -20,6 +20,8 @@
 #include <xpg/gui.h>
 #include <xpg/log.h>
 
+#include <vulkan/vk_enum_string_helper.h>
+
 #include <implot.h>
 #include <implot_internal.h>
 #include <implot.cpp>
@@ -41,6 +43,17 @@ using namespace xpg;
     }
 
 #define DEBUG_UTILS_OBJECT_NAME(type, obj) DEBUG_UTILS_OBJECT_NAME_WITH_NAME(type, obj, this->name)
+
+struct VulkanError: std::exception {
+    nb::str message;
+
+    VulkanError(const char* msg, VkResult vkr): message(nb::str("{}: {}").format(msg, string_VkResult(vkr))) {}
+
+    const char* what() const noexcept override
+    {
+        return message.c_str();
+    }
+};
 
 struct MemoryHeap: nb::intrusive_base {
     MemoryHeap(const VkMemoryHeap& heap)
@@ -218,7 +231,7 @@ struct Buffer: GfxObject {
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
         });
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create buffer");
+            throw VulkanError("Failed to create buffer", vkr);
         }
 
         VmaAllocationInfo2 alloc_info = {};
@@ -266,7 +279,7 @@ struct Buffer: GfxObject {
         PyBuffer_Release(&view);
 
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create buffer");
+            throw VulkanError("Failed to create buffer", vkr);
         }
 
         VmaAllocationInfo2 alloc_info = {};
@@ -351,7 +364,7 @@ struct Fence: GfxObject {
         }
         VkResult vkr = vkCreateFence(ctx->vk.device, &fence_info, 0, &fence);
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create fence");
+            throw VulkanError("Failed to create fence", vkr);
         }
 
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_FENCE, fence);
@@ -360,7 +373,7 @@ struct Fence: GfxObject {
     bool is_signaled() {
         VkResult vkr = vkGetFenceStatus(ctx->vk.device, fence);
         if (vkr == VK_ERROR_DEVICE_LOST) {
-            throw std::runtime_error("Device lost while checking fence status");
+            throw VulkanError("Device lost while checking fence status", vkr);
         }
         return vkr == VK_SUCCESS;
     }
@@ -398,7 +411,7 @@ struct Semaphore: GfxObject {
     {
         VkResult vkr = gfx::CreateGPUSemaphore(ctx->vk.device, &semaphore, external);
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create semaphore");
+            throw VulkanError("Failed to create semaphore", vkr);
         }
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, semaphore);
     }
@@ -432,7 +445,7 @@ struct TimelineSemaphore: Semaphore {
 
         VkResult vkr = gfx::CreateGPUTimelineSemaphore(ctx->vk.device, &this->semaphore, initial_value, external);
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create semaphore");
+            throw VulkanError("Failed to create semaphore", vkr);
         }
 
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, semaphore);
@@ -444,7 +457,7 @@ struct TimelineSemaphore: Semaphore {
         signal_info.value = value;
         VkResult vkr = vkSignalSemaphoreKHR(ctx->vk.device, &signal_info);
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to get semaphore counter value");
+            throw VulkanError("Failed to signal semaphore", vkr);
         }
     }
 
@@ -461,7 +474,7 @@ struct TimelineSemaphore: Semaphore {
         }
 
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to get semaphore counter value");
+            throw VulkanError("Failed to wait for semaphore", vkr);
         }
     }
 
@@ -469,7 +482,7 @@ struct TimelineSemaphore: Semaphore {
         u64 value;
         VkResult vkr = vkGetSemaphoreCounterValueKHR(ctx->vk.device, semaphore, &value);
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to get semaphore counter value");
+            throw VulkanError("Failed to get semaphore counter value", vkr);
         }
         return value;
     }
@@ -481,7 +494,7 @@ struct ExternalSemaphore: Semaphore {
     ExternalSemaphore(nb::ref<Context> ctx, std::optional<nb::str> name): Semaphore(ctx, std::move(name), true) {
         VkResult vkr = gfx::GetExternalHandleForSemaphore(&handle, ctx->vk, semaphore);
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to get handle for semaphore");
+            throw VulkanError("Failed to get handle for semaphore", vkr);
         }
     }
 
@@ -503,7 +516,7 @@ struct ExternalTimelineSemaphore: TimelineSemaphore {
     ExternalTimelineSemaphore(nb::ref<Context> ctx, u64 initial_value, std::optional<nb::str> name): TimelineSemaphore(ctx, initial_value, std::move(name), true) {
         VkResult vkr = gfx::GetExternalHandleForSemaphore(&handle, ctx->vk, semaphore);
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to get handle for semaphore");
+            throw VulkanError("Failed to get handle for semaphore", vkr);
         }
     }
 
@@ -532,7 +545,7 @@ struct ExternalBuffer: Buffer {
             .external = true,
         });
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create pool");
+            throw VulkanError("Failed to create pool", vkr);
         }
 
         vkr = gfx::CreateBuffer(&buffer, ctx->vk, size, {
@@ -542,12 +555,12 @@ struct ExternalBuffer: Buffer {
             .external = true,
         });
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create buffer");
+            throw VulkanError("Failed to create buffer", vkr);
         }
 
         vkr = gfx::GetExternalHandleForBuffer(&handle, ctx->vk, buffer);
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to get external handle");
+            throw VulkanError("Failed to get external handle", vkr);
         }
 
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_BUFFER, buffer.buffer);
@@ -796,7 +809,7 @@ struct Image: GfxObject {
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
         });
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create image");
+            throw VulkanError("Failed to create image", vkr);
         }
 
         VmaAllocationInfo2 alloc_info = {};
@@ -857,7 +870,7 @@ struct Image: GfxObject {
         PyBuffer_Release(&view);
 
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create image");
+            throw VulkanError("Failed to create image", vkr);
         }
 
         VmaAllocationInfo2 alloc_info = {};
@@ -923,7 +936,7 @@ struct ImageView: GfxObject {
         VkResult vkr = vkCreateImageView(ctx->vk.device, &info, NULL, &this->view);
 
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create image view");
+            throw VulkanError("Failed to create image view", vkr);
         }
     }
 
@@ -990,7 +1003,7 @@ struct Sampler: GfxObject {
         });
 
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create sampler");
+            throw VulkanError("Failed to create sampler", vkr);
         }
 
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SAMPLER, sampler.sampler);
@@ -1027,7 +1040,7 @@ struct QueryPool: GfxObject {
             .count = count,
         });
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create query pool");
+            throw VulkanError("Failed to create query pool", vkr);
         }
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_QUERY_POOL, pool);
     }
@@ -1044,14 +1057,14 @@ struct QueryPool: GfxObject {
 
     std::vector<u64> wait_results(u32 first, u32 count) {
         if ((u64)first + count > (u64)this->count) {
-            nb::raise("Query range out of bounds");
+            throw std::out_of_range("Query range out of bounds");
         }
 
         std::vector<u64> data(count);
         VkResult vkr = vkGetQueryPoolResults(ctx->vk.device, pool, first, count, sizeof(u64) * count, data.data(), sizeof(u64),
                                              VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to get query pool results");
+            throw VulkanError("Failed to get query pool results", vkr);
         }
 
         return data;
@@ -1113,7 +1126,7 @@ struct CommandBuffer: GfxObject {
 
         VkResult vkr = vkCreateCommandPool(ctx->vk.device, &pool_info, 0, &pool);
         if (vkr != VK_SUCCESS) {
-            nb::raise("Failed to create command pool");
+            throw VulkanError("Failed to create command pool", vkr);
         }
 
         VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
@@ -1123,7 +1136,7 @@ struct CommandBuffer: GfxObject {
 
         vkr = vkAllocateCommandBuffers(ctx->vk.device, &allocate_info, &buffer);
         if (vkr != VK_SUCCESS) {
-            nb::raise("Failed to create command buffer");
+            throw VulkanError("Failed to create command buffer", vkr);
         }
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, buffer);
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL, pool);
@@ -1255,14 +1268,14 @@ struct CommandBuffer: GfxObject {
     void begin() {
         VkResult vkr = gfx::BeginCommands(pool, buffer, ctx->vk);
         if(vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to begin commands");
+            throw VulkanError("Failed to begin commands", vkr);
         }
     }
 
     void end() {
         VkResult vkr = gfx::EndCommands(buffer);
         if(vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to end commands");
+            throw VulkanError("Failed to end commands", vkr);
         }
     }
 
@@ -1883,7 +1896,7 @@ struct Queue: GfxObject {
         });
 
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to submit transfer queue commands");
+            throw VulkanError("Failed to submit transfer queue commands", vkr);
         }
     }
 
@@ -2097,12 +2110,12 @@ struct Window: nb::intrusive_base {
             });
         }
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to submit frame commands");
+            throw VulkanError("Failed to submit frame commands", vkr);
         }
 
         vkr = gfx::PresentFrame(&window, &frame.frame, ctx->vk);
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to present frame");
+            throw VulkanError("Failed to present frame", vkr);
         }
     }
 
@@ -2245,7 +2258,7 @@ struct CommandsManager: nb::intrusive_base {
         });
 
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to submit transfer queue commands");
+            throw VulkanError("Failed to submit transfer queue commands", vkr);
         }
 
         if (wait_and_reset_fence) {
@@ -2429,7 +2442,7 @@ struct AccelerationStructure: GfxObject {
             .prefer_fast_build = prefer_fast_build,
         });
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create acceleration structure");
+            throw VulkanError("Failed to create acceleration structure", vkr);
         }
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, as.tlas);
     }
@@ -2481,7 +2494,7 @@ DescriptorSetLayout::DescriptorSetLayout(nanobind::ref<Context> ctx, std::vector
     });
 
     if (vkr != VK_SUCCESS) {
-        nanobind::raise("Failed to create descriptor set layout %d", vkr);
+        throw VulkanError("Failed to create descriptor set layout", vkr);
     }
 
     DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, layout.layout);
@@ -2507,7 +2520,7 @@ DescriptorPool::DescriptorPool(nanobind::ref<Context> ctx, const std::vector<Des
     });
 
     if (vkr != VK_SUCCESS) {
-        nanobind::raise("Failed to create descriptor set layout %d", vkr);
+        throw VulkanError("Failed to create descriptor pool", vkr);
     }
 
     DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_DESCRIPTOR_POOL, pool.pool);
@@ -2530,6 +2543,10 @@ nb::ref<DescriptorSet> DescriptorPool::allocate_descriptor_set(nb::ref<Descripto
         .layout = layout->layout,
         .variable_size_count = variable_size_count,
     });
+    if (vkr != VK_SUCCESS) {
+        throw VulkanError("Failed to create descriptor pool", vkr);
+    }
+
     return new DescriptorSet(ctx, this, set, std::move(name));
 }
 
@@ -2622,7 +2639,7 @@ struct Shader: GfxObject {
     {
         VkResult vkr = gfx::CreateShader(&shader, ctx->vk, ArrayView<u8>((u8*)code.data(), code.size()));
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create shader");
+            throw VulkanError("Failed to create shader", vkr);
         }
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SHADER_MODULE, shader.shader);
     }
@@ -2788,7 +2805,7 @@ struct ComputePipeline: GfxObject {
         });
 
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create graphics pipeline");
+            throw VulkanError("Failed to create compute pipeline", vkr);
         }
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_PIPELINE, pipeline.pipeline);
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_PIPELINE_LAYOUT, pipeline.layout);
@@ -2852,7 +2869,7 @@ struct GraphicsPipeline: GfxObject {
         });
 
         if (vkr != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create graphics pipeline");
+            throw VulkanError("Failed to create graphics pipeline", vkr);
         }
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_PIPELINE, pipeline.pipeline);
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_PIPELINE_LAYOUT, pipeline.layout);
@@ -3053,6 +3070,7 @@ void gfx_create_bindings(nb::module_& m)
     SetConsoleCtrlHandler(ctrlc_handler, TRUE);
 #endif
     nb::exception<SwapchainOutOfDateError>(m, "SwapchainOutOfDateError");
+    nb::exception<VulkanError>(m, "VulkanError");
 
     nb::enum_<VkMemoryHeapFlagBits>(m, "MemoryHeapFlags", nb::is_flag())
         .value("VK_MEMORY_HEAP_DEVICE_LOCAL"  , VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)

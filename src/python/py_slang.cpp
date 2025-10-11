@@ -213,6 +213,11 @@ struct SlangShader: public nb::intrusive_base {
     }
 };
 
+struct CompilationError: public std::runtime_error
+{
+    CompilationError(const std::string& error): std::runtime_error(error) {}
+};
+
 nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
     switch(type->getKind()) {
         case slang::TypeReflection::Kind::None: {
@@ -302,7 +307,7 @@ nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
                     r->kind = Reflection_Resource::Kind::AccelerationStructure;
                 } break;
                 default:
-                    throw std::runtime_error("Unexpected resource shape in shader reflection");
+                    throw CompilationError("Unexpected resource shape in shader reflection");
             }
 
             return r.release();
@@ -339,11 +344,6 @@ nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
             nb::raise("Unhandled type kind while parsing shader reflection: %d", (int)type->getKind());
     }
 }
-
-struct CompilationError: public std::runtime_error
-{
-    CompilationError(const std::string& error): std::runtime_error(error) {}
-};
 
 nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISession*, ISlangBlob**)> func, const nb::str& entry, const nb::str& target, const std::vector<std::tuple<nb::str, nb::str>>& defines) {
     if(!g_slang_global_session) {
@@ -417,7 +417,7 @@ nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISes
     Slang::ComPtr<slang::IComponentType> program;
     SlangResult result = session->createCompositeComponentType(components, ArrayCount(components), program.writeRef());
     if(SLANG_FAILED(result)) {
-        throw std::runtime_error("Composite component creation failed");
+        throw CompilationError("Composite component creation failed");
     }
 
     Slang::ComPtr<slang::IComponentType> linked_program;
