@@ -27,6 +27,19 @@ build-dir = "python-build/{wheel_tag}"
 # Build stable ABI wheels for CPython 3.12+
 wheel.py-api = "cp312"
 
+# Exclude unneded files from wheel
+sdist.exclude = [
+    "/apps",
+    "/pipes",
+    "/scripts",
+    "/python",
+    "/ambra",
+    "/notes.txt",
+    "/ROADMAP.md",
+    ".github",
+    ".gitmodules",
+]
+
 # Configure
 cmake.define.XPG_BUILD_APPS = "OFF"
 cmake.define.XPG_BUILD_PYTHON = "ON"

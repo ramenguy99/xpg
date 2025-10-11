@@ -21,6 +21,11 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/ramenguy99/xpg"
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "todo.txt",
+]
+
 [tool.mypy]
 # Python <=3.9 has issues with numpy shapes
 # Python <=3.11 has issues with assignment from memoryview to Buffer

@@ -13,7 +13,6 @@
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/tuple.h>
 #include <nanobind/stl/variant.h>
-#include <nanobind/ndarray.h>
 
 #include <nanobind/intrusive/counter.h>
 #include <nanobind/intrusive/ref.h>
