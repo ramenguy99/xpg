@@ -82,8 +82,8 @@ class Lines(Object2D):
             name=f"{self.name}-colors-2d",
         )
 
-        vert = r.get_builtin_shader("2d/basic.slang", "vertex_main")
-        frag = r.get_builtin_shader("2d/basic.slang", "pixel_main")
+        vert = r.compile_builtin_shader("2d/basic.slang", "vertex_main")
+        frag = r.compile_builtin_shader("2d/basic.slang", "pixel_main")
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
@@ -190,8 +190,8 @@ class Image(Object2D):
         for set in self.descriptor_sets:
             set.write_sampler(self.sampler, 0)
 
-        vert = r.get_builtin_shader("2d/basic_texture.slang", "vertex_main")
-        frag = r.get_builtin_shader("2d/basic_texture.slang", "pixel_main")
+        vert = r.compile_builtin_shader("2d/basic_texture.slang", "vertex_main")
+        frag = r.compile_builtin_shader("2d/basic_texture.slang", "pixel_main")
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(

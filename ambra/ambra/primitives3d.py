@@ -81,8 +81,8 @@ class Lines(Object3D):
             name=f"{self.name}-colors-3d",
         )
 
-        vert = r.get_builtin_shader("3d/basic.slang", "vertex_main")
-        frag = r.get_builtin_shader("3d/basic.slang", "pixel_main")
+        vert = r.compile_builtin_shader("3d/basic.slang", "vertex_main")
+        frag = r.compile_builtin_shader("3d/basic.slang", "pixel_main")
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
@@ -246,8 +246,8 @@ class Mesh(Object3D):
             vertex_attributes.append(VertexAttribute(vertex_binding_index, vertex_binding_index, Format.R32G32_SFLOAT))
             vertex_binding_index += 1
 
-        vert = r.get_builtin_shader("3d/mesh.slang", "vertex_main", defines=defines)
-        frag = r.get_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
+        vert = r.compile_builtin_shader("3d/mesh.slang", "vertex_main", defines=defines)
+        frag = r.compile_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
         self.pipeline = GraphicsPipeline(
             r.ctx,
             stages=[
@@ -268,7 +268,7 @@ class Mesh(Object3D):
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
-        depth_vert = r.get_builtin_shader("3d/mesh_depth.slang", "vertex_main")
+        depth_vert = r.compile_builtin_shader("3d/mesh_depth.slang", "vertex_main")
         self.depth_pipeline = GraphicsPipeline(
             r.ctx,
             stages=[
@@ -480,8 +480,8 @@ class Grid(Object3D):
         return cls(size, grid_type, (0, 0, 0, 1), (0, 0, 0, 1), (0.9, 0.9, 0.9, 1), **kwargs)
 
     def create(self, r: Renderer) -> None:
-        vert = r.get_builtin_shader("3d/grid.slang", "vertex_main")
-        frag = r.get_builtin_shader("3d/grid.slang", "pixel_main")
+        vert = r.compile_builtin_shader("3d/grid.slang", "vertex_main")
+        frag = r.compile_builtin_shader("3d/grid.slang", "pixel_main")
         self.pipeline = GraphicsPipeline(
             r.ctx,
             stages=[

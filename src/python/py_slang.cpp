@@ -345,7 +345,7 @@ nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
     }
 }
 
-nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISession*, ISlangBlob**)> func, const nb::str& entry, const nb::str& target, const std::vector<std::tuple<nb::str, nb::str>>& defines) {
+nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISession*, ISlangBlob**)> func, const nb::str& entry, const nb::str& target, const std::vector<std::tuple<nb::str, nb::str>>& defines, const std::vector<nb::str>& include_paths) {
     if(!g_slang_global_session) {
         SlangGlobalSessionDesc desc = {
             .enableGLSL = false, // This enables glsl compat, but increases startup time by a lot, and forces generation of .bin file on first run.
@@ -383,9 +383,16 @@ nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISes
         });
     }
 
+    std::vector<char const*> search_paths;
+    for (size_t i = 0; i < include_paths.size(); i++) {
+        search_paths.push_back(include_paths[i].c_str());
+    }
+
     slang::SessionDesc session_desc = {
         .targets = targets,
         .targetCount = ArrayCount(targets),
+        .searchPaths = search_paths.data(),
+        .searchPathCount = (SlangInt)search_paths.size(),
         .preprocessorMacros = preprocessor_macros.data(),
         .preprocessorMacroCount = (SlangInt)preprocessor_macros.size(),
     };
@@ -446,16 +453,16 @@ nb::ref<SlangShader> slang_compile_any(std::function<slang::IModule*(slang::ISes
     return nb::ref<SlangShader>(new SlangShader(nb::str("main"), nb::bytes(kernel->getBufferPointer(), kernel->getBufferSize()), reflection, std::move(dependencies)));
 }
 
-nb::ref<SlangShader> slang_compile_str(const nb::str& str, const nb::str& entry, const nb::str& target, const nb::str& filename, const std::vector<std::tuple<nb::str, nb::str>>& defines) {
+nb::ref<SlangShader> slang_compile_str(const nb::str& str, const nb::str& entry, const nb::str& target, const nb::str& filename, const std::vector<std::tuple<nb::str, nb::str>>& defines, const std::vector<nb::str>& include_paths) {
     return slang_compile_any([&str, &filename, &defines] (slang::ISession* session, ISlangBlob** diagnostics) {
         return session->loadModuleFromSourceString(filename.c_str(), filename.c_str(), str.c_str(), diagnostics);
-    }, entry, target, defines);
+    }, entry, target, defines, include_paths);
 }
 
-nb::ref<SlangShader> slang_compile(const nb::str& file, const nb::str& entry, const nb::str& target, const std::vector<std::tuple<nb::str, nb::str>>& defines) {
+nb::ref<SlangShader> slang_compile(const nb::str& file, const nb::str& entry, const nb::str& target, const std::vector<std::tuple<nb::str, nb::str>>& defines, const std::vector<nb::str>& include_paths) {
     return slang_compile_any([&file, &defines] (slang::ISession* session, ISlangBlob** diagnostics) {
         return session->loadModule(file.c_str(), diagnostics);
-    }, entry, target, defines);
+    }, entry, target, defines, include_paths);
 }
 
 void slang_create_bindings(nb::module_& mod_slang)
@@ -644,8 +651,8 @@ void slang_create_bindings(nb::module_& mod_slang)
         .def("__setstate__", SlangShader::__setstate__)
     ;
 
-    mod_slang.def("compile", slang_compile, nb::arg("path"), nb::arg("entry") = "main", nb::arg("target") = "spirv_1_3", nb::arg("defines") = std::vector<std::tuple<nb::str, nb::str>>());
-    mod_slang.def("compile_str", slang_compile_str, nb::arg("source"), nb::arg("entry") = "main", nb::arg("target") = "spirv_1_3", nb::arg("filename") = "", nb::arg("defines") = std::vector<std::tuple<nb::str, nb::str>>());
+    mod_slang.def("compile", slang_compile, nb::arg("path"), nb::arg("entry") = "main", nb::arg("target") = "spirv_1_3", nb::arg("defines") = std::vector<std::tuple<nb::str, nb::str>>(), nb::arg("include_paths") = std::vector<nb::str>());
+    mod_slang.def("compile_str", slang_compile_str, nb::arg("source"), nb::arg("entry") = "main", nb::arg("target") = "spirv_1_3", nb::arg("filename") = "", nb::arg("defines") = std::vector<std::tuple<nb::str, nb::str>>(), nb::arg("include_paths") = std::vector<nb::str>());
 
     nb::enum_<slang::TypeReflection::ScalarType>(mod_slang, "ScalarKind")
         .value("NONE", slang::TypeReflection::ScalarType::None)

@@ -4,6 +4,7 @@
 import asyncio
 import atexit
 import json
+import logging
 import pickle
 import struct
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ from threading import Thread
 from typing import Callable, Dict, Optional, Tuple, Union
 
 from .config import ServerConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -59,11 +62,14 @@ class Server:
 
         def entry() -> None:
             async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+                client_name = ""
+                client_address = ("", "")
+
                 try:
                     client_address = writer.get_extra_info("peername")
                     self.connections[client_address] = writer
 
-                    print(f"Server: client {client_address[0]}:{client_address[1]} opened connection")
+                    logger.info("Server: client %s:%s opened connection", client_address[0], client_address[1])
                     magic = await reader.readexactly(4)
                     if magic != b"AMBR":
                         return
@@ -74,28 +80,42 @@ class Server:
                         client_name = (await reader.readexactly(client_name_length)).decode(
                             encoding="utf-8", errors="ignore"
                         )
-                    else:
-                        client_name = ""
                     client = Client(client_address[0], client_address[1], client_name)
 
-                    print(f'Server: client {client_address[0]}:{client_address[1]} registered as "{client_name}"')
+                    logger.info(
+                        'Server: client %s:%s registered as "%s"', client_address[0], client_address[1], client_name
+                    )
 
                     # Messages
                     while True:
                         id = struct.unpack("<I", await reader.readexactly(4))[0]
                         if id == 0:
-                            print(f"Server: client {client_address[0]}:{client_address[1]} closed connection")
+                            logger.info(
+                                "Server: client %s(%s:%s) closed connection",
+                                client_address[0],
+                                client_address[1],
+                                client_name,
+                            )
                             break
                         format, length = struct.unpack("<IQ", await reader.readexactly(12))
                         data = await reader.readexactly(length)
 
                         on_raw_message_async(client, RawMessage(id, format, data))
                 except asyncio.exceptions.IncompleteReadError:
-                    print(
-                        f"Server: client {client_address[0]}:{client_address[1]} unexpected EOF before closing connection"
+                    logger.info(
+                        "Server: client %s(%s:%s) unexpected EOF before closing connection",
+                        client_name,
+                        client_address[0],
+                        client_address[1],
                     )
                 except Exception as e:
-                    print(f"Server: exception while handling client connection {e}")
+                    logger.info(
+                        "Server: exception while handling client connection %s(%s:%s): %s",
+                        client_name,
+                        client_address[0],
+                        client_address[1],
+                        e,
+                    )
 
                 del self.connections[client_address]
                 writer.close()

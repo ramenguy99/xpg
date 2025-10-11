@@ -449,18 +449,32 @@ class Renderer:
             frame.cmd, MemoryUsage.SHADER_READ_ONLY, data, offset
         )
 
-    def get_builtin_shader(
-        self, name: str, entry: str, defines: Optional[List[Tuple[str, str]]] = None
+    def compile_shader(
+        self,
+        path: Union[Path, str],
+        entry: str = "main",
+        target: str = "spirv_1_3",
+        defines: Optional[List[Tuple[str, str]]] = None,
+        include_paths: Optional[List[Union[Path, str]]] = None,
     ) -> slang.Shader:
         defines = defines or []
-        key = (name, entry, *defines)
+        include_paths = include_paths or []
+        key = (path, entry, *defines, *include_paths)
         if s := self.shader_cache.get(key):
             return s
-
-        path = SHADERS_PATH.joinpath(name)
-        shader = compile(path, entry, defines=defines)
+        shader = compile(Path(path), entry, defines=defines, include_paths=include_paths)
         self.shader_cache[key] = shader
         return shader
+
+    def compile_builtin_shader(
+        self,
+        path: Union[Path, str],
+        entry: str = "main",
+        target: str = "spirv_1_3",
+        defines: Optional[List[Tuple[str, str]]] = None,
+        include_paths: Optional[List[Union[Path, str]]] = None,
+    ) -> slang.Shader:
+        return self.compile_shader(SHADERS_PATH.joinpath(SHADERS_PATH, path), entry, target, defines, include_paths)
 
     def render(self, viewport: Viewport, gui: Gui) -> None:
         # Create new objects, if any

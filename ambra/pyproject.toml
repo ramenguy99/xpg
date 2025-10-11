@@ -42,9 +42,6 @@ ignore = [
 # TODO:
     # Enable also for examples
 
-    # Prints
-    "T201", # remove prints
-
     # Documentation
     "D", # missing documentation
 

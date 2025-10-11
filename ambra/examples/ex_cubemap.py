@@ -85,8 +85,8 @@ class DebugCube(Object3D):
         self.sampler = Sampler(r.ctx, Filter.NEAREST, Filter.NEAREST)
         # self.sampler = Sampler(r.ctx, Filter.LINEAR, Filter.LINEAR)
 
-        vert = r.get_builtin_shader("3d/cube.slang", "vertex_main")
-        frag = r.get_builtin_shader("3d/cube.slang", "pixel_main")
+        vert = r.compile_builtin_shader("3d/cube.slang", "vertex_main")
+        frag = r.compile_builtin_shader("3d/cube.slang", "pixel_main")
 
         self.pipeline = GraphicsPipeline(
             r.ctx,

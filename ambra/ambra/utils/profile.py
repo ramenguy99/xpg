@@ -11,4 +11,4 @@ def profile(name: str):  # type: ignore
     yield
     end = perf_counter_ns()
     delta = end - begin
-    print(f"{name}: {delta * 1e-6:.3f}ms")
+    print(f"{name}: {delta * 1e-6:.3f}ms")  # noqa: T201

@@ -446,7 +446,7 @@ class IBLPipeline:
             }
         )  # type: ignore
         self.skybox_constants = np.zeros((1,), self.skybox_constants_dtype)
-        self.skybox_shader = r.get_builtin_shader("3d/ibl.slang", "entry_skybox")
+        self.skybox_shader = r.compile_builtin_shader("3d/ibl.slang", "entry_skybox")
         self.skybox_pipeline = ComputePipeline(
             r.ctx,
             Shader(r.ctx, self.skybox_shader.code),
@@ -463,7 +463,7 @@ class IBLPipeline:
             }
         )  # type: ignore
         self.irradiance_constants = np.zeros((1,), self.irradiance_constants_dtype)
-        self.irradiance_shader = r.get_builtin_shader("3d/ibl.slang", "entry_irradiance")
+        self.irradiance_shader = r.compile_builtin_shader("3d/ibl.slang", "entry_irradiance")
         self.irradiance_pipeline = ComputePipeline(
             r.ctx,
             Shader(r.ctx, self.irradiance_shader.code),
@@ -481,7 +481,7 @@ class IBLPipeline:
             }
         )  # type: ignore
         self.specular_constants = np.zeros((1,), self.specular_constants_dtype)
-        self.specular_shader = r.get_builtin_shader("3d/ibl.slang", "entry_specular")
+        self.specular_shader = r.compile_builtin_shader("3d/ibl.slang", "entry_specular")
         self.specular_pipeline = ComputePipeline(
             r.ctx,
             Shader(r.ctx, self.specular_shader.code),
@@ -641,8 +641,6 @@ class EnvironmentLight(Light):
         name: Optional[str] = None,
     ):
         if not ((equirectangular is None) ^ (cubemaps is None)):
-            print(equirectangular)
-            print(cubemaps)
             raise RuntimeError('Exactly one of "equirectangular" and "cubemaps" must not be None')
 
         if equirectangular is not None:

@@ -124,27 +124,24 @@ def to_dtype(typ: slang.Type) -> np.dtype[Any]:
 
 def print_type(typ: slang.Type, indent: int = 0) -> None:
     if isinstance(typ, slang.Scalar):
-        print(" " * indent + f"{typ.base}")
+        print(" " * indent + f"{typ.base}")  # noqa: T201
     elif isinstance(typ, slang.Vector):
-        print(" " * indent + f"{typ.base}_{typ.count}")
+        print(" " * indent + f"{typ.base}_{typ.count}")  # noqa: T201
     elif isinstance(typ, slang.Matrix):
-        print(" " * indent + f"{typ.base}_{typ.rows}x{typ.columns}")
+        print(" " * indent + f"{typ.base}_{typ.rows}x{typ.columns}")  # noqa: T201
     elif isinstance(typ, slang.Array):
         child_typ = typ.type
         if isinstance(child_typ, slang.Resource):
-            print(" " * indent + f"{child_typ.kind}[{typ.count}]")
+            print(" " * indent + f"{child_typ.kind}[{typ.count}]")  # noqa: T201
         else:
-            print(" " * indent + f"{typ.type}[{typ.count}]")
+            print(" " * indent + f"{typ.type}[{typ.count}]")  # noqa: T201
     elif isinstance(typ, slang.Struct):
-        print(" " * indent + "Struct")
+        print(" " * indent + "Struct")  # noqa: T201
         for f in typ.fields:
-            print(
-                " " * (indent + 4) + f"{f.offset:3d} ({f.binding}, {f.set}) | {f.image_format} | {f.name}: ",
-                end="",
-            )
+            print(" " * (indent + 4) + f"{f.offset:3d} ({f.binding}, {f.set}) | {f.image_format} | {f.name}: ", end="")  # noqa: T201
             print_type(f.type, indent + 4)
     elif isinstance(typ, slang.Resource):
-        print(" " * indent + f"Resource[{typ.kind}]")
+        print(" " * indent + f"Resource[{typ.kind}]")  # noqa: T201
         if typ.kind == slang.ResourceKind.SAMPLER:
             pass
         elif typ.kind == slang.ResourceKind.TEXTURE_2D:
@@ -154,4 +151,4 @@ def print_type(typ: slang.Type, indent: int = 0) -> None:
         elif typ.kind == slang.ResourceKind.CONSTANT_BUFFER:
             print_type(typ.type, indent + 4)
     else:
-        print(" " * indent + f"Unknown slang.Type: {type(typ)}")
+        print(" " * indent + f"Unknown slang.Type: {type(typ)}")  # noqa: T201

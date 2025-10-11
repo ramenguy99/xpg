@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: MIT
 
 import hashlib
+import logging
 import pickle
 import shutil
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 from platformdirs import user_cache_path
 from pyxpg import slang
@@ -16,11 +17,13 @@ from pyxpg import slang
 #     [ ] Do we use reflection and hot realoding for internal stuff? or only offered as a tool?
 #     [ ] Do we have an exprt / development mode? Pre-exported definitely helps with first startup time
 
+logger = logging.getLogger(__name__)
+
 CACHE_DIR = user_cache_path("ambra")
 
 CACHE_VERSION_MAJOR = 0
-CACHE_VERSION_MINOR = 1
-CACHE_VERSION_PATCH = 2
+CACHE_VERSION_MINOR = 2
+CACHE_VERSION_PATCH = 0
 CACHE_VERSION = f"{CACHE_VERSION_MAJOR}.{CACHE_VERSION_MINOR}.{CACHE_VERSION_PATCH}"
 
 
@@ -36,21 +39,31 @@ def vulkan_version_to_minimum_supported_spirv_version(
     if version[0] == 1:
         if version[1] == 0:
             return "spirv_1_0"
-        if version[1] == 1:
+        elif version[1] == 1:
             return "spirv_1_3"
-        if version[1] == 2:
+        elif version[1] == 2:
             return "spirv_1_5"
-        if version[1] == 3 or version[1] == 4:
+        else:
             return "spirv_1_6"
-    return "spirv_1_6"
+    else:
+        return "spirv_1_6"
 
 
 def compile(
-    file: Path, entry: str = "main", target: str = "spirv_1_3", defines: Optional[List[Tuple[str, str]]] = None
+    file: Path,
+    entry: str = "main",
+    target: str = "spirv_1_3",
+    defines: Optional[List[Tuple[str, str]]] = None,
+    include_paths: Optional[List[Union[Path, str]]] = None,
 ) -> slang.Shader:
-    defines_list = defines if defines is not None else []
-    defines_bytes = b"".join([f"{k}\0{v}\0".encode() for k, v in defines_list])
-    name = f"{hashlib.sha256(defines_bytes + file.read_bytes()).hexdigest()}_{entry}_{target}_{CACHE_VERSION}.shdr"
+    defines_list = defines or []
+    include_paths_list = [str(p) for p in include_paths] or []
+
+    defines_bytes = b"".join([f"{k}\0{v}\0".encode() for k, v in sorted(defines_list)])
+    include_paths_bytes = b"".join([f"{p}\0".encode() for p in sorted(include_paths_list)])
+
+    hexdigest = hashlib.sha256(b"\0".join([defines_bytes, include_paths_bytes, file.read_bytes()])).hexdigest()
+    name = f"{hexdigest}_{entry}_{target}_{CACHE_VERSION}.shdr"
 
     # Check cache
     path = Path(CACHE_DIR, name)
@@ -66,14 +79,14 @@ def compile(
             assert len(prog.dependencies) == len(old_hashes)
             new_hashes = [hashlib.sha256(Path(d).read_bytes()).hexdigest() for d in sorted(prog.dependencies)]
             if new_hashes == old_hashes:
-                print(f"Cache hit: {file} -> {path}")
+                logger.info("Shader cache hit: %s -> %s ", file, path)
                 return prog
         except Exception as e:
-            print(f"Shader cache hit invalid: {e}")
+            logger.warning("Shader cache hit invalid: %s (%s)", file, e)
 
     # Create prog
-    print(f"Shader cache miss: {file}")
-    prog = slang.compile(str(file), entry, target, defines_list)
+    logger.info("Shader cache miss: %s", file)
+    prog = slang.compile(str(file), entry, target, defines_list, include_paths_list)
     hashes = [hashlib.sha256(Path(d).read_bytes()).hexdigest() for d in sorted(prog.dependencies)]
 
     # Populate cache
