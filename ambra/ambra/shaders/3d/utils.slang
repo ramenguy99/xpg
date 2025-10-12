@@ -232,3 +232,10 @@ public float2 sampleTriangle(float2 u) {
     float su1 = sqrt(u.x);
     return float2(1.0 - su1, u.y * su1);
 }
+
+// Results in stronger highlights at view angles close to horizon than using the LUT
+public void ggx_brdf_approximation(float cosine, float roughness, out float scale, out float bias) {
+    float alpha = roughness * roughness;
+    bias = pow(2, -(7 * cosine + 4 * alpha));
+    scale = 1 - bias - alpha * max(bias, min(roughness, 0.739 + 0.323 * cosine) - 0.434);
+}

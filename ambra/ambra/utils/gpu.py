@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
@@ -568,6 +568,10 @@ _channels_dtype_int_to_format_table = {
     (4, np.dtype(np.float64), False): Format.R64G64B64A64_SFLOAT,
 }
 
+_format_to_channels_dtype_int_table: Dict[Format, Tuple[int, DTypeLike, bool]] = {
+    v: k for k, v in _channels_dtype_int_to_format_table.items()
+}
+
 
 def format_from_channels_dtype(channels: int, dtype: DTypeLike, integer: bool = False) -> Format:
     try:
@@ -585,3 +589,18 @@ def cull_mode_opposite_face(mode: CullMode) -> CullMode:
         return CullMode.FRONT
     else:
         return mode
+
+
+def readback(ctx: Context, img: Image) -> NDArray[Any]:
+    channels, dtype, _ = _format_to_channels_dtype_int_table[img.format]
+    shape = (img.height, img.width, channels)
+
+    buffer = Buffer(ctx, np.prod(shape) * dtype.itemsize, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
+    with ctx.sync_commands() as cmd:
+        cmd.image_barrier(img, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC)
+        cmd.copy_image_to_buffer(img, buffer)
+        cmd.image_barrier(
+            img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY
+        )
+
+    return np.frombuffer(buffer, dtype).copy().reshape(shape)

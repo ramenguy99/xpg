@@ -221,7 +221,9 @@ class DiffuseSpecularMaterial(Material):
             MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE,
             "specular_strength",
         )
-        self.specular_exponent = as_material_property(specular_exponent, 1, MaterialPropertyFlags.HAS_VALUE, "specular_exponent")
+        self.specular_exponent = as_material_property(
+            specular_exponent, 1, MaterialPropertyFlags.HAS_VALUE, "specular_exponent"
+        )
         self.specular_tint = as_material_property(specular_tint, 1, MaterialPropertyFlags.HAS_VALUE, "specular_tint")
         self.normal = as_material_property(normal or (0.0, 0.0, 0.0), 3, MaterialPropertyFlags.ALLOW_IMAGE, "normal")
         super().__init__(

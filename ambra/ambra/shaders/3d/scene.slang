@@ -275,6 +275,7 @@ float geometry_schlick_ggx(float NdotV, float Roughness)
 
     return num / denom;
 }
+
 float geometry_smith(float3 N, float3 V, float3 L, float Roughness)
 {
     float NdotV = max(dot(N, V), 0.0f);
@@ -316,12 +317,6 @@ float3 eval_roughness_metallic_brdf(float3 N, float3 V, float3 L, float3 Albedo,
     float3 brdf = (kD * Albedo / PI + Specular) * NdotL;
 
     return brdf;
-}
-
-void ggx_brdf_approximation(float cosine, float roughness, out float scale, out float bias) {
-    float alpha = roughness * roughness;
-    bias = pow(2, -(7 * cosine + 4 * alpha));
-    scale = 1 - bias - alpha * max(bias, min(roughness, 0.739 + 0.323 * cosine) - 0.434);
 }
 
 public struct PBRMaterial : IMaterial
@@ -420,11 +415,9 @@ public struct PBRMaterial : IMaterial
             prefiltered_specular = g_constants.ambient_light;
         }
 
-        float scale;
-        float bias;
-        ggx_brdf_approximation(cosine, roughness, scale, bias);
+        float2 lut = g_ggx_lut.SampleLevel(g_linear_sampler, float2(cosine, roughness), 0).rg;
 
-        float3 specular = prefiltered_specular * (f * scale + bias);
+        float3 specular = prefiltered_specular * (f * lut.x + lut.y);
         float3 environment = kD * diffuse + specular;
 
         float3 color = outgoing_radiance + environment * ao;
@@ -467,7 +460,10 @@ public TextureCube g_irradiance_cubemap;
 public TextureCube g_specular_cubemap;
 
 [vk::binding(5, 0)]
-public StructuredBuffer<DirectionalLight> g_directional_lights;
+public Texture2D g_ggx_lut;
 
 [vk::binding(6, 0)]
+public StructuredBuffer<DirectionalLight> g_directional_lights;
+
+[vk::binding(7, 0)]
 public Texture2D g_directional_shadowmaps[];

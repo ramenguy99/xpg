@@ -36,7 +36,11 @@ from . import renderer
 from .property import BufferProperty, view_bytes
 from .renderer_frame import RendererFrame
 from .scene import Object3D, Scene
-from .utils.descriptors import create_descriptor_layout_pool_and_sets, create_descriptor_pool_and_sets_ringbuffer
+from .utils.descriptors import (
+    create_descriptor_layout_pool_and_set,
+    create_descriptor_layout_pool_and_sets,
+    create_descriptor_pool_and_sets_ringbuffer,
+)
 from .utils.gpu import UploadableBuffer
 from .utils.ring_buffer import RingBuffer
 
@@ -422,6 +426,57 @@ class GpuEnvironmentCubemaps:
             specular_arrays.append(np.frombuffer(b, np.float16).copy().reshape(specular_mip_shape))
 
         return EnvironmentCubemaps(irradiance_array, specular_arrays)
+
+
+class GGXLUTPipeline:
+    def __init__(self, r: "renderer.Renderer"):
+        self.lut_constants_dtype = np.dtype(
+            {
+                "samples": (np.uint32, 0),
+            }
+        )  # type: ignore
+        self.lut_constants = np.zeros((1,), self.lut_constants_dtype)
+        self.lut_shader = r.compile_builtin_shader("3d/ibl.slang", "entry_lut")
+        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_set = create_descriptor_layout_pool_and_set(
+            r.ctx,
+            [
+                DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),
+            ],
+        )
+        self.lut_pipeline = ComputePipeline(
+            r.ctx,
+            Shader(r.ctx, self.lut_shader.code),
+            descriptor_set_layouts=[self.descriptor_set_layout],
+            push_constants_ranges=[PushConstantsRange(self.lut_constants_dtype.itemsize)],
+        )
+
+    def run(self, r: "renderer.Renderer", width: int = 512, height: int = 512, samples: int = 1024) -> Image:
+        lut = Image(
+            r.ctx,
+            width,
+            height,
+            Format.R16G16_SFLOAT,
+            ImageUsageFlags.SAMPLED
+            | ImageUsageFlags.STORAGE
+            | ImageUsageFlags.TRANSFER_SRC
+            | ImageUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+        )
+
+        self.lut_constants["samples"] = samples
+
+        descriptor_set = self.descriptor_set
+        descriptor_set.write_image(lut, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0)
+
+        with r.ctx.sync_commands() as cmd:
+            cmd.image_barrier(lut, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, undefined=True)
+            cmd.bind_compute_pipeline(
+                self.lut_pipeline, descriptor_sets=[descriptor_set], push_constants=self.lut_constants.tobytes()
+            )
+            cmd.dispatch((width + 7) // 8, (height + 7) // 8, 6)
+            cmd.image_barrier(lut, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.IMAGE, MemoryUsage.ALL)
+
+        return lut
 
 
 class IBLPipeline:

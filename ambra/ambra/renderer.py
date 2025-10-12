@@ -4,7 +4,7 @@
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from pyxpg import (
@@ -87,7 +87,14 @@ class Renderer:
         self.max_shadowmaps = config.max_shadowmaps
         self.num_shadowmaps = 0
 
-        self.linear_sampler = Sampler(ctx, Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR)
+        self.linear_sampler = Sampler(
+            ctx,
+            Filter.LINEAR,
+            Filter.LINEAR,
+            SamplerMipmapMode.LINEAR,
+            u=SamplerAddressMode.CLAMP_TO_EDGE,
+            v=SamplerAddressMode.CLAMP_TO_EDGE,
+        )
         self.shadow_sampler = Sampler(
             ctx,
             Filter.LINEAR,
@@ -137,6 +144,8 @@ class Renderer:
                 MemoryUsage.SHADER_READ_ONLY,
             )
 
+        self.shader_cache: Dict[Tuple[Union[str, Tuple[str, str], Path], ...], slang.Shader] = {}
+
         self.scene_descriptor_set_layout, self.scene_descriptor_pool, self.scene_descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
                 ctx,
@@ -146,6 +155,7 @@ class Renderer:
                     DescriptorSetBinding(1, DescriptorType.SAMPLER),  # 2 - Cubemap sampler
                     DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 3 - Environment irradiance cubemap
                     DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 4 - Environment specular cubemap
+                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 5 - Environment GGX LUT
                     *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in lights.LIGHT_TYPES_INFO],
                     DescriptorSetBinding(self.max_shadowmaps, DescriptorType.SAMPLED_IMAGE),
                 ],
@@ -194,17 +204,28 @@ class Renderer:
             ]
         )
 
+        self.ibl_default_params = lights.IBLParams()
+        self.ibl_pipeline: Optional[lights.IBLPipeline] = None
+        self.ggx_lut_pipeline = lights.GGXLUTPipeline(self)
+        self.ggx_lut = self.ggx_lut_pipeline.run(self)
+
         for set, buf, light_bufs in zip(self.scene_descriptor_sets, self.uniform_buffers, self.light_buffers):
             set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0)
             set.write_sampler(self.shadow_sampler, 1)
             set.write_sampler(self.linear_sampler, 2)
             set.write_image(self.zero_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 3)
             set.write_image(self.zero_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 4)
+            set.write_image(self.ggx_lut, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 5)
+
             for i, light_buf in enumerate(light_bufs):
-                set.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 5, i)
+                set.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 6, i)
             for i in range(self.max_shadowmaps):
                 set.write_image(
-                    self.zero_image, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 6, i
+                    self.zero_image,
+                    ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                    DescriptorType.SAMPLED_IMAGE,
+                    6 + len(light_bufs),
+                    i,
                 )
 
         self.uniform_environment_lights: List[lights.UniformEnvironmentLight] = []
@@ -301,11 +322,6 @@ class Renderer:
         self.depth_clear_value = 1.0
         self.depth_compare_op = CompareOp.LESS
         self.resize(window.fb_width, window.fb_height)
-
-        self.shader_cache: Dict[Tuple[Union[str, Tuple[str, str], Path], ...], slang.Shader] = {}
-
-        self.ibl_default_params = lights.IBLParams()
-        self.ibl_pipeline: Optional[lights.IBLPipeline] = None
 
     def resize(self, width: int, height: int) -> None:
         if self.depth_buffer is not None:
@@ -436,7 +452,7 @@ class Renderer:
                     shadowmap,
                     ImageLayout.SHADER_READ_ONLY_OPTIMAL,
                     DescriptorType.SAMPLED_IMAGE,
-                    5 + len(lights.LIGHT_TYPES_INFO),
+                    6 + len(lights.LIGHT_TYPES_INFO),
                     shadowmap_idx,
                 )
 

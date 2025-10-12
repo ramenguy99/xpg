@@ -174,3 +174,77 @@ void entry_specular(
         }
     }
 }
+
+public struct LUTConstants {
+    public uint samples;
+};
+
+// IMPORTANT: the k used for the LUT is different from the one used for direct lighting
+public float geometry_schlick_ggx_lut(float NdotV, float alpha)
+{
+    float k = alpha / 2.0;
+
+    float num   = NdotV;
+    float denom = NdotV * (1.0f - k) + k;
+
+    return num / denom;
+}
+
+public float geometry_smith_lut(float NdotV, float NdotL, float alpha)
+{
+    float ggx2  = geometry_schlick_ggx_lut(NdotV, alpha);
+    float ggx1  = geometry_schlick_ggx_lut(NdotL, alpha);
+    return ggx1 * ggx2;
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void entry_lut(
+    uint3 threadId : SV_DispatchThreadID,
+    uniform LUTConstants g_constants, // Implicit pushconstants
+    [vk::image_format("rg16f")]
+    RWTexture2D<float2> r_output,
+)
+{
+    uint width, height;
+    r_output.GetDimensions(width, height);
+
+    if (all(threadId.xy < uint2(width, height))) {
+        float NdotV = (threadId.x + 0.5) / width;
+        float roughness = (threadId.y + 0.5) / height;
+        float alpha = square(roughness);
+
+        float3 V = float3(sqrt(1.0 - NdotV * NdotV), 0.0, NdotV);
+
+        float A = 0.0;
+        float B = 0.0;
+
+        float3 N = float3(0.0, 0.0, 1.0);
+
+        for(uint i = 0u; i < g_constants.samples; ++i)
+        {
+            float2 u = hammersley(i, g_constants.samples);
+            float3 H = sample_gtr2(u, alpha);
+            float3 L = normalize(2.0 * dot(V, H) * H - V);
+
+            float NdotL = max(L.z, 0.0);
+            float NdotH = max(H.z, 0.0);
+            float VdotH = max(dot(V, H), 0.0);
+
+            if(NdotL > 0.0)
+            {
+                float G = geometry_smith_lut(NdotV, NdotL, alpha);
+                float G_Vis = (G * VdotH) / (NdotH * NdotV);
+                float Fc = pow(1.0 - VdotH, 5.0);
+
+                A += (1.0 - Fc) * G_Vis;
+                B += Fc * G_Vis;
+            }
+        }
+        float inv_sample_count = 1.0 / g_constants.samples;
+        A *= inv_sample_count;
+        B *= inv_sample_count;
+
+        r_output[threadId.xy] = float2(A, B);
+    }
+}
