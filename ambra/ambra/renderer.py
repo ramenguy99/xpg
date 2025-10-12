@@ -40,7 +40,7 @@ from pyxpg import (
     slang,
 )
 
-from . import lights
+from . import ffx, lights
 from .config import RendererConfig, UploadMethod
 from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .property import BufferProperty, ImageProperty
@@ -203,6 +203,8 @@ class Renderer:
                 for _ in range(window.num_frames)
             ]
         )
+
+        self.spd_pipeline = ffx.SPDPipeline(self)
 
         self.ibl_default_params = lights.IBLParams()
         self.ibl_pipeline: Optional[lights.IBLPipeline] = None

@@ -765,7 +765,10 @@ namespace MemoryUsagePresets {
 };
 
 struct Image: GfxObject {
-    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, u32 depth, u32 mip_levels, u32 array_layers, bool is_cube, int samples, std::optional<nb::str> name)
+    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags,
+        gfx::AllocPresets::Type alloc_type, u32 depth, u32 mip_levels, u32 array_layers,
+        bool is_cube, VkImageCreateFlagBits create_flags, int samples, std::optional<nb::str> name
+    )
         : GfxObject(ctx, true, std::move(name))
         , width(width)
         , height(height)
@@ -803,7 +806,7 @@ struct Image: GfxObject {
             .mip_levels = mip_levels,
             .array_layers = array_layers,
             .samples = (VkSampleCountFlagBits)samples,
-            .flags = is_cube ? (VkImageCreateFlags)VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : (VkImageCreateFlags)0,
+            .flags = create_flags | (is_cube ? (VkImageCreateFlags)VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : (VkImageCreateFlags)0),
             .image_view_type = view_type,
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
@@ -846,7 +849,9 @@ struct Image: GfxObject {
     }
 
     static nb::ref<Image> from_data(nb::ref<Context> ctx, nb::object data, VkImageLayout layout,
-        u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, int samples, std::optional<nb::str> name)
+        u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type,
+        u32 depth, u32 mip_levels, u32 array_layers, VkImageCreateFlagBits create_flags, int samples, std::optional<nb::str> name
+    )
     {
         Py_buffer view;
         if (PyObject_GetBuffer(data.ptr(), &view, PyBUF_SIMPLE) != 0) {
@@ -862,8 +867,12 @@ struct Image: GfxObject {
         VkResult vkr = gfx::CreateAndUploadImage(&self->image, ctx->vk, ArrayView<u8>((u8*)view.buf, view.len), layout, {
             .width = width,
             .height = height,
+            .depth = depth,
             .format = format,
+            .mip_levels = mip_levels,
+            .array_layers = array_layers,
             .samples = (VkSampleCountFlagBits)samples,
+            .flags = (VkImageCreateFlags)create_flags,
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
         });
@@ -878,10 +887,13 @@ struct Image: GfxObject {
 
         self->width = width;
         self->height = height;
+        self->depth = depth;
         self->format = format;
         self->samples = samples;
         self->current_layout = layout;
         self->alloc = new AllocInfo(alloc_info);
+        self->mip_levels = mip_levels;
+        self->array_layers = array_layers;
 
         DEBUG_UTILS_OBJECT_NAME_WITH_NAME(VK_OBJECT_TYPE_IMAGE, self->image.image, self->name);
 
@@ -912,6 +924,7 @@ struct ImageView: GfxObject {
         u32 mip_level_count,
         u32 base_array_layer,
         u32 array_layer_count,
+        VkImageUsageFlags usage_flags,
         std::optional<nb::str> name
     )
         : GfxObject(ctx, true, std::move(name))
@@ -933,6 +946,13 @@ struct ImageView: GfxObject {
         info.subresourceRange.levelCount = this->mip_level_count;
         info.subresourceRange.baseArrayLayer = this->base_array_layer;
         info.subresourceRange.layerCount = this->array_layer_count;
+
+        VkImageViewUsageCreateInfo view_usage_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO };
+        if (usage_flags != 0) {
+            view_usage_info.usage = usage_flags;
+            info.pNext = &view_usage_info;
+        }
+
         VkResult vkr = vkCreateImageView(ctx->vk.device, &info, NULL, &this->view);
 
         if (vkr != VK_SUCCESS) {
@@ -3853,8 +3873,31 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("handle", [] (ExternalBuffer& buffer) { return (u64)buffer.handle; })
     ;
 
+    nb::enum_<VkImageCreateFlagBits>(m, "ImageCreateFlags", nb::is_flag(), nb::is_arithmetic())
+        .value("SPARSE_BINDING",                            VK_IMAGE_CREATE_SPARSE_BINDING_BIT)
+        .value("SPARSE_RESIDENCY",                          VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT)
+        .value("SPARSE_ALIASED",                            VK_IMAGE_CREATE_SPARSE_ALIASED_BIT)
+        .value("MUTABLE_FORMAT",                            VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT)
+        .value("CUBE_COMPATIBLE",                           VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
+        .value("ALIAS",                                     VK_IMAGE_CREATE_ALIAS_BIT)
+        .value("SPLIT_INSTANCE_BIND_REGIONS",               VK_IMAGE_CREATE_SPLIT_INSTANCE_BIND_REGIONS_BIT)
+        .value("CREATE_2D_ARRAY_COMPATIBLE",                      VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT)
+        .value("BLOCK_TEXEL_VIEW_COMPATIBLE",               VK_IMAGE_CREATE_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT)
+        .value("EXTENDED_USAGE",                            VK_IMAGE_CREATE_EXTENDED_USAGE_BIT)
+        .value("PROTECTED",                                 VK_IMAGE_CREATE_PROTECTED_BIT)
+        .value("DISJOINT",                                  VK_IMAGE_CREATE_DISJOINT_BIT)
+        .value("CORNER_SAMPLED",                            VK_IMAGE_CREATE_CORNER_SAMPLED_BIT_NV)
+        .value("SAMPLE_LOCATIONS_COMPATIBLE_DEPTH",         VK_IMAGE_CREATE_SAMPLE_LOCATIONS_COMPATIBLE_DEPTH_BIT_EXT)
+        .value("SUBSAMPLED",                                VK_IMAGE_CREATE_SUBSAMPLED_BIT_EXT)
+        .value("DESCRIPTOR_BUFFER_CAPTURE_REPLAY",          VK_IMAGE_CREATE_DESCRIPTOR_BUFFER_CAPTURE_REPLAY_BIT_EXT)
+        .value("MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED",     VK_IMAGE_CREATE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_BIT_EXT)
+        .value("CREATE_2D_VIEW_COMPATIBLE",                       VK_IMAGE_CREATE_2D_VIEW_COMPATIBLE_BIT_EXT)
+        .value("VIDEO_PROFILE_INDEPENDENT",                 VK_IMAGE_CREATE_VIDEO_PROFILE_INDEPENDENT_BIT_KHR)
+        .value("FRAGMENT_DENSITY_MAP_OFFSET",               VK_IMAGE_CREATE_FRAGMENT_DENSITY_MAP_OFFSET_BIT_EXT)
+    ;
+
     nb::class_<Image, GfxObject>(m, "Image")
-        .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, u32, u32, u32, bool, int, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("depth") = 1, nb::arg("mip_levels") = 1, nb::arg("array_layers") = 1, nb::arg("is_cube") = false, nb::arg("samples") = 1, nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, u32, u32, u32, bool, VkImageCreateFlagBits, int, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("depth") = 1, nb::arg("mip_levels") = 1, nb::arg("array_layers") = 1, nb::arg("is_cube") = false, nb::arg("create_flags") = (VkImageCreateFlagBits)0, nb::arg("samples") = 1, nb::arg("name") = nb::none())
         .def("__repr__", [](Image& image) {
             return nb::str("Image(name={}, width={}, height={}, depth={}, format={}, mip_levels={}, array_layers={}, is_cube={}, samples={})").format(image.name, image.width, image.height, image.depth, image.format, image.mip_levels, image.array_layers, image.is_cube, image.samples);
         })
@@ -3868,6 +3911,10 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("format"),
             nb::arg("usage_flags"),
             nb::arg("alloc_type"),
+            nb::arg("depth") = 1,
+            nb::arg("mip_levels") = 1,
+            nb::arg("array_layers") = 1,
+            nb::arg("create_flags") = (VkImageCreateFlagBits)0,
             nb::arg("samples") = 1,
             nb::arg("name") = nb::none()
         )
@@ -3918,6 +3965,7 @@ void gfx_create_bindings(nb::module_& m)
                 u32,
                 u32,
                 u32,
+                VkImageUsageFlags,
                 std::optional<nb::str>
             >(),
             nb::arg("ctx"),
@@ -3929,6 +3977,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("mip_level_count") = VK_REMAINING_MIP_LEVELS,
             nb::arg("base_array_layer") = 0,
             nb::arg("array_layer_count") = VK_REMAINING_ARRAY_LAYERS,
+            nb::arg("usage_flags") = 0,
             nb::arg("name") = nb::none()
         )
         .def("__repr__", [](ImageView& view) {

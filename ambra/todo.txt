@@ -24,11 +24,11 @@ Priority:
         - [ ] Mips -> Integrate FFX?
 - [ ] Stages presets in config (empty, origin, floor, lights, maybe more?)
 - [ ] Basic client/server example and initial set of APIs
-- [ ] Important 3D primitives
-    - [ ] Grid floor
 - [ ] Multi-viewport
-- [ ] Shaders / fonts build and packaging into wheel
-    - [ ] Explore using hatchlings instead of setuptools for better editable builds (read pep 517)
+- [x] Shaders / fonts build and packaging into wheel
+    - [x] Explore using hatchlings instead of setuptools for better editable builds (read pep 517)
+- [x] Important 3D primitives
+    - [x] Grid floor
 
 TODO:
 - [ ] Primitives

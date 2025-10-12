@@ -591,7 +591,7 @@ def cull_mode_opposite_face(mode: CullMode) -> CullMode:
         return mode
 
 
-def readback(ctx: Context, img: Image) -> NDArray[Any]:
+def readback(ctx: Context, img: Image, new_layout: ImageLayout) -> NDArray[Any]:
     channels, dtype, _ = _format_to_channels_dtype_int_table[img.format]
     shape = (img.height, img.width, channels)
 
@@ -600,7 +600,32 @@ def readback(ctx: Context, img: Image) -> NDArray[Any]:
         cmd.image_barrier(img, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC)
         cmd.copy_image_to_buffer(img, buffer)
         cmd.image_barrier(
-            img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY
+            img, new_layout, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY
         )
 
     return np.frombuffer(buffer, dtype).copy().reshape(shape)
+
+def readback_mips(ctx: Context, img: Image, new_layout: ImageLayout) -> List[NDArray[Any]]:
+    channels, dtype, _ = _format_to_channels_dtype_int_table[img.format]
+
+    buffers = []
+    for m in range(img.mip_levels):
+        w, h = max(img.width >> m, 1), max(img.height >> m, 1)
+        buffers.append(Buffer(ctx, w * h * channels * dtype.itemsize, BufferUsageFlags.TRANSFER_DST, AllocType.HOST))
+
+    with ctx.sync_commands() as cmd:
+        cmd.image_barrier(img, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC)
+        for m, buffer in zip(range(img.mip_levels), buffers):
+            w, h = max(img.width >> m, 1), max(img.height >> m, 1)
+            cmd.copy_image_to_buffer_range(img, buffer, w, h, image_mip=m)
+        cmd.image_barrier(
+            img, new_layout, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY
+        )
+
+    arrays = []
+    for m, b in zip(range(img.mip_levels), buffers):
+        w, h = max(img.width >> m, 1), max(img.height >> m, 1)
+        shape = (h, w, channels)
+        arrays.append(np.frombuffer(b, dtype).copy().reshape(shape))
+
+    return arrays
