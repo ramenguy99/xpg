@@ -72,15 +72,18 @@ class Viewer:
 
         # Context
         self.ctx = Context(
-            version=(1, 3),
+            version=(1, 1),
             required_features=DeviceFeatures.SYNCHRONIZATION_2
             | DeviceFeatures.DYNAMIC_RENDERING
-            | DeviceFeatures.DESCRIPTOR_INDEXING,
+            | DeviceFeatures.DESCRIPTOR_INDEXING
+            | DeviceFeatures.STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT,
             optional_features=DeviceFeatures.RAY_QUERY
             | DeviceFeatures.HOST_QUERY_RESET
             | DeviceFeatures.WIDE_LINES
             | DeviceFeatures.TIMELINE_SEMAPHORES
-            | DeviceFeatures.SHADER_DRAW_PARAMETERS,
+            | DeviceFeatures.SHADER_DRAW_PARAMETERS
+            | DeviceFeatures.SHADER_FLOAT16_INT8
+            | DeviceFeatures.SHADER_SUBGROUP_EXTENDED_TYPES,
             preferred_frames_in_flight=config.preferred_frames_in_flight,
             vsync=config.vsync,
             force_physical_device_index=0xFFFFFFFF

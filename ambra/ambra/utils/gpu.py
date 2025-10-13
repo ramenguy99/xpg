@@ -13,8 +13,6 @@ from pyxpg import (
     CommandBuffer,
     Context,
     CullMode,
-    DescriptorSetBinding,
-    DescriptorType,
     Fence,
     Format,
     Image,
@@ -24,7 +22,6 @@ from pyxpg import (
     get_format_info,
 )
 
-from .descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .ring_buffer import RingBuffer
 
 
@@ -460,15 +457,6 @@ class UniformPool:
     def _alloc_block(self, min_size: int) -> UniformBlock:
         size = max(min_size, self.block_size)
         block_idx = len(self.blocks)
-        layout, pool, sets = create_descriptor_layout_pool_and_sets_ringbuffer(
-            self.ctx,
-            [
-                DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER_DYNAMIC),
-            ],
-            self.num_frames,
-            name="uniform-pool-block-descs",
-        )
-
         block = UniformBlock(
             buffers=RingBuffer(
                 [
@@ -599,11 +587,10 @@ def readback(ctx: Context, img: Image, new_layout: ImageLayout) -> NDArray[Any]:
     with ctx.sync_commands() as cmd:
         cmd.image_barrier(img, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC)
         cmd.copy_image_to_buffer(img, buffer)
-        cmd.image_barrier(
-            img, new_layout, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY
-        )
+        cmd.image_barrier(img, new_layout, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY)
 
     return np.frombuffer(buffer, dtype).copy().reshape(shape)
+
 
 def readback_mips(ctx: Context, img: Image, new_layout: ImageLayout) -> List[NDArray[Any]]:
     channels, dtype, _ = _format_to_channels_dtype_int_table[img.format]
@@ -618,9 +605,7 @@ def readback_mips(ctx: Context, img: Image, new_layout: ImageLayout) -> List[NDA
         for m, buffer in zip(range(img.mip_levels), buffers):
             w, h = max(img.width >> m, 1), max(img.height >> m, 1)
             cmd.copy_image_to_buffer_range(img, buffer, w, h, image_mip=m)
-        cmd.image_barrier(
-            img, new_layout, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY
-        )
+        cmd.image_barrier(img, new_layout, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY)
 
     arrays = []
     for m, b in zip(range(img.mip_levels), buffers):

@@ -92,6 +92,11 @@ struct DeviceSparseProperties: nb::intrusive_base {
     VkPhysicalDeviceSparseProperties sparse_properties;
 };
 
+struct DeviceSubgroupProperties: nb::intrusive_base {
+    DeviceSubgroupProperties(const VkPhysicalDeviceSubgroupProperties& subgroup_properties): subgroup_properties(subgroup_properties) {}
+    VkPhysicalDeviceSubgroupProperties subgroup_properties;
+};
+
 struct DeviceLimits: nb::intrusive_base {
     DeviceLimits(const VkPhysicalDeviceLimits& limits): limits(limits) {}
     VkPhysicalDeviceLimits limits;
@@ -120,7 +125,7 @@ struct HeapStatistics: nb::intrusive_base {
 
 // Wrapper around VkPhysicalDeviceProperties
 struct DeviceProperties: nb::intrusive_base {
-    DeviceProperties(const VkPhysicalDeviceProperties& properties)
+    DeviceProperties(const VkPhysicalDeviceProperties& properties, const VkPhysicalDeviceSubgroupProperties& subgroup_properties)
         : api_version(properties.apiVersion)
         , driver_version(properties.driverVersion)
         , vendor_id(properties.vendorID)
@@ -131,6 +136,7 @@ struct DeviceProperties: nb::intrusive_base {
         memcpy(pipeline_cache_uuid, properties.pipelineCacheUUID, sizeof(pipeline_cache_uuid));
         limits = new DeviceLimits(properties.limits);
         sparse_properties = new DeviceSparseProperties(properties.sparseProperties);
+        this->subgroup_properties = new DeviceSubgroupProperties(subgroup_properties);
     }
 
     uint32_t api_version;
@@ -142,6 +148,7 @@ struct DeviceProperties: nb::intrusive_base {
     uint8_t pipeline_cache_uuid[VK_UUID_SIZE];
     nb::ref<DeviceLimits> limits;
     nb::ref<DeviceSparseProperties> sparse_properties;
+    nb::ref<DeviceSubgroupProperties> subgroup_properties;
 };
 
 struct Context: nb::intrusive_base {
@@ -187,9 +194,16 @@ struct Context: nb::intrusive_base {
             throw std::runtime_error("Failed to initialize vulkan");
         }
 
-        VkPhysicalDeviceProperties properties;
-        vkGetPhysicalDeviceProperties(vk.physical_device, &properties);
-        device_properties = new DeviceProperties(properties);
+        VkPhysicalDeviceProperties2 properties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+        VkPhysicalDeviceSubgroupProperties subgroup_properties { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES };
+        properties.pNext = &subgroup_properties;
+
+        if (vk.device_version >= VK_API_VERSION_1_1) {
+            vkGetPhysicalDeviceProperties2(vk.physical_device, &properties);
+        } else {
+            vkGetPhysicalDeviceProperties(vk.physical_device, &properties.properties);
+        }
+        device_properties = new DeviceProperties(properties.properties, subgroup_properties);
 
         VkPhysicalDeviceMemoryProperties vk_memory_properties;
         vkGetPhysicalDeviceMemoryProperties(vk.physical_device, &vk_memory_properties);
@@ -3150,19 +3164,22 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::enum_<gfx::DeviceFeatures::Flags>(m, "DeviceFeatures", nb::is_flag(), nb::is_arithmetic())
-        .value("NONE",                   gfx::DeviceFeatures::NONE)
-        .value("DYNAMIC_RENDERING",      gfx::DeviceFeatures::DYNAMIC_RENDERING)
-        .value("SYNCHRONIZATION_2",      gfx::DeviceFeatures::SYNCHRONIZATION_2)
-        .value("DESCRIPTOR_INDEXING",    gfx::DeviceFeatures::DESCRIPTOR_INDEXING)
-        .value("SCALAR_BLOCK_LAYOUT",    gfx::DeviceFeatures::SCALAR_BLOCK_LAYOUT)
-        .value("RAY_QUERY",              gfx::DeviceFeatures::RAY_QUERY)
-        .value("RAY_PIPELINE",           gfx::DeviceFeatures::RAY_TRACING_PIPELINE)
-        .value("EXTERNAL_RESOURCES",     gfx::DeviceFeatures::EXTERNAL_RESOURCES)
-        .value("HOST_QUERY_RESET",       gfx::DeviceFeatures::HOST_QUERY_RESET)
-        .value("CALIBRATED_TIMESTAMPS",  gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)
-        .value("TIMELINE_SEMAPHORES",    gfx::DeviceFeatures::TIMELINE_SEMAPHORES)
-        .value("WIDE_LINES",             gfx::DeviceFeatures::WIDE_LINES)
-        .value("SHADER_DRAW_PARAMETERS", gfx::DeviceFeatures::SHADER_DRAW_PARAMETERS)
+        .value("NONE",                                    gfx::DeviceFeatures::NONE)
+        .value("DYNAMIC_RENDERING",                       gfx::DeviceFeatures::DYNAMIC_RENDERING)
+        .value("SYNCHRONIZATION_2",                       gfx::DeviceFeatures::SYNCHRONIZATION_2)
+        .value("DESCRIPTOR_INDEXING",                     gfx::DeviceFeatures::DESCRIPTOR_INDEXING)
+        .value("SCALAR_BLOCK_LAYOUT",                     gfx::DeviceFeatures::SCALAR_BLOCK_LAYOUT)
+        .value("RAY_QUERY",                               gfx::DeviceFeatures::RAY_QUERY)
+        .value("RAY_PIPELINE",                            gfx::DeviceFeatures::RAY_TRACING_PIPELINE)
+        .value("EXTERNAL_RESOURCES",                      gfx::DeviceFeatures::EXTERNAL_RESOURCES)
+        .value("HOST_QUERY_RESET",                        gfx::DeviceFeatures::HOST_QUERY_RESET)
+        .value("CALIBRATED_TIMESTAMPS",                   gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)
+        .value("TIMELINE_SEMAPHORES",                     gfx::DeviceFeatures::TIMELINE_SEMAPHORES)
+        .value("WIDE_LINES",                              gfx::DeviceFeatures::WIDE_LINES)
+        .value("SHADER_DRAW_PARAMETERS",                  gfx::DeviceFeatures::SHADER_DRAW_PARAMETERS)
+        .value("STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT", gfx::DeviceFeatures::STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT)
+        .value("SHADER_FLOAT16_INT8",                     gfx::DeviceFeatures::SHADER_FLOAT16_INT8)
+        .value("SHADER_SUBGROUP_EXTENDED_TYPES",                 gfx::DeviceFeatures::SHADER_SUBGROUP_EXTENDED_TYPES)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")
@@ -3180,6 +3197,29 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("residency_standard_3d_block_shape"             , [](DeviceSparseProperties& sparse_properties) { return (bool)sparse_properties.sparse_properties.residencyStandard3DBlockShape; })
         .def_prop_ro("residency_aligned_mip_size"                    , [](DeviceSparseProperties& sparse_properties) { return (bool)sparse_properties.sparse_properties.residencyAlignedMipSize; })
         .def_prop_ro("residency_non_resident_strict"                 , [](DeviceSparseProperties& sparse_properties) { return (bool)sparse_properties.sparse_properties.residencyNonResidentStrict; })
+    ;
+
+
+    nb::enum_<VkSubgroupFeatureFlagBits>(m, "SubgroupFeatureFlags", nb::is_flag(), nb::is_arithmetic())
+        .value("BASIC",                VK_SUBGROUP_FEATURE_BASIC_BIT)
+        .value("VOTE",                 VK_SUBGROUP_FEATURE_VOTE_BIT)
+        .value("ARITHMETIC",           VK_SUBGROUP_FEATURE_ARITHMETIC_BIT)
+        .value("BALLOT",               VK_SUBGROUP_FEATURE_BALLOT_BIT)
+        .value("SHUFFLE",              VK_SUBGROUP_FEATURE_SHUFFLE_BIT)
+        .value("SHUFFLE_RELATIVE",     VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT)
+        .value("CLUSTERED",            VK_SUBGROUP_FEATURE_CLUSTERED_BIT)
+        .value("QUAD",                 VK_SUBGROUP_FEATURE_QUAD_BIT)
+        .value("ROTATE",               VK_SUBGROUP_FEATURE_ROTATE_BIT)
+        .value("ROTATE_CLUSTERED",     VK_SUBGROUP_FEATURE_ROTATE_CLUSTERED_BIT)
+        .value("PARTITIONED",          VK_SUBGROUP_FEATURE_PARTITIONED_BIT_NV)
+    ;
+
+    nb::class_<DeviceSubgroupProperties>(m, "DeviceSubgroupProperties",
+        nb::intrusive_ptr<DeviceSubgroupProperties>([](DeviceSubgroupProperties *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_prop_ro("subgroup_size", [](DeviceSubgroupProperties& subgroup_properties) { return subgroup_properties.subgroup_properties.subgroupSize; })
+        .def_prop_ro("supported_stages", [](DeviceSubgroupProperties& subgroup_properties) { return subgroup_properties.subgroup_properties.supportedStages; })
+        .def_prop_ro("supported_operations", [](DeviceSubgroupProperties& subgroup_properties) { return (VkSubgroupFeatureFlagBits)subgroup_properties.subgroup_properties.supportedOperations; })
+        .def_prop_ro("quad_operations_in_all_stages", [](DeviceSubgroupProperties& subgroup_properties) { return (bool)subgroup_properties.subgroup_properties.quadOperationsInAllStages; })
     ;
 
     nb::class_<DeviceLimits>(m, "DeviceLimits",
@@ -3294,12 +3334,9 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<DeviceProperties>(m, "DeviceProperties",
         nb::intrusive_ptr<DeviceProperties>([](DeviceProperties *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def_prop_ro("limits", [](DeviceProperties& properties) {
-            return properties.limits;
-        })
-        .def_prop_ro("sparse_properties", [](DeviceProperties& properties) {
-            return properties.sparse_properties;
-        })
+        .def_ro("limits", &DeviceProperties::limits)
+        .def_ro("sparse_properties", &DeviceProperties::sparse_properties)
+        .def_ro("subgroup_properties", &DeviceProperties::subgroup_properties)
         .def_ro("api_version", &DeviceProperties::api_version)
         .def_ro("driver_version", &DeviceProperties::driver_version)
         .def_ro("vendor_id", &DeviceProperties::vendor_id)

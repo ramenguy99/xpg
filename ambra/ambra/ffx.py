@@ -2,14 +2,18 @@ import numpy as np
 from pyxpg import (
     AllocType,
     Buffer,
-    Format,
     BufferUsageFlags,
     ComputePipeline,
+    DescriptorPoolCreateFlags,
     DescriptorSetBinding,
+    DescriptorSetLayoutCreateFlags,
     DescriptorType,
+    DeviceFeatures,
     Filter,
+    Format,
     Image,
     ImageLayout,
+    ImageUsageFlags,
     ImageView,
     ImageViewType,
     MemoryUsage,
@@ -17,7 +21,7 @@ from pyxpg import (
     Sampler,
     SamplerAddressMode,
     Shader,
-    ImageUsageFlags,
+    SubgroupFeatureFlags,
 )
 
 from . import renderer
@@ -39,6 +43,12 @@ class SPDPipeline:
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
+        # NOTE: using UPDATE_AFTER_BIND because that allows for a larger limit on total
+        # number of bound storage images in MoltenVK. This is because MoltenVK switches
+        # to using argument buffers when this flag is set. Not sure why it does not
+        # expose the higher limit anyways when argument buffers are avialable.
+        #
+        # See: https://github.com/KhronosGroup/MoltenVK/issues/1610
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_set = create_descriptor_layout_pool_and_set(
             r.ctx,
             [
@@ -48,22 +58,24 @@ class SPDPipeline:
                 DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),
                 DescriptorSetBinding(SPD_MAX_LEVELS + 1, DescriptorType.STORAGE_IMAGE),
             ],
+            layout_flags=DescriptorSetLayoutCreateFlags.UPDATE_AFTER_BIND_POOL,
+            pool_flags=DescriptorPoolCreateFlags.UPDATE_AFTER_BIND,
         )
+
+        # Check hardware support for float16 and quad operations. Otherwise fallback to LDS.
+        use_float16 = (r.ctx.device_features & DeviceFeatures.SHADER_FLOAT16_INT8) != 0
+        use_wave_ops = (
+            r.ctx.device_properties.subgroup_properties.supported_operations & SubgroupFeatureFlags.QUAD
+        ) != 0 and (r.ctx.device_features & DeviceFeatures.SHADER_SUBGROUP_EXTENDED_TYPES) != 0
 
         defines = [
             ("FFX_GPU", ""),
             ("FFX_SLANG", ""),
             ("FFX_HLSL_SM", "62"),
             ("FFX_SPD_OPTION_LINEAR_SAMPLE", "1"),
-            # TODO: Enable if float supported. We can check for VK_KHR_shader_float16_int8
-            # and store somewhere (flot16 or uint8) what is supported if the feature is requested.
-            # All hardware we target should have boths
-            ("FFX_HALF", "0"),
+            ("FFX_HALF", "1" if use_float16 else "0"),
             ("FFX_NO_16_BIT_CAST", ""),
-            # TODO: Disable if wave quad ops are supported (set it to 0).
-            # need to bubble up this info from xpg with VkPhysicalDeviceSubgroupProperties
-            # This kernel requires Quad operations in compute, all hardware we target should have this.
-            ("FFX_SPD_OPTION_WAVE_INTEROP_LDS", "1"),
+            ("FFX_SPD_OPTION_WAVE_INTEROP_LDS", "0" if use_wave_ops else "1"),
         ]
         self.avg_shader = r.compile_builtin_shader(
             "ffx/ffx_spd_downsample_pass.slang",
@@ -112,20 +124,35 @@ class SPDPipeline:
             w=SamplerAddressMode.CLAMP_TO_EDGE,
         )
 
-        self.atomic_counters = Buffer.from_data(r.ctx, view_bytes(np.zeros((6,), np.uint32)), BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST, AllocType.DEVICE, name="ffx-spd-atomic-counters")
+        self.atomic_counters = Buffer.from_data(
+            r.ctx,
+            view_bytes(np.zeros((6,), np.uint32)),
+            BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+            name="ffx-spd-atomic-counters",
+        )
 
         self.descriptor_set.write_sampler(self.linear_clamp_sampler, 0)
         self.descriptor_set.write_buffer(self.atomic_counters, DescriptorType.STORAGE_BUFFER, 1)
 
     def run(self, r: "renderer.Renderer", image: Image, new_layout: ImageLayout):
-        full_srgb_view = ImageView(r.ctx, image, ImageViewType.TYPE_2D_ARRAY, format=Format.R8G8B8A8_SRGB, usage_flags=ImageUsageFlags.SAMPLED)
+        # TODO: potentially good place to use descriptor update templates
+        full_srgb_view = ImageView(
+            r.ctx, image, ImageViewType.TYPE_2D_ARRAY, format=Format.R8G8B8A8_SRGB, usage_flags=ImageUsageFlags.SAMPLED
+        )
         self.descriptor_set.write_image(full_srgb_view, ImageLayout.GENERAL, DescriptorType.SAMPLED_IMAGE, 2)
 
         views = []
 
         for m in range(SPD_MAX_LEVELS + 1):
             # Default to mip 0 if out of bounds
-            view = ImageView(r.ctx, image, ImageViewType.TYPE_2D_ARRAY, base_mip_level=m if m < image.mip_levels else 0, mip_level_count=1)
+            view = ImageView(
+                r.ctx,
+                image,
+                ImageViewType.TYPE_2D_ARRAY,
+                base_mip_level=m if m < image.mip_levels else 0,
+                mip_level_count=1,
+            )
             if m == 6:
                 self.descriptor_set.write_image(view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 3, 0)
             self.descriptor_set.write_image(view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 4, m)
@@ -154,12 +181,16 @@ class SPDPipeline:
         self.constants["invInputSize"] = (1.0 / image.width, 1.0 / image.height)
 
         with r.ctx.sync_commands() as cmd:
-            cmd.bind_compute_pipeline(self.avg_pipeline, descriptor_sets=[ self.descriptor_set ], push_constants=self.constants.tobytes())
+            cmd.bind_compute_pipeline(
+                self.avg_pipeline, descriptor_sets=[self.descriptor_set], push_constants=self.constants.tobytes()
+            )
 
             # TODO: we need two barriers here because the other mips were not transitioned to the right layout on creation.
             # We should rethink how this is supposed to work for .from_data, but especially for GpuImageProperty.
             cmd.image_barrier(image, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, mip_level_count=1)
-            cmd.image_barrier(image, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, base_mip_level=0, undefined=True)
+            cmd.image_barrier(
+                image, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, base_mip_level=0, undefined=True
+            )
 
             cmd.dispatch(groups_x, groups_y, image.depth)
             cmd.image_barrier(image, new_layout, MemoryUsage.IMAGE, MemoryUsage.ALL)

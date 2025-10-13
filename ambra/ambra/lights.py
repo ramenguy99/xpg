@@ -715,7 +715,7 @@ class EnvironmentLight(Light):
 
     def create(self, r: "renderer.Renderer") -> None:
         if self.equirectangular is not None:
-            height, width, channels = self.equirectangular.shape
+            height, width, _channels = self.equirectangular.shape
             equirectangular_img = Image.from_data(
                 r.ctx,
                 self.equirectangular,

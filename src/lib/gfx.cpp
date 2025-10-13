@@ -575,6 +575,17 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     timeline_semaphore_features.timelineSemaphore = VK_TRUE;
     CHAIN(timeline_semaphore_features, DeviceFeatures::TIMELINE_SEMAPHORES);
 
+    // Shader float16 int8
+    VkPhysicalDeviceShaderFloat16Int8Features shader_float16_int8_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES };
+    shader_float16_int8_features.shaderFloat16 = VK_TRUE;
+    shader_float16_int8_features.shaderInt8 = VK_TRUE;
+    CHAIN(shader_float16_int8_features, DeviceFeatures::SHADER_FLOAT16_INT8);
+
+    // Subgroup extended types
+    VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures shader_subgroup_extended_types_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES };
+    shader_subgroup_extended_types_features.shaderSubgroupExtendedTypes = VK_TRUE;
+    CHAIN(shader_subgroup_extended_types_features, DeviceFeatures::SHADER_SUBGROUP_EXTENDED_TYPES);
+
     // Feature dependencies
     FeatureAndExtensionDependencies<1, 3> dynamic_rendering_deps = {
         .flag = DeviceFeatures::DYNAMIC_RENDERING,
@@ -670,6 +681,20 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         .features_req = { (GenericFeatureStruct*)&timeline_semaphore_features },
         .features_sup = { (GenericFeatureStruct*)&timeline_semaphore_features_sup },
         .extensions = { VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME },
+    };
+
+    FeatureAndExtensionDependencies<1, 1> shader_float16_int8_deps = {
+        .flag = DeviceFeatures::SHADER_FLOAT16_INT8,
+        .features_req = { (GenericFeatureStruct*)&shader_float16_int8_features },
+        .features_sup = { (GenericFeatureStruct*)&shader_float16_int8_features_sup },
+        .extensions = { VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME },
+    };
+
+    FeatureAndExtensionDependencies<1, 1> shader_subgroup_extended_types_deps = {
+        .flag = DeviceFeatures::SHADER_SUBGROUP_EXTENDED_TYPES,
+        .features_req = { (GenericFeatureStruct*)&shader_subgroup_extended_types_features },
+        .features_sup = { (GenericFeatureStruct*)&shader_subgroup_extended_types_features_sup },
+        .extensions = { VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME },
     };
 
     ExtensionDependencies<2> external_resources_deps = {
@@ -891,9 +916,13 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             CHECK_SUPPORTED_EXTENSIONS(calibrated_timestamps);
             CHECK_SUPPORTED_EXTENSIONS(shader_draw_parameters);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(timeline_semaphore);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(shader_float16_int8);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(shader_subgroup_extended_types);
 
             if (features_to_check & DeviceFeatures::WIDE_LINES)
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.wideLines ? DeviceFeatures::WIDE_LINES : 0));
+            if (features_to_check & DeviceFeatures::STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT)
+                info.supported_features = info.supported_features | DeviceFeatures(((features.features.shaderStorageImageReadWithoutFormat && features.features.shaderStorageImageWriteWithoutFormat) ? DeviceFeatures::STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT : 0));
 
             logging::trace("gfx/debug", "Supported features: 0x%zx", info.supported_features.flags);
 
@@ -915,6 +944,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             CLEAR(ray_tracing_pipeline_features, DeviceFeatures::RAY_TRACING_PIPELINE);
             CLEAR(host_query_reset_features, DeviceFeatures::HOST_QUERY_RESET);
             CLEAR(timeline_semaphore_features, DeviceFeatures::TIMELINE_SEMAPHORES);
+            CLEAR(shader_float16_int8_features, DeviceFeatures::SHADER_FLOAT16_INT8);
+            CLEAR(shader_subgroup_extended_types_features, DeviceFeatures::SHADER_SUBGROUP_EXTENDED_TYPES);
         }
 
         if (properties.apiVersion < desc.minimum_api_version) {
@@ -1052,6 +1083,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     ENABLE_EXTENSIONS_IF_SUPPORTED(calibrated_timestamps);
     ENABLE_EXTENSIONS_IF_SUPPORTED(shader_draw_parameters);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(timeline_semaphore);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(shader_float16_int8);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(shader_subgroup_extended_types);
 
     void* enabled_next = 0;
     for (usize i = 0; i < enabled_features.length; i++) {
@@ -1061,6 +1094,10 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     VkPhysicalDeviceFeatures enabled_physical_device_features = {};
     if (picked_info.supported_features & DeviceFeatures::WIDE_LINES) {
         enabled_physical_device_features.wideLines = true;
+    }
+    if (picked_info.supported_features & DeviceFeatures::STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT) {
+        enabled_physical_device_features.shaderStorageImageReadWithoutFormat = true;
+        enabled_physical_device_features.shaderStorageImageWriteWithoutFormat = true;
     }
 
     // Create a physical device.
