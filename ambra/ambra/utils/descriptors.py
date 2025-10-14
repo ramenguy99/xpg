@@ -20,8 +20,8 @@ from .ring_buffer import RingBuffer
 def create_descriptor_layout_pool_and_set(
     ctx: Context,
     bindings: List[DescriptorSetBinding],
-    layout_flags: DescriptorSetLayoutCreateFlags = 0,
-    pool_flags: DescriptorPoolCreateFlags = 0,
+    layout_flags: DescriptorSetLayoutCreateFlags = DescriptorSetLayoutCreateFlags.NONE,
+    pool_flags: DescriptorPoolCreateFlags = DescriptorPoolCreateFlags.NONE,
     name: Optional[str] = None,
 ) -> Tuple[DescriptorSetLayout, DescriptorPool, DescriptorSet]:
     layout = DescriptorSetLayout(ctx, bindings, layout_flags, name=name)
@@ -34,8 +34,8 @@ def create_descriptor_layout_pool_and_sets(
     ctx: Context,
     bindings: List[DescriptorSetBinding],
     count: int,
-    layout_flags: DescriptorSetLayoutCreateFlags = 0,
-    pool_flags: DescriptorPoolCreateFlags = 0,
+    layout_flags: DescriptorSetLayoutCreateFlags = DescriptorSetLayoutCreateFlags.NONE,
+    pool_flags: DescriptorPoolCreateFlags = DescriptorPoolCreateFlags.NONE,
     name: Optional[str] = None,
 ) -> Tuple[DescriptorSetLayout, DescriptorPool, List[DescriptorSet]]:
     layout = DescriptorSetLayout(ctx, bindings, layout_flags, name=name)
@@ -50,8 +50,8 @@ def create_descriptor_layout_pool_and_sets_ringbuffer(
     ctx: Context,
     bindings: List[DescriptorSetBinding],
     count: int,
-    layout_flags: DescriptorSetLayoutCreateFlags = 0,
-    pool_flags: DescriptorPoolCreateFlags = 0,
+    layout_flags: DescriptorSetLayoutCreateFlags = DescriptorSetLayoutCreateFlags.NONE,
+    pool_flags: DescriptorPoolCreateFlags = DescriptorPoolCreateFlags.NONE,
     name: Optional[str] = None,
 ) -> Tuple[DescriptorSetLayout, DescriptorPool, RingBuffer[DescriptorSet]]:
     layout, pool, sets = create_descriptor_layout_pool_and_sets(ctx, bindings, count, layout_flags, pool_flags, name)
@@ -62,7 +62,7 @@ def create_descriptor_pool_and_sets(
     ctx: Context,
     layout: DescriptorSetLayout,
     count: int,
-    pool_flags: DescriptorPoolCreateFlags = 0,
+    pool_flags: DescriptorPoolCreateFlags = DescriptorPoolCreateFlags.NONE,
     name: Optional[str] = None,
 ) -> Tuple[DescriptorPool, List[DescriptorSet]]:
     pool = DescriptorPool(
@@ -76,7 +76,7 @@ def create_descriptor_pool_and_sets_ringbuffer(
     ctx: Context,
     layout: DescriptorSetLayout,
     count: int,
-    pool_flags: DescriptorPoolCreateFlags = 0,
+    pool_flags: DescriptorPoolCreateFlags = DescriptorPoolCreateFlags.NONE,
     name: Optional[str] = None,
 ) -> Tuple[DescriptorPool, RingBuffer[DescriptorSet]]:
     pool, sets = create_descriptor_pool_and_sets(ctx, layout, count, pool_flags, name)

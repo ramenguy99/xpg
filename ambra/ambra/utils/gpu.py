@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from numpy.typing import DTypeLike, NDArray
+from numpy.typing import NDArray
 from pyxpg import (
     AllocType,
     Buffer,
@@ -498,7 +498,7 @@ class UniformPool:
             b.advance()
 
 
-_channels_dtype_int_to_format_table = {
+_channels_dtype_int_to_format_table: Dict[Tuple[int, np.dtype, bool], Format] = {
     # normalized formats
     (1, np.dtype(np.uint8), False): Format.R8_UNORM,
     (2, np.dtype(np.uint8), False): Format.R8G8_UNORM,
@@ -556,12 +556,12 @@ _channels_dtype_int_to_format_table = {
     (4, np.dtype(np.float64), False): Format.R64G64B64A64_SFLOAT,
 }
 
-_format_to_channels_dtype_int_table: Dict[Format, Tuple[int, DTypeLike, bool]] = {
+_format_to_channels_dtype_int_table: Dict[Format, Tuple[int, np.dtype, bool]] = {
     v: k for k, v in _channels_dtype_int_to_format_table.items()
 }
 
 
-def format_from_channels_dtype(channels: int, dtype: DTypeLike, integer: bool = False) -> Format:
+def format_from_channels_dtype(channels: int, dtype: np.dtype, integer: bool = False) -> Format:
     try:
         return _channels_dtype_int_to_format_table[(channels, dtype, integer)]
     except KeyError:
@@ -583,7 +583,7 @@ def readback(ctx: Context, img: Image, new_layout: ImageLayout) -> NDArray[Any]:
     channels, dtype, _ = _format_to_channels_dtype_int_table[img.format]
     shape = (img.height, img.width, channels)
 
-    buffer = Buffer(ctx, np.prod(shape) * dtype.itemsize, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
+    buffer = Buffer(ctx, int(np.prod(shape)) * dtype.itemsize, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
     with ctx.sync_commands() as cmd:
         cmd.image_barrier(img, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC)
         cmd.copy_image_to_buffer(img, buffer)

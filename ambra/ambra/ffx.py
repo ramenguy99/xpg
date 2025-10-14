@@ -47,6 +47,7 @@ class SPDPipeline:
         # number of bound storage images in MoltenVK. This is because MoltenVK switches
         # to using argument buffers when this flag is set. Not sure why it does not
         # expose the higher limit anyways when argument buffers are avialable.
+        # Newer versions of MoltenVK seem to have increased this limit anyway.
         #
         # See: https://github.com/KhronosGroup/MoltenVK/issues/1610
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_set = create_descriptor_layout_pool_and_set(
@@ -135,7 +136,7 @@ class SPDPipeline:
         self.descriptor_set.write_sampler(self.linear_clamp_sampler, 0)
         self.descriptor_set.write_buffer(self.atomic_counters, DescriptorType.STORAGE_BUFFER, 1)
 
-    def run(self, r: "renderer.Renderer", image: Image, new_layout: ImageLayout):
+    def run(self, r: "renderer.Renderer", image: Image, new_layout: ImageLayout) -> None:
         # TODO: potentially good place to use descriptor update templates
         full_srgb_view = ImageView(
             r.ctx, image, ImageViewType.TYPE_2D_ARRAY, format=Format.R8G8B8A8_SRGB, usage_flags=ImageUsageFlags.SAMPLED
@@ -143,7 +144,6 @@ class SPDPipeline:
         self.descriptor_set.write_image(full_srgb_view, ImageLayout.GENERAL, DescriptorType.SAMPLED_IMAGE, 2)
 
         views = []
-
         for m in range(SPD_MAX_LEVELS + 1):
             # Default to mip 0 if out of bounds
             view = ImageView(
@@ -173,6 +173,9 @@ class SPDPipeline:
         groups_y = group_end_y + 1 - group_offset_y
 
         groups = groups_x * groups_y
+
+        # image.mip_levels includes level 0. The kernel expects just
+        # the number of levels after 0.
         mips = min(image.mip_levels - 1, SPD_MAX_LEVELS)
 
         self.constants["mips"] = mips
@@ -184,13 +187,6 @@ class SPDPipeline:
             cmd.bind_compute_pipeline(
                 self.avg_pipeline, descriptor_sets=[self.descriptor_set], push_constants=self.constants.tobytes()
             )
-
-            # TODO: we need two barriers here because the other mips were not transitioned to the right layout on creation.
-            # We should rethink how this is supposed to work for .from_data, but especially for GpuImageProperty.
-            cmd.image_barrier(image, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, mip_level_count=1)
-            cmd.image_barrier(
-                image, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, base_mip_level=0, undefined=True
-            )
-
+            cmd.image_barrier(image, ImageLayout.GENERAL, MemoryUsage.ALL, MemoryUsage.IMAGE)
             cmd.dispatch(groups_x, groups_y, image.depth)
             cmd.image_barrier(image, new_layout, MemoryUsage.IMAGE, MemoryUsage.ALL)

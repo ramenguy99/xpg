@@ -585,9 +585,9 @@ struct ImageBarrierDesc
     VkImage                    image;
     VkImageAspectFlags         aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
     uint32_t                   base_mip_level = 0;
-    uint32_t                   mip_level_count = 1;
+    uint32_t                   mip_level_count = VK_REMAINING_MIP_LEVELS;
     uint32_t                   base_array_layer = 0;
-    uint32_t                   array_layer_count = 1;
+    uint32_t                   array_layer_count = VK_REMAINING_ARRAY_LAYERS;
 };
 static_assert(sizeof(ImageBarrierDesc) == sizeof(VkImageMemoryBarrier2));
 

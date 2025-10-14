@@ -21,7 +21,21 @@ Priority:
     - [ ] Try loading PBR model (e.g. helmet)
         - [x] sRGB textures -> already supported by specifying format on image property?
         - [x] normal mapping
-        - [ ] Mips -> Integrate FFX?
+        - [x] Mips -> Integrate FFX?
+            - [x] Can't really explain the SPD_MAX_LEVELS + 1 yet, maybe the max does not include level 0?
+                It in fact does not. This means we can downsample up to 4096x4096, which should be fine.
+                The SPD kernel assumes that after the first round of 6 mips only up to 64x64 is left,
+                and only 1 thread group remains for the last 6. I you bind a bigger texture the layers after
+                the 6th are cropped as if layer 6 was in fact up to 64x64. It does not seem impossible to me
+                to generalize the code to let more thread groups survive after the first round. Another option
+                sould be to blit or invoke the kernel again on just the first few layers, the dispatch overhead
+                shouldn't be that bad for > 4096x4096 texture anyways.
+            - [x] Figure out if MUTABLE_FORMAT is fine for sRGB, only other option is to copy after downsampling, seems to be fine.
+            - [x] Fix barriers for mips, enhance or move away from from_data -> changed from_data to transition the whole resource.
+                The pyxpg way of storing the layout per image only works if all mips have the same layout. We don't yet have a use
+                case for having separate layouts so we don't expose this yet.
+        - [ ] Mip generation for materials
+            - [ ] Start simple, could potentially batch those generations at some point.
 - [ ] Stages presets in config (empty, origin, floor, lights, maybe more?)
 - [ ] Basic client/server example and initial set of APIs
 - [ ] Multi-viewport

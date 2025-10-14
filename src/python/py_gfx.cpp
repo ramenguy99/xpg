@@ -3911,6 +3911,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::enum_<VkImageCreateFlagBits>(m, "ImageCreateFlags", nb::is_flag(), nb::is_arithmetic())
+        .value("NONE",                                      (VkImageCreateFlagBits)0)
         .value("SPARSE_BINDING",                            VK_IMAGE_CREATE_SPARSE_BINDING_BIT)
         .value("SPARSE_RESIDENCY",                          VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT)
         .value("SPARSE_ALIASED",                            VK_IMAGE_CREATE_SPARSE_ALIASED_BIT)
