@@ -408,6 +408,8 @@ class Renderer:
         layout: ImageLayout,
         memory_usage: MemoryUsage,
         pipeline_stage_flags: PipelineStageFlags,
+        mips: bool,
+        srgb: bool,
         name: str,
     ) -> GpuImageProperty:
         prop = GpuImageProperty(
@@ -421,6 +423,8 @@ class Renderer:
             layout,
             memory_usage,
             pipeline_stage_flags,
+            mips,
+            srgb,
             name,
         )
         self.gpu_properties.append(prop)

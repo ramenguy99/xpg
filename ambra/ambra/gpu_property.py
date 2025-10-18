@@ -698,6 +698,8 @@ class GpuImageProperty(GpuResourceProperty[Image]):
         layout: ImageLayout,
         memory_usage: MemoryUsage,
         pipeline_stage_flags: PipelineStageFlags,
+        mips: bool,
+        srgb: bool,
         name: str,
     ):
         if upload_method != UploadMethod.GRAPHICS_QUEUE and upload_method != UploadMethod.TRANSFER_QUEUE:
@@ -707,6 +709,8 @@ class GpuImageProperty(GpuResourceProperty[Image]):
         self.usage_flags = usage_flags | ImageUsageFlags.TRANSFER_DST
         self.layout = layout
         self.memory_usage = memory_usage
+        self.mips = mips
+        self.srgb = srgb
 
         self.height = property.height
         self.width = property.width

@@ -168,6 +168,8 @@ class Image(Object2D):
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
             MemoryUsage.SHADER_READ_ONLY,
             PipelineStageFlags.FRAGMENT_SHADER,
+            mips=False,
+            srgb=False,
             name=f"{self.name}-image",
         )
         self.sampler = Sampler(

@@ -45,7 +45,7 @@ Priority:
                 case for having separate layouts so we don't expose this yet.
         - [ ] Mip generation for materials
             - [ ] Start simple, could potentially batch those generations at some point.
-- [ ] Stages presets in config (empty, origin, floor, lights, maybe more?)
+- [ ] Stages presets in config or in helper functions (empty, origin, floor, lights, maybe more?)
 - [ ] Basic client/server example and initial set of APIs
 - [ ] Multi-viewport
 - [x] Shaders / fonts build and packaging into wheel
@@ -58,6 +58,25 @@ Priority:
         - [x] PoC with PyAV
         - [x] Do pipelinening and check speedup
         - [ ] Frame / timestamp range customization with different playback and render rate
+
+New property API plans:
+- [ ] Try to add all new constraints first:
+    - [ ] mip generation in materials
+        - [ ] Likely
+    - [ ] batching of buffer properties in a single buffer, and images in a texture array
+    - [ ] updating, inserting and removing frames
+        - [ ] Both API objects and underlying data needs to be updated
+            - [ ] API objects are likely in list and can be cheap to move / realloc
+            - [ ] If we really want to
+        - [ ] Texture arrays and batched buffers are implicitly incompatible with append / insert / remove
+              But we could use them for static data and fallback for dynamic to different strat
+        - [ ]
+    - [ ] ideally remove or integrate generation index, I'd like it if we
+          did not have stuff that scales in cost or memory with number
+          of frames for the streaming case.
+- [ ] find an API to allow deduping GPU properties -> maybe opt-in?
+- [ ] think about minimizing scene traversals (ideally only one per-frame)
+        and quickly filtering properties that do not need updates
 
 TODO:
 - [ ] Primitives
@@ -73,6 +92,8 @@ TODO:
                 - tangents and normal maps (?)
                 - joint indices, weights, joints
             - [ ] Fixup when correctly handling materials and
+        - [-] Grid floor
+            - [ ] Height control
         - [x] 2D Images
         - [x] 3D Images (e.g. textured quads)
     - [ ] Add helpers to simplify creation of vertex buffers and descriptor sets
@@ -221,9 +242,10 @@ TODO:
 - [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
 - [ ] Customization workflow
     - [x] Completely new shader
-    - [ ] Shader that reuses common scene stuff or utils
+    - [x] Shader that reuses common scene stuff or utils
         - [x] Import form ambra shader directory
         - [ ] Reuse materials code but (with customizable descriptor layout ?)
+        - [ ] Customize material / shader for existing primitive (maybe just copy -> edit workflow?)
 
 Bugs:
 - [x] Fix non-unit world_up results in nans in camera
