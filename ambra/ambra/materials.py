@@ -36,6 +36,7 @@ MaterialData = Union[float, Tuple[float, ...], NDArray[np.float32], BufferProper
 class MaterialPropertyFlags(Flag):
     ALLOW_IMAGE = auto()
     HAS_VALUE = auto()
+    SRGB = auto()
 
 
 @dataclass
@@ -135,11 +136,16 @@ class Material:
                 self.images.append(
                     r.add_gpu_image_property(
                         p.property,
-                        ImageUsageFlags.SAMPLED,
+                        ImageUsageFlags.TRANSFER_DST
+                        | ImageUsageFlags.SAMPLED
+                        | ImageUsageFlags.STORAGE
+                        | ImageUsageFlags.TRANSFER_SRC,
                         ImageLayout.SHADER_READ_ONLY_OPTIMAL,
                         MemoryUsage.SHADER_READ_ONLY,
                         PipelineStageFlags.FRAGMENT_SHADER,
-                        f"{type(self).__name__} - {p.property.name}",
+                        mips=True,
+                        srgb=(p.flags & MaterialPropertyFlags.SRGB) != 0,
+                        name=f"{type(self).__name__} - {p.property.name}",
                     )
                 )
 
@@ -196,7 +202,7 @@ class ColorMaterial(Material):
 class DiffuseMaterial(Material):
     def __init__(self, diffuse: MaterialData, normal: Optional[ImageProperty] = None):
         self.diffuse = as_material_property(
-            diffuse, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "diffuse"
+            diffuse, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE | MaterialPropertyFlags.SRGB, "diffuse"
         )
         self.normal = as_material_property(normal or (0.0, 0.0, 0.0), 3, MaterialPropertyFlags.ALLOW_IMAGE, "normal")
         super().__init__([self.diffuse, self.normal], [("MATERIAL_DIFFUSE", "1")])
@@ -213,7 +219,7 @@ class DiffuseSpecularMaterial(Material):
         normal: Optional[ImageProperty] = None,
     ):
         self.diffuse = as_material_property(
-            diffuse, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "diffuse"
+            diffuse, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE | MaterialPropertyFlags.SRGB, "diffuse"
         )
         self.specular_strength = as_material_property(
             specular_strength,
@@ -243,7 +249,7 @@ class PBRMaterial(Material):
         normal: Optional[ImageProperty] = None,
     ):
         self.albedo = as_material_property(
-            albedo, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "albedo"
+            albedo, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE | MaterialPropertyFlags.SRGB, "albedo"
         )
         self.roughness = as_material_property(
             roughness, 1, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "roughness"
