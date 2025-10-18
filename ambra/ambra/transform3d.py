@@ -3,18 +3,7 @@
 
 from dataclasses import dataclass
 
-from pyglm.glm import (
-    inverse,
-    mat4,
-    mat4_cast,
-    normalize,
-    quat,
-    quatLookAtLH,
-    quatLookAtRH,
-    vec3,
-    vec4,
-    decompose
-)
+from pyglm.glm import decompose, inverse, mat4, mat4_cast, normalize, quat, quatLookAtLH, quatLookAtRH, vec3, vec4
 
 from .config import Handedness
 

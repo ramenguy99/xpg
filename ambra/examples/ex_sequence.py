@@ -1,6 +1,6 @@
 import logging
 import struct
-from pathlib import Path
+import sys
 
 import numpy as np
 from pyglm.glm import ivec2, normalize, quatLookAtRH, vec3
@@ -27,8 +27,7 @@ logging.basicConfig(
 
 NUM_WORKERS = 4
 
-path = Path("N:\\scenes\\smpl\\all_frames_10.bin")
-files = [open(path, "rb", buffering=0) for _ in range(NUM_WORKERS)]
+files = [open(sys.argv[1], "rb", buffering=0) for _ in range(NUM_WORKERS)]
 file = files[0]
 header = read_exact(file, 12)
 N = struct.unpack("<I", header[0:4])[0]

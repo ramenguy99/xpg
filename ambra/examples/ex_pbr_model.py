@@ -1,10 +1,10 @@
 import os
-from pathlib import Path
+import sys
 
 import cv2
 import gltf
 import numpy as np
-from pyglm.glm import cos, quat, sin, vec3
+from pyglm.glm import angleAxis, vec3
 from pyxpg import Format
 
 from ambra.config import *
@@ -16,20 +16,12 @@ from ambra.property import DataImageProperty
 from ambra.utils.gpu import readback
 from ambra.viewer import Viewer
 
-
-def quaternion_from_axis_angle(axis: vec3, angle: float):
-    c, s = cos(angle / 2), sin(angle / 2)
-    v = axis * s
-    return quat(c, v.x, v.y, v.z)
-
-
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
-env_path = Path("C:\\Users\\dmylo\\Desktop\\work\\gfx\\examples\\02-pbr\\data\\kiara_1_dawn_4k.hdr")
-equirectangular = cv2.imread(env_path, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH | cv2.IMREAD_COLOR_RGB)
+
+equirectangular = cv2.imread(sys.argv[2], cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH | cv2.IMREAD_COLOR_RGB)
 lights = [EnvironmentLight.from_equirectangular(equirectangular)]
 
-model_path = Path("C:\\Users\\dmylo\\Desktop\\work\\gfx\\examples\\02-pbr\\data\\SciFiHelmet\\glTF\\SciFiHelmet.gltf")
-model = gltf.load(model_path)
+model = gltf.load(sys.argv[1])
 
 meshes = []
 for mesh_data in model.meshes:
@@ -51,8 +43,7 @@ for mesh_data in model.meshes:
         mesh_data.uvs,
         material=material,
         translation=(0, 0, 2),
-        rotation=quaternion_from_axis_angle(vec3(1, 0, 0), np.pi * 0.5),
-        # rotation=None,
+        rotation=angleAxis(np.pi * 0.5, vec3(1, 0, 0)),
     )
     meshes.append(m)
 
@@ -86,13 +77,11 @@ spheres = [
 ]
 
 g = Grid.transparent_black_lines((100, 100), GridType.XY_PLANE)
-# g = Grid.transparent_black_lines((100, 100), GridType.XZ_PLANE)
 
 v = Viewer(
     config=Config(
         gui=GuiConfig(stats=True, playback=True, inspector=True, renderer=True),
         world_up=(0, 0, 1),
-        # world_up=(0, 1, 0),
         renderer=RendererConfig(msaa_samples=4),
         camera=CameraConfig(
             position=(4, -4, 3),
@@ -100,10 +89,6 @@ v = Viewer(
         ),
     )
 )
-
-# a = readback(v.ctx, v.renderer.test_precomputed_ggx)
-# print(a.shape, a.dtype)
-# np.save("brdf.npy", a)
 
 v.viewport.scene.objects.extend(lights)
 v.viewport.scene.objects.extend(meshes)

@@ -1,19 +1,20 @@
-from dataclasses import dataclass
-import pygltflib
-from pathlib import Path
-from PIL import Image
-import numpy as np
-from typing import Dict, List
 import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List
 
-from ambra.utils.hook import hook
-from ambra.config import GuiConfig, Config, CameraConfig
+import numpy as np
+import pygltflib
+from PIL import Image
+from pyglm.glm import mat4, quat, rotate, vec3
+
+from ambra.config import CameraConfig, Config, GuiConfig
 from ambra.primitives3d import AnimatedMesh, Lines
 from ambra.property import UploadSettings, as_buffer_property
-from ambra.transform3d import Transform3D
 from ambra.scene import UploadSettings, as_property
-from pyglm.glm import vec3, quat, mat4, vec4, rotate
+from ambra.transform3d import Transform3D
 from ambra.utils.gpu import Format
+from ambra.utils.hook import hook
 
 filename = Path(sys.argv[1])
 gltf = pygltflib.GLTF2().load(filename)
@@ -24,12 +25,13 @@ for b in gltf.buffers:
     assert b.byteLength == len(buf), f"Expected: {b.byteLength}, Got: {len(buf)}"
     buffers.append(buf)
 
+
 def load_attribute(ai: int) -> np.ndarray:
     a = gltf.accessors[ai]
     assert a.bufferView is not None
     view = gltf.bufferViews[a.bufferView]
 
-    data = memoryview(buffers[view.buffer])[view.byteOffset:][:view.byteLength][a.byteOffset:]
+    data = memoryview(buffers[view.buffer])[view.byteOffset :][: view.byteLength][a.byteOffset :]
 
     dtype = {
         pygltflib.FLOAT: np.float32,
@@ -56,7 +58,8 @@ def load_attribute(ai: int) -> np.ndarray:
     if view.byteStride is not None:
         assert view.byteStride == data_bytestride, f"{view.byteStride} -> {data_bytestride}"
 
-    return np.frombuffer(data, dtype).reshape((-1, *shape))[:a.count]
+    return np.frombuffer(data, dtype).reshape((-1, *shape))[: a.count]
+
 
 @dataclass
 class Joint:
@@ -65,6 +68,7 @@ class Joint:
     parent_index: int
     inverse_bind_matrix: mat4
     val: float = 1.0
+
 
 @dataclass
 class MeshData:
@@ -85,7 +89,9 @@ class MeshData:
     # Joints
     joints: List[Joint] = None
 
+
 meshes: List[MeshData] = []
+
 
 def load_rec(ni: int, depth: int):
     node = gltf.nodes[ni]
@@ -106,7 +112,7 @@ def load_rec(ni: int, depth: int):
             node = gltf.nodes[ni]
 
             t = Transform3D(
-            translation=vec3(node.translation) if node.translation is not None else vec3(0.0),
+                translation=vec3(node.translation) if node.translation is not None else vec3(0.0),
                 rotation=quat(node.rotation[3], *node.rotation[:3]) if node.rotation is not None else quat(1, 0, 0, 0),
                 scale=vec3(node.scale) if node.scale is not None else vec3(1.0),
             )
@@ -133,7 +139,6 @@ def load_rec(ni: int, depth: int):
         print("    " * (depth + 1) + ">" + str(mesh))
 
         for p in mesh.primitives:
-
             m = MeshData(joints=joints)
 
             print("    " * (depth + 2) + ">" + str(p))
@@ -180,9 +185,9 @@ def load_rec(ni: int, depth: int):
 
             meshes.append(m)
 
-
     for ci in node.children:
         load_rec(ci, depth + 1)
+
 
 for s in gltf.scenes:
     for ni in s.nodes:
@@ -195,6 +200,7 @@ for md in meshes:
         print(j)
 
 joints_array = np.empty((len(md.joints), 4, 4), np.float32)
+
 
 def fk():
     # Forward kinematics
@@ -209,6 +215,7 @@ def fk():
     # Inverse bind matrix
     for i, j in enumerate(md.joints):
         joints_array[i] = joints_array[i] @ np.array(j.inverse_bind_matrix)
+
 
 md = meshes[0]
 fk()
@@ -225,7 +232,7 @@ joints_prop = as_buffer_property(
 m = AnimatedMesh(
     positions=md.positions,
     normals=md.normals,
-    tangents=md.tangents[:, :3], # TODO: handle sign?
+    tangents=md.tangents[:, :3],  # TODO: handle sign?
     uvs=md.uvs,
     joint_indices=md.joint_indices_0,
     weights=md.weights_0,
@@ -235,8 +242,9 @@ m = AnimatedMesh(
     texture_format=Format.R8G8B8A8_UNORM,
 )
 
+
 class CustomViewer(Viewer):
-    def __init__(self, title = "ambra", config = None, key_map = None):
+    def __init__(self, title="ambra", config=None, key_map=None):
         super().__init__(title, config, key_map)
 
     @hook
@@ -245,21 +253,24 @@ class CustomViewer(Viewer):
             for k, v in joints_by_name.items():
                 u, v.val = imgui.slider_float(k, v.val, 0, 1)
                 if u:
-                    v.transform.rotation = rotate(quat(1, 0, 0, 0),  0.5 *  np.pi * v.val, vec3(0, 0, 1))
+                    v.transform.rotation = rotate(quat(1, 0, 0, 0), 0.5 * np.pi * v.val, vec3(0, 0, 1))
                     fk()
                     m.joints_buffer.invalidate_frame(0)
         imgui.end()
 
-v = CustomViewer(config=Config(
-    gui=GuiConfig(
-        stats=True,
-        inspector=True,
-    ),
-    camera=CameraConfig(
-        position=vec3(0, 0, -10),
-        target=vec3(0),
+
+v = CustomViewer(
+    config=Config(
+        gui=GuiConfig(
+            stats=True,
+            inspector=True,
+        ),
+        camera=CameraConfig(
+            position=vec3(0, 0, -10),
+            target=vec3(0),
+        ),
     )
-))
+)
 
 v.viewport.scene.objects.append(m)
 v.run()

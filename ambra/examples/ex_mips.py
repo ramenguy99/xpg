@@ -23,10 +23,7 @@ img = Image.from_data(
     width,
     height,
     Format.R8G8B8A8_UNORM,
-    ImageUsageFlags.TRANSFER_DST
-    | ImageUsageFlags.SAMPLED
-    | ImageUsageFlags.STORAGE
-    | ImageUsageFlags.TRANSFER_SRC,
+    ImageUsageFlags.TRANSFER_DST | ImageUsageFlags.SAMPLED | ImageUsageFlags.STORAGE | ImageUsageFlags.TRANSFER_SRC,
     AllocType.DEVICE,
     create_flags=ImageCreateFlags.MUTABLE_FORMAT,
     mip_levels=num_mips,
