@@ -12,6 +12,8 @@ from pyglm.glm import (
     quatLookAtLH,
     quatLookAtRH,
     vec3,
+    vec4,
+    decompose
 )
 
 from .config import Handedness
@@ -68,6 +70,14 @@ class Transform3D:
             rotation=quat(1, 0, 0, 0),
             scale=vec3(1),
         )
+
+    @classmethod
+    def from_mat4(cls, m: mat4) -> "Transform3D":
+        t = Transform3D(vec3(), quat(), vec3())
+        skew = vec3()
+        perspective = vec4()
+        decompose(mat4(m), t.scale, t.rotation, t.translation, skew, perspective)
+        return t
 
     def as_mat4(self) -> mat4:
         m = mat4_cast(self.rotation)

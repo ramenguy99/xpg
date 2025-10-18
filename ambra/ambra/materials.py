@@ -194,7 +194,7 @@ class ColorMaterial(Material):
 
 # Diffuse only
 class DiffuseMaterial(Material):
-    def __init__(self, diffuse: MaterialData, normal: Optional[BufferProperty] = None):
+    def __init__(self, diffuse: MaterialData, normal: Optional[ImageProperty] = None):
         self.diffuse = as_material_property(
             diffuse, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "diffuse"
         )
@@ -210,7 +210,7 @@ class DiffuseSpecularMaterial(Material):
         specular_strength: MaterialData,
         specular_exponent: Union[float, BufferProperty] = 32.0,
         specular_tint: Union[float, BufferProperty] = 0.0,
-        normal: Optional[BufferProperty] = None,
+        normal: Optional[ImageProperty] = None,
     ):
         self.diffuse = as_material_property(
             diffuse, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "diffuse"
@@ -240,7 +240,7 @@ class PBRMaterial(Material):
         roughness: MaterialData,
         metallic: MaterialData,
         ao: Union[float, BufferProperty] = 1.0,
-        normal: Optional[BufferProperty] = None,
+        normal: Optional[ImageProperty] = None,
     ):
         self.albedo = as_material_property(
             albedo, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "albedo"
