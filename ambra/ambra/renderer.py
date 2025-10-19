@@ -3,6 +3,7 @@
 
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -11,6 +12,7 @@ from pyxpg import (
     AllocType,
     BorderColor,
     BufferUsageFlags,
+    CommandBuffer,
     CompareOp,
     Context,
     DepthAttachment,
@@ -35,8 +37,6 @@ from pyxpg import (
     SamplerAddressMode,
     SamplerMipmapMode,
     StoreOp,
-    SwapchainOutOfDateError,
-    Window,
     slang,
 )
 
@@ -44,7 +44,7 @@ from . import ffx, lights
 from .config import RendererConfig, UploadMethod
 from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .property import BufferProperty, ImageProperty
-from .renderer_frame import RendererFrame
+from .renderer_frame import RendererFrame, SemaphoreInfo
 from .shaders import compile
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import (
@@ -72,12 +72,28 @@ else:
         return os.cpu_count()
 
 
-class Renderer:
-    def __init__(self, ctx: Context, window: Window, config: RendererConfig):
-        self.ctx = ctx
-        self.window = window
+@dataclass
+class FrameInputs:
+    image: Image
+    command_buffer: CommandBuffer
+    transfer_command_buffer: Optional[CommandBuffer]
+    additional_semaphores: List[SemaphoreInfo]
 
-        self.output_format = window.swapchain_format
+
+class Renderer:
+    def __init__(
+        self,
+        ctx: Context,
+        width: int,
+        height: int,
+        num_frames_in_flight: int,
+        output_format: Format,
+        config: RendererConfig,
+    ):
+        self.ctx = ctx
+        self.num_frames_in_flight = num_frames_in_flight
+        self.output_format = output_format
+
         self.shadowmap_format = Format.D32_SFLOAT
 
         # Config
@@ -159,7 +175,7 @@ class Renderer:
                     *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in lights.LIGHT_TYPES_INFO],
                     DescriptorSetBinding(self.max_shadowmaps, DescriptorType.SAMPLED_IMAGE),
                 ],
-                window.num_frames,
+                self.num_frames_in_flight,
                 name="scene-descriptors",
             )
         )
@@ -188,7 +204,7 @@ class Renderer:
         self.uniform_buffers = RingBuffer(
             [
                 UploadableBuffer(ctx, constants_dtype.itemsize, BufferUsageFlags.UNIFORM)
-                for _ in range(window.num_frames)
+                for _ in range(self.num_frames_in_flight)
             ]
         )
 
@@ -200,7 +216,7 @@ class Renderer:
                     UploadableBuffer(ctx, info.size * self.max_lights_per_type, BufferUsageFlags.STORAGE)
                     for info in lights.LIGHT_TYPES_INFO
                 ]
-                for _ in range(window.num_frames)
+                for _ in range(self.num_frames_in_flight)
             ]
         )
 
@@ -233,7 +249,7 @@ class Renderer:
         self.uniform_environment_lights: List[lights.UniformEnvironmentLight] = []
         self.environment_light: Optional[lights.EnvironmentLight] = None
 
-        self.uniform_pool = UniformPool(ctx, window.num_frames, config.uniform_pool_block_size)
+        self.uniform_pool = UniformPool(ctx, self.num_frames_in_flight, config.uniform_pool_block_size)
 
         if config.thread_pool_workers is not None:
             self.num_workers = config.thread_pool_workers
@@ -323,7 +339,7 @@ class Renderer:
         self.depth_format = Format.D32_SFLOAT
         self.depth_clear_value = 1.0
         self.depth_compare_op = CompareOp.LESS
-        self.resize(window.fb_width, window.fb_height)
+        self.resize(width, height)
 
     def resize(self, width: int, height: int) -> None:
         if self.depth_buffer is not None:
@@ -345,7 +361,7 @@ class Renderer:
                 self.ctx,
                 width,
                 height,
-                self.window.swapchain_format,
+                self.output_format,
                 ImageUsageFlags.COLOR_ATTACHMENT,
                 AllocType.DEVICE_DEDICATED,
                 samples=self.msaa_samples,
@@ -361,7 +377,7 @@ class Renderer:
     ) -> GpuBufferProperty:
         prop = GpuBufferProperty(
             self.ctx,
-            self.window.num_frames,
+            self.num_frames_in_flight,
             self.buffer_upload_method,
             self.thread_pool,
             self.bulk_upload_list,
@@ -385,7 +401,7 @@ class Renderer:
     ) -> GpuImageProperty:
         prop = GpuImageProperty(
             self.ctx,
-            self.window.num_frames,
+            self.num_frames_in_flight,
             self.image_upload_method,
             self.thread_pool,
             self.bulk_upload_list,
@@ -494,20 +510,11 @@ class Renderer:
     ) -> slang.Shader:
         return self.compile_shader(SHADERS_PATH.joinpath(SHADERS_PATH, path), entry, target, defines, include_paths)
 
-    def render(self, viewport: Viewport, gui: Gui) -> None:
-        # Create new objects, if any
-        viewport.scene.create_if_needed(self)
-
+    def render(self, viewport: Viewport, frame: FrameInputs, gui: Gui) -> None:
         # Flush synchronous upload buffers after creating new objects
         if len(self.bulk_upload_list) > 0:
             self.bulk_uploader.bulk_upload(self.bulk_upload_list)
             self.bulk_upload_list.clear()
-
-        # Render frame
-        try:
-            frame = self.window.begin_frame()
-        except SwapchainOutOfDateError:
-            return
 
         with frame.command_buffer as cmd:
             viewport_rect = (
@@ -552,13 +559,10 @@ class Renderer:
                 frame.transfer_command_buffer.begin()
 
             f = RendererFrame(
-                cmd,
-                frame.image,
-                self.total_frame_index % self.window.num_frames,
+                self.total_frame_index % self.num_frames_in_flight,
                 self.total_frame_index,
-                viewport_rect,
-                rect,
-                [],
+                cmd,
+                frame.additional_semaphores,
                 frame.transfer_command_buffer,
                 [],
             )
@@ -603,8 +607,8 @@ class Renderer:
 
             cmd.set_viewport(viewport_rect)
             cmd.set_scissors(rect)
-            with f.cmd.rendering(
-                f.rect,
+            with cmd.rendering(
+                rect,
                 color_attachments=[
                     (
                         RenderingAttachment(
@@ -643,8 +647,13 @@ class Renderer:
                 MemoryUsage.PRESENT,
             )
 
+            # NOTE: maybe move outside with gfx queue submission?
             if frame.transfer_command_buffer:
                 frame.transfer_command_buffer.end()
+
+                # If there is no semaphore to signal, we assume there is no commands to submit.
+                # Even if someone recorded commands, this would be a bug because
+                # there is no way to know when those commands would complete.
                 if f.copy_semaphores:
                     self.ctx.transfer_queue.submit(
                         frame.transfer_command_buffer,
@@ -654,17 +663,10 @@ class Renderer:
                         signal_timeline_values=[s.signal_value for s in f.copy_semaphores],
                     )
 
-        self.window.end_frame(
-            frame,
-            additional_wait_semaphores=[(s.sem, s.wait_stage) for s in f.additional_semaphores],
-            additional_wait_timeline_values=[s.wait_value for s in f.additional_semaphores],
-            additional_signal_semaphores=[s.sem for s in f.additional_semaphores],
-            additional_signal_timeline_values=[s.signal_value for s in f.additional_semaphores],
-        )
-
-        for p in self.gpu_properties:
-            p.prefetch()
-
         self.uniform_pool.advance()
         self.light_buffers.advance()
         self.total_frame_index += 1
+
+    def prefetch(self) -> None:
+        for p in self.gpu_properties:
+            p.prefetch()

@@ -2334,10 +2334,17 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
 
 struct Gui: nb::intrusive_base {
     Gui(nb::ref<Window> window)
-        : window(window)
+        : ctx(window->ctx)
+        , window(window)
     {
-        gui::CreateImGuiImpl(&imgui_impl, window->window, window->ctx->vk, {});
+        gui::CreateImGuiImpl(&imgui_impl, window->window, ctx->vk, {});
         ImPlot::CreateContext();
+    }
+
+    Gui(nb::ref<Context> ctx, u32 num_frames_in_flight, VkFormat format)
+        : ctx(ctx)
+    {
+        gui::CreateWindowlessImGuiImpl(&imgui_impl, num_frames_in_flight, format, ctx->vk, {});
     }
 
     struct GuiFrame {
@@ -2391,11 +2398,12 @@ struct Gui: nb::intrusive_base {
 
     ~Gui()
     {
-        gfx::WaitIdle(window->ctx->vk);
+        gfx::WaitIdle(ctx->vk);
         ImPlot::DestroyContext();
-        gui::DestroyImGuiImpl(&imgui_impl, window->ctx->vk);
+        gui::DestroyImGuiImpl(&imgui_impl, ctx->vk);
     }
 
+    nb::ref<Context> ctx;
     nb::ref<Window> window;
     gui::ImGuiImpl imgui_impl;
     std::optional<nb::str> ini_filename;
@@ -3591,6 +3599,7 @@ void gfx_create_bindings(nb::module_& m)
         nb::type_slots(gui_tp_slots),
         nb::intrusive_ptr<Gui>([](Gui *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Window>>(), nb::arg("window"))
+        .def(nb::init<nb::ref<Context>, u32, VkFormat>(), nb::arg("ctx"), nb::arg("num_frames_in_flight"), nb::arg("format"))
         .def("begin_frame", &Gui::begin_frame)
         .def("end_frame", &Gui::end_frame)
         .def("render", &Gui::render, nb::arg("frame"))

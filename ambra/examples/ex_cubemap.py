@@ -79,7 +79,7 @@ class DebugCube(Object3D):
                 [
                     DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER),
                 ],
-                r.window.num_frames,
+                r.num_frames_in_flight,
             )
         )
         self.sampler = Sampler(r.ctx, Filter.NEAREST, Filter.NEAREST)

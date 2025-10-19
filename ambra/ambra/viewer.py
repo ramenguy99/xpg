@@ -7,18 +7,22 @@ from time import perf_counter_ns
 from typing import Any, Optional, Tuple, Union
 
 import numpy as np
+from numpy.typing import NDArray
 from pyglm.glm import dvec2, ivec2, normalize, vec3
 from pyxpg import (
     Action,
     Context,
     DeviceFeatures,
+    Format,
     Gui,
+    ImageUsageFlags,
     Key,
     LogCapture,
     LogLevel,
     MemoryHeapFlags,
     Modifiers,
     MouseButton,
+    SwapchainOutOfDateError,
     SwapchainStatus,
     Window,
     imgui,
@@ -28,8 +32,9 @@ from pyxpg import (
 
 from .config import Config
 from .gpu_property import GpuBufferProperty, GpuImageProperty
+from .headless import HeadlessSwapchain
 from .keybindings import KeyMap
-from .renderer import Renderer
+from .renderer import FrameInputs, Renderer
 from .scene import Object, Scene
 from .server import Client, Message, RawMessage, Server, parse_builtin_messages
 from .utils.lru_pool import LRUPool
@@ -85,6 +90,9 @@ class Viewer:
             | DeviceFeatures.SHADER_FLOAT16_INT8
             | DeviceFeatures.SHADER_SUBGROUP_EXTENDED_TYPES,
             preferred_frames_in_flight=config.preferred_frames_in_flight,
+            preferred_swapchain_usage_flags=ImageUsageFlags.COLOR_ATTACHMENT
+            | ImageUsageFlags.TRANSFER_DST
+            | ImageUsageFlags.TRANSFER_SRC,
             vsync=config.vsync,
             force_physical_device_index=0xFFFFFFFF
             if config.force_physical_device_index is None
@@ -95,27 +103,43 @@ class Viewer:
             enable_gpu_based_validation=config.enable_gpu_based_validation,
         )
 
-        # Window
-        self.window = Window(
-            self.ctx,
-            title,
-            config.window_width,
-            config.window_height,
-            x=config.window_x,
-            y=config.window_y,
-        )
-        self.window.set_callbacks(
-            draw=self.on_draw,
-            key_event=self.on_key,
-            mouse_button_event=lambda pos, button, action, modifiers: self.on_mouse_button(
-                ivec2(pos), button, action, modifiers
-            ),
-            mouse_move_event=lambda pos: self.on_mouse_move(ivec2(pos)),
-            mouse_scroll_event=lambda pos, scroll: self.on_scroll(ivec2(pos), dvec2(scroll)),
-        )
+        # Headless swapchain for screenshots and videos
+        self.headless_swapchain = HeadlessSwapchain(self.ctx, 2, Format.R8G8B8A8_UNORM)
 
-        # GUI
-        self.gui = Gui(self.window)
+        # Window
+        self.window: Optional[Window] = None
+        if config.window:
+            self.window = Window(
+                self.ctx,
+                title,
+                config.window_width,
+                config.window_height,
+                x=config.window_x,
+                y=config.window_y,
+            )
+            self.window.set_callbacks(
+                draw=self.on_draw,
+                key_event=self.on_key,
+                mouse_button_event=lambda pos, button, action, modifiers: self.on_mouse_button(
+                    ivec2(pos), button, action, modifiers
+                ),
+                mouse_move_event=lambda pos: self.on_mouse_move(ivec2(pos)),
+                mouse_scroll_event=lambda pos, scroll: self.on_scroll(ivec2(pos), dvec2(scroll)),
+            )
+            render_width, render_height = self.window.fb_width, self.window.fb_height
+            output_format = self.window.swapchain_format
+            num_frames_in_flight = self.window.num_frames
+
+            # GUI
+            self.gui = Gui(self.window)
+        else:
+            render_width, render_height = config.window_width, config.window_height
+            output_format = self.headless_swapchain.format
+            num_frames_in_flight = self.headless_swapchain.num_frames_in_flight
+
+            # GUI
+            self.gui = Gui(self.ctx, num_frames_in_flight, output_format)
+
         self.gui.set_ini_filename(config.gui.ini_filename)
 
         self.gui_show_stats = config.gui.stats
@@ -132,7 +156,9 @@ class Viewer:
         imgui.get_io().config_dpi_scale_fonts = True
 
         # Renderer
-        self.renderer = Renderer(self.ctx, self.window, config.renderer)
+        self.renderer = Renderer(
+            self.ctx, render_width, render_height, num_frames_in_flight, output_format, config.renderer
+        )
 
         # Playback
         self.playback = Playback(config.playback)
@@ -144,7 +170,7 @@ class Viewer:
 
         # Viewport
         self.viewport = Viewport(
-            rect=Rect(0, 0, self.window.fb_width, self.window.fb_height),
+            rect=Rect(0, 0, render_width, render_height),
             scene=Scene("scene"),
             playback=self.playback,
             camera_config=config.camera,
@@ -202,7 +228,10 @@ class Viewer:
         if imgui.get_io().want_capture_mouse:
             return
 
+        # Callbacks are only called if a window is present
+        assert self.window is not None
         modifiers = self.window.get_modifiers_state()
+
         if modifiers == self.key_map.camera_zoom_modifiers:
             self.viewport.zoom(scroll, False)
         if modifiers == self.key_map.camera_zoom_move_modifiers:
@@ -211,17 +240,91 @@ class Viewer:
     def on_resize(self, width: int, height: int) -> None:
         pass
 
+    def _render(self, render_to_window: bool) -> None:
+        # Update scene
+        self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
+
+        # GUI
+        with self.gui.frame():
+            self.on_gui()
+
+        # HACK: If not rendering to the window, we draw the GUI twice so that
+        # imgui renders all windows, including those for which the size of the contents hasn't
+        # been computed yet.
+        if not render_to_window:
+            with self.gui.frame():
+                self.on_gui()
+
+        # Create new objects, if any
+        self.viewport.scene.create_if_needed(self.renderer)
+
+        # Begin frame
+        if render_to_window:
+            assert self.window is not None
+            try:
+                frame = self.window.begin_frame()
+            except SwapchainOutOfDateError:
+                return
+            frame_inputs = FrameInputs(frame.image, frame.command_buffer, frame.transfer_command_buffer, [])
+        else:
+            frame_inputs = self.headless_swapchain.begin_frame()
+
+        # Render
+        self.renderer.render(self.viewport, frame_inputs, self.gui)
+
+        # End frame
+        if render_to_window:
+            assert self.window is not None
+            self.window.end_frame(
+                frame,
+                additional_wait_semaphores=[(s.sem, s.wait_stage) for s in frame_inputs.additional_semaphores],
+                additional_wait_timeline_values=[s.wait_value for s in frame_inputs.additional_semaphores],
+                additional_signal_semaphores=[s.sem for s in frame_inputs.additional_semaphores],
+                additional_signal_timeline_values=[s.signal_value for s in frame_inputs.additional_semaphores],
+            )
+        else:
+            self.headless_swapchain.end_frame(frame_inputs)
+
+        # Prefetch next frames
+        self.renderer.prefetch()
+
+    def render_image(self) -> NDArray[np.uint8]:
+        # Set max time if not set
+        if self.playback.max_time is None:
+            self.playback.set_max_time(self.viewport.scene.max_animation_time(self.playback.frames_per_second))
+
+        # Resize if needed
+        self.headless_swapchain.ensure_size(self.viewport.rect.width, self.viewport.rect.height)
+
+        io = imgui.get_io()
+        io.display_size = imgui.Vec2(self.viewport.rect.width, self.viewport.rect.height)
+        io.delta_time = 1.0 / 60.0
+
+        # Render to headless swapchain
+        self._render(False)
+
+        # Get current headless swapchain frame
+        frame = self.headless_swapchain.get_current_and_advance()
+
+        # Readback frame
+        return frame.readback_sync(self.ctx)
+
     def on_draw(self) -> None:
+        # Callbacks are only called if a window is present
+        assert self.window is not None
+
         # Compute dt
         timestamp = perf_counter_ns()
         dt = (timestamp - self.last_frame_timestamp) * 1e-9
         self.last_frame_timestamp = timestamp
 
         self.frame_times[self.frame_time_index] = dt
+        self.frame_time_index = (self.frame_time_index + 1) % self.frame_times.size
 
-        # Step dt
+        # Set max time if not set
         if self.playback.max_time is None:
             self.playback.set_max_time(self.viewport.scene.max_animation_time(self.playback.frames_per_second))
+        # Step dt
         if self.playback.playing:
             self.playback.step(dt)
 
@@ -237,21 +340,13 @@ class Viewer:
 
             self.on_resize(width, height)
 
-        # Step scene
-        self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
-
-        # GUI
-        with self.gui.frame():
-            self.on_gui()
-
-        # Render
-        self.renderer.render(self.viewport, self.gui)
-
-        self.frame_time_index = (self.frame_time_index + 1) % self.frame_times.size
+        # Render to window
+        self._render(True)
 
     def on_raw_message_async(self, client: Client, raw_message: RawMessage) -> None:
         self.server_message_queue.put((client, raw_message))
-        self.window.post_empty_event()
+        if self.window is not None:
+            self.window.post_empty_event()
 
     def on_raw_message(self, client: Client, raw_message: RawMessage) -> None:
         message = parse_builtin_messages(raw_message)
@@ -275,11 +370,12 @@ class Viewer:
             | imgui.WindowFlags.NO_NAV,
         )[0]:
             avg_dt = self.frame_times.mean()
-            avg_fps = 1.0 / avg_dt
+            avg_fps = 1.0 / avg_dt if avg_dt > 0 else 0.0
             last_dt = self.frame_times[self.frame_time_index]
-            last_fps = 1.0 / last_dt
+            last_fps = 1.0 / last_dt if last_dt > 0 else 0.0
             imgui.text(f"{self.ctx.device_properties.device_name}")
-            imgui.text(f"Window size:     [{self.window.fb_width}x{self.window.fb_height}]")
+            if self.window is not None:
+                imgui.text(f"Window size:     [{self.window.fb_width}x{self.window.fb_height}]")
             imgui.text(f"FPS:             {avg_fps:6.2f} ({last_fps:6.2f})")
             imgui.text(f"Frame time (ms): {avg_dt * 1000.0:6.2f} ({last_dt * 1000.0:6.2f})")
             for i, (heap, stats) in enumerate(zip(self.ctx.memory_properties.memory_heaps, self.ctx.heap_statistics)):
@@ -492,6 +588,9 @@ class Viewer:
             self.gui_renderer()
 
     def run(self) -> None:
+        if self.window is None:
+            raise RuntimeError("Viewer.run() can only be called if a window is created (Config.window must be True)")
+
         self.last_frame_timestamp = perf_counter_ns()
 
         self.running = True

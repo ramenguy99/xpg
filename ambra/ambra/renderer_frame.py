@@ -2,11 +2,10 @@
 # SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from pyxpg import (
     CommandBuffer,
-    Image,
     PipelineStageFlags,
     TimelineSemaphore,
 )
@@ -22,14 +21,10 @@ class SemaphoreInfo:
 
 @dataclass
 class RendererFrame:
-    cmd: CommandBuffer
-    image: Image
     index: int
     total_index: int
 
-    viewport: Tuple[float, float, float, float]
-    rect: Tuple[int, int, int, int]
-
+    cmd: CommandBuffer
     additional_semaphores: List[SemaphoreInfo]
 
     copy_cmd: Optional[CommandBuffer]

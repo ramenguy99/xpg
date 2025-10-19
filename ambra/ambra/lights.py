@@ -7,7 +7,7 @@ from typing import Any, List, Optional
 
 import numpy as np
 from numpy.typing import NDArray
-from pyglm.glm import inverse, orthoRH_ZO, vec3, vec4
+from pyglm.glm import inverse, normalize, orthoRH_ZO, quatLookAtRH, vec3, vec4
 from pyxpg import (
     AllocType,
     Buffer,
@@ -132,6 +132,27 @@ class DirectionalLight(Light):
         self.shadow_settings = shadow_settings if shadow_settings is not None else DirectionalShadowSettings()
         self.shadow_map: Optional[Image] = None
 
+    @classmethod
+    def look_at(
+        cls,
+        position: vec3,
+        target: vec3,
+        world_up: vec3,
+        radiance: BufferProperty,
+        shadow_settings: Optional[DirectionalShadowSettings] = None,
+        name: Optional[str] = None,
+        scale: Optional[BufferProperty] = None,
+    ) -> "DirectionalLight":
+        rotation = quatLookAtRH(normalize(target - position), world_up)
+        return cls(
+            radiance,
+            shadow_settings,
+            name,
+            translation=np.asarray(position),  # type: ignore
+            rotation=np.asarray(rotation),  # type: ignore
+            scale=scale,
+        )
+
     def create(self, r: "renderer.Renderer") -> None:
         if self.shadow_settings.casts_shadow:
             self.shadow_map = Image(
@@ -151,7 +172,7 @@ class DirectionalLight(Light):
             ]
 
             self.descriptor_pool, self.descriptor_sets = create_descriptor_pool_and_sets_ringbuffer(
-                r.ctx, r.scene_depth_descriptor_set_layout, r.window.num_frames, name="scene-descriptors"
+                r.ctx, r.scene_depth_descriptor_set_layout, r.num_frames_in_flight, name="scene-descriptors"
             )
 
             constants_dtype = np.dtype(
@@ -165,7 +186,7 @@ class DirectionalLight(Light):
             self.uniform_buffers = RingBuffer(
                 [
                     UploadableBuffer(r.ctx, constants_dtype.itemsize, BufferUsageFlags.UNIFORM)
-                    for _ in range(r.window.num_frames)
+                    for _ in range(r.num_frames_in_flight)
                 ]
             )
             for set, buf in zip(self.descriptor_sets, self.uniform_buffers):

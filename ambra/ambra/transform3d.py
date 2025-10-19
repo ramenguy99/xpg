@@ -3,7 +3,19 @@
 
 from dataclasses import dataclass
 
-from pyglm.glm import decompose, inverse, mat4, mat4_cast, normalize, quat, quatLookAtLH, quatLookAtRH, vec3, vec4
+from pyglm.glm import (
+    decompose,
+    inverse,
+    mat4,
+    mat4_cast,
+    normalize,
+    quat,
+    quat_cast,
+    quatLookAtLH,
+    quatLookAtRH,
+    vec3,
+    vec4,
+)
 
 from .config import Handedness
 
@@ -27,6 +39,13 @@ class RigidTransform3D:
             rotation=rot,  # type: ignore
         )
 
+    @classmethod
+    def from_mat4(cls, m: mat4) -> "RigidTransform3D":
+        return cls(
+            rotation=quat_cast(m),
+            translation=vec3(m[3, 0], m[3, 1], m[3, 2]),
+        )
+
     def as_mat4(self) -> mat4:
         m = mat4_cast(self.rotation)
         m[3, 0] = self.translation.x
@@ -44,6 +63,12 @@ class RigidTransform3D:
     def inverse(self) -> "RigidTransform3D":
         inverse_rotation = inverse(self.rotation)
         return RigidTransform3D(translation=-(inverse_rotation * self.translation), rotation=inverse_rotation)  # type:ignore
+
+    def __matmul__(self, other: "RigidTransform3D") -> "RigidTransform3D":
+        return RigidTransform3D(
+            rotation=self.rotation * other.rotation,
+            translation=self.rotation * other.translation + self.translation,
+        )
 
 
 @dataclass

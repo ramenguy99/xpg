@@ -29,6 +29,7 @@ struct Config {
 };
 
 void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Context& vk, const Config&& config);
+void CreateWindowlessImGuiImpl(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat format, const gfx::Context& vk, const Config&& config);
 void DestroyImGuiImpl(ImGuiImpl* impl, gfx::Context& vk);
 
 //- Frames

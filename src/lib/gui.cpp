@@ -19,15 +19,7 @@
 namespace xpg {
 namespace gui {
 
-void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Context& vk, const Config&& config) {
-    // Initialize ImGui.
-    ImGui::CreateContext();
-
-    if (!ImGui_ImplGlfw_InitForVulkan(window.window, true)) {
-        printf("Failed to initialize ImGui\n");
-        exit(1);
-    }
-
+void CreateImGuiImplCommon(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat format, const gfx::Context& vk, const Config&& config) {
     // TODO: MSAA
     ImGui_ImplVulkan_InitInfo vk_init_info = {};
     vk_init_info.ApiVersion = vk.instance_version;
@@ -38,8 +30,8 @@ void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Cont
     vk_init_info.Queue = vk.queue;
     vk_init_info.DescriptorPool = VK_NULL_HANDLE;
     vk_init_info.RenderPass = VK_NULL_HANDLE;
-    vk_init_info.MinImageCount = (u32)window.images.length;
-    vk_init_info.ImageCount = (u32)window.images.length;
+    vk_init_info.MinImageCount = (u32)num_frames_in_flight,
+    vk_init_info.ImageCount = (u32)num_frames_in_flight,
     vk_init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     vk_init_info.PipelineCache = VK_NULL_HANDLE;
     vk_init_info.Subpass = 0;
@@ -56,10 +48,10 @@ void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Cont
         vk_init_info.UseDynamicRendering = true;
         vk_init_info.PipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR };
         vk_init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-        vk_init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &window.swapchain_format;
+        vk_init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &format;
     } else {
         VkAttachmentDescription attachments[1];
-        attachments[0].format = window.swapchain_format;
+        attachments[0].format = format;
         attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
         attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -135,16 +127,42 @@ void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Cont
     impl->render_pass = render_pass;
 }
 
+void CreateWindowlessImGuiImpl(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat format, const gfx::Context& vk, const Config&& config) {
+    // Initialize ImGui.
+    ImGui::CreateContext();
+
+    CreateImGuiImplCommon(impl, num_frames_in_flight, format, vk, std::move(config));
+}
+
+void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Context& vk, const Config&& config) {
+    // Initialize ImGui.
+    ImGui::CreateContext();
+
+    if (!ImGui_ImplGlfw_InitForVulkan(window.window, true)) {
+        printf("Failed to initialize ImGui\n");
+        exit(1);
+    }
+
+    CreateImGuiImplCommon(impl, window.images.length, window.swapchain_format, vk, std::move(config));
+}
+
 void DestroyImGuiImpl(ImGuiImpl* impl, gfx::Context& vk) {
     ImGui_ImplVulkan_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
+    ImGui_ImplGlfw_Data* bd = ImGui_ImplGlfw_GetBackendData();
+    if (bd) {
+        ImGui_ImplGlfw_Shutdown();
+    }
     ImGui::DestroyContext();
 
     vkDestroyRenderPass(vk.device, impl->render_pass, 0);
 }
 
+
 void BeginFrame() {
-    ImGui_ImplGlfw_NewFrame();
+    ImGui_ImplGlfw_Data* bd = ImGui_ImplGlfw_GetBackendData();
+    if (bd) {
+        ImGui_ImplGlfw_NewFrame();
+    }
     ImGui_ImplVulkan_NewFrame();
     ImGui::NewFrame();
 }

@@ -43,6 +43,9 @@ Priority:
     - [x] Explore using hatchlings instead of setuptools for better editable builds (read pep 517)
 - [x] Important 3D primitives
     - [x] Grid floor
+- [ ] Windowless viewer
+    - [x] Screenshots
+    - [ ] Video, maybe using av? Maybe just user callback? Make PoC then decide
 
 TODO:
 - [ ] Primitives

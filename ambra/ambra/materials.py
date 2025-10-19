@@ -102,14 +102,14 @@ class Material:
                     for p in self.properties
                     if p.flags & MaterialPropertyFlags.ALLOW_IMAGE
                 ],
-                r.window.num_frames,
+                r.num_frames_in_flight,
             )
         )
 
         self.uniform_buffers = RingBuffer(
             [
                 UploadableBuffer(r.ctx, self.dtype.itemsize, BufferUsageFlags.UNIFORM)
-                for _ in range(r.window.num_frames)
+                for _ in range(r.num_frames_in_flight)
             ]
         )
 

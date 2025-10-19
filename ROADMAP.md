@@ -223,7 +223,9 @@ Python:
     - [x] update bindings to use Enum_ variants as parameters to get type info in files
     - [x] Tuple return types does not have correct type annotations atm
     - [ ] Fix imgui with waitevents on linux, likely need some form of animation frame flag / counter to render at least one additional frame
-        - [ ] Also happening on first frame on windows, but not always?
+        - [-] Also happening on first frame on windows, but not always -> imgui explicitly does not draw a window the first frame it appears because it does not know the size of it's content.
+                                                                          This is not ideal for screenshots, but can be worked around by setting the size from the API or rendering a dummy frame.
+                                                                          We could potentially expose an option to draw the gui twice instead.
     - [x] expose implot
     - [x] begin with empty string segfaults
     - [ ] expose imguizmo and imnodes

@@ -183,7 +183,7 @@ class Image(Object2D):
                     DescriptorSetBinding(1, DescriptorType.SAMPLER),
                     DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
                 ],
-                r.window.num_frames,
+                r.num_frames_in_flight,
                 name=f"{self.name}-descriptors",
             )
         )

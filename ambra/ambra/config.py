@@ -116,6 +116,7 @@ class Config:
     log_level: LogLevel = LogLevel.DISABLED
 
     # Window
+    window: bool = True
     window_x: Optional[int] = None
     window_y: Optional[int] = None
     window_width: int = 1280

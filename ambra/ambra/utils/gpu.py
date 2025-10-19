@@ -498,7 +498,7 @@ class UniformPool:
             b.advance()
 
 
-_channels_dtype_int_to_format_table: Dict[Tuple[int, np.dtype, bool], Format] = {
+_channels_dtype_int_to_format_table: Dict[Tuple[int, np.dtype, bool], Format] = {  # type: ignore
     # normalized formats
     (1, np.dtype(np.uint8), False): Format.R8_UNORM,
     (2, np.dtype(np.uint8), False): Format.R8G8_UNORM,
@@ -556,12 +556,12 @@ _channels_dtype_int_to_format_table: Dict[Tuple[int, np.dtype, bool], Format] = 
     (4, np.dtype(np.float64), False): Format.R64G64B64A64_SFLOAT,
 }
 
-_format_to_channels_dtype_int_table: Dict[Format, Tuple[int, np.dtype, bool]] = {
+_format_to_channels_dtype_int_table: Dict[Format, Tuple[int, np.dtype, bool]] = {  # type: ignore
     v: k for k, v in _channels_dtype_int_to_format_table.items()
 }
 
 
-def format_from_channels_dtype(channels: int, dtype: np.dtype, integer: bool = False) -> Format:
+def format_from_channels_dtype(channels: int, dtype: np.dtype, integer: bool = False) -> Format:  # type: ignore
     try:
         return _channels_dtype_int_to_format_table[(channels, dtype, integer)]
     except KeyError:
@@ -607,7 +607,7 @@ def readback_mips(ctx: Context, img: Image, new_layout: ImageLayout) -> List[NDA
             cmd.copy_image_to_buffer_range(img, buffer, w, h, image_mip=m)
         cmd.image_barrier(img, new_layout, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY)
 
-    arrays = []
+    arrays: List[NDArray[Any]] = []
     for m, b in zip(range(img.mip_levels), buffers):
         w, h = max(img.width >> m, 1), max(img.height >> m, 1)
         shape = (h, w, channels)
