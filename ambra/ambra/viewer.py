@@ -4,7 +4,7 @@
 import logging
 from queue import Empty, Queue
 from time import perf_counter_ns
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -241,9 +241,6 @@ class Viewer:
         pass
 
     def _render(self, render_to_window: bool) -> None:
-        # Update scene
-        self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
-
         # GUI
         with self.gui.frame():
             self.on_gui()
@@ -289,9 +286,8 @@ class Viewer:
         self.renderer.prefetch()
 
     def render_image(self) -> NDArray[np.uint8]:
-        # Set max time if not set
-        if self.playback.max_time is None:
-            self.playback.set_max_time(self.viewport.scene.max_animation_time(self.playback.frames_per_second))
+        # Update scene
+        self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
 
         # Resize if needed
         self.headless_swapchain.ensure_size(self.viewport.rect.width, self.viewport.rect.height)
@@ -309,6 +305,40 @@ class Viewer:
         # Readback frame
         return frame.readback_sync(self.ctx)
 
+    def render_video(self, on_frame: Callable[[NDArray[np.uint8]], bool]) -> None:
+        # Set max time if not set
+        if self.playback.max_time is None:
+            self.playback.set_max_time(self.viewport.scene.max_animation_time(self.playback.frames_per_second))
+
+        # TODO: add frame range customization
+        begin_frame_index = 0
+        end_frame_index = begin_frame_index + self.playback.num_frames
+
+        # Resize if needed
+        self.headless_swapchain.ensure_size(self.viewport.rect.width, self.viewport.rect.height)
+
+        io = imgui.get_io()
+        io.display_size = imgui.Vec2(self.viewport.rect.width, self.viewport.rect.height)
+        io.delta_time = 1.0 / 60.0
+
+        for frame_index in range(begin_frame_index, end_frame_index):
+            self.playback.set_frame(frame_index)
+
+            # Update scene
+            self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
+
+            # Render to headless swapchain
+            self._render(False)
+
+            # Get current headless swapchain frame
+            frame = self.headless_swapchain.get_current_and_advance()
+
+            # Readback frame
+            img = frame.readback_sync(self.ctx)
+
+            # Callback
+            on_frame(img)
+
     def on_draw(self) -> None:
         # Callbacks are only called if a window is present
         assert self.window is not None
@@ -324,9 +354,13 @@ class Viewer:
         # Set max time if not set
         if self.playback.max_time is None:
             self.playback.set_max_time(self.viewport.scene.max_animation_time(self.playback.frames_per_second))
+
         # Step dt
         if self.playback.playing:
             self.playback.step(dt)
+
+        # Update scene
+        self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
 
         # Resize
         swapchain_status = self.window.update_swapchain()

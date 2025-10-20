@@ -46,6 +46,8 @@ Priority:
 - [ ] Windowless viewer
     - [x] Screenshots
     - [ ] Video, maybe using av? Maybe just user callback? Make PoC then decide
+        - [x] PoC with PyAV
+        - [ ] Do pipelinening and check speedup
 
 TODO:
 - [ ] Primitives

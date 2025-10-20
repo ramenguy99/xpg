@@ -498,7 +498,7 @@ class UniformPool:
             b.advance()
 
 
-_channels_dtype_int_to_format_table: Dict[Tuple[int, np.dtype, bool], Format] = {  # type: ignore
+_channels_dtype_int_to_format_table: Dict[Tuple[int, np.dtype, bool], Format] = {
     # normalized formats
     (1, np.dtype(np.uint8), False): Format.R8_UNORM,
     (2, np.dtype(np.uint8), False): Format.R8G8_UNORM,
@@ -556,12 +556,12 @@ _channels_dtype_int_to_format_table: Dict[Tuple[int, np.dtype, bool], Format] = 
     (4, np.dtype(np.float64), False): Format.R64G64B64A64_SFLOAT,
 }
 
-_format_to_channels_dtype_int_table: Dict[Format, Tuple[int, np.dtype, bool]] = {  # type: ignore
+_format_to_channels_dtype_int_table: Dict[Format, Tuple[int, np.dtype, bool]] = {
     v: k for k, v in _channels_dtype_int_to_format_table.items()
 }
 
 
-def format_from_channels_dtype(channels: int, dtype: np.dtype, integer: bool = False) -> Format:  # type: ignore
+def format_from_channels_dtype(channels: int, dtype: np.dtype, integer: bool = False) -> Format:
     try:
         return _channels_dtype_int_to_format_table[(channels, dtype, integer)]
     except KeyError:

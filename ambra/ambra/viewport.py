@@ -35,12 +35,12 @@ from .transform3d import RigidTransform3D
 class Playback:
     def __init__(self, config: PlaybackConfig):
         self.max_time = config.max_time
-        self.num_frames = int(self.max_time * config.frames_per_second) if self.max_time else 0
+        self.num_frames = int(self.max_time * config.frames_per_second) if self.max_time is not None else 0
 
         self.playing = config.playing
         self.frames_per_second = config.frames_per_second
         if config.initial_frame is None:
-            self.current_time = config.initial_time or 0.0
+            self.current_time = config.initial_time
             self.current_frame = int(self.current_time * self.frames_per_second)
         else:
             self.set_frame(config.initial_frame)
