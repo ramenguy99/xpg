@@ -139,7 +139,6 @@ viewer = CustomViewer(
         # vsync = False,
         preferred_frames_in_flight=3,
         playback=PlaybackConfig(
-            enabled=True,
             playing=True,
             frames_per_second=25.0,
         ),

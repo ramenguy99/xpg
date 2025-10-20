@@ -19,7 +19,6 @@ viewer = Viewer(
         # vsync = False,
         # preferred_frames_in_flight=3,
         playback=PlaybackConfig(
-            enabled=True,
             playing=True,
         ),
         renderer=RendererConfig(

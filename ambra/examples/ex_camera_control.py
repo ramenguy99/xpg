@@ -11,7 +11,6 @@ viewer = Viewer(
     config=Config(
         wait_events=True,
         playback=PlaybackConfig(
-            enabled=True,
             playing=True,
         ),
         gui=GuiConfig(

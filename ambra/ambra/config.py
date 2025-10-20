@@ -46,7 +46,6 @@ class RendererConfig:
 
 @dataclass
 class PlaybackConfig:
-    enabled: bool = True
     playing: bool = False
     frames_per_second: float = 30.0
     initial_time: float = 0.0

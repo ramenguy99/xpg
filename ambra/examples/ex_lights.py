@@ -65,7 +65,6 @@ viewer = CustomViewer(
             msaa_samples=4,
         ),
         playback=PlaybackConfig(
-            enabled=True,
             playing=True,
         ),
         camera=CameraConfig(

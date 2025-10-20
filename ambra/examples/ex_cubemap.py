@@ -158,7 +158,6 @@ def main():
         "primitives",
         config=Config(
             playback=PlaybackConfig(
-                enabled=True,
                 playing=True,
             ),
             gui=GuiConfig(

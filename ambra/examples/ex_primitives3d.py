@@ -14,7 +14,6 @@ viewer = Viewer(
     "primitives",
     config=Config(
         playback=PlaybackConfig(
-            enabled=True,
             playing=True,
         ),
         camera=CameraConfig(

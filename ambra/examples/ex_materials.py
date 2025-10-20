@@ -24,7 +24,6 @@ def main():
             window_width=1600,
             window_height=900,
             playback=PlaybackConfig(
-                enabled=True,
                 playing=True,
             ),
             camera=CameraConfig(
