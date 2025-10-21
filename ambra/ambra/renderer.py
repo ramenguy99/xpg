@@ -78,6 +78,7 @@ class FrameInputs:
     command_buffer: CommandBuffer
     transfer_command_buffer: Optional[CommandBuffer]
     additional_semaphores: List[SemaphoreInfo]
+    transfer_semaphores: List[SemaphoreInfo]
 
 
 class Renderer:
@@ -516,152 +517,129 @@ class Renderer:
             self.bulk_uploader.bulk_upload(self.bulk_upload_list)
             self.bulk_upload_list.clear()
 
-        with frame.command_buffer as cmd:
-            viewport_rect = (
-                viewport.rect.x,
-                viewport.rect.y + viewport.rect.height,
-                viewport.rect.width,
-                viewport.rect.y - viewport.rect.height,
-            )
-            rect = (
-                viewport.rect.x,
-                viewport.rect.y,
-                viewport.rect.width,
-                viewport.rect.height,
-            )
+        cmd = frame.command_buffer
+        viewport_rect = (
+            viewport.rect.x,
+            viewport.rect.y + viewport.rect.height,
+            viewport.rect.width,
+            viewport.rect.y - viewport.rect.height,
+        )
+        rect = (
+            viewport.rect.x,
+            viewport.rect.y,
+            viewport.rect.width,
+            viewport.rect.height,
+        )
 
-            set = self.scene_descriptor_sets.get_current_and_advance()
-            buf = self.uniform_buffers.get_current_and_advance()
+        set = self.scene_descriptor_sets.get_current_and_advance()
+        buf = self.uniform_buffers.get_current_and_advance()
 
-            self.constants["projection"] = viewport.camera.projection()
-            self.constants["view"] = viewport.camera.view()
-            self.constants["camera_position"] = viewport.camera.position()
-            self.constants["num_lights"] = self.num_lights
-            self.constants["ambient_light"] = np.sum(
-                [l.radiance.get_current() for l in self.uniform_environment_lights]
-            )
-            if self.environment_light is not None:
-                self.constants["has_environment_light"] = 1
-                self.constants["max_specular_mip"] = (
-                    self.environment_light.gpu_cubemaps.specular_cubemap.mip_levels - 1.0
-                )
-            else:
-                self.constants["has_environment_light"] = 0
-                self.constants["max_specular_mip"] = 0
+        self.constants["projection"] = viewport.camera.projection()
+        self.constants["view"] = viewport.camera.view()
+        self.constants["camera_position"] = viewport.camera.position()
+        self.constants["num_lights"] = self.num_lights
+        self.constants["ambient_light"] = np.sum([l.radiance.get_current() for l in self.uniform_environment_lights])
+        if self.environment_light is not None:
+            self.constants["has_environment_light"] = 1
+            self.constants["max_specular_mip"] = self.environment_light.gpu_cubemaps.specular_cubemap.mip_levels - 1.0
+        else:
+            self.constants["has_environment_light"] = 0
+            self.constants["max_specular_mip"] = 0
 
-            buf.upload(
-                cmd,
-                MemoryUsage.ANY_SHADER_UNIFORM,
-                self.constants.view(np.uint8),
-            )
+        buf.upload(
+            cmd,
+            MemoryUsage.ANY_SHADER_UNIFORM,
+            self.constants.view(np.uint8),
+        )
 
-            if frame.transfer_command_buffer:
-                frame.transfer_command_buffer.begin()
+        f = RendererFrame(
+            self.total_frame_index % self.num_frames_in_flight,
+            self.total_frame_index,
+            cmd,
+            frame.additional_semaphores,
+            frame.transfer_command_buffer,
+            frame.transfer_semaphores,
+        )
 
-            f = RendererFrame(
-                self.total_frame_index % self.num_frames_in_flight,
-                self.total_frame_index,
-                cmd,
-                frame.additional_semaphores,
-                frame.transfer_command_buffer,
-                [],
-            )
+        # Update properties
+        for p in self.gpu_properties:
+            p.load(f)
 
-            # Update properties
-            for p in self.gpu_properties:
-                p.load(f)
+        for p in self.gpu_properties:
+            p.upload(f)
 
-            for p in self.gpu_properties:
-                p.upload(f)
+        # Upload per-object data
+        viewport.scene.upload(self, f)
 
-            # Upload per-object data
-            viewport.scene.upload(self, f)
+        # Render shadows
+        viewport.scene.render_shadowmaps(self, f)
 
-            # Render shadows
-            viewport.scene.render_shadowmaps(self, f)
-
-            # Render scene
+        # Render scene
+        cmd.image_barrier(
+            frame.image,
+            ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+            MemoryUsage.ALL,
+            MemoryUsage.COLOR_ATTACHMENT,
+            undefined=True,
+        )
+        cmd.image_barrier(
+            self.depth_buffer,
+            ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
+            MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
+            aspect_mask=ImageAspectFlags.DEPTH,
+            undefined=True,
+        )
+        if self.msaa_target is not None:
             cmd.image_barrier(
-                frame.image,
+                self.msaa_target,
                 ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
-                MemoryUsage.ALL,
+                MemoryUsage.COLOR_ATTACHMENT,
                 MemoryUsage.COLOR_ATTACHMENT,
                 undefined=True,
             )
-            cmd.image_barrier(
-                self.depth_buffer,
-                ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
-                MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
-                aspect_mask=ImageAspectFlags.DEPTH,
-                undefined=True,
-            )
-            if self.msaa_target is not None:
-                cmd.image_barrier(
-                    self.msaa_target,
-                    ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
-                    MemoryUsage.COLOR_ATTACHMENT,
-                    MemoryUsage.COLOR_ATTACHMENT,
-                    undefined=True,
-                )
 
-            cmd.set_viewport(viewport_rect)
-            cmd.set_scissors(rect)
-            with cmd.rendering(
-                rect,
-                color_attachments=[
-                    (
-                        RenderingAttachment(
-                            self.msaa_target,
-                            load_op=LoadOp.CLEAR,
-                            store_op=StoreOp.STORE,
-                            clear=self.background_color,
-                            resolve_mode=ResolveMode.AVERAGE,
-                            resolve_image=frame.image,
-                        )
-                        if self.msaa_target is not None
-                        else RenderingAttachment(frame.image, LoadOp.CLEAR, StoreOp.STORE, self.background_color)
-                    )
-                ],
-                depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
-            ):
-                viewport.scene.render(self, f, set)
-
-            # Render GUI
-            with cmd.rendering(
-                rect,
-                color_attachments=[
+        cmd.set_viewport(viewport_rect)
+        cmd.set_scissors(rect)
+        with cmd.rendering(
+            rect,
+            color_attachments=[
+                (
                     RenderingAttachment(
-                        frame.image,
-                        load_op=LoadOp.LOAD,
+                        self.msaa_target,
+                        load_op=LoadOp.CLEAR,
                         store_op=StoreOp.STORE,
                         clear=self.background_color,
-                    ),
-                ],
-            ):
-                gui.render(cmd)
-            cmd.image_barrier(
-                frame.image,
-                ImageLayout.PRESENT_SRC,
-                MemoryUsage.COLOR_ATTACHMENT,
-                MemoryUsage.PRESENT,
-            )
-
-            # NOTE: maybe move outside with gfx queue submission?
-            if frame.transfer_command_buffer:
-                frame.transfer_command_buffer.end()
-
-                # If there is no semaphore to signal, we assume there is no commands to submit.
-                # Even if someone recorded commands, this would be a bug because
-                # there is no way to know when those commands would complete.
-                if f.copy_semaphores:
-                    self.ctx.transfer_queue.submit(
-                        frame.transfer_command_buffer,
-                        wait_semaphores=[(s.sem, s.wait_stage) for s in f.copy_semaphores],
-                        wait_timeline_values=[s.wait_value for s in f.copy_semaphores],
-                        signal_semaphores=[s.sem for s in f.copy_semaphores],
-                        signal_timeline_values=[s.signal_value for s in f.copy_semaphores],
+                        resolve_mode=ResolveMode.AVERAGE,
+                        resolve_image=frame.image,
                     )
+                    if self.msaa_target is not None
+                    else RenderingAttachment(frame.image, LoadOp.CLEAR, StoreOp.STORE, self.background_color)
+                )
+            ],
+            depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
+        ):
+            viewport.scene.render(self, f, set)
+
+        # Render GUI
+        with cmd.rendering(
+            rect,
+            color_attachments=[
+                RenderingAttachment(
+                    frame.image,
+                    load_op=LoadOp.LOAD,
+                    store_op=StoreOp.STORE,
+                    clear=self.background_color,
+                ),
+            ],
+        ):
+            gui.render(cmd)
+        cmd.image_barrier(
+            frame.image,
+            ImageLayout.PRESENT_SRC,
+            MemoryUsage.COLOR_ATTACHMENT,
+            MemoryUsage.PRESENT,
+        )
 
         self.uniform_pool.advance()
         self.light_buffers.advance()

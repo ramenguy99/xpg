@@ -27,5 +27,5 @@ class RendererFrame:
     cmd: CommandBuffer
     additional_semaphores: List[SemaphoreInfo]
 
-    copy_cmd: Optional[CommandBuffer]
-    copy_semaphores: List[SemaphoreInfo]
+    transfer_cmd: Optional[CommandBuffer]
+    transfer_semaphores: List[SemaphoreInfo]

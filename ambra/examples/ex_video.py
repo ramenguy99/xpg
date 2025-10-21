@@ -49,7 +49,7 @@ container = av.open("test.mp4", mode="w")
 stream = container.add_stream("h264", rate=viewer.playback.frames_per_second, options={})
 stream.width = width
 stream.height = height
-stream.pix_fmt = "yuv444p"
+stream.pix_fmt = "yuv420p"
 
 
 def on_frame(img: NDArray[np.uint8]):

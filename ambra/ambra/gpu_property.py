@@ -352,14 +352,14 @@ class GpuResourceProperty(Generic[R]):
                             or gpu_res.state == GpuResourceState.RENDER
                             or GpuResourceState.PREFETCH
                         ), gpu_res.state
-                        assert frame.copy_cmd is not None
+                        assert frame.transfer_cmd is not None
 
-                        frame.copy_semaphores.append(gpu_res.use(PipelineStageFlags.TRANSFER))
+                        frame.transfer_semaphores.append(gpu_res.use(PipelineStageFlags.TRANSFER))
 
                         # Upload on copy queue
-                        self._cmd_before_barrier(frame.copy_cmd, gpu_res.resource)
-                        self._cmd_upload(frame.copy_cmd, cpu_buf, gpu_res.resource)
-                        self._cmd_release_barrier(frame.copy_cmd, gpu_res.resource)
+                        self._cmd_before_barrier(frame.transfer_cmd, gpu_res.resource)
+                        self._cmd_upload(frame.transfer_cmd, cpu_buf, gpu_res.resource)
+                        self._cmd_release_barrier(frame.transfer_cmd, gpu_res.resource)
 
                         gpu_res.state = GpuResourceState.LOAD
 
@@ -371,9 +371,9 @@ class GpuResourceProperty(Generic[R]):
 
                 if gpu_res.state == GpuResourceState.LOAD or gpu_res.state == GpuResourceState.PREFETCH:
                     if gpu_res.state == GpuResourceState.PREFETCH:
-                        assert frame.copy_cmd is not None
-                        frame.copy_semaphores.append(gpu_res.use(PipelineStageFlags.TOP_OF_PIPE))
-                        self._cmd_release_barrier(frame.copy_cmd, gpu_res.resource)
+                        assert frame.transfer_cmd is not None
+                        frame.transfer_semaphores.append(gpu_res.use(PipelineStageFlags.TOP_OF_PIPE))
+                        self._cmd_release_barrier(frame.transfer_cmd, gpu_res.resource)
 
                     self._cmd_acquire_barrier(frame.cmd, gpu_res.resource)
                     gpu_res.state = GpuResourceState.RENDER

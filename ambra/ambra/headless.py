@@ -34,7 +34,16 @@ class HeadlessSwapchainFrame:
     transfer_command_buffer: Optional[CommandBuffer]
     fence: Fence
 
-    def readback_sync(self, ctx: Context) -> NDArray[Any]:
+    def issue_readback(self) -> None:
+        assert self.readback_buffer is not None
+        assert self.image is not None
+
+        self.command_buffer.image_barrier(
+            self.image, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC
+        )
+        self.command_buffer.copy_image_to_buffer(self.image, self.readback_buffer)
+
+    def realize_readback(self) -> NDArray[Any]:
         assert self.readback_buffer is not None
         assert self.image is not None
 
@@ -42,11 +51,6 @@ class HeadlessSwapchainFrame:
 
         channels, dtype, _ = _format_to_channels_dtype_int_table[self.image.format]
         shape = (self.image.height, self.image.width, channels)
-
-        with ctx.sync_commands() as cmd:
-            cmd.image_barrier(self.image, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC)
-            cmd.copy_image_to_buffer(self.image, self.readback_buffer)
-
         return np.frombuffer(self.readback_buffer, dtype).copy().reshape(shape)
 
 
@@ -105,6 +109,7 @@ class HeadlessSwapchain:
             frame.image,
             frame.command_buffer,
             frame.transfer_command_buffer,
+            [],
             [],
         )
 

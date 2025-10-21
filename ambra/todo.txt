@@ -47,7 +47,8 @@ Priority:
     - [x] Screenshots
     - [ ] Video, maybe using av? Maybe just user callback? Make PoC then decide
         - [x] PoC with PyAV
-        - [ ] Do pipelinening and check speedup
+        - [x] Do pipelinening and check speedup
+        - [ ] Frame / timestamp range customization with different playback and render rate
 
 TODO:
 - [ ] Primitives

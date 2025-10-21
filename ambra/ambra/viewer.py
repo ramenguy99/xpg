@@ -32,7 +32,7 @@ from pyxpg import (
 
 from .config import Config
 from .gpu_property import GpuBufferProperty, GpuImageProperty
-from .headless import HeadlessSwapchain
+from .headless import HeadlessSwapchain, HeadlessSwapchainFrame
 from .keybindings import KeyMap
 from .renderer import FrameInputs, Renderer
 from .scene import Object, Scene
@@ -262,12 +262,39 @@ class Viewer:
                 frame = self.window.begin_frame()
             except SwapchainOutOfDateError:
                 return
-            frame_inputs = FrameInputs(frame.image, frame.command_buffer, frame.transfer_command_buffer, [])
+            frame_inputs = FrameInputs(frame.image, frame.command_buffer, frame.transfer_command_buffer, [], [])
         else:
             frame_inputs = self.headless_swapchain.begin_frame()
 
+        # Begin recording on command buffers
+        frame_inputs.command_buffer.begin()
+        if frame_inputs.transfer_command_buffer:
+            frame_inputs.transfer_command_buffer.begin()
+
         # Render
         self.renderer.render(self.viewport, frame_inputs, self.gui)
+
+        if not render_to_window:
+            self.headless_swapchain.get_current().issue_readback()
+
+        # Submit transfer queue commands, if submitted
+        if frame_inputs.transfer_command_buffer:
+            frame_inputs.transfer_command_buffer.end()
+
+            # If there is no semaphore to signal, we assume there is no commands to submit.
+            # Even if someone recorded commands, this would be a bug because
+            # there is no way to know when those commands would complete.
+            if frame_inputs.transfer_semaphores:
+                self.ctx.transfer_queue.submit(
+                    frame_inputs.transfer_command_buffer,
+                    wait_semaphores=[(s.sem, s.wait_stage) for s in frame_inputs.transfer_semaphores],
+                    wait_timeline_values=[s.wait_value for s in frame_inputs.transfer_semaphores],
+                    signal_semaphores=[s.sem for s in frame_inputs.transfer_semaphores],
+                    signal_timeline_values=[s.signal_value for s in frame_inputs.transfer_semaphores],
+                )
+
+        # Close recording on the graphics commands
+        frame_inputs.command_buffer.end()
 
         # End frame
         if render_to_window:
@@ -303,14 +330,13 @@ class Viewer:
         frame = self.headless_swapchain.get_current_and_advance()
 
         # Readback frame
-        return frame.readback_sync(self.ctx)
+        return frame.realize_readback()
 
     def render_video(self, on_frame: Callable[[NDArray[np.uint8]], bool]) -> None:
         # Set max time if not set
         if self.playback.max_time is None:
             self.playback.set_max_time(self.viewport.scene.max_animation_time(self.playback.frames_per_second))
 
-        # TODO: add frame range customization
         begin_frame_index = 0
         end_frame_index = begin_frame_index + self.playback.num_frames
 
@@ -321,7 +347,18 @@ class Viewer:
         io.display_size = imgui.Vec2(self.viewport.rect.width, self.viewport.rect.height)
         io.delta_time = 1.0 / 60.0
 
+        # Readback queue for pipelining rendering and readback.
+        readback_queue: Queue[HeadlessSwapchainFrame] = Queue()
+
+        def deque_frame() -> None:
+            old_frame = readback_queue.get()
+            img = old_frame.realize_readback()
+            on_frame(img)
+
         for frame_index in range(begin_frame_index, end_frame_index):
+            if readback_queue.qsize() >= self.headless_swapchain.num_frames_in_flight:
+                deque_frame()
+
             self.playback.set_frame(frame_index)
 
             # Update scene
@@ -333,11 +370,12 @@ class Viewer:
             # Get current headless swapchain frame
             frame = self.headless_swapchain.get_current_and_advance()
 
-            # Readback frame
-            img = frame.readback_sync(self.ctx)
+            # Enqueue for future readback
+            readback_queue.put(frame)
 
-            # Callback
-            on_frame(img)
+        # Drain readback queue
+        while not readback_queue.empty():
+            deque_frame()
 
     def on_draw(self) -> None:
         # Callbacks are only called if a window is present
