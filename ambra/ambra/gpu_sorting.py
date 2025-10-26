@@ -116,9 +116,9 @@ class GpuSortingPipeline:
         if options.key_type == SortDataType.FLOAT32:
             defines.append(("KEY_FLOAT", ""))
         elif options.key_type == SortDataType.INT32:
-            defines.append(("KEY_INT32", ""))
+            defines.append(("KEY_INT", ""))
         elif options.key_type == SortDataType.UINT32:
-            defines.append(("KEY_UINT32", ""))
+            defines.append(("KEY_UINT", ""))
         else:
             raise ValueError(f"Unhandled key data type: {options.key_type}")
 
@@ -127,13 +127,13 @@ class GpuSortingPipeline:
             if options.payload_type == SortDataType.FLOAT32:
                 defines.append(("PAYLOAD_FLOAT", ""))
             elif options.payload_type == SortDataType.INT32:
-                defines.append(("PAYLOAD_INT32", ""))
+                defines.append(("PAYLOAD_INT", ""))
             elif options.payload_type == SortDataType.UINT32:
-                defines.append(("PAYLOAD_UINT32", ""))
+                defines.append(("PAYLOAD_UINT", ""))
             else:
                 raise ValueError(f"Unhandled payload data type: {options.payload_type}")
         else:
-            defines.append(("PAYLOAD_UINT32", ""))
+            defines.append(("PAYLOAD_UINT", ""))
 
         if not options.descending:
             defines.append(("SHOULD_ASCEND", ""))
@@ -147,10 +147,10 @@ class GpuSortingPipeline:
         defines.append((f"D_TOTAL_SMEM_{self.tuning.total_shared_memory}", ""))
         defines.append((f"D_DIM_{self.tuning.threads_per_threadblock}", ""))
 
-        def create_pipeline(shader_name: str, kernel_name: str):
+        def create_pipeline(shader_name: str, entry: str):
             shader = r.compile_builtin_shader(
                 Path("GPUSorting", shader_name),
-                entry=kernel_name,
+                entry=entry,
                 defines=defines,
                 include_paths=[renderer.SHADERS_PATH.joinpath("GPUSorting")],
             )
@@ -232,7 +232,9 @@ class GpuSortingPipeline:
         sets = [set0, set1]
 
         thread_blocks = div_round_up(count, self.tuning.partition_size)
-        max_dispatch_size = r.ctx.device_properties.limits.max_compute_work_group_count[0]
+
+        # TODO: make this a define and pass down to shader maybe
+        max_dispatch_size = 65535  # r.ctx.device_properties.limits.max_compute_work_group_count[0]
         full_blocks = thread_blocks // max_dispatch_size
         partial_blocks = thread_blocks - full_blocks * max_dispatch_size
 
@@ -264,7 +266,7 @@ class GpuSortingPipeline:
                     cmd.dispatch(max_dispatch_size, full_blocks, 1)
 
                 if partial_blocks > 0:
-                    self.constants["isPartial"] = 1
+                    self.constants["isPartial"] = (full_blocks << 1) | 1
                     cmd.push_constants(self.device_radix_sort_pipeline.upsweep, self.constants.tobytes())
                     cmd.dispatch(partial_blocks, 1, 1)
 
@@ -285,7 +287,7 @@ class GpuSortingPipeline:
                     cmd.dispatch(max_dispatch_size, full_blocks, 1)
 
                 if partial_blocks > 0:
-                    self.constants["isPartial"] = 1
+                    self.constants["isPartial"] = (full_blocks << 1) | 1
                     cmd.push_constants(self.device_radix_sort_pipeline.downsweep, self.constants.tobytes())
                     cmd.dispatch(partial_blocks, 1, 1)
 
