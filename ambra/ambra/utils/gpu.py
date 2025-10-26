@@ -29,6 +29,10 @@ def align_up(v: int, a: int) -> int:
     return (v + a - 1) & ~(a - 1)
 
 
+def div_round_up(a: int, b: int) -> int:
+    return (a + b - 1) // b
+
+
 @dataclass
 class BufferUploadInfo:
     data: memoryview
