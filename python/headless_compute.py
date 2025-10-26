@@ -68,10 +68,10 @@ pipeline = ComputePipeline(ctx, comp, descriptor_set_layouts=[ layout ])
 # Record commands
 print("Dispatching...")
 with ctx.sync_commands() as cmd:
-    cmd.image_barrier(img, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE_WRITE_ONLY)
+    cmd.image_barrier(img, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.COMPUTE_SHADER_WRITE_ONLY)
     cmd.bind_compute_pipeline(pipeline, descriptor_sets=[ set ])
     cmd.dispatch((W + 7) // 8, (H + 7) // 8)
-    cmd.image_barrier(img, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.IMAGE_WRITE_ONLY, MemoryUsage.TRANSFER_SRC)
+    cmd.image_barrier(img, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.COMPUTE_SHADER_WRITE_ONLY, MemoryUsage.TRANSFER_SRC)
     cmd.copy_image_to_buffer(img, buf)
 
 # Interpret buffer as image and save it to a file

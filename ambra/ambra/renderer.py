@@ -11,6 +11,7 @@ import numpy as np
 from pyxpg import (
     AllocType,
     BorderColor,
+    Buffer,
     BufferUsageFlags,
     CommandBuffer,
     CompareOp,
@@ -124,6 +125,13 @@ class Renderer:
             name="shadow-sampler",
         )
 
+        self.zero_buffer = Buffer.from_data(
+            ctx,
+            np.zeros((4,), np.uint8),
+            BufferUsageFlags.STORAGE | BufferUsageFlags.UNIFORM | BufferUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+            name="zero-buffer",
+        )
         self.zero_image = Image.from_data(
             ctx,
             np.zeros((1, 1, 4), np.uint8),
@@ -548,7 +556,7 @@ class Renderer:
 
         buf.upload(
             cmd,
-            MemoryUsage.ANY_SHADER_UNIFORM,
+            MemoryUsage.SHADER_UNIFORM,
             self.constants.view(np.uint8),
         )
 

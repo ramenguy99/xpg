@@ -620,15 +620,14 @@ enum class MemoryUsage {
     TransferSrc,
     TransferDst,
     VertexInput,
-    VertexShaderUniform,
-    GeometryShaderUniform,
-    FragmentShaderUniform,
+    ShaderUniform,
     ComputeShaderUniform,
-    AnyShaderUniform,
-    Image,
-    ImageReadOnly,
-    ImageWriteOnly,
+    Shader,
     ShaderReadOnly,
+    ShaderWriteOnly,
+    ComputeShader,
+    ComputeShaderReadOnly,
+    ComputeShaderWriteOnly,
     ColorAttachment,
     ColorAttachmentWriteOnly,
     DepthStencilAttachment,
@@ -671,18 +670,8 @@ namespace MemoryUsagePresets {
         .last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         .access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
     };
-    constexpr MemoryUsageState VertexShaderUniform {
+    constexpr MemoryUsageState ShaderUniform {
         .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-        .access = VK_ACCESS_2_UNIFORM_READ_BIT,
-    };
-    constexpr MemoryUsageState GeometryShaderUniform {
-        .first_stage = VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
-        .access = VK_ACCESS_2_UNIFORM_READ_BIT,
-    };
-    constexpr MemoryUsageState FragmentShaderUniform {
-        .first_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
         .access = VK_ACCESS_2_UNIFORM_READ_BIT,
     };
@@ -691,30 +680,35 @@ namespace MemoryUsagePresets {
         .last_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
         .access = VK_ACCESS_2_UNIFORM_READ_BIT,
     };
-    constexpr MemoryUsageState AnyShaderUniform {
-        .first_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .access = VK_ACCESS_2_UNIFORM_READ_BIT,
-    };
-    constexpr MemoryUsageState Image {
+    constexpr MemoryUsageState Shader {
         .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        .access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-    };
-    constexpr MemoryUsageState ImageReadOnly {
-        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        .access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
-    };
-    constexpr MemoryUsageState ImageWriteOnly {
-        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        .access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+        .access = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
     };
     constexpr MemoryUsageState ShaderReadOnly {
         .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
         .access = VK_ACCESS_2_SHADER_READ_BIT,
+    };
+    constexpr MemoryUsageState ShaderWriteOnly {
+        .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_WRITE_BIT,
+    };
+    constexpr MemoryUsageState ComputeShader {
+        .first_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+    };
+    constexpr MemoryUsageState ComputeShaderReadOnly {
+        .first_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_READ_BIT,
+    };
+    constexpr MemoryUsageState ComputeShaderWriteOnly {
+        .first_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_WRITE_BIT,
     };
     constexpr MemoryUsageState ColorAttachment = {
         .first_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -758,15 +752,14 @@ namespace MemoryUsagePresets {
         TransferSrc,
         TransferDst,
         VertexInput,
-        VertexShaderUniform,
-        GeometryShaderUniform,
-        FragmentShaderUniform,
+        ShaderUniform,
         ComputeShaderUniform,
-        AnyShaderUniform,
-        Image,
-        ImageReadOnly,
-        ImageWriteOnly,
+        Shader,
         ShaderReadOnly,
+        ShaderWriteOnly,
+        ComputeShader,
+        ComputeShaderReadOnly,
+        ComputeShaderWriteOnly,
         ColorAttachment,
         ColorAttachmentWriteOnly,
         DepthStencilAttachment,
@@ -1508,6 +1501,14 @@ struct CommandBuffer: GfxObject {
         u32 first_instance
     ) {
         vkCmdDrawIndexed(buffer, num_indices, num_instances, first_index, vertex_offset, first_instance);
+    }
+
+    void fill_buffer(const Buffer& buf, u32 data, VkDeviceSize size, VkDeviceSize offset) {
+        vkCmdFillBuffer(buffer, buf.buffer.buffer, offset, size, data);
+    }
+
+    void update_buffer(const Buffer& buf, nb::bytes data, VkDeviceSize offset) {
+        vkCmdUpdateBuffer(buffer, buf.buffer.buffer, offset, data.size(), data.data());
     }
 
     void copy_buffer(const Buffer& src, const Buffer& dst) {
@@ -4147,15 +4148,14 @@ void gfx_create_bindings(nb::module_& m)
         .value("TRANSFER_SRC", MemoryUsage::TransferSrc)
         .value("TRANSFER_DST", MemoryUsage::TransferDst)
         .value("VERTEX_INPUT", MemoryUsage::VertexInput)
-        .value("VERTEX_SHADER_UNIFORM", MemoryUsage::VertexShaderUniform)
-        .value("GEOMETRY_SHADER_UNIFORM", MemoryUsage::GeometryShaderUniform)
-        .value("FRAGMENT_SHADER_UNIFORM", MemoryUsage::FragmentShaderUniform)
+        .value("SHADER_UNIFORM", MemoryUsage::ShaderUniform)
         .value("COMPUTE_SHADER_UNIFORM", MemoryUsage::ComputeShaderUniform)
-        .value("ANY_SHADER_UNIFORM", MemoryUsage::AnyShaderUniform)
-        .value("IMAGE", MemoryUsage::Image)
-        .value("IMAGE_READ_ONLY", MemoryUsage::ImageReadOnly)
-        .value("IMAGE_WRITE_ONLY", MemoryUsage::ImageWriteOnly)
+        .value("SHADER", MemoryUsage::Shader)
         .value("SHADER_READ_ONLY", MemoryUsage::ShaderReadOnly)
+        .value("SHADER_WRITE_ONLY", MemoryUsage::ShaderWriteOnly)
+        .value("COMPUTE_SHADER", MemoryUsage::ComputeShader)
+        .value("COMPUTE_SHADER_READ_ONLY", MemoryUsage::ComputeShaderReadOnly)
+        .value("COMPUTE_SHADER_WRITE_ONLY", MemoryUsage::ComputeShaderWriteOnly)
         .value("COLOR_ATTACHMENT", MemoryUsage::ColorAttachment)
         .value("COLOR_ATTACHMENT_WRITE_ONLY", MemoryUsage::ColorAttachmentWriteOnly)
         .value("DEPTH_STENCIL_ATTACHMENT", MemoryUsage::DepthStencilAttachment)
@@ -4364,6 +4364,17 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("first_index") = 0,
             nb::arg("vertex_offset") = 0,
             nb::arg("first_instance") = 0
+        )
+        .def("fill_buffer", &CommandBuffer::fill_buffer,
+            nb::arg("buffer"),
+            nb::arg("data"),
+            nb::arg("size") = VK_WHOLE_SIZE,
+            nb::arg("offset") = 0
+        )
+        .def("update_buffer", &CommandBuffer::update_buffer,
+            nb::arg("buffer"),
+            nb::arg("data"),
+            nb::arg("offset") = 0
         )
         .def("copy_buffer", &CommandBuffer::copy_buffer,
             nb::arg("src"),

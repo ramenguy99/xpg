@@ -187,6 +187,6 @@ class SPDPipeline:
             cmd.bind_compute_pipeline(
                 self.avg_pipeline, descriptor_sets=[self.descriptor_set], push_constants=self.constants.tobytes()
             )
-            cmd.image_barrier(image, ImageLayout.GENERAL, MemoryUsage.ALL, MemoryUsage.IMAGE)
+            cmd.image_barrier(image, ImageLayout.GENERAL, MemoryUsage.ALL, MemoryUsage.COMPUTE_SHADER)
             cmd.dispatch(groups_x, groups_y, image.depth)
-            cmd.image_barrier(image, new_layout, MemoryUsage.IMAGE, MemoryUsage.ALL)
+            cmd.image_barrier(image, new_layout, MemoryUsage.COMPUTE_SHADER, MemoryUsage.ALL)

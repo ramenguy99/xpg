@@ -210,8 +210,10 @@ TODO:
     - [ ] Framegraph
 - [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
 - [ ] Customization workflow
-    - [ ] Completely new shader
-    - [ ] Shader that reuses common scene stuff or utils (can allow to import from ambra shader directory?)
+    - [x] Completely new shader
+    - [ ] Shader that reuses common scene stuff or utils
+        - [x] Import form ambra shader directory
+        - [ ] Reuse materials code but (with customizable descriptor layout ?)
 
 Bugs:
 - [x] Fix non-unit world_up results in nans in camera

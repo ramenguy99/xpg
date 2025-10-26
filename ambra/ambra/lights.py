@@ -230,7 +230,7 @@ class DirectionalLight(Light):
 
         buf.upload(
             frame.cmd,
-            MemoryUsage.ANY_SHADER_UNIFORM,
+            MemoryUsage.SHADER_UNIFORM,
             self.constants.view(np.uint8),
         )
 
@@ -490,12 +490,12 @@ class GGXLUTPipeline:
         descriptor_set.write_image(lut, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0)
 
         with r.ctx.sync_commands() as cmd:
-            cmd.image_barrier(lut, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, undefined=True)
+            cmd.image_barrier(lut, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.COMPUTE_SHADER, undefined=True)
             cmd.bind_compute_pipeline(
                 self.lut_pipeline, descriptor_sets=[descriptor_set], push_constants=self.lut_constants.tobytes()
             )
             cmd.dispatch((width + 7) // 8, (height + 7) // 8, 6)
-            cmd.image_barrier(lut, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.IMAGE, MemoryUsage.ALL)
+            cmd.image_barrier(lut, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.COMPUTE_SHADER, MemoryUsage.ALL)
 
         return lut
 
@@ -593,12 +593,14 @@ class IBLPipeline:
         )
 
         with r.ctx.sync_commands() as cmd:
-            cmd.image_barrier(skybox_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, undefined=True)
+            cmd.image_barrier(
+                skybox_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.COMPUTE_SHADER, undefined=True
+            )
             cmd.bind_compute_pipeline(
                 self.skybox_pipeline, descriptor_sets=[descriptor_set], push_constants=self.skybox_constants.tobytes()
             )
             cmd.dispatch((skybox_size + 7) // 8, (skybox_size + 7) // 8, 6)
-            cmd.image_barrier(skybox_cubemap, ImageLayout.GENERAL, MemoryUsage.IMAGE, MemoryUsage.ALL)
+            cmd.image_barrier(skybox_cubemap, ImageLayout.GENERAL, MemoryUsage.COMPUTE_SHADER, MemoryUsage.ALL)
             for m in range(1, skybox_mip_levels):
                 src_size = skybox_size >> m - 1
                 dst_size = skybox_size >> m
@@ -616,7 +618,9 @@ class IBLPipeline:
                     dst_array_layer_count=6,
                 )
                 cmd.memory_barrier(MemoryUsage.ALL, MemoryUsage.ALL)
-            cmd.image_barrier(skybox_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.IMAGE, MemoryUsage.ALL)
+            cmd.image_barrier(
+                skybox_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, MemoryUsage.COMPUTE_SHADER, MemoryUsage.ALL
+            )
 
         # Irradiance
         irradiance_size = params.irradiance_size
@@ -643,7 +647,7 @@ class IBLPipeline:
 
         with r.ctx.sync_commands() as cmd:
             cmd.image_barrier(
-                irradiance_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, undefined=True
+                irradiance_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.COMPUTE_SHADER, undefined=True
             )
             cmd.bind_compute_pipeline(
                 self.irradiance_pipeline,
@@ -654,7 +658,7 @@ class IBLPipeline:
             cmd.image_barrier(
                 irradiance_cubemap,
                 ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-                MemoryUsage.IMAGE,
+                MemoryUsage.COMPUTE_SHADER,
                 MemoryUsage.ALL,
                 undefined=False,
             )
@@ -679,7 +683,7 @@ class IBLPipeline:
         views = []
         with r.ctx.sync_commands() as cmd:
             cmd.image_barrier(
-                specular_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.IMAGE, undefined=True
+                specular_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.COMPUTE_SHADER, undefined=True
             )
 
             for m in range(specular_mips):

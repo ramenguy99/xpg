@@ -177,7 +177,7 @@ class Material:
                 image_index += 1
 
         self.uniform_buffers.get_current_and_advance().upload(
-            frame.cmd, MemoryUsage.FRAGMENT_SHADER_UNIFORM, view_bytes(self.constants)
+            frame.cmd, MemoryUsage.SHADER_UNIFORM, view_bytes(self.constants)
         )
 
         self.need_upload = False

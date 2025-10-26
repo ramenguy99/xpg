@@ -279,14 +279,14 @@ def draw():
 
         with frame.command_buffer as cmd:
             u_buf.upload(cmd, MemoryUsage.COMPUTE_SHADER_UNIFORM, constants.view(np.uint8).data)
-            cmd.image_barrier(output, ImageLayout.GENERAL, MemoryUsage.TRANSFER_SRC, MemoryUsage.IMAGE_WRITE_ONLY)
+            cmd.image_barrier(output, ImageLayout.GENERAL, MemoryUsage.TRANSFER_SRC, MemoryUsage.COMPUTE_SHADER_WRITE_ONLY)
 
             viewport = [0, 0, window.fb_width, window.fb_height]
 
             cmd.bind_compute_pipeline(rt.pipeline, descriptor_sets=[rt.scene_descriptor_set, descriptor_set])
             cmd.dispatch((window.fb_width + 7) // 8, (window.fb_height + 7) // 8)
 
-            cmd.image_barrier(output, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.IMAGE_WRITE_ONLY, MemoryUsage.TRANSFER_SRC)
+            cmd.image_barrier(output, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.COMPUTE_SHADER_WRITE_ONLY, MemoryUsage.TRANSFER_SRC)
             cmd.image_barrier(frame.image, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.TRANSFER_DST)
 
             cmd.blit_image(output, frame.image)

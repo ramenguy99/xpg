@@ -418,7 +418,7 @@ def draw():
     frame = window.begin_frame()
     additional_semaphores: List[SemaphoreInfo] = []
     with frame.command_buffer as cmd:
-        u_buf.upload(cmd, MemoryUsage.VERTEX_SHADER_UNIFORM, constants.view(np.uint8).data)
+        u_buf.upload(cmd, MemoryUsage.SHADER_UNIFORM, constants.view(np.uint8).data)
 
         prof = profiler.frame(cmd)
 

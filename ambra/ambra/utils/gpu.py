@@ -415,7 +415,7 @@ class UniformBlockAllocation:
     def upload(self, cmd: CommandBuffer, data: Union[memoryview, NDArray[np.uint8]]) -> None:
         if len(data) > self.size:
             raise IndexError("data is larger than buffer allocation")
-        self.buffer.upload(cmd, MemoryUsage.ANY_SHADER_UNIFORM, data, self.offset)
+        self.buffer.upload(cmd, MemoryUsage.SHADER_UNIFORM, data, self.offset)
 
 
 @dataclass
