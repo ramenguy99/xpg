@@ -28,6 +28,7 @@ from .utils.gpu import div_round_up
 RADIX_SORT_BITS = 8
 RADIX_SORT_RADIX = 1 << RADIX_SORT_BITS
 RADIX_SORT_PASSES = 4
+RADIX_SORT_GLOBAL_HIST_PARTITION_SIZE = 32768
 
 
 class SortDataType(Enum):
@@ -270,21 +271,28 @@ class GpuSortingPipeline:
             cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
 
             # Global hist
+            global_hist_thread_blocks = div_round_up(count, RADIX_SORT_GLOBAL_HIST_PARTITION_SIZE)
+            global_hist_full_blocks = global_hist_thread_blocks // max_dispatch_size
+            global_hist_partial_blocks = global_hist_thread_blocks - global_hist_full_blocks * max_dispatch_size
+            self.constants["threadBlocks"] = global_hist_thread_blocks
+
             cmd.bind_pipeline(self.onesweep_pipeline.global_histogram)
             if full_blocks > 0:
                 self.constants["isPartial"] = 0
                 cmd.push_constants(self.onesweep_pipeline.global_histogram, self.constants.tobytes())
-                cmd.dispatch(max_dispatch_size, full_blocks, 1)
+                cmd.dispatch(max_dispatch_size, global_hist_full_blocks, 1)
 
             if partial_blocks > 0:
                 self.constants["isPartial"] = (full_blocks << 1) | 1
                 cmd.push_constants(self.onesweep_pipeline.global_histogram, self.constants.tobytes())
-                cmd.dispatch(partial_blocks, 1, 1)
+                cmd.dispatch(global_hist_partial_blocks, 1, 1)
 
             cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
 
             # Scan
             cmd.bind_pipeline(self.onesweep_pipeline.scan)
+            self.constants["threadBlocks"] = thread_blocks
+            cmd.push_constants(self.onesweep_pipeline.scan, self.constants.tobytes())
             cmd.dispatch(RADIX_SORT_PASSES, 1, 1)
             cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
 

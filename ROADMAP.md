@@ -301,6 +301,7 @@ Python:
     - [ ] Raytracing pipelines
     - [ ] Shader execution reordering
     - [ ] Draw/dispatch indirect, draw indirect count and draw args for DrawID.
+    - [ ] VK_EXT_subgroup_size_control for forcing wave32 on AMD (wanted by sorting)
 
 ## Future
 
