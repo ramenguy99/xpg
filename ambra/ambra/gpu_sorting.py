@@ -36,6 +36,8 @@ class SortDataType(Enum):
     UINT32 = auto()
 
 
+# TODO: tuning based on vendor ID with fallback to default
+# and validation on pipeline creation.
 @dataclass(frozen=True)
 class SortTuningParameters:
     lock_wave32: bool = False
@@ -182,9 +184,14 @@ class GpuSortingPipeline:
             AllocType.DEVICE,
             name="gpu-sorting-global-histogram",
         )
+
+        pass_histogram_buf_size = div_round_up(options.max_count, self.tuning.partition_size) * RADIX_SORT_RADIX * 4
+        if options.unsafe_has_forward_thread_progress_guarantee:
+            pass_histogram_buf_size *= RADIX_SORT_PASSES
+
         self.pass_histogram_buf = Buffer(
             r.ctx,
-            div_round_up(options.max_count, self.tuning.partition_size) * RADIX_SORT_RADIX * 4,
+            pass_histogram_buf_size,
             BufferUsageFlags.STORAGE,
             AllocType.DEVICE,
             name="gpu-sorting-pass-histogram",
@@ -214,10 +221,16 @@ class GpuSortingPipeline:
         payload: Buffer,
         payload_alt: Buffer,
     ):
+        # Nothing to do
+        if count <= 1:
+            return
+
+        # Count exceeds max
         if self.options.max_count < count:
             raise ValueError(
                 f"count ({count}) must be smaller than max_count ({self.options.max_count}) specified on sorting pipeline creation"
             )
+
         set0 = self.descriptor_sets.get_current_and_advance()
         set1 = self.descriptor_sets.get_current_and_advance()
 
@@ -244,8 +257,61 @@ class GpuSortingPipeline:
         self.constants["threadBlocks"] = thread_blocks
 
         if self.options.unsafe_has_forward_thread_progress_guarantee:
-            pass
+            # Onesweep sort
+
+            self.constants["radixShift"] = 0
+
+            # Init
+            # TODO: this just clears 3 buffers to 0, could also use vkCmdFillBuffer maybe.
+            cmd.bind_descriptor_sets(self.onesweep_pipeline.init, [sets[0]])
+            cmd.bind_pipeline(self.onesweep_pipeline.init)
+            cmd.push_constants(self.onesweep_pipeline.init, self.constants.tobytes())
+            cmd.dispatch(256, 1, 1)
+            cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+
+            # Global hist
+            cmd.bind_pipeline(self.onesweep_pipeline.global_histogram)
+            if full_blocks > 0:
+                self.constants["isPartial"] = 0
+                cmd.push_constants(self.onesweep_pipeline.global_histogram, self.constants.tobytes())
+                cmd.dispatch(max_dispatch_size, full_blocks, 1)
+
+            if partial_blocks > 0:
+                self.constants["isPartial"] = (full_blocks << 1) | 1
+                cmd.push_constants(self.onesweep_pipeline.global_histogram, self.constants.tobytes())
+                cmd.dispatch(partial_blocks, 1, 1)
+
+            cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+
+            # Scan
+            cmd.bind_pipeline(self.onesweep_pipeline.scan)
+            cmd.dispatch(RADIX_SORT_PASSES, 1, 1)
+            cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+
+            # Sweep
+            self.constants["isPartial"] = 0
+            cmd.bind_pipeline(self.onesweep_pipeline.onesweep)
+            for radix_shift in range(0, 32, 8):
+                # Bind descriptor set (skip first because already bound)
+                if radix_shift > 0:
+                    cmd.bind_descriptor_sets(self.onesweep_pipeline.onesweep, [sets[set_index]])
+                set_index = 1 - set_index
+
+                self.constants["radixShift"] = radix_shift
+                cmd.push_constants(self.onesweep_pipeline.onesweep, self.constants.tobytes())
+
+                if full_blocks > 0:
+                    cmd.dispatch(max_dispatch_size, full_blocks, 1)
+                    # Need a memory barrier between passes because they are dependent
+                    cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+
+                if partial_blocks > 0:
+                    cmd.dispatch(partial_blocks, 1, 1)
+                    cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+
         else:
+            # Device radix sort
+
             # Init
             # TODO: this just clears 4096 bytes to 0, could also use vkCmdFillBuffer maybe.
             cmd.bind_descriptor_sets(self.device_radix_sort_pipeline.upsweep, [sets[0]])
@@ -254,8 +320,9 @@ class GpuSortingPipeline:
             cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
 
             for radix_shift in range(0, 32, 8):
-                # Bind descriptor set
-                cmd.bind_descriptor_sets(self.device_radix_sort_pipeline.upsweep, [sets[set_index]])
+                # Bind descriptor set (skip first because already bound)
+                if radix_shift > 0:
+                    cmd.bind_descriptor_sets(self.device_radix_sort_pipeline.upsweep, [sets[set_index]])
                 set_index = 1 - set_index
 
                 # Upsweep
@@ -276,7 +343,6 @@ class GpuSortingPipeline:
 
                 # Scan
                 cmd.bind_pipeline(self.device_radix_sort_pipeline.scan)
-                cmd.push_constants(self.device_radix_sort_pipeline.upsweep, self.constants.tobytes())
                 cmd.dispatch(256, 1, 1)
 
                 cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)

@@ -12,7 +12,14 @@ v = Viewer(
 )
 
 # Prepare pipleine
-sort = GpuSortingPipeline(v.renderer, SortOptions(key_type=SortDataType.UINT32, payload_type=SortDataType.UINT32))
+sort = GpuSortingPipeline(
+    v.renderer,
+    SortOptions(
+        key_type=SortDataType.UINT32,
+        payload_type=SortDataType.UINT32,
+        unsafe_has_forward_thread_progress_guarantee=True,
+    ),
+)
 
 # Create random keys
 np.random.seed(42)
