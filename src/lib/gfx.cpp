@@ -923,6 +923,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.wideLines ? DeviceFeatures::WIDE_LINES : 0));
             if (features_to_check & DeviceFeatures::STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT)
                 info.supported_features = info.supported_features | DeviceFeatures(((features.features.shaderStorageImageReadWithoutFormat && features.features.shaderStorageImageWriteWithoutFormat) ? DeviceFeatures::STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT : 0));
+            if (features_to_check & DeviceFeatures::SHADER_INT16)
+                info.supported_features = info.supported_features | DeviceFeatures((features.features.shaderInt16 ? DeviceFeatures::SHADER_INT16 : 0));
 
             logging::trace("gfx/debug", "Supported features: 0x%zx", info.supported_features.flags);
 
@@ -1098,6 +1100,9 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     if (picked_info.supported_features & DeviceFeatures::STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT) {
         enabled_physical_device_features.shaderStorageImageReadWithoutFormat = true;
         enabled_physical_device_features.shaderStorageImageWriteWithoutFormat = true;
+    }
+    if (picked_info.supported_features & DeviceFeatures::SHADER_INT16) {
+        enabled_physical_device_features.shaderInt16 = true;
     }
 
     // Create a physical device.

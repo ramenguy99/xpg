@@ -15,6 +15,7 @@ from pyxpg import (
     ComputePipeline,
     DescriptorSetBinding,
     DescriptorType,
+    DeviceFeatures,
     MemoryUsage,
     PushConstantsRange,
     Shader,
@@ -96,11 +97,7 @@ class GpuSortingPipeline:
             )
         )
 
-        # TODO: figure out what spirv extensions are being emitted and check that
-        # they are available
-
-        # TODO: enable 16 bit if available
-        enable_16_bit = False
+        enable_16_bit = (r.ctx.device_features & DeviceFeatures.SHADER_INT16) != 0
 
         # Permutations are:
         # 3 key types
@@ -140,6 +137,8 @@ class GpuSortingPipeline:
 
         if enable_16_bit:
             defines.append(("ENABLE_16_BIT", ""))
+
+        defines.append(("MAX_DISPATCH_DIM", str(r.ctx.device_properties.limits.max_compute_work_group_count[0])))
 
         # Tuning
         defines.append((f"KEYS_PER_THREAD_{self.tuning.keys_per_thread}", ""))
@@ -215,6 +214,10 @@ class GpuSortingPipeline:
         payload: Buffer,
         payload_alt: Buffer,
     ):
+        if self.options.max_count < count:
+            raise ValueError(
+                f"count ({count}) must be smaller than max_count ({self.options.max_count}) specified on sorting pipeline creation"
+            )
         set0 = self.descriptor_sets.get_current_and_advance()
         set1 = self.descriptor_sets.get_current_and_advance()
 
@@ -233,8 +236,7 @@ class GpuSortingPipeline:
 
         thread_blocks = div_round_up(count, self.tuning.partition_size)
 
-        # TODO: make this a define and pass down to shader maybe
-        max_dispatch_size = 65535  # r.ctx.device_properties.limits.max_compute_work_group_count[0]
+        max_dispatch_size = r.ctx.device_properties.limits.max_compute_work_group_count[0]
         full_blocks = thread_blocks // max_dispatch_size
         partial_blocks = thread_blocks - full_blocks * max_dispatch_size
 

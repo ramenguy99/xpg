@@ -1,5 +1,5 @@
 import numpy as np
-from pyxpg import AllocType, Buffer, BufferUsageFlags
+from pyxpg import AllocType, Buffer, BufferUsageFlags, MemoryUsage
 
 from ambra.config import Config
 from ambra.gpu_sorting import GpuSortingPipeline, SortDataType, SortOptions
@@ -52,6 +52,7 @@ readback_payload = Buffer(
 # Sort and readback
 with v.ctx.sync_commands() as cmd:
     sort.run(v.renderer, cmd, N, keys, keys_alt, payload, payload_alt)
+    cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.TRANSFER_SRC)
     cmd.copy_buffer(keys, readback_keys)
     cmd.copy_buffer(payload, readback_payload)
 

@@ -88,6 +88,7 @@ class Viewer:
             | DeviceFeatures.TIMELINE_SEMAPHORES
             | DeviceFeatures.SHADER_DRAW_PARAMETERS
             | DeviceFeatures.SHADER_FLOAT16_INT8
+            | DeviceFeatures.SHADER_INT16
             | DeviceFeatures.SHADER_SUBGROUP_EXTENDED_TYPES,
             preferred_frames_in_flight=config.preferred_frames_in_flight,
             preferred_swapchain_usage_flags=ImageUsageFlags.COLOR_ATTACHMENT

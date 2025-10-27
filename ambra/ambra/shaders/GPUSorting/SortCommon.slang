@@ -46,7 +46,10 @@
 #define D_TOTAL_SMEM        7936U
 #endif
 
+#if !defined(MAX_DISPATCH_DIM)
 #define MAX_DISPATCH_DIM    65535U  //The max value of any given dispatch dimension
+#endif
+
 #define RADIX               256U    //Number of digit bins
 #define RADIX_MASK          255U    //Mask of digit bins
 #define HALF_RADIX          128U    //For smaller waves where bit packing is necessary

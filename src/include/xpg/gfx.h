@@ -88,7 +88,8 @@ struct DeviceFeatures {
         SHADER_DRAW_PARAMETERS                  = 1ull << 11,
         STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT = 1ull << 12,
         SHADER_FLOAT16_INT8                     = 1ull << 13,
-        SHADER_SUBGROUP_EXTENDED_TYPES          = 1ull << 14,
+        SHADER_INT16                            = 1ull << 14,
+        SHADER_SUBGROUP_EXTENDED_TYPES          = 1ull << 15,
     };
 
     DeviceFeatures() {};
