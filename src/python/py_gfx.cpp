@@ -3190,6 +3190,8 @@ void gfx_create_bindings(nb::module_& m)
         .value("SHADER_FLOAT16_INT8",                     gfx::DeviceFeatures::SHADER_FLOAT16_INT8)
         .value("SHADER_INT16",                            gfx::DeviceFeatures::SHADER_INT16)
         .value("SHADER_SUBGROUP_EXTENDED_TYPES",          gfx::DeviceFeatures::SHADER_SUBGROUP_EXTENDED_TYPES)
+        .value("STORAGE_8BIT",                            gfx::DeviceFeatures::STORAGE_8BIT)
+        .value("STORAGE_16BIT",                           gfx::DeviceFeatures::STORAGE_16BIT)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")

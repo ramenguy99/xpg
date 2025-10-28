@@ -89,7 +89,9 @@ class Viewer:
             | DeviceFeatures.SHADER_DRAW_PARAMETERS
             | DeviceFeatures.SHADER_FLOAT16_INT8
             | DeviceFeatures.SHADER_INT16
-            | DeviceFeatures.SHADER_SUBGROUP_EXTENDED_TYPES,
+            | DeviceFeatures.SHADER_SUBGROUP_EXTENDED_TYPES
+            | DeviceFeatures.STORAGE_8BIT
+            | DeviceFeatures.STORAGE_16BIT,
             preferred_frames_in_flight=config.preferred_frames_in_flight,
             preferred_swapchain_usage_flags=ImageUsageFlags.COLOR_ATTACHMENT
             | ImageUsageFlags.TRANSFER_DST

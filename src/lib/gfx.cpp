@@ -586,6 +586,18 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     shader_subgroup_extended_types_features.shaderSubgroupExtendedTypes = VK_TRUE;
     CHAIN(shader_subgroup_extended_types_features, DeviceFeatures::SHADER_SUBGROUP_EXTENDED_TYPES);
 
+    // 8 bit storage
+    VkPhysicalDevice8BitStorageFeatures storage_8bit_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES };
+    storage_8bit_features.storageBuffer8BitAccess = VK_TRUE;
+    storage_8bit_features.uniformAndStorageBuffer8BitAccess = VK_TRUE;
+    CHAIN(storage_8bit_features, DeviceFeatures::STORAGE_8BIT);
+
+    // 16 bit storage
+    VkPhysicalDevice16BitStorageFeatures storage_16bit_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES };
+    storage_16bit_features.storageBuffer16BitAccess = VK_TRUE;
+    storage_16bit_features.uniformAndStorageBuffer16BitAccess = VK_TRUE;
+    CHAIN(storage_16bit_features, DeviceFeatures::STORAGE_16BIT);
+
     // Feature dependencies
     FeatureAndExtensionDependencies<1, 3> dynamic_rendering_deps = {
         .flag = DeviceFeatures::DYNAMIC_RENDERING,
@@ -695,6 +707,20 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         .features_req = { (GenericFeatureStruct*)&shader_subgroup_extended_types_features },
         .features_sup = { (GenericFeatureStruct*)&shader_subgroup_extended_types_features_sup },
         .extensions = { VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME },
+    };
+
+    FeatureAndExtensionDependencies<1, 1> storage_8bit_deps = {
+        .flag = DeviceFeatures::STORAGE_8BIT,
+        .features_req = { (GenericFeatureStruct*)&storage_8bit_features },
+        .features_sup = { (GenericFeatureStruct*)&storage_8bit_features_sup },
+        .extensions = { VK_KHR_8BIT_STORAGE_EXTENSION_NAME },
+    };
+
+    FeatureAndExtensionDependencies<1, 1> storage_16bit_deps = {
+        .flag = DeviceFeatures::STORAGE_16BIT,
+        .features_req = { (GenericFeatureStruct*)&storage_16bit_features },
+        .features_sup = { (GenericFeatureStruct*)&storage_16bit_features_sup },
+        .extensions = { VK_KHR_16BIT_STORAGE_EXTENSION_NAME },
     };
 
     ExtensionDependencies<2> external_resources_deps = {
@@ -918,6 +944,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(timeline_semaphore);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(shader_float16_int8);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(shader_subgroup_extended_types);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(storage_8bit);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(storage_16bit);
 
             if (features_to_check & DeviceFeatures::WIDE_LINES)
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.wideLines ? DeviceFeatures::WIDE_LINES : 0));
@@ -1087,6 +1115,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(timeline_semaphore);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(shader_float16_int8);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(shader_subgroup_extended_types);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(storage_8bit);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(storage_16bit);
 
     void* enabled_next = 0;
     for (usize i = 0; i < enabled_features.length; i++) {
