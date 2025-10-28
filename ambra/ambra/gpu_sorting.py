@@ -39,6 +39,20 @@ class SortDataType(Enum):
 
 # TODO: tuning based on vendor ID with fallback to default
 # and validation on pipeline creation.
+#
+# Found so far:
+#
+# Apple M4 Max:
+# keys_per_thread = 7,
+# threads_per_threadblock = 256,
+# partition_size = 7 * 256,
+# total_shared_memory = 4096,
+#
+# NVDIA RTX 3060 Mobile:
+# keys_per_thread = 15
+# threads_per_threadblock = 256
+# partition_size = 3840
+# total_shared_memory = 4096
 @dataclass(frozen=True)
 class SortTuningParameters:
     lock_wave32: bool = False
@@ -85,7 +99,7 @@ class GpuSortingPipeline:
                 "threadBlocks": (np.uint32, 8),
                 "isPartial": (np.uint32, 12),
             }
-        )
+        )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
         # Allocate 2 sets per frame to ping-pong radix passes
@@ -149,7 +163,7 @@ class GpuSortingPipeline:
         defines.append((f"D_TOTAL_SMEM_{self.tuning.total_shared_memory}", ""))
         defines.append((f"D_DIM_{self.tuning.threads_per_threadblock}", ""))
 
-        def create_pipeline(shader_name: str, entry: str):
+        def create_pipeline(shader_name: str, entry: str) -> ComputePipeline:
             shader = r.compile_builtin_shader(
                 Path("GPUSorting", shader_name),
                 entry=entry,
@@ -221,7 +235,7 @@ class GpuSortingPipeline:
         key_alt: Buffer,
         payload: Buffer,
         payload_alt: Buffer,
-    ):
+    ) -> None:
         # Nothing to do
         if count <= 1:
             return
