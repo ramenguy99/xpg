@@ -22,13 +22,13 @@
 
 // cov3Dm: 3D covariance matrix
 // splatCenterView: splat center in view coordinates
-// returns: the upper-left 2x2 portion of the projected 3D covariance matrix (see comments in function body). 
+// returns: the upper-left 2x2 portion of the projected 3D covariance matrix (see comments in function body).
 float3 threedgsCovarianceProjection(float3x3 cov3Dm, float4 splatCenterView, float2 focal, float4x4 modelViewTransform)
 {
   // TODO: the ortho mode is not supported yet
 #if ORTHOGRAPHIC_MODE == 1
   // Since the projection is linear, we don't need an approximation
-  const float3x3 J = transpose(float3x3(orthoZoom, 0.0, 0.0, 0.0, orthoZoom, 0.0, 0.0, 0.0, 0.0));
+  const float3x3 J = float3x3(orthoZoom, 0.0, 0.0, 0.0, orthoZoom, 0.0, 0.0, 0.0, 0.0);
 #else
   // Construct the Jacobian of the affine approximation of the projection matrix. It will be used to transform the
   // 3D covariance matrix instead of using the actual projection matrix because that transformation would
@@ -39,14 +39,11 @@ float3 threedgsCovarianceProjection(float3x3 cov3Dm, float4 splatCenterView, flo
 #endif
 
   // Concatenate the projection approximation with the model-view transformation
-  // Row-major: extract 3x3 from the model-view transform (already in row-major)
-  const float3x3 W = transpose(float3x3(modelViewTransform));
-  // Row-major: matrix multiplication order (J * W instead of W * J)
-  const float3x3 T = mul(J, W);
+  const float3x3 W = float3x3(modelViewTransform);
+  const float3x3 T = mul(W, J);
 
   // Transform the 3D covariance matrix (cov3Dm) to compute the 2D covariance matrix
-  // Row-major: T^T * cov3Dm * T becomes T * cov3Dm * T^T
-  const float3x3 cov2Dm = mul(mul(T, cov3Dm), transpose(T));
+  const float3x3 cov2Dm = mul(transpose(T), mul(cov3Dm, transpose(T)));
 
   // We are interested in the upper-left 2x2 portion of the projected 3D covariance matrix because
   // we only care about the X and Y values. We want the X-diagonal, cov2Dm[0][0],

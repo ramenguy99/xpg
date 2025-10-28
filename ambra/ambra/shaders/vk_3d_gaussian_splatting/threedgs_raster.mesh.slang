@@ -19,23 +19,23 @@
 
 /*
 * Some mathematical formulations and comments have been directly retained from
-* https://github.com/mkkellogg/GaussianSplats3D. Original source code  
+* https://github.com/mkkellogg/GaussianSplats3D. Original source code
 * licence hereafter.
 * ----------------------------------
 * The MIT License (MIT)
-* 
+*
 * Copyright (c) 2023 Mark Kellogg
-* 
+*
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
 * in the Software without restriction, including without limitation the rights
 * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 * copies of the Software, and to permit persons to whom the Software is
 * furnished to do so, subject to the following conditions:
-* 
+*
 * The above copyright notice and this permission notice shall be included in all
 * copies or substantial portions of the Software.
-* 
+*
 * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -45,7 +45,7 @@
 * SOFTWARE.
 */
 
-#include "shaderio.h"
+#include "shaderio.h.slang"
 #include "threedgs.h.slang"
 #include "threedgs_particles_storage.h.slang"
 
@@ -105,7 +105,7 @@ void main(
 {
   const uint32_t baseIndex = dispatchThreadID.x;
   const uint localIndex = groupThreadID.x;
-  
+
 #if FRUSTUM_CULLING_MODE == FRUSTUM_CULLING_AT_DIST
   // if culling is already performed we use the subset of splats
   const uint splatCount = indirectBuffer[0].instanceCount;
@@ -159,7 +159,7 @@ void main(
       return;
     }
 
-    // emit per primitive color as early as possible for perf reasons, 
+    // emit per primitive color as early as possible for perf reasons,
     // only for original 3DGS, see later on for MipSplatting
 #if MS_ANTIALIASING == 0
     prims[localIndex * 2 + 0].outSplatCol = splatColor;

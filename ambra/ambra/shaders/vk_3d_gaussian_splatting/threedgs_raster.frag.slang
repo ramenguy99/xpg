@@ -18,25 +18,25 @@
  */
 
 /*
-* The code has been adapted to Vulkan from the WebGL-based implementation 
-* https://github.com/mkkellogg/GaussianSplats3D. Some mathematical formulations 
-* and comments have been directly retained from this source. Original source code  
+* The code has been adapted to Vulkan from the WebGL-based implementation
+* https://github.com/mkkellogg/GaussianSplats3D. Some mathematical formulations
+* and comments have been directly retained from this source. Original source code
 * licence hereafter.
 * ----------------------------------
 * The MIT License (MIT)
-* 
+*
 * Copyright (c) 2023 Mark Kellogg
-* 
+*
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the "Software"), to deal
 * in the Software without restriction, including without limitation the rights
 * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 * copies of the Software, and to permit persons to whom the Software is
 * furnished to do so, subject to the following conditions:
-* 
+*
 * The above copyright notice and this permission notice shall be included in all
 * copies or substantial portions of the Software.
-* 
+*
 * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -46,8 +46,7 @@
 * SOFTWARE.
 */
 
-#include "wireframe.h.slang"
-#include "shaderio.h"
+#include "shaderio.h.slang"
 
 // clang-format off
 
@@ -79,8 +78,6 @@ struct FragmentOutput
 {
   [[vk::location(0)]] float4 outColor : SV_Target0;
 };
-
-[[vk::binding(BINDING_FRAME_INFO_UBO, 0)]] ConstantBuffer<FrameInfo> frameInfo;
 
 // clang-format on
 

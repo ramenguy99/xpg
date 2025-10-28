@@ -9,6 +9,15 @@ Priority:
     - [ ] Buffer suballocation / texture array for huge number of frames:
         -> can't afford one buffer per-frame when uploading lots of frames
         -> currently can work around this with streaming API
+    - [ ] How do we want to handle properties that can have multiple dtypes?
+        - Use cases:
+            - vertex attribute formats for meshes
+            - spherical harmonics formats for gs
+        - [ ] Ideally want to infer from dtype of data passed in, but right now BufferProperty could have
+              a None dtype, or we could get a tuple of scalars, or some list of heterogeneous frames.
+              We might want to force a BufferProperty to always have a concrete dtype, kind of like a numpy array does
+              I don't think we have a usecase yet for frames with different dtypes, this anyways makes certain things
+              very hard because different dtype choices likely require different pipelines and shaders.
 - [ ] Lights, materials and shader permutations
     - [x] Cache shader compilations also in memory
     - [x] Ambient light
@@ -204,6 +213,7 @@ TODO:
 - [ ] Extra Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
     - [ ] Meshoptimizer + meshlets
     - [ ] Gaussian splats
+        - [ ] Move into shaders/3d, it's integrated enough that we kinda need that.
     - [ ] Ray marching / octrees
     - [ ] Marching cubes
     - [ ] Pointclouds
@@ -247,6 +257,7 @@ Tools:
     # Lint (not including examples)
     ruff check --exclude examples
     ruff check --exclude examples --fix
+- [ ] clang-format shaders
 - [ ] run on CI once we have automated build / tests
 
 

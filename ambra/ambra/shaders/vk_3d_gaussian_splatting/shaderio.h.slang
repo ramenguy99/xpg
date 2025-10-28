@@ -76,44 +76,15 @@
 #define KERNEL_DEGREE_LINEAR 0
 
 // bindings for set 0 (common to Raster and RTX)
-#define BINDING_FRAME_INFO_UBO 0
-#define BINDING_CENTERS_TEXTURE 1
-#define BINDING_COLORS_TEXTURE 2
-#define BINDING_COVARIANCES_TEXTURE 3
-#define BINDING_SH_TEXTURE 4
-#define BINDING_DISTANCES_BUFFER 5
-#define BINDING_INDICES_BUFFER 6
-#define BINDING_INDIRECT_BUFFER 7
-#define BINDING_CENTERS_BUFFER 8
-#define BINDING_COLORS_BUFFER 9
-#define BINDING_COVARIANCES_BUFFER 10
-#define BINDING_SH_BUFFER 11
-#define BINDING_SCALES_TEXTURE 12
-#define BINDING_ROTATIONS_TEXTURE 13
-#define BINDING_SCALES_BUFFER 14
-#define BINDING_ROTATIONS_BUFFER 15
-#define BINDING_OPACITY_TEXTURE 16
-#define BINDING_OPACITY_BUFFER 17
-#define BINDING_RTX_PAYLOAD_BUFFER 18
-#define BINDING_MESH_DESCRIPTORS 19
-#define BINDING_LIGHT_SET 20
+// #define BINDING_FRAME_INFO_UBO 0
 
-// bindings for set 1 of RTX
-#define RTX_BINDING_OUTIMAGE 0        // Ray tracer output image
-#define RTX_BINDING_TLAS_SPLATS 1     // Top-level acceleration structure for splats
-#define RTX_BINDING_TLAS_MESH 2       // Top-level acceleration structure for meshes
-#define RTX_BINDING_PAYLOAD_BUFFER 3  // the alternative to payload stack (less efficient)
-#define RTX_BINDING_AUX1 4            // Ray tracer auxiliary output image, when using hybrid mode + temporal sampling
-#define RTX_BINDING_OUTDEPTH 5        // depth buffer
-
-// Temporal sampling mode
-#define TEMPORAL_SAMPLING_AUTO 0  // Detects automatically if TS is needed for best visual results (e.g. if DoF is on)
-#define TEMPORAL_SAMPLING_ENABLED 1   // Force enabled
-#define TEMPORAL_SAMPLING_DISABLED 2  // Force disabled
-
-// bindings for set 0 of Post Process (0 is reserved for BINDING_FRAME_INFO_UBO)
-#define POST_BINDING_MAIN_IMAGE 1  // the image that is presented
-#define POST_BINDING_AUX1_IMAGE 2  // optional aux image to be accumulated (for example)
+#define BINDING_DISTANCES_BUFFER 0
+#define BINDING_INDICES_BUFFER 1
+#define BINDING_INDIRECT_BUFFER 2
+#define BINDING_CENTERS_BUFFER 3
+#define BINDING_COLORS_BUFFER 4
+#define BINDING_COVARIANCES_BUFFER 5
+#define BINDING_SH_BUFFER 6
 
 // location for vertex attributes
 // (only for vertex shader mode)
@@ -125,57 +96,22 @@
 
 #define DEFAULT(val)
 
-struct FrameInfo
-{
-  float3   cameraPosition;  // position in world space
-  float4   viewQuat;        // quaternion storing the rotation part of the view matrix
-  float3   viewTrans;       // translation part of the view matrix
-  float4x4 viewMatrix;
-  float4x4 viewInverse;  // Camera inverse view matrix
-
-  float4x4 projectionMatrix;
-  float4x4 projInverse;  // Camera inverse projection matrix
-  float2   nearFar;
-  float2   focal;
-  float2   viewport;
-  float2   basisViewport;
-
-  float fovRad                 DEFAULT(0.009f);  // Field of view in radians for fisheye camera
-  float inverseFocalAdjustment DEFAULT(1.0f);
-
-  // Ortho is not fully implemented
-  float orthoZoom          DEFAULT(1.0f);  //
-  int32_t orthographicMode DEFAULT(0);     // disabled, in [0,1]
-
-  int32_t splatCount DEFAULT(0);     //
-  float splatScale   DEFAULT(1.0f);  // in {0.1, 2.0}
-
-  float frustumDilation    DEFAULT(0.2f);           // for frustum culling, 2% scale
-  float alphaCullThreshold DEFAULT(1.0f / 255.0f);  // for alpha culling
-
-  int32_t lightCount DEFAULT(0);
-  int2               cursor;        // position of the mouse cursor for debug
-  int32_t maxPasses  DEFAULT(200);  // RTX maximum hits during marching
-
-  float alphaClamp       DEFAULT(0.99f);  // 0.99 in original paper
-  float minTransmittance DEFAULT(0.01f);  // 0.1  in original paper ? TO check
-  int32_t rtxMaxBounces  DEFAULT(3);
-
-  float multiplier DEFAULT(1.0f);  // for alternative visualization modes
-
-  int32_t frameSampleId  DEFAULT(0);    // the frame sample index since last frame sampling reset
-  int32_t frameSampleMax DEFAULT(200);  // maximum number of frame after which we stop accumulating frames samples
-
-  float focusDist DEFAULT(1.3f);    // focus distance to compute depth of field
-  float aperture  DEFAULT(0.001f);  // aperture distance to compute depth of field, 0 does no DOF effect
-};
-
 // Push constant for raster
 struct PushConstant
 {
   // model transformation
-  float4x4 modelMatrix;
-  float4x4 modelMatrixInverse;
+  float3x4 modelMatrix;
+  float3x4 modelMatrixInverse;
+
+  // Splat count
+  uint32_t splatCount;
+  float alphaCullThreshold;
+  float focal;
+  float splatScale;
+
+  float2 basisViewport;
+  float inverseFocalAdjustment;
+  float frustumDilation;
 };
 
 // indirect parameters for

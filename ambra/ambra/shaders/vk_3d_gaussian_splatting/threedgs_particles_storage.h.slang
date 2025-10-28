@@ -21,34 +21,22 @@
 #define _THREEDGS_PARTICLE_STORAGE_H_
 
 // clang-format off
-#if DATA_STORAGE == STORAGE_TEXTURES
-  // textures map describing the 3DGS model
-  [[vk::binding(BINDING_CENTERS_TEXTURE, 0)]] Sampler2D centersTexture;
-  [[vk::binding(BINDING_SCALES_TEXTURE, 0)]] Sampler2D scalesTexture;
-  [[vk::binding(BINDING_ROTATIONS_TEXTURE, 0)]] Sampler2D rotationsTexture;
-  [[vk::binding(BINDING_COLORS_TEXTURE, 0)]] Sampler2D colorsTexture;
-  [[vk::binding(BINDING_COVARIANCES_TEXTURE, 0)]] Sampler2D covariancesTexture;
-  [[vk::binding(BINDING_SH_TEXTURE, 0)]] Sampler2D sphericalHarmonicsTexture;
+// buffers describing the 3DGS model (alternative to textures)
+[[vk::binding(BINDING_CENTERS_BUFFER, 1)]] StructuredBuffer<float> centersBuffer;
+[[vk::binding(BINDING_COLORS_BUFFER, 1)]] StructuredBuffer<float> colorsBuffer;
+[[vk::binding(BINDING_COVARIANCES_BUFFER, 1)]] StructuredBuffer<float> covariancesBuffer;
+#if SH_FORMAT == FORMAT_FLOAT32
+  [[vk::binding(BINDING_SH_BUFFER, 1)]] StructuredBuffer<float> sphericalHarmonicsBuffer;
 #else
-  // buffers describing the 3DGS model (alternative to textures)
-  [[vk::binding(BINDING_CENTERS_BUFFER, 0)]] RWStructuredBuffer<float> centersBuffer;
-  [[vk::binding(BINDING_SCALES_BUFFER, 0)]] RWStructuredBuffer<float> scalesBuffer;
-  [[vk::binding(BINDING_ROTATIONS_BUFFER, 0)]] RWStructuredBuffer<float> rotationsBuffer;
-  [[vk::binding(BINDING_COLORS_BUFFER, 0)]] RWStructuredBuffer<float> colorsBuffer;
-  [[vk::binding(BINDING_COVARIANCES_BUFFER, 0)]] RWStructuredBuffer<float> covariancesBuffer;
-  #if SH_FORMAT == FORMAT_FLOAT32
-    [[vk::binding(BINDING_SH_BUFFER, 0)]] RWStructuredBuffer<float> sphericalHarmonicsBuffer;
-  #else
-  #if SH_FORMAT == FORMAT_FLOAT16 
-    [[vk::binding(BINDING_SH_BUFFER, 0)]] RWStructuredBuffer<float16_t> sphericalHarmonicsBuffer;
-  #else
-  #if SH_FORMAT == FORMAT_UINT8
-    [[vk::binding(BINDING_SH_BUFFER, 0)]] RWStructuredBuffer<uint8_t> sphericalHarmonicsBuffer;
-  #else
-    #error "Unsupported SH format"
-  #endif
-  #endif
-  #endif
+#if SH_FORMAT == FORMAT_FLOAT16
+  [[vk::binding(BINDING_SH_BUFFER, 1)]] StructuredBuffer<float16_t> sphericalHarmonicsBuffer;
+#else
+#if SH_FORMAT == FORMAT_UINT8
+  [[vk::binding(BINDING_SH_BUFFER, 1)]] StructuredBuffer<uint8_t> sphericalHarmonicsBuffer;
+#else
+  #error "Unsupported SH format"
+#endif
+#endif
 #endif
 // clang-format on
 
@@ -77,189 +65,19 @@ int2 getDataPosF(in uint splatIndex, in float stride, in uint offset, in int2 di
   return int2(fullOffset % dimensions.x, fullOffset / dimensions.x);
 }
 
-#if DATA_STORAGE == STORAGE_TEXTURES
-// fetch center value from texture map
-float3 fetchCenter(in uint splatIndex)
-{
-  int2 texSize;
-  centersTexture.GetDimensions(texSize.x, texSize.y);
-  return centersTexture.Load(int3(getDataPos(splatIndex, 1, 0, texSize), 0)).xyz;
-}
-#else
 // fetch center value from data buffer
 float3 fetchCenter(in uint splatIndex)
 {
   return float3(centersBuffer[splatIndex * 3 + 0], centersBuffer[splatIndex * 3 + 1], centersBuffer[splatIndex * 3 + 2]);
 }
-#endif
 
-#if DATA_STORAGE == STORAGE_TEXTURES
-// fetch scale value from texture map
-float3 fetchScale(in uint splatIndex)
-{
-  int2 texSize;
-  scalesTexture.GetDimensions(texSize.x, texSize.y);
-  return scalesTexture.Load(int3(getDataPos(splatIndex, 1, 0, texSize), 0)).xyz;
-}
-#else
-// fetch scale value from data buffer
-float3 fetchScale(in uint splatIndex)
-{
-  return float3(scalesBuffer[splatIndex * 3 + 0], scalesBuffer[splatIndex * 3 + 1], scalesBuffer[splatIndex * 3 + 2]);
-}
-#endif
-
-#if DATA_STORAGE == STORAGE_TEXTURES
-// fetch rotation value from texture map
-float4 fetchRotation(in uint splatIndex)
-{
-  int2 texSize;
-  rotationsTexture.GetDimensions(texSize.x, texSize.y);
-  return rotationsTexture.Load(int3(getDataPos(splatIndex, 1, 0, texSize), 0));
-}
-#else
-// fetch rotation value from data buffer
-float4 fetchRotation(in uint splatIndex)
-{
-  return float4(rotationsBuffer[splatIndex * 4 + 0], rotationsBuffer[splatIndex * 4 + 1],
-                rotationsBuffer[splatIndex * 4 + 2], rotationsBuffer[splatIndex * 4 + 3]);
-}
-#endif
-
-/*
-// fetch opacity value from texture map
-float fetchOpacity(in uint splatIndex)
-{
-#if DATA_STORAGE == STORAGE_TEXTURES
-  // TODO this is wrong
-  return texelFetch(opacityTexture, getDataPos(splatIndex, 1, 0, textureSize(opacityTexture, 0));
-#else
-  return opacityBuffer[splatIndex];
-#endif
-}*/
-
-#if DATA_STORAGE == STORAGE_TEXTURES
-// fetchColor replaces fetchSH0 since non view dependent color is precomputed on CPU
-float4 fetchColor(in uint splatIndex)
-{
-  int2 texSize;
-  colorsTexture.GetDimensions(texSize.x, texSize.y);
-  return colorsTexture.Load(int3(getDataPos(splatIndex, 1, 0, texSize), 0));
-}
-#else
 // fetch center value from data buffer
 float4 fetchColor(in uint splatIndex)
 {
   return float4(colorsBuffer[splatIndex * 4 + 0], colorsBuffer[splatIndex * 4 + 1], colorsBuffer[splatIndex * 4 + 2],
                 colorsBuffer[splatIndex * 4 + 3]);
 }
-#endif
 
-#if DATA_STORAGE == STORAGE_TEXTURES
-// fetch from data textures
-void fetchSh(in uint    splatIndex,
-             out float3 shd1[3]
-#if MAX_SH_DEGREE >= 2
-             ,
-             out float3 shd2[5]
-#endif
-#if MAX_SH_DEGREE >= 3
-             ,
-             out float3 shd3[7]
-#endif
-)
-{
-  const float SphericalHarmonics8BitCompressionRange = 2.0;
-  const float3 vec8BitSHShift = float3(SphericalHarmonics8BitCompressionRange / 2.0, SphericalHarmonics8BitCompressionRange / 2.0,
-                                       SphericalHarmonics8BitCompressionRange / 2.0);
-
-  int2 texSize;
-  sphericalHarmonicsTexture.GetDimensions(texSize.x, texSize.y);
-
-  const uint stride = 12;  // 12 for degree 3, 6 for degree 2
-  // fetching degree 1
-  const float4 sampledSH0123   = sphericalHarmonicsTexture.Load(int3(getDataPos(splatIndex, stride, 0, texSize), 0));
-  const float4 sampledSH4567   = sphericalHarmonicsTexture.Load(int3(getDataPos(splatIndex, stride, 1, texSize), 0));
-  const float4 sampledSH891011 = sphericalHarmonicsTexture.Load(int3(getDataPos(splatIndex, stride, 2, texSize), 0));
-
-  const float3 sh1 = sampledSH0123.rgb;
-  const float3 sh2 = float3(sampledSH0123.a, sampledSH4567.rg);
-  const float3 sh3 = float3(sampledSH4567.ba, sampledSH891011.r);
-
-#if SH_FORMAT != FORMAT_UINT8
-  shd1[0] = sh1;
-  shd1[1] = sh2;
-  shd1[2] = sh3;
-#else
-  shd1[0] = sh1 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-  shd1[1] = sh2 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-  shd1[2] = sh3 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-#endif
-
-  // fetching degree 2
-#if MAX_SH_DEGREE >= 2
-  const float4 sampledSH12131415 = sphericalHarmonicsTexture.Load(int3(getDataPos(splatIndex, stride, 3, texSize), 0));
-  const float4 sampledSH16171819 = sphericalHarmonicsTexture.Load(int3(getDataPos(splatIndex, stride, 4, texSize), 0));
-  const float4 sampledSH20212223 = sphericalHarmonicsTexture.Load(int3(getDataPos(splatIndex, stride, 5, texSize), 0));
-
-  const float3 sh4 = sampledSH891011.gba;
-  const float3 sh5 = sampledSH12131415.rgb;
-  const float3 sh6 = float3(sampledSH12131415.a, sampledSH16171819.rg);
-  const float3 sh7 = float3(sampledSH16171819.ba, sampledSH20212223.r);
-  const float3 sh8 = sampledSH20212223.gba;
-
-#if SH_FORMAT != FORMAT_UINT8
-  shd2[0] = sh4;
-  shd2[1] = sh5;
-  shd2[2] = sh6;
-  shd2[3] = sh7;
-  shd2[4] = sh8;
-#else
-  shd2[0] = sh4 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-  shd2[1] = sh5 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-  shd2[2] = sh6 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-  shd2[3] = sh7 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-  shd2[4] = sh8 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-#endif
-#endif
-
-  // Fetching degree 3
-#if MAX_SH_DEGREE >= 3
-  const float4 sampledSH24252627 = sphericalHarmonicsTexture.Load(int3(getDataPos(splatIndex, stride, 6, texSize), 0));
-  const float4 sampledSH28293031 = sphericalHarmonicsTexture.Load(int3(getDataPos(splatIndex, stride, 7, texSize), 0));
-  const float4 sampledSH32333435 = sphericalHarmonicsTexture.Load(int3(getDataPos(splatIndex, stride, 8, texSize), 0));
-  const float4 sampledSH36373839 = sphericalHarmonicsTexture.Load(int3(getDataPos(splatIndex, stride, 9, texSize), 0));
-  const float4 sampledSH404142   = sphericalHarmonicsTexture.Load(int3(getDataPos(splatIndex, stride, 10, texSize), 0));
-  const float4 sampledSH434445   = sphericalHarmonicsTexture.Load(int3(getDataPos(splatIndex, stride, 11, texSize), 0));
-
-  const float3 sh9  = sampledSH24252627.rgb;
-  const float3 sh10 = float3(sampledSH24252627.a, sampledSH28293031.rg);
-  const float3 sh11 = float3(sampledSH28293031.ba, sampledSH32333435.r);
-  const float3 sh12 = sampledSH32333435.gba;
-  const float3 sh13 = sampledSH36373839.rgb;
-  const float3 sh14 = float3(sampledSH36373839.a, sampledSH404142.rg);
-  const float3 sh15 = float3(sampledSH404142.ba, sampledSH434445.r);
-
-#if SH_FORMAT != FORMAT_UINT8
-  shd3[0] = sh9;
-  shd3[1] = sh10;
-  shd3[2] = sh11;
-  shd3[3] = sh12;
-  shd3[4] = sh13;
-  shd3[5] = sh14;
-  shd3[6] = sh15;
-#else
-  shd3[0] = sh9 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-  shd3[1] = sh10 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-  shd3[2] = sh11 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-  shd3[3] = sh12 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-  shd3[4] = sh13 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-  shd3[5] = sh14 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-  shd3[6] = sh15 * SphericalHarmonics8BitCompressionRange - vec8BitSHShift;
-#endif
-#endif
-}
-#else
 // fetch from data buffers
 void fetchSh(in uint    splatIndex,
              out float3 shd1[3]
@@ -390,37 +208,7 @@ void fetchSh(in uint    splatIndex,
 #endif
 #endif
 }
-#endif
 
-#if DATA_STORAGE == STORAGE_TEXTURES
-float3x3 fetchCovariance(in uint splatIndex)
-{
-  // Use RGBA texture map to store sets of 3 elements requires some offset shifting depending on splatIndex
-
-  const uint  oddOffset        = uint(splatIndex) & uint(0x00000001);
-  const uint  doubleOddOffset  = oddOffset * uint(2);
-  const bool  isEven           = oddOffset == uint(0);
-  const uint  nearestEvenIndex = uint(splatIndex) - oddOffset;
-  const float fOddOffset       = float(oddOffset);
-
-  int2 texSize;
-  covariancesTexture.GetDimensions(texSize.x, texSize.y);
-
-  const float4 sampledCovarianceA = covariancesTexture.Load(int3(getDataPosF(nearestEvenIndex, 1.5, oddOffset, texSize), 0));
-
-  const float4 sampledCovarianceB =
-      covariancesTexture.Load(int3(getDataPosF(nearestEvenIndex, 1.5, oddOffset + uint(1), texSize), 0));
-
-  const float3 cov3D_M11_M12_M13 =
-      float3(sampledCovarianceA.rgb) * (1.0 - fOddOffset) + float3(sampledCovarianceA.ba, sampledCovarianceB.r) * fOddOffset;
-
-  const float3 cov3D_M22_M23_M33 =
-      float3(sampledCovarianceA.a, sampledCovarianceB.rg) * (1.0 - fOddOffset) + float3(sampledCovarianceB.gba) * fOddOffset;
-
-  return float3x3(cov3D_M11_M12_M13.x, cov3D_M11_M12_M13.y, cov3D_M11_M12_M13.z, cov3D_M11_M12_M13.y, cov3D_M22_M23_M33.x,
-                  cov3D_M22_M23_M33.y, cov3D_M11_M12_M13.z, cov3D_M22_M23_M33.y, cov3D_M22_M23_M33.z);
-}
-#else
 float3x3 fetchCovariance(in uint splatIndex)
 {
   // Use RGBA texture map to store sets of 3 elements requires some offset shifting depending on splatIndex
@@ -432,7 +220,6 @@ float3x3 fetchCovariance(in uint splatIndex)
   return float3x3(cov3D_M11_M12_M13.x, cov3D_M11_M12_M13.y, cov3D_M11_M12_M13.z, cov3D_M11_M12_M13.y, cov3D_M22_M23_M33.x,
                   cov3D_M22_M23_M33.y, cov3D_M11_M12_M13.z, cov3D_M22_M23_M33.y, cov3D_M22_M23_M33.z);
 }
-#endif
 
 float3 fetchViewDependentRadiance(in uint splatIndex, in float3 worldViewDir)
 {
@@ -500,4 +287,4 @@ float3 fetchViewDependentRadiance(in uint splatIndex, in float3 worldViewDir)
   return rgb;
 }
 
-#endif 
+#endif
