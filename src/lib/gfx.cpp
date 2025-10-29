@@ -598,6 +598,12 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     storage_16bit_features.uniformAndStorageBuffer16BitAccess = VK_TRUE;
     CHAIN(storage_16bit_features, DeviceFeatures::STORAGE_16BIT);
 
+    // Mesh shader
+    VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
+    mesh_shader_features.taskShader = VK_TRUE;
+    mesh_shader_features.meshShader = VK_TRUE;
+    CHAIN(mesh_shader_features, DeviceFeatures::MESH_SHADER);
+
     // Feature dependencies
     FeatureAndExtensionDependencies<1, 3> dynamic_rendering_deps = {
         .flag = DeviceFeatures::DYNAMIC_RENDERING,
@@ -723,6 +729,14 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         .extensions = { VK_KHR_16BIT_STORAGE_EXTENSION_NAME },
     };
 
+    FeatureAndExtensionDependencies<1, 1> mesh_shader_deps = {
+        .flag = DeviceFeatures::MESH_SHADER,
+        .features_req = { (GenericFeatureStruct*)&mesh_shader_features },
+        .features_sup = { (GenericFeatureStruct*)&mesh_shader_features_sup },
+        .extensions = { VK_EXT_MESH_SHADER_EXTENSION_NAME },
+    };
+
+
     ExtensionDependencies<2> external_resources_deps = {
         .flag = DeviceFeatures::EXTERNAL_RESOURCES,
         .extensions = {
@@ -747,6 +761,13 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         .flag = DeviceFeatures::SHADER_DRAW_PARAMETERS,
         .extensions = {
             VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
+        },
+    };
+
+    ExtensionDependencies<1> draw_indirect_count_deps = {
+        .flag = DeviceFeatures::DRAW_INDIRECT_COUNT,
+        .extensions = {
+            VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME,
         },
     };
 
@@ -946,6 +967,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(shader_subgroup_extended_types);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(storage_8bit);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(storage_16bit);
+            CHECK_SUPPORTED_EXTENSIONS(draw_indirect_count);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(mesh_shader);
 
             if (features_to_check & DeviceFeatures::WIDE_LINES)
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.wideLines ? DeviceFeatures::WIDE_LINES : 0));
@@ -1117,6 +1140,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(shader_subgroup_extended_types);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(storage_8bit);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(storage_16bit);
+    ENABLE_EXTENSIONS_IF_SUPPORTED(draw_indirect_count);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(mesh_shader);
 
     void* enabled_next = 0;
     for (usize i = 0; i < enabled_features.length; i++) {

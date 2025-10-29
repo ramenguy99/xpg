@@ -1484,6 +1484,13 @@ struct CommandBuffer: GfxObject {
         vkCmdDispatch(buffer, groups_x, groups_y, groups_z);
     }
 
+    void dispatch_indirect(
+        nb::ref<Buffer> buf,
+        VkDeviceSize offset
+    ) {
+        vkCmdDispatchIndirect(buffer, buf->buffer.buffer, offset);
+    }
+
     void draw(
         u32 num_vertices,
         u32 num_instances,
@@ -1491,6 +1498,29 @@ struct CommandBuffer: GfxObject {
         u32 first_instance
     ) {
         vkCmdDraw(buffer, num_vertices, num_instances, first_vertex, first_instance);
+    }
+
+    void draw_indirect(
+        nb::ref<Buffer> buf,
+        VkDeviceSize offset,
+        u32 draw_count,
+        u32 stride
+    ) {
+        vkCmdDrawIndirect(buffer, buf->buffer.buffer, offset, draw_count, stride);
+    }
+
+    void draw_indirect_count(
+        nb::ref<Buffer> buf,
+        VkDeviceSize offset,
+        nb::ref<Buffer> count_buf,
+        VkDeviceSize count_offset,
+        u32 max_draw_count,
+        u32 stride
+    ) {
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
+            throw std::runtime_error("Device feature DRAW_INDIRECT_COUNT must be set to use CommandBuffer.draw_indirect_count");
+        }
+        vkCmdDrawIndirectCount(buffer, buf->buffer.buffer, offset, count_buf->buffer.buffer, count_offset, max_draw_count, stride);
     }
 
     void draw_indexed(
@@ -1502,6 +1532,70 @@ struct CommandBuffer: GfxObject {
     ) {
         vkCmdDrawIndexed(buffer, num_indices, num_instances, first_index, vertex_offset, first_instance);
     }
+
+    void draw_indexed_indirect(
+        nb::ref<Buffer> buf,
+        VkDeviceSize offset,
+        u32 draw_count,
+        u32 stride
+    ) {
+        vkCmdDrawIndexedIndirect(buffer, buf->buffer.buffer, offset, draw_count, stride);
+    }
+
+    void draw_indexed_indirect_count(
+        nb::ref<Buffer> buf,
+        VkDeviceSize offset,
+        nb::ref<Buffer> count_buf,
+        VkDeviceSize count_offset,
+        u32 max_draw_count,
+        u32 stride
+    ) {
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
+            throw std::runtime_error("Device feature DRAW_INDIRECT_COUNT must be set to use CommandBuffer.draw_indexed_indirect_count");
+        }
+        vkCmdDrawIndexedIndirectCount(buffer, buf->buffer.buffer, offset, count_buf->buffer.buffer, count_offset, max_draw_count, stride);
+    }
+
+    void draw_mesh_tasks(
+        u32 groups_x,
+        u32 groups_y,
+        u32 groups_z
+    ) {
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
+            throw std::runtime_error("Device feature MESH_SHADER must be set to use CommandBuffer.draw_mesh_tasks");
+        }
+        vkCmdDrawMeshTasksEXT(buffer, groups_x, groups_y, groups_z);
+    }
+
+    void draw_mesh_tasks_indirect(
+        nb::ref<Buffer> buf,
+        VkDeviceSize offset,
+        u32 draw_count,
+        u32 stride
+    ) {
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
+            throw std::runtime_error("Device feature MESH_SHADER must be set to use CommandBuffer.draw_mesh_tasks_indirect");
+        }
+        vkCmdDrawMeshTasksIndirectEXT(buffer, buf->buffer.buffer, offset, draw_count, stride);
+    }
+
+    void draw_mesh_tasks_indirect_count(
+        nb::ref<Buffer> buf,
+        VkDeviceSize offset,
+        nb::ref<Buffer> count_buf,
+        VkDeviceSize count_offset,
+        u32 max_draw_count,
+        u32 stride
+    ) {
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
+            throw std::runtime_error("Device feature MESH_SHADER must be set to use CommandBuffer.draw_mesh_tasks_indirect_count");
+        }
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
+            throw std::runtime_error("Device feature DRAW_INDIRECT_COUNT must be set to use CommandBuffer.draw_mesh_tasks_indirect_count");
+        }
+        vkCmdDrawMeshTasksIndirectCountEXT(buffer, buf->buffer.buffer, offset, count_buf->buffer.buffer, count_offset, max_draw_count, stride);
+    }
+
 
     void fill_buffer(const Buffer& buf, u32 data, VkDeviceSize size, VkDeviceSize offset) {
         vkCmdFillBuffer(buffer, buf.buffer.buffer, offset, size, data);
@@ -3192,6 +3286,8 @@ void gfx_create_bindings(nb::module_& m)
         .value("SHADER_SUBGROUP_EXTENDED_TYPES",          gfx::DeviceFeatures::SHADER_SUBGROUP_EXTENDED_TYPES)
         .value("STORAGE_8BIT",                            gfx::DeviceFeatures::STORAGE_8BIT)
         .value("STORAGE_16BIT",                           gfx::DeviceFeatures::STORAGE_16BIT)
+        .value("DRAW_INDIRECT_COUNT",                     gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)
+        .value("MESH_SHADER",                             gfx::DeviceFeatures::MESH_SHADER)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")
@@ -4355,11 +4451,29 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("groups_y") = 1,
             nb::arg("groups_z") = 1
         )
+        .def("dispatch_indirect", &CommandBuffer::dispatch_indirect,
+            nb::arg("buffer"),
+            nb::arg("offset")
+        )
         .def("draw", &CommandBuffer::draw,
             nb::arg("num_vertices"),
             nb::arg("num_instances") = 1,
             nb::arg("first_vertex") = 0,
             nb::arg("first_instance") = 0
+        )
+        .def("draw_indirect", &CommandBuffer::draw_indirect,
+            nb::arg("buffer"),
+            nb::arg("offset"),
+            nb::arg("draw_count"),
+            nb::arg("stride")
+        )
+        .def("draw_indirect_count", &CommandBuffer::draw_indirect_count,
+            nb::arg("buffer"),
+            nb::arg("offset"),
+            nb::arg("count_buffer"),
+            nb::arg("count_offset"),
+            nb::arg("max_draw_count"),
+            nb::arg("stride")
         )
         .def("draw_indexed", &CommandBuffer::draw_indexed,
             nb::arg("num_indices"),
@@ -4367,6 +4481,39 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("first_index") = 0,
             nb::arg("vertex_offset") = 0,
             nb::arg("first_instance") = 0
+        )
+        .def("draw_indexed_indirect", &CommandBuffer::draw_indexed_indirect,
+            nb::arg("buffer"),
+            nb::arg("offset"),
+            nb::arg("draw_count"),
+            nb::arg("stride")
+        )
+        .def("draw_indexed_indirect_count", &CommandBuffer::draw_indexed_indirect_count,
+            nb::arg("buffer"),
+            nb::arg("offset"),
+            nb::arg("count_buffer"),
+            nb::arg("count_offset"),
+            nb::arg("max_draw_count"),
+            nb::arg("stride")
+        )
+        .def("draw_mesh_tasks", &CommandBuffer::draw_mesh_tasks,
+            nb::arg("groups_x"),
+            nb::arg("groups_y") = 1,
+            nb::arg("groups_z") = 1
+        )
+        .def("draw_mesh_tasks_indirect", &CommandBuffer::draw_mesh_tasks_indirect,
+            nb::arg("buffer"),
+            nb::arg("offset"),
+            nb::arg("draw_count"),
+            nb::arg("stride")
+        )
+        .def("draw_mesh_tasks_indirect_count", &CommandBuffer::draw_mesh_tasks_indirect_count,
+            nb::arg("buffer"),
+            nb::arg("offset"),
+            nb::arg("count_buffer"),
+            nb::arg("count_offset"),
+            nb::arg("max_draw_count"),
+            nb::arg("stride")
         )
         .def("fill_buffer", &CommandBuffer::fill_buffer,
             nb::arg("buffer"),

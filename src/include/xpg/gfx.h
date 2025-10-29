@@ -92,6 +92,8 @@ struct DeviceFeatures {
         SHADER_SUBGROUP_EXTENDED_TYPES          = 1ull << 15,
         STORAGE_8BIT                            = 1ull << 16,
         STORAGE_16BIT                           = 1ull << 17,
+        DRAW_INDIRECT_COUNT                     = 1ull << 18,
+        MESH_SHADER                             = 1ull << 19,
     };
 
     DeviceFeatures() {};
