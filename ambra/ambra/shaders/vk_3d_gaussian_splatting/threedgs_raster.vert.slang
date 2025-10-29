@@ -125,7 +125,7 @@ VertexOutput main(VertexInput input)
   // fetch radiance from SH coefs > degree 0
   // const float3 worldViewDir = normalize(splatCenter - frameInfo.cameraPosition);
   const float3 worldViewDir =
-      normalize(splatCenter - mul(pcRaster.modelMatrixInverse, float4(g_constants.world_camera_position, 1.0),).xyz);
+      normalize(splatCenter - mul(pcRaster.modelMatrixInverse, float4(g_constants.world_camera_position, 1.0)).xyz);
 
   splatColor.rgb += fetchViewDependentRadiance(splatIndex, worldViewDir);
 
@@ -157,6 +157,7 @@ VertexOutput main(VertexInput input)
 
   const float2 ndcOffset = float2(fragPos.x * basisVector1 + fragPos.y * basisVector2) * g_constants.inverse_viewport_size * 2.0;
 
+  // TODO: can we multiply ndcOffset by clipCenter.w instead of dividing by ndcCenter.w here?
   const float4 quadPos = float4(ndcCenter.xy + ndcOffset, ndcCenter.z, 1.0);
 
   // Emit the vertex position

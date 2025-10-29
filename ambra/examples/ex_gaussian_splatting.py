@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from ambra.primitives3d import Lines
 import numpy as np
 from pyglm.glm import inverse, mat4x3
 from pyxpg import (
@@ -211,8 +212,8 @@ class GaussianSplats(Object3D):
             name=f"{self.name}-draw-param",
         )
 
-        quad_vertices = np.array([0, 2, 1, 2, 0, 3], np.uint32)
-        quad_indices = np.array([-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0], np.float32)
+        quad_vertices = np.array([-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0], np.float32)
+        quad_indices = np.array([0, 2, 1, 2, 0, 3], np.uint32)
         self.quad_vertices = Buffer.from_data(
             r.ctx,
             quad_vertices,
@@ -318,7 +319,7 @@ class GaussianSplats(Object3D):
                     alpha_blend_op=BlendOp.ADD,
                 )
             ],
-            depth=Depth(r.depth_format, True, False, r.depth_compare_op),
+            depth=Depth(r.depth_format, False, False, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
                 self.descriptor_layout,
@@ -397,9 +398,9 @@ class GaussianSplats(Object3D):
 # print(splats.sh.shape)
 
 positions = np.zeros((1, 3), np.float32)
-colors = np.zeros((1, 4), np.float32)
+colors = np.array([[0, 0, 0, 1]], np.float32)
 sh = np.zeros((1, 13), np.uint8)
-covariances = np.zeros((1, 6), np.float32)
+covariances = np.array([1, 0, 0, 5, 0, 10], np.float32) * 10
 
 gs = GaussianSplats(positions, colors, sh, covariances)
 
@@ -410,5 +411,34 @@ v = Viewer(
 )
 v.viewport.scene.objects.append(gs)
 
-# print(v.ctx.device_features)
+positions = np.array(
+    [
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ],
+    np.float32,
+)
+
+colors = np.array(
+    [
+        0xFF0000FF,
+        0xFF0000FF,
+        0xFF00FF00,
+        0xFF00FF00,
+        0xFFFF0000,
+        0xFFFF0000,
+    ],
+    np.uint32,
+)
+
+line_width = 1
+
+line = Lines(positions, colors, line_width)
+
+v.viewport.scene.objects.extend([line])
+
 v.run()

@@ -34,16 +34,16 @@ float3 threedgsCovarianceProjection(float3x3 cov3Dm, float4 splatCenterView, flo
   // 3D covariance matrix instead of using the actual projection matrix because that transformation would
   // require a non-linear component (perspective division) which would yield a non-gaussian result.
   const float s = 1.0 / (splatCenterView.z * splatCenterView.z);
-  const float3x3  J = float3x3(focal.x / splatCenterView.z, 0., -(focal.x * splatCenterView.x) * s, 0.,
-                       focal.y / splatCenterView.z, -(focal.y * splatCenterView.y) * s, 0., 0., 0.);
+  const float3x3  J = transpose(float3x3(focal.x / splatCenterView.z, 0., -(focal.x * splatCenterView.x) * s, 0.,
+                       focal.y / splatCenterView.z, -(focal.y * splatCenterView.y) * s, 0., 0., 0.));
 #endif
 
   // Concatenate the projection approximation with the model-view transformation
   const float3x3 W = float3x3(modelViewTransform);
-  const float3x3 T = mul(W, J);
+  const float3x3 T = mul(J, W);
 
   // Transform the 3D covariance matrix (cov3Dm) to compute the 2D covariance matrix
-  const float3x3 cov2Dm = mul(transpose(T), mul(cov3Dm, transpose(T)));
+  const float3x3 cov2Dm = mul(T, mul(cov3Dm, transpose(T)));
 
   // We are interested in the upper-left 2x2 portion of the projected 3D covariance matrix because
   // we only care about the X and Y values. We want the X-diagonal, cov2Dm[0][0],

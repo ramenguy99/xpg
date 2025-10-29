@@ -23,7 +23,7 @@ sort = GpuSortingPipeline(
 
 # Create random keys
 np.random.seed(42)
-N = 1 << 29
+N = 1 << 27
 keys_array = np.random.randint(0, 0xFFFFFFFF, N, np.uint32)
 
 # Alocate buffers
@@ -47,7 +47,7 @@ payload_alt = Buffer(v.ctx, payload.size, BufferUsageFlags.STORAGE, AllocType.DE
 
 BENCHMARK = True
 if BENCHMARK:
-    for i in range(29):
+    for i in range(27):
         n = 1 << i
         dt = 1000_000_000
         for _ in range(5):
@@ -60,7 +60,8 @@ if BENCHMARK:
                 cmd.write_timestamp(pool, 1, PipelineStageFlags.BOTTOM_OF_PIPE)
             res = pool.wait_results(0, 2)
             dt = min(dt, res[1] - res[0])
-        print(f"{n:12}: {(dt) * v.ctx.timestamp_period_ns * 1e-3:12.03f}us")
+        dt_ns = dt * v.ctx.timestamp_period_ns
+        print(f"{n:12}: {dt_ns * 1e-3:12.03f}us  {n / (dt_ns)} B/s")
 else:
     readback_keys = Buffer(
         v.ctx,
