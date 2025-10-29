@@ -329,7 +329,10 @@ class GpuSortingPipeline:
 
                 if partial_blocks > 0:
                     cmd.dispatch(partial_blocks, 1, 1)
-                    cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+
+                    # Skip barrier for last iteration
+                    if radix_shift < 24:
+                        cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
 
         else:
             # Device radix sort
@@ -381,4 +384,6 @@ class GpuSortingPipeline:
                     cmd.push_constants(self.device_radix_sort_pipeline.downsweep, self.constants.tobytes())
                     cmd.dispatch(partial_blocks, 1, 1)
 
-                cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+                # Skip barrier for last iteration
+                if radix_shift < 24:
+                    cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)

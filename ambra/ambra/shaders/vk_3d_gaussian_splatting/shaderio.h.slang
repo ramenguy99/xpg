@@ -17,67 +17,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _DEVICE_HOST_H_
-#define _DEVICE_HOST_H_
-
-// type of method used for sorting
-#define SORTING_GPU_SYNC_RADIX 0
-#define SORTING_CPU_ASYNC_MONO 1
-#define SORTING_CPU_ASYNC_MULTI 2
-
-// type of model storage
-#define STORAGE_BUFFERS 0
-#define STORAGE_TEXTURES 1
-
 // format for SH storage
 #define FORMAT_FLOAT32 0
 #define FORMAT_FLOAT16 1
 #define FORMAT_UINT8 2
-
-// type of pipeline used
-#define PIPELINE_VERT 0
-#define PIPELINE_MESH 1
-#define PIPELINE_RTX 2
-#define PIPELINE_HYBRID 3        // Hybrid rendering: raster primary rays (3DGS), raytrace secondary rays (3DGRT)
-#define PIPELINE_MESH_3DGUT 4    // 3DGUT (Unscented Transform) rasterization using mesh shaders
-#define PIPELINE_HYBRID_3DGUT 5  // Hybrid rendering: raster primary rays (3DGUT), raytrace secondary rays (3DGRT)
-
-// visualization mode
-#define VISUALIZE_FINAL 0
-#define VISUALIZE_CLOCK 1
-#define VISUALIZE_DEPTH 2
-#define VISUALIZE_RAYHITS 3
 
 // type of frustum culling
 #define FRUSTUM_CULLING_NONE 0
 #define FRUSTUM_CULLING_AT_DIST 1
 #define FRUSTUM_CULLING_AT_RASTER 2
 
-// method used to compute the 2D extent projection from the 3D covariance
-#define EXTENT_EIGEN 0  // basis aligned rectangular extent
-#define EXTENT_CONIC 1  // axis aligned rectangular extend as in original INRIA
-
-// type of camera
-#define CAMERA_PINHOLE 0
-#define CAMERA_FISHEYE 1
-
-// particle format (PF), RTX
-// not used in shaders (using RTX_USE_AABBS compiler defined instead)
-// used only by UI but here to be easier to find
-#define PARTICLE_FORMAT_ICOSAHEDRON 0
-#define PARTICLE_FORMAT_PARAMETRIC 1
-
-// degree of the splat kernel, RTX
-#define KERNEL_DEGREE_QUINTIC 5
-#define KERNEL_DEGREE_TESSERACTIC 4
-#define KERNEL_DEGREE_CUBIC 3
-#define KERNEL_DEGREE_QUADRATIC 2
-#define KERNEL_DEGREE_LAPLACIAN 1
-#define KERNEL_DEGREE_LINEAR 0
-
-// bindings for set 0 (common to Raster and RTX)
-// #define BINDING_FRAME_INFO_UBO 0
-
+// bindings for set 1
 #define BINDING_DISTANCES_BUFFER 0
 #define BINDING_INDICES_BUFFER 1
 #define BINDING_INDIRECT_BUFFER 2
@@ -94,8 +44,6 @@
 #define ATTRIBUTE_LOC_MESH_POSITION 0
 #define ATTRIBUTE_LOC_MESH_NORMAL 1
 
-#define DEFAULT(val)
-
 // Push constant for raster
 struct PushConstant
 {
@@ -106,44 +54,25 @@ struct PushConstant
   // Splat count
   uint32_t splatCount;
   float alphaCullThreshold;
-  float focal;
-  float splatScale;
-
-  float2 basisViewport;
-  float inverseFocalAdjustment;
   float frustumDilation;
+  float splatScale;
 };
 
-// indirect parameters for
-// - vkCmdDrawIndexedIndirect (first 6 attr)
-// - vkCmdDrawMeshTasksIndirectEXT (last 3 attr)
-struct IndirectParams
+// for vkCmdDrawIndexedIndirect
+struct DrawIndirectParams
 {
   // for vkCmdDrawIndexedIndirect
-  uint32_t indexCount    DEFAULT(6);  // allways = 6 indices for the quad (2 triangles)
-  uint32_t instanceCount DEFAULT(0);  // will be incremented by the distance compute shader
-  uint32_t firstIndex    DEFAULT(0);  // allways zero
-  uint32_t vertexOffset  DEFAULT(0);  // allways zero
-  uint32_t firstInstance DEFAULT(0);  // allways zero
-
-  // for vkCmdDrawMeshTasksIndirectEXT
-  uint32_t groupCountX DEFAULT(0);  // Will be incremented by the distance compute shader
-  uint32_t groupCountY DEFAULT(1);  // Allways one workgroup on Y
-  uint32_t groupCountZ DEFAULT(1);  // Allways one workgroup on Z
-
-  // for debug info readback, TODO shall be in some other buffer
-  int32_t particleID DEFAULT(-1);   // Will be set by the ID of the nearest splat on the ray path
-  float particleDist DEFAULT(0.0);  // Will be set by the dist to the nearest splat on the ray path
-  float val1         DEFAULT(0.0);
-  float val2         DEFAULT(0.0);
-  float val3         DEFAULT(0.0);
-  float val4         DEFAULT(0.0);
-  float val5         DEFAULT(0.0);
-  float val6         DEFAULT(0.0);
-  float val7         DEFAULT(0.0);
-  float val8         DEFAULT(0.0);
+  uint32_t indexCount;  // always = 6 indices for the quad (2 triangles)
+  uint32_t instanceCount;  // will be incremented by the distance compute shader
+  uint32_t firstIndex;  // always zero
+  uint32_t vertexOffset;  // always zero
+  uint32_t firstInstance;  // always zero
 };
 
-
-#undef DEFAULT
-#endif
+// for vkCmdDrawMeshTasksIndirectEXT
+struct DrawMeshTasksIndirectParams
+{
+  uint32_t groupCountX;  // will be incremented by the distance compute shader
+  uint32_t groupCountY;  // always one workgroup on Y
+  uint32_t groupCountZ;  // always one workgroup on Z
+};

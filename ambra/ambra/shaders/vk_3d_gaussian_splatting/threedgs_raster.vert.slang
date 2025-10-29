@@ -57,7 +57,7 @@
 // Vertex input
 struct VertexInput
 {
-  [[vk::location(ATTRIBUTE_LOC_POSITION)]]    float3   inPosition : POSITION;
+  [[vk::location(ATTRIBUTE_LOC_POSITION)]]    float2   inPosition : POSITION;
   [[vk::location(ATTRIBUTE_LOC_SPLAT_INDEX)]] uint32_t inSplatIndex : TEXCOORD0;
 };
 
@@ -103,7 +103,7 @@ VertexOutput main(VertexInput input)
   }
 #endif
 
-  const float2 fragPos = input.inPosition.xy;
+  const float2 fragPos = input.inPosition;
 #if !USE_BARYCENTRIC
   // emit as early as possible
   // Scale the position data we send to the fragment shader
@@ -136,7 +136,7 @@ VertexOutput main(VertexInput input)
 #endif
 
   // Computes the projected covariance
-  const float3 cov2Dv = threedgsCovarianceProjection(cov3Dm, viewCenter, pcRaster.focal, modelViewMatrix);
+  const float3 cov2Dv = threedgsCovarianceProjection(cov3Dm, viewCenter, g_constants.focal, modelViewMatrix);
 
   // computes the basis vectors of the extent of the projected covariance
   // We use sqrt(8) standard deviations instead of 3 to eliminate more of the splat with a very low opacity.
@@ -155,8 +155,7 @@ VertexOutput main(VertexInput input)
 
   const float3 ndcCenter = clipCenter.xyz / clipCenter.w;
 
-  const float2 ndcOffset = float2(fragPos.x * basisVector1 + fragPos.y * basisVector2) * pcRaster.basisViewport * 2.0
-                           * pcRaster.inverseFocalAdjustment;
+  const float2 ndcOffset = float2(fragPos.x * basisVector1 + fragPos.y * basisVector2) * g_constants.inverse_viewport_size * 2.0;
 
   const float4 quadPos = float4(ndcCenter.xy + ndcOffset, ndcCenter.z, 1.0);
 

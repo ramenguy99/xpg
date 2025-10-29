@@ -201,11 +201,13 @@ class Renderer:
             {
                 "view": (np.dtype((np.float32, (4, 4))), 0),
                 "projection": (np.dtype((np.float32, (4, 4))), 64),
-                "camera_position": (np.dtype((np.float32, (3,))), 128),
+                "world_camera_position": (np.dtype((np.float32, (3,))), 128),
                 "ambient_light": (np.dtype((np.float32, (3,))), 144),
                 "has_environment_light": (np.uint32, 156),
-                "max_specular_mip": (np.float32, 160),
-                "num_lights": (np.dtype((np.uint32, (len(lights.LIGHT_TYPES_INFO),))), 164),
+                "focal": (np.dtype((np.float32, (2,))), 160),
+                "inverse_viewport_size": (np.dtype((np.float32, (2,))), 168),
+                "max_specular_mip": (np.float32, 176),
+                "num_lights": (np.dtype((np.uint32, (len(lights.LIGHT_TYPES_INFO),))), 180),
             }
         )  # type: ignore
 
@@ -542,9 +544,10 @@ class Renderer:
         set = self.scene_descriptor_sets.get_current_and_advance()
         buf = self.uniform_buffers.get_current_and_advance()
 
-        self.constants["projection"] = viewport.camera.projection()
+        proj = viewport.camera.projection()
+        self.constants["projection"] = proj
         self.constants["view"] = viewport.camera.view()
-        self.constants["camera_position"] = viewport.camera.position()
+        self.constants["world_camera_position"] = viewport.camera.position()
         self.constants["num_lights"] = self.num_lights
         self.constants["ambient_light"] = np.sum([l.radiance.get_current() for l in self.uniform_environment_lights])
         if self.environment_light is not None:
@@ -552,7 +555,9 @@ class Renderer:
             self.constants["max_specular_mip"] = self.environment_light.gpu_cubemaps.specular_cubemap.mip_levels - 1.0
         else:
             self.constants["has_environment_light"] = 0
-            self.constants["max_specular_mip"] = 0
+            self.constants["max_specular_mip"] = 0.0
+        self.constants["inverse_viewport_size"] = (1.0 / viewport.rect.width, 1.0 / viewport.rect.height)
+        self.constants["focal"] = (proj[0][0] * 0.5 * viewport.rect.width, proj[1][1] * 0.5 * viewport.rect.height)
 
         buf.upload(
             cmd,
@@ -563,6 +568,7 @@ class Renderer:
         f = RendererFrame(
             self.total_frame_index % self.num_frames_in_flight,
             self.total_frame_index,
+            set,
             cmd,
             frame.additional_semaphores,
             frame.transfer_command_buffer,

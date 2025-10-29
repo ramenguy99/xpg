@@ -25,7 +25,7 @@
 [[vk::push_constant]]                        ConstantBuffer<PushConstant> pcRaster;
 [[vk::binding(BINDING_DISTANCES_BUFFER, 1)]] RWStructuredBuffer<uint32_t> distances;
 [[vk::binding(BINDING_INDICES_BUFFER, 1)]]   RWStructuredBuffer<uint32_t> indices;
-[[vk::binding(BINDING_INDIRECT_BUFFER, 1)]]  RWStructuredBuffer<IndirectParams> indirectBuffer;
+[[vk::binding(BINDING_INDIRECT_BUFFER, 1)]]  RWStructuredBuffer<DrawIndirectParams> indirectBuffer;
 // clang-format on
 
 // encodes an fp32 into a uint32 that can be ordered

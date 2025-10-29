@@ -1,17 +1,15 @@
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union
-import sys
+from typing import Optional
 
-from ambra.config import Config
-from ambra.viewer import Viewer
 import numpy as np
-from pyglm.glm import inverse, mat3, mat4x3, transpose
+from pyglm.glm import inverse, mat4x3
 from pyxpg import (
+    AllocType,
     Attachment,
     BlendFactor,
     BlendOp,
+    Buffer,
     BufferUsageFlags,
     ComputePipeline,
     Depth,
@@ -34,12 +32,15 @@ from pyxpg import (
     VertexInputRate,
 )
 
+from ambra.config import Config
 from ambra.gpu_sorting import GpuSortingPipeline, SortDataType, SortOptions
 from ambra.property import BufferProperty
 from ambra.renderer import Renderer
 from ambra.renderer_frame import RendererFrame
 from ambra.scene import Object, Object3D
 from ambra.utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
+from ambra.utils.gpu import div_round_up
+from ambra.viewer import Viewer
 
 
 @dataclass
@@ -51,6 +52,8 @@ class Splats:
     rotation: np.ndarray
 
 
+DISTANCE_COMPUTE_WORKGROUP_SIZE = 256
+
 FRUSTUM_CULLING_AT_NONE = 0
 FRUSTUM_CULLING_AT_DIST = 1
 FRUSTUM_CULLING_AT_RASTER = 2
@@ -61,6 +64,7 @@ FORMAT_UINT8 = 2
 
 # TODO: think if it's a better idea to maybe return raw data here and
 # have a separate function prepare the data for rendering.
+
 
 def load_ply(path: Path, sh_degree: int = 1):
     with open(path, "rb") as f:
@@ -135,12 +139,9 @@ class GaussianSplats(Object3D):
                 "transform": (np.dtype((np.float32, (3, 4))), 0),
                 "inverse_transform": (np.dtype((np.float32, (3, 4))), 48),
                 "splat_count": (np.uint32, 96),
-                "alpha_cull_threshold": (np.uint32, 100),
-                "focal": (np.uint32, 104),
-                "splat_scale": (np.uint32, 108),
-                "basis_viewport": (np.dtype((np.uint32, (2,))), 112),
-                "inverse_focal_adjustment": (np.float32, 120),
-                "frustum_dilation": (np.float32, 124),
+                "alpha_cull_threshold": (np.float32, 100),
+                "frustum_dilation": (np.float32, 104),
+                "splat_scale": (np.float32, 108),
             }
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
@@ -183,11 +184,55 @@ class GaussianSplats(Object3D):
             f"{self.name}-spherical-harmonics",
         )
 
+        max_splats = self.positions.max_size // 12
+        self.dists_buf = Buffer(
+            r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-dists"
+        )
+        self.dists_alt_buf = Buffer(
+            r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-dists-alt"
+        )
+        self.sorted_indices_buf = Buffer(
+            r.ctx,
+            max_splats * 4,
+            BufferUsageFlags.STORAGE | BufferUsageFlags.VERTEX,
+            AllocType.DEVICE,
+            name=f"{self.name}-sorted-indices",
+        )
+        self.sorted_indices_alt_buf = Buffer(
+            r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-sorted-indices-alt"
+        )
+
+        draw_parameters = np.array([6, max_splats, 0, 0, 0], np.uint32)
+        self.draw_parameters_buf = Buffer.from_data(
+            r.ctx,
+            draw_parameters,
+            BufferUsageFlags.INDIRECT | BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+            name=f"{self.name}-draw-param",
+        )
+
+        quad_vertices = np.array([0, 2, 1, 2, 0, 3], np.uint32)
+        quad_indices = np.array([-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0], np.float32)
+        self.quad_vertices = Buffer.from_data(
+            r.ctx,
+            quad_vertices,
+            BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+            name=f"{self.name}-quad-vertices",
+        )
+        self.quad_indices = Buffer.from_data(
+            r.ctx,
+            quad_indices,
+            BufferUsageFlags.INDEX | BufferUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+            name=f"{self.name}-quad-indices",
+        )
+
         # TODO: actually check the storage type we are using instead of all
         if (r.ctx.device_features & DeviceFeatures.STORAGE_8BIT) == 0:
             raise RuntimeError("Device does not support 8bit storage")
 
-        if (r.ctx.device_features & DeviceFeatures.STORAGE_8BIT) == 0:
+        if (r.ctx.device_features & DeviceFeatures.STORAGE_16BIT) == 0:
             raise RuntimeError("Device does not support 16bit storage")
 
         # TODO: optionally do mesh shader pipeline if available
@@ -196,7 +241,7 @@ class GaussianSplats(Object3D):
         # TODO: optionally allow wireframe (if barycentrics are available), disable opacity mode and MS_ANTIALIASING
         # Currently these are compile time, but they should likely be runtime (or we can precompute permutations)
         defines = [
-            ("DISTANCE_COMPUTE_WORKGROUP_SIZE", "256"),
+            ("DISTANCE_COMPUTE_WORKGROUP_SIZE", str(DISTANCE_COMPUTE_WORKGROUP_SIZE)),
             ("FRUSTUM_CULLING_MODE", str(FRUSTUM_CULLING_AT_RASTER)),
             ("USE_BARYCENTRIC", "0"),
             ("WIREFRAME", "0"),
@@ -217,6 +262,11 @@ class GaussianSplats(Object3D):
                 r.num_frames_in_flight,
             )
         )
+
+        for s in self.descriptor_sets:
+            s.write_buffer(self.dists_buf, DescriptorType.STORAGE_BUFFER, 0)
+            s.write_buffer(self.sorted_indices_buf, DescriptorType.STORAGE_BUFFER, 1)
+            s.write_buffer(self.draw_parameters_buf, DescriptorType.STORAGE_BUFFER, 2)
 
         self.dist_pipeline = ComputePipeline(
             r.ctx,
@@ -245,11 +295,11 @@ class GaussianSplats(Object3D):
                 PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
             ],
             vertex_bindings=[
-                VertexBinding(0, 12, VertexInputRate.VERTEX),
-                VertexBinding(1, 4, VertexInputRate.VERTEX),
+                VertexBinding(0, 8, VertexInputRate.VERTEX),
+                VertexBinding(1, 4, VertexInputRate.INSTANCE),
             ],
             vertex_attributes=[
-                VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
+                VertexAttribute(0, 0, Format.R32G32_SFLOAT),
                 VertexAttribute(1, 1, Format.R32_UINT),
             ],
             input_assembly=InputAssembly(
@@ -276,47 +326,70 @@ class GaussianSplats(Object3D):
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
-        print("Created")
-        exit(1)
-
     def update_transform(self, parent: Optional[Object]) -> None:
         super().update_transform(parent)
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
         self.constants["inverse_transform"] = mat4x3(inverse(self.current_transform_matrix))
 
-        # TODO: fill
-        self.constants["splat_count"] = 0
-        self.constants["alpha_cull_threshold"] = 0
-        self.constants["focal"] = 0
-        self.constants["splat_scale"] = 0
-        self.constants["basis_viewport"] = 0
-        self.constants["inverse_focal_adjustment"] = 0
+    def upload(self, r: Renderer, frame: RendererFrame):
+        num_splats = self.positions.get_current().shape[0]
+        self.constants["splat_count"] = num_splats
+        self.constants["alpha_cull_threshold"] = 1.0 / 255.0
+        self.constants["frustum_dilation"] = 0.2
+        self.constants["splat_scale"] = 1.0
 
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        self.descriptor_set = self.descriptor_sets.get_current_and_advance()
+        self.descriptor_set.write_buffer(self.positions_buf.get_current(), DescriptorType.STORAGE_BUFFER, 3)
+        self.descriptor_set.write_buffer(self.colors_buf.get_current(), DescriptorType.STORAGE_BUFFER, 4)
+        self.descriptor_set.write_buffer(self.covariances_buf.get_current(), DescriptorType.STORAGE_BUFFER, 5)
+        self.descriptor_set.write_buffer(self.spherical_harmonics_buf.get_current(), DescriptorType.STORAGE_BUFFER, 6)
+
         # Distances
+        frame.cmd.bind_compute_pipeline(
+            self.dist_pipeline,
+            descriptor_sets=[frame.scene_descriptor_set, self.descriptor_set],
+            push_constants=self.constants.tobytes(),
+        )
+        frame.cmd.dispatch(div_round_up(num_splats, DISTANCE_COMPUTE_WORKGROUP_SIZE), 1, 1)
+
+        frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
 
         # Sort
+        self.sort_pipeline.run(
+            r,
+            frame.cmd,
+            num_splats,
+            self.dists_buf,
+            self.dists_alt_buf,
+            self.sorted_indices_buf,
+            self.sorted_indices_alt_buf,
+        )
+        frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.VERTEX_INPUT)
 
-        # Draw
+    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        # Draw indirect
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[
-                self.lines_buffer.get_current(),
-                self.colors_buffer.get_current(),
+                self.quad_vertices,
+                self.sorted_indices_buf,
             ],
+            index_buffer=self.quad_indices,
             descriptor_sets=[
                 scene_descriptor_set,
+                self.descriptor_set,
             ],
             push_constants=self.constants.tobytes(),
         )
-        frame.cmd.set_line_width(
-            self.line_width.get_current().item() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
-        )
+        frame.cmd.draw_indexed_indirect(self.draw_parameters_buf, 0, 1, 20)
 
-        frame.cmd.draw(self.lines.get_current().shape[0])
+
+# TODO:
+# [ ] convert rot scale to cov
+# [ ] pack color (convert from SH dc component) and opacity
+# [ ] convert sh to requested format
 
 # splats = load_ply(sys.argv[1], 3)
-
 # print(splats.position.shape)
 # print(splats.rotation.shape)
 # print(splats.opacity.shape)
@@ -332,8 +405,10 @@ gs = GaussianSplats(positions, colors, sh, covariances)
 
 v = Viewer(
     config=Config(
-        window=False,
+        # window=False,
     )
 )
 v.viewport.scene.objects.append(gs)
-v.render_image()
+
+# print(v.ctx.device_features)
+v.run()

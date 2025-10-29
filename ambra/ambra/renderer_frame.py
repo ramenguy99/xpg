@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from pyxpg import (
     CommandBuffer,
+    DescriptorSet,
     PipelineStageFlags,
     TimelineSemaphore,
 )
@@ -23,6 +24,8 @@ class SemaphoreInfo:
 class RendererFrame:
     index: int
     total_index: int
+
+    scene_descriptor_set: DescriptorSet
 
     cmd: CommandBuffer
     additional_semaphores: List[SemaphoreInfo]
