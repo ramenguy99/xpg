@@ -34,7 +34,7 @@ from pyxpg import (
 )
 from scipy.spatial.transform import Rotation
 
-from ambra.config import Config, GuiConfig
+from ambra.config import Config, GuiConfig, RendererConfig
 from ambra.gpu_sorting import GpuSortingPipeline, SortDataType, SortOptions
 from ambra.primitives3d import Lines
 from ambra.property import BufferProperty
@@ -71,7 +71,6 @@ def load_ply(path: Path, sh_degree: int = 1):
         # Read header.
         head = f.readline().decode("utf-8").strip().lower()
         if head != "ply":
-            print(head)
             raise ValueError(f"Not a ply file: {head}")
 
         encoding = f.readline().decode("utf-8").strip().lower()
@@ -245,8 +244,8 @@ class GaussianSplats(Object3D):
             ("FRUSTUM_CULLING_MODE", str(FRUSTUM_CULLING_AT_RASTER)),
             ("USE_BARYCENTRIC", "0"),
             ("WIREFRAME", "0"),
-            ("DISABLE_OPACITY_GAUSSIANS", "0"),
-            ("MS_ANTIALIASING", "0"),
+            ("DISABLE_OPACITY_GAUSSIAN", "0"),
+            ("MS_ANTIALIASING", "0"), # Only useful when model comes from mip splatting
             ("MAX_SH_DEGREE", "3"),
             ("SH_FORMAT", str(FORMAT_UINT8)),
             ("ORTHOGRAPHIC_MODE", "0"),
@@ -396,7 +395,7 @@ else:
 
     SH_C0 = 0.28209479177387814
     colors = np.hstack((splats.sh[:, :3] * SH_C0 + 0.5, splats.opacity[..., np.newaxis]))
-    sh = np.clip((splats.sh[3:] * 0.5 + 0.5) * 255, 0, 255).astype(np.uint8)
+    sh = np.transpose(np.clip(np.rint((splats.sh[:, 3:] * 0.5 + 0.5) * 255.0), 0.0, 255.0).astype(np.uint8).reshape((-1, 3, 15)), (0, 2, 1)).reshape((-1, 45))
 
     rots = Rotation.from_quat(splats.rotation).as_matrix()
     scale = np.empty((splats.scale.shape[0], 3, 3), np.float32)
@@ -418,6 +417,9 @@ v = Viewer(
             inspector=True,
         ),
         world_up=(0, -1, 0),
+        renderer=RendererConfig(
+            background_color=(0, 0, 0, 1),
+        ),
     )
 )
 v.viewport.scene.objects.append(gs)
