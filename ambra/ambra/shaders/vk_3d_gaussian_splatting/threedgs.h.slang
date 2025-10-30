@@ -34,8 +34,8 @@ float3 threedgsCovarianceProjection(float3x3 cov3Dm, float4 splatCenterView, flo
   // 3D covariance matrix instead of using the actual projection matrix because that transformation would
   // require a non-linear component (perspective division) which would yield a non-gaussian result.
   const float s = 1.0 / (splatCenterView.z * splatCenterView.z);
-  const float3x3  J = transpose(float3x3(focal.x / splatCenterView.z, 0., -(focal.x * splatCenterView.x) * s, 0.,
-                       focal.y / splatCenterView.z, -(focal.y * splatCenterView.y) * s, 0., 0., 0.));
+  const float3x3  J = float3x3(focal.x / splatCenterView.z, 0., -(focal.x * splatCenterView.x) * s, 0.,
+                       focal.y / splatCenterView.z, -(focal.y * splatCenterView.y) * s, 0., 0., 0.);
 #endif
 
   // Concatenate the projection approximation with the model-view transformation

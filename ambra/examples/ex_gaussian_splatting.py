@@ -1,8 +1,8 @@
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from ambra.primitives3d import Lines
 import numpy as np
 from pyglm.glm import inverse, mat4x3
 from pyxpg import (
@@ -32,9 +32,11 @@ from pyxpg import (
     VertexBinding,
     VertexInputRate,
 )
+from scipy.spatial.transform import Rotation
 
-from ambra.config import Config
+from ambra.config import Config, GuiConfig
 from ambra.gpu_sorting import GpuSortingPipeline, SortDataType, SortOptions
+from ambra.primitives3d import Lines
 from ambra.property import BufferProperty
 from ambra.renderer import Renderer
 from ambra.renderer_frame import RendererFrame
@@ -62,9 +64,6 @@ FRUSTUM_CULLING_AT_RASTER = 2
 FORMAT_FLOAT32 = 0
 FORMAT_FLOAT16 = 1
 FORMAT_UINT8 = 2
-
-# TODO: think if it's a better idea to maybe return raw data here and
-# have a separate function prepare the data for rendering.
 
 
 def load_ply(path: Path, sh_degree: int = 1):
@@ -153,7 +152,7 @@ class GaussianSplats(Object3D):
         self.spherical_harmonics = self.add_buffer_property(
             spherical_harmonics, np.uint8, (-1, -1), name="spherical-harmonics"
         )
-        self.covariances = self.add_buffer_property(covariances, np.float32, (-1,), name="covariances")
+        self.covariances = self.add_buffer_property(covariances, np.float32, (-1, 6), name="covariances")
 
     def create(self, r: Renderer) -> None:
         self.positions_buf = r.add_gpu_buffer_property(
@@ -282,7 +281,7 @@ class GaussianSplats(Object3D):
         # Keys are UINT32 because we already convert them to being ordered when
         # interpreted as integers in the dist computation pass.
         self.sort_pipeline = GpuSortingPipeline(
-            r, SortOptions(key_type=SortDataType.UINT32, payload_type=SortDataType.UINT32, descending=True)
+            r, SortOptions(key_type=SortDataType.UINT32, payload_type=SortDataType.UINT32, descending=False)
         )
 
         vert = r.compile_builtin_shader("vk_3d_gaussian_splatting/threedgs_raster.vert.slang", defines=defines)
@@ -365,7 +364,7 @@ class GaussianSplats(Object3D):
             self.sorted_indices_buf,
             self.sorted_indices_alt_buf,
         )
-        frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.VERTEX_INPUT)
+        frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.ALL)
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         # Draw indirect
@@ -385,28 +384,40 @@ class GaussianSplats(Object3D):
         frame.cmd.draw_indexed_indirect(self.draw_parameters_buf, 0, 1, 20)
 
 
-# TODO:
-# [ ] convert rot scale to cov
-# [ ] pack color (convert from SH dc component) and opacity
-# [ ] convert sh to requested format
+splats = load_ply(sys.argv[1], 3)
 
-# splats = load_ply(sys.argv[1], 3)
-# print(splats.position.shape)
-# print(splats.rotation.shape)
-# print(splats.opacity.shape)
-# print(splats.scale.shape)
-# print(splats.sh.shape)
+if False:
+    positions = np.array([[1, 0, 0]], np.float32)
+    colors = np.array([[0.5, 0, 0.0, 1]], np.float32)
+    sh = np.zeros((1, 13), np.uint8)
+    covariances = np.array([[1, 0, 0, 2, 0, 3]], np.float32) * 1
+else:
+    positions = splats.position
 
-positions = np.zeros((1, 3), np.float32)
-colors = np.array([[0, 0, 0, 1]], np.float32)
-sh = np.zeros((1, 13), np.uint8)
-covariances = np.array([1, 0, 0, 5, 0, 10], np.float32) * 10
+    SH_C0 = 0.28209479177387814
+    colors = np.hstack((splats.sh[:, :3] * SH_C0 + 0.5, splats.opacity[..., np.newaxis]))
+    sh = np.clip((splats.sh[3:] * 0.5 + 0.5) * 255, 0, 255).astype(np.uint8)
+
+    rots = Rotation.from_quat(splats.rotation).as_matrix()
+    scale = np.empty((splats.scale.shape[0], 3, 3), np.float32)
+    scale[:, 0, 0] = splats.scale[:, 0]
+    scale[:, 1, 1] = splats.scale[:, 1]
+    scale[:, 2, 2] = splats.scale[:, 2]
+
+    covariance_matrices: np.ndarray = np.matmul(rots, scale)
+    transformed_covariance: np.ndarray = np.matmul(covariance_matrices, np.transpose(covariance_matrices, (0, 2, 1)))
+    covariances = transformed_covariance.reshape((-1, 9))[:, (0, 1, 2, 4, 5, 8)]
+
 
 gs = GaussianSplats(positions, colors, sh, covariances)
 
 v = Viewer(
     config=Config(
-        # window=False,
+        gui=GuiConfig(
+            stats=True,
+            inspector=True,
+        ),
+        world_up=(0, -1, 0),
     )
 )
 v.viewport.scene.objects.append(gs)

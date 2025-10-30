@@ -4696,7 +4696,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::enum_<VkVertexInputRate>(m, "VertexInputRate")
         .value("VERTEX", VK_VERTEX_INPUT_RATE_VERTEX)
-        .value("INSTANCE", VK_VERTEX_INPUT_RATE_VERTEX)
+        .value("INSTANCE", VK_VERTEX_INPUT_RATE_INSTANCE)
     ;
 
     nb::class_<VertexBinding>(m, "VertexBinding")

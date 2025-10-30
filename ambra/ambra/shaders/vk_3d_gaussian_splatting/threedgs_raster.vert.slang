@@ -127,7 +127,8 @@ VertexOutput main(VertexInput input)
   const float3 worldViewDir =
       normalize(splatCenter - mul(pcRaster.modelMatrixInverse, float4(g_constants.world_camera_position, 1.0)).xyz);
 
-  splatColor.rgb += fetchViewDependentRadiance(splatIndex, worldViewDir);
+  // TODO: re-enable sh
+  // splatColor.rgb += fetchViewDependentRadiance(splatIndex, worldViewDir);
 
   // emit as early as possible for perf reasons, only for original 3DGS,
   // see later on for MipSplatting = on
