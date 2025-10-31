@@ -128,6 +128,7 @@ class GaussianSplats(Object3D):
         colors: BufferProperty,
         spherical_harmonics: BufferProperty,
         covariances: BufferProperty,
+        mip_splatting_antialiasing: bool = False,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
@@ -152,8 +153,20 @@ class GaussianSplats(Object3D):
             spherical_harmonics, np.uint8, (-1, -1), name="spherical-harmonics"
         )
         self.covariances = self.add_buffer_property(covariances, np.float32, (-1, 6), name="covariances")
+        self.mip_splatting_antialiasing = mip_splatting_antialiasing
 
     def create(self, r: Renderer) -> None:
+        # TODO: actually check the storage type we are using instead of all
+        if (r.ctx.device_features & DeviceFeatures.STORAGE_8BIT) == 0:
+            raise RuntimeError("Device does not support 8bit storage")
+
+        if (r.ctx.device_features & DeviceFeatures.STORAGE_16BIT) == 0:
+            raise RuntimeError("Device does not support 16bit storage")
+
+        self.use_barycentric = (r.ctx.device_features & DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC) != 0
+        self.use_mesh_shader = (r.ctx.device_features & DeviceFeatures.MESH_SHADER) != 0
+        self.cull_at_dist = False # TODO: requires run_indirect on sort
+
         self.positions_buf = r.add_gpu_buffer_property(
             self.positions,
             BufferUsageFlags.STORAGE,
@@ -201,51 +214,55 @@ class GaussianSplats(Object3D):
             r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-sorted-indices-alt"
         )
 
-        draw_parameters = np.array([6, max_splats, 0, 0, 0], np.uint32)
-        self.draw_parameters_buf = Buffer.from_data(
-            r.ctx,
-            draw_parameters,
-            BufferUsageFlags.INDIRECT | BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
-            AllocType.DEVICE,
-            name=f"{self.name}-draw-param",
-        )
 
-        quad_vertices = np.array([-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0], np.float32)
-        quad_indices = np.array([0, 2, 1, 2, 0, 3], np.uint32)
-        self.quad_vertices = Buffer.from_data(
-            r.ctx,
-            quad_vertices,
-            BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST,
-            AllocType.DEVICE,
-            name=f"{self.name}-quad-vertices",
-        )
-        self.quad_indices = Buffer.from_data(
-            r.ctx,
-            quad_indices,
-            BufferUsageFlags.INDEX | BufferUsageFlags.TRANSFER_DST,
-            AllocType.DEVICE,
-            name=f"{self.name}-quad-indices",
-        )
+        if not self.use_mesh_shader:
+            quad_vertices = np.array([-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0], np.float32)
+            quad_indices = np.array([0, 2, 1, 2, 0, 3], np.uint32)
+            self.quad_vertices = Buffer.from_data(
+                r.ctx,
+                quad_vertices,
+                BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST,
+                AllocType.DEVICE,
+                name=f"{self.name}-quad-vertices",
+            )
+            self.quad_indices = Buffer.from_data(
+                r.ctx,
+                quad_indices,
+                BufferUsageFlags.INDEX | BufferUsageFlags.TRANSFER_DST,
+                AllocType.DEVICE,
+                name=f"{self.name}-quad-indices",
+            )
 
-        # TODO: actually check the storage type we are using instead of all
-        if (r.ctx.device_features & DeviceFeatures.STORAGE_8BIT) == 0:
-            raise RuntimeError("Device does not support 8bit storage")
+            draw_parameters = np.array([6, max_splats, 0, 0, 0], np.uint32)
+            self.draw_parameters_buf = Buffer.from_data(
+                r.ctx,
+                draw_parameters,
+                BufferUsageFlags.INDIRECT | BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
+                AllocType.DEVICE,
+                name=f"{self.name}-draw-param",
+            )
+            self.draw_parameters_init = np.array([6, 0, 0, 0, 0], np.uint32).tobytes()
+        else:
+            mesh_workgroup_size = min(r.ctx.device_properties.mesh_shader_properties.max_preferred_mesh_work_group_invocations, r.ctx.device_properties.mesh_shader_properties.max_mesh_work_group_count[0])
+            draw_mesh_tasks_parameters = np.array([div_round_up(max_splats, mesh_workgroup_size), 1, 1, max_splats], np.uint32)
+            self.draw_mesh_tasks_buf = Buffer.from_data(
+                r.ctx,
+                draw_mesh_tasks_parameters,
+                BufferUsageFlags.INDIRECT | BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
+                AllocType.DEVICE,
+                name=f"{self.name}-draw-mesh-tasks-param",
+            )
+            self.draw_mesh_tasks_init = np.array([0, 1, 1, 0], np.uint32).tobytes()
 
-        if (r.ctx.device_features & DeviceFeatures.STORAGE_16BIT) == 0:
-            raise RuntimeError("Device does not support 16bit storage")
-
-        # TODO: optionally do mesh shader pipeline if available
-        # TODO: optionally do culling in dist if we have indirect draw count
-        # TODO: optionally do barycentrics
         # TODO: optionally allow wireframe (if barycentrics are available), disable opacity mode and MS_ANTIALIASING
         # Currently these are compile time, but they should likely be runtime (or we can precompute permutations)
         defines = [
             ("DISTANCE_COMPUTE_WORKGROUP_SIZE", str(DISTANCE_COMPUTE_WORKGROUP_SIZE)),
-            ("FRUSTUM_CULLING_MODE", str(FRUSTUM_CULLING_AT_RASTER)),
-            ("USE_BARYCENTRIC", "0"),
+            ("FRUSTUM_CULLING_MODE", str(FRUSTUM_CULLING_AT_DIST) if self.cull_at_dist else str(FRUSTUM_CULLING_AT_RASTER)),
+            ("USE_BARYCENTRIC", "1" if self.use_barycentric else "0"),
             ("WIREFRAME", "0"),
             ("DISABLE_OPACITY_GAUSSIAN", "0"),
-            ("MS_ANTIALIASING", "0"), # Only useful when model comes from mip splatting
+            ("MS_ANTIALIASING", "1" if self.mip_splatting_antialiasing else "0"), # Only useful when model comes from mip splatting
             ("MAX_SH_DEGREE", "3"),
             ("SH_FORMAT", str(FORMAT_UINT8)),
             ("ORTHOGRAPHIC_MODE", "0"),
@@ -253,7 +270,10 @@ class GaussianSplats(Object3D):
             ("SHOW_SH_ONLY", "0"),
         ]
 
-        dist_shader = r.compile_builtin_shader("vk_3d_gaussian_splatting/dist.comp.slang", defines=defines)
+        if self.use_mesh_shader:
+            defines.append(("RASTER_MESH_WORKGROUP_SIZE", str(mesh_workgroup_size)))
+
+        dist_shader = r.compile_builtin_shader("3d/gaussian_splatting/dist.comp.slang", defines=defines)
         self.descriptor_layout, self.descriptor_pool, self.descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
                 r.ctx,
@@ -265,7 +285,10 @@ class GaussianSplats(Object3D):
         for s in self.descriptor_sets:
             s.write_buffer(self.dists_buf, DescriptorType.STORAGE_BUFFER, 0)
             s.write_buffer(self.sorted_indices_buf, DescriptorType.STORAGE_BUFFER, 1)
-            s.write_buffer(self.draw_parameters_buf, DescriptorType.STORAGE_BUFFER, 2)
+            if not self.use_mesh_shader:
+                s.write_buffer(self.draw_parameters_buf, DescriptorType.STORAGE_BUFFER, 2)
+            else:
+                s.write_buffer(self.draw_mesh_tasks_buf, DescriptorType.STORAGE_BUFFER, 2)
 
         self.dist_pipeline = ComputePipeline(
             r.ctx,
@@ -283,24 +306,31 @@ class GaussianSplats(Object3D):
             r, SortOptions(key_type=SortDataType.UINT32, payload_type=SortDataType.UINT32, descending=False)
         )
 
-        vert = r.compile_builtin_shader("vk_3d_gaussian_splatting/threedgs_raster.vert.slang", defines=defines)
-        frag = r.compile_builtin_shader("vk_3d_gaussian_splatting/threedgs_raster.frag.slang", defines=defines)
+        if not self.use_mesh_shader:
+            vert = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.vert.slang", defines=defines)
+            frag = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.frag.slang", defines=defines)
+        else:
+            mesh = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.mesh.slang", target="spirv_1_4",  defines=defines)
+            frag = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.frag.slang", entry="main_mesh", defines=defines)
+
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
             r.ctx,
             stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX)
+                if not self.use_mesh_shader else
+                PipelineStage(Shader(r.ctx, mesh.code), Stage.MESH),
                 PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
             ],
             vertex_bindings=[
                 VertexBinding(0, 8, VertexInputRate.VERTEX),
                 VertexBinding(1, 4, VertexInputRate.INSTANCE),
-            ],
+            ] if not self.use_mesh_shader else [],
             vertex_attributes=[
                 VertexAttribute(0, 0, Format.R32G32_SFLOAT),
                 VertexAttribute(1, 1, Format.R32_UINT),
-            ],
+            ] if not self.use_mesh_shader else [],
             input_assembly=InputAssembly(
                 PrimitiveTopology.TRIANGLE_LIST,
             ),
@@ -344,6 +374,14 @@ class GaussianSplats(Object3D):
         self.descriptor_set.write_buffer(self.spherical_harmonics_buf.get_current(), DescriptorType.STORAGE_BUFFER, 6)
 
         # Distances
+        if self.cull_at_dist:
+            frame.cmd.memory_barrier(MemoryUsage.ALL, MemoryUsage.ALL)
+            if self.use_mesh_shader:
+                frame.cmd.update_buffer(self.draw_mesh_tasks_buf, self.draw_mesh_tasks_init)
+            else:
+                frame.cmd.fill_buffer(self.draw_parameters_buf, 0, 4, 4)
+            frame.cmd.memory_barrier(MemoryUsage.TRANSFER_DST, MemoryUsage.COMPUTE_SHADER)
+
         frame.cmd.bind_compute_pipeline(
             self.dist_pipeline,
             descriptor_sets=[frame.scene_descriptor_set, self.descriptor_set],
@@ -366,21 +404,23 @@ class GaussianSplats(Object3D):
         frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.ALL)
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        # Draw indirect
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[
                 self.quad_vertices,
                 self.sorted_indices_buf,
-            ],
-            index_buffer=self.quad_indices,
+            ] if not self.use_mesh_shader else [],
+            index_buffer=self.quad_indices if not self.use_mesh_shader else None,
             descriptor_sets=[
                 scene_descriptor_set,
                 self.descriptor_set,
             ],
             push_constants=self.constants.tobytes(),
         )
-        frame.cmd.draw_indexed_indirect(self.draw_parameters_buf, 0, 1, 20)
+        if self.use_mesh_shader:
+            frame.cmd.draw_mesh_tasks_indirect(self.draw_mesh_tasks_buf, 0, 1, 16)
+        else:
+            frame.cmd.draw_indexed_indirect(self.draw_parameters_buf, 0, 1, 20)
 
 
 splats = load_ply(sys.argv[1], 3)

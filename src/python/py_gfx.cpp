@@ -97,6 +97,11 @@ struct DeviceSubgroupProperties: nb::intrusive_base {
     VkPhysicalDeviceSubgroupProperties subgroup_properties;
 };
 
+struct DeviceMeshShaderProperties: nb::intrusive_base {
+    DeviceMeshShaderProperties(const VkPhysicalDeviceMeshShaderPropertiesEXT& mesh_shader_properties): mesh_shader_properties(mesh_shader_properties) {}
+    VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties;
+};
+
 struct DeviceLimits: nb::intrusive_base {
     DeviceLimits(const VkPhysicalDeviceLimits& limits): limits(limits) {}
     VkPhysicalDeviceLimits limits;
@@ -125,7 +130,7 @@ struct HeapStatistics: nb::intrusive_base {
 
 // Wrapper around VkPhysicalDeviceProperties
 struct DeviceProperties: nb::intrusive_base {
-    DeviceProperties(const VkPhysicalDeviceProperties& properties, const VkPhysicalDeviceSubgroupProperties& subgroup_properties)
+    DeviceProperties(const VkPhysicalDeviceProperties& properties, const VkPhysicalDeviceSubgroupProperties& subgroup_properties, const VkPhysicalDeviceMeshShaderPropertiesEXT& mesh_shader_properties)
         : api_version(properties.apiVersion)
         , driver_version(properties.driverVersion)
         , vendor_id(properties.vendorID)
@@ -137,6 +142,7 @@ struct DeviceProperties: nb::intrusive_base {
         limits = new DeviceLimits(properties.limits);
         sparse_properties = new DeviceSparseProperties(properties.sparseProperties);
         this->subgroup_properties = new DeviceSubgroupProperties(subgroup_properties);
+        this->mesh_shader_properties = new DeviceMeshShaderProperties(mesh_shader_properties);
     }
 
     uint32_t api_version;
@@ -149,6 +155,7 @@ struct DeviceProperties: nb::intrusive_base {
     nb::ref<DeviceLimits> limits;
     nb::ref<DeviceSparseProperties> sparse_properties;
     nb::ref<DeviceSubgroupProperties> subgroup_properties;
+    nb::ref<DeviceMeshShaderProperties> mesh_shader_properties;
 };
 
 struct Context: nb::intrusive_base {
@@ -197,13 +204,18 @@ struct Context: nb::intrusive_base {
         VkPhysicalDeviceProperties2 properties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
         VkPhysicalDeviceSubgroupProperties subgroup_properties { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES };
         properties.pNext = &subgroup_properties;
+        VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT };
+        if (vk.device_features & gfx::DeviceFeatures::MESH_SHADER) {
+            mesh_shader_properties.pNext = &subgroup_properties;
+            properties.pNext = &mesh_shader_properties;
+        }
 
         if (vk.device_version >= VK_API_VERSION_1_1) {
             vkGetPhysicalDeviceProperties2(vk.physical_device, &properties);
         } else {
             vkGetPhysicalDeviceProperties(vk.physical_device, &properties.properties);
         }
-        device_properties = new DeviceProperties(properties.properties, subgroup_properties);
+        device_properties = new DeviceProperties(properties.properties, subgroup_properties, mesh_shader_properties);
 
         VkPhysicalDeviceMemoryProperties vk_memory_properties;
         vkGetPhysicalDeviceMemoryProperties(vk.physical_device, &vk_memory_properties);
@@ -3288,6 +3300,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("STORAGE_16BIT",                           gfx::DeviceFeatures::STORAGE_16BIT)
         .value("DRAW_INDIRECT_COUNT",                     gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)
         .value("MESH_SHADER",                             gfx::DeviceFeatures::MESH_SHADER)
+        .value("FRAGMENT_SHADER_BARYCENTRIC",             gfx::DeviceFeatures::FRAGMENT_SHADER_BARYCENTRIC)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")
@@ -3328,6 +3341,38 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("supported_stages", [](DeviceSubgroupProperties& subgroup_properties) { return subgroup_properties.subgroup_properties.supportedStages; })
         .def_prop_ro("supported_operations", [](DeviceSubgroupProperties& subgroup_properties) { return (VkSubgroupFeatureFlagBits)subgroup_properties.subgroup_properties.supportedOperations; })
         .def_prop_ro("quad_operations_in_all_stages", [](DeviceSubgroupProperties& subgroup_properties) { return (bool)subgroup_properties.subgroup_properties.quadOperationsInAllStages; })
+    ;
+
+    nb::class_<DeviceMeshShaderProperties>(m, "DeviceMeshShaderProperties",
+        nb::intrusive_ptr<DeviceMeshShaderProperties>([](DeviceMeshShaderProperties *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_prop_ro("max_task_work_group_total_count",           [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxTaskWorkGroupTotalCount; })
+        .def_prop_ro("max_task_work_group_count",                 [](DeviceMeshShaderProperties& p) { return nb::make_tuple(p.mesh_shader_properties.maxTaskWorkGroupCount[0], p.mesh_shader_properties.maxTaskWorkGroupCount[1], p.mesh_shader_properties.maxTaskWorkGroupCount[2]); })
+        .def_prop_ro("max_task_work_group_invocations",           [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxTaskWorkGroupInvocations; })
+        .def_prop_ro("max_task_work_group_size",                  [](DeviceMeshShaderProperties& p) { return nb::make_tuple(p.mesh_shader_properties.maxTaskWorkGroupSize[0], p.mesh_shader_properties.maxTaskWorkGroupSize[1], p.mesh_shader_properties.maxTaskWorkGroupSize[2]); })
+        .def_prop_ro("max_task_payload_size",                     [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxTaskPayloadSize; })
+        .def_prop_ro("max_task_shared_memory_size",               [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxTaskSharedMemorySize; })
+        .def_prop_ro("max_task_payload_and_shared_memory_size",   [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxTaskPayloadAndSharedMemorySize; })
+        .def_prop_ro("max_mesh_work_group_total_count",           [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxMeshWorkGroupTotalCount; })
+        .def_prop_ro("max_mesh_work_group_count",                 [](DeviceMeshShaderProperties& p) { return nb::make_tuple(p.mesh_shader_properties.maxMeshWorkGroupCount[0], p.mesh_shader_properties.maxMeshWorkGroupCount[1], p.mesh_shader_properties.maxMeshWorkGroupCount[2]); })
+        .def_prop_ro("max_mesh_work_group_invocations",           [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxMeshWorkGroupInvocations; })
+        .def_prop_ro("max_mesh_work_group_size",                  [](DeviceMeshShaderProperties& p) { return nb::make_tuple(p.mesh_shader_properties.maxMeshWorkGroupSize[0],p.mesh_shader_properties.maxMeshWorkGroupSize[1], p.mesh_shader_properties.maxMeshWorkGroupSize[2]); })
+        .def_prop_ro("max_mesh_shared_memory_size",               [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxMeshSharedMemorySize; })
+        .def_prop_ro("max_mesh_payload_and_shared_memory_size",   [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxMeshPayloadAndSharedMemorySize; })
+        .def_prop_ro("max_mesh_output_memory_size",               [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxMeshOutputMemorySize; })
+        .def_prop_ro("max_mesh_payload_and_output_memory_size",   [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxMeshPayloadAndOutputMemorySize; })
+        .def_prop_ro("max_mesh_output_components",                [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxMeshOutputComponents; })
+        .def_prop_ro("max_mesh_output_vertices",                  [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxMeshOutputVertices; })
+        .def_prop_ro("max_mesh_output_primitives",                [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxMeshOutputPrimitives; })
+        .def_prop_ro("max_mesh_output_layers",                    [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxMeshOutputLayers; })
+        .def_prop_ro("max_mesh_multiview_view_count",             [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxMeshMultiviewViewCount; })
+        .def_prop_ro("mesh_output_per_vertex_granularity",        [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.meshOutputPerVertexGranularity; })
+        .def_prop_ro("mesh_output_per_primitive_granularity",     [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.meshOutputPerPrimitiveGranularity; })
+        .def_prop_ro("max_preferred_task_work_group_invocations", [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxPreferredTaskWorkGroupInvocations; })
+        .def_prop_ro("max_preferred_mesh_work_group_invocations", [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.maxPreferredMeshWorkGroupInvocations; })
+        .def_prop_ro("prefers_local_invocation_vertex_output",    [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.prefersLocalInvocationVertexOutput; })
+        .def_prop_ro("prefers_local_invocation_primitive_output", [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.prefersLocalInvocationPrimitiveOutput; })
+        .def_prop_ro("prefers_compact_vertex_output",             [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.prefersCompactVertexOutput; })
+        .def_prop_ro("prefers_compact_primitive_output",          [](DeviceMeshShaderProperties& p) { return p.mesh_shader_properties.prefersCompactPrimitiveOutput; })
     ;
 
     nb::class_<DeviceLimits>(m, "DeviceLimits",
@@ -3445,6 +3490,7 @@ void gfx_create_bindings(nb::module_& m)
         .def_ro("limits", &DeviceProperties::limits)
         .def_ro("sparse_properties", &DeviceProperties::sparse_properties)
         .def_ro("subgroup_properties", &DeviceProperties::subgroup_properties)
+        .def_ro("mesh_shader_properties", &DeviceProperties::mesh_shader_properties)
         .def_ro("api_version", &DeviceProperties::api_version)
         .def_ro("driver_version", &DeviceProperties::driver_version)
         .def_ro("vendor_id", &DeviceProperties::vendor_id)

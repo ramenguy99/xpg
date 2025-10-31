@@ -50,7 +50,7 @@
 #include "threedgs.h.slang"
 #include "threedgs_particles_storage.h.slang"
 
-#include "../3d/scene.slang"
+#include "../scene.slang"
 
 // clang-format off
 

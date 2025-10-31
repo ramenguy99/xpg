@@ -94,6 +94,7 @@ struct DeviceFeatures {
         STORAGE_16BIT                           = 1ull << 17,
         DRAW_INDIRECT_COUNT                     = 1ull << 18,
         MESH_SHADER                             = 1ull << 19,
+        FRAGMENT_SHADER_BARYCENTRIC            = 1ull << 20,
     };
 
     DeviceFeatures() {};

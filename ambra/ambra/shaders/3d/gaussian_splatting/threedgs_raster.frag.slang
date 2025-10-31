@@ -47,6 +47,7 @@
 */
 
 #include "shaderio.h.slang"
+#include "wireframe.h.slang"
 
 // clang-format off
 

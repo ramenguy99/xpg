@@ -19,13 +19,17 @@
 
 #include "shaderio.h.slang"
 #include "threedgs_particles_storage.h.slang"
-#include "../3d/scene.slang"
+#include "../scene.slang"
 
 // clang-format off
 [[vk::push_constant]]                        ConstantBuffer<PushConstant> pcRaster;
 [[vk::binding(BINDING_DISTANCES_BUFFER, 1)]] RWStructuredBuffer<uint32_t> distances;
 [[vk::binding(BINDING_INDICES_BUFFER, 1)]]   RWStructuredBuffer<uint32_t> indices;
+#ifdef RASTER_MESH_WORKGROUP_SIZE
+[[vk::binding(BINDING_INDIRECT_BUFFER, 1)]]  RWStructuredBuffer<DrawMeshTasksIndirectParams> indirectBuffer;
+#else
 [[vk::binding(BINDING_INDIRECT_BUFFER, 1)]]  RWStructuredBuffer<DrawIndirectParams> indirectBuffer;
+#endif
 // clang-format on
 
 // encodes an fp32 into a uint32 that can be ordered
@@ -77,11 +81,13 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
   // stores the base index
   indices[instance_index] = id;
 
-#ifdef RASTER_MESH_SHADER_WORKGROUP_SIZE
+#if FRUSTUM_CULLING_MODE == FRUSTUM_CULLING_AT_DIST
+#ifdef RASTER_MESH_WORKGROUP_SIZE
   // set the workgroup count for the mesh shading pipeline
   if(instance_index % RASTER_MESH_WORKGROUP_SIZE == 0)
   {
     InterlockedAdd(indirectBuffer[0].groupCountX, 1);
   }
+#endif
 #endif
 }

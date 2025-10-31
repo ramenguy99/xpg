@@ -93,7 +93,8 @@ class Viewer:
             | DeviceFeatures.STORAGE_8BIT
             | DeviceFeatures.STORAGE_16BIT
             | DeviceFeatures.DRAW_INDIRECT_COUNT
-            | DeviceFeatures.MESH_SHADER,
+            | DeviceFeatures.MESH_SHADER
+            | DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC,
             preferred_frames_in_flight=config.preferred_frames_in_flight,
             preferred_swapchain_usage_flags=ImageUsageFlags.COLOR_ATTACHMENT
             | ImageUsageFlags.TRANSFER_DST

@@ -604,6 +604,11 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     mesh_shader_features.meshShader = VK_TRUE;
     CHAIN(mesh_shader_features, DeviceFeatures::MESH_SHADER);
 
+    // Mesh shader
+    VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR fragment_shader_barycentric_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR };
+    fragment_shader_barycentric_features.fragmentShaderBarycentric = VK_TRUE;
+    CHAIN(fragment_shader_barycentric_features, DeviceFeatures::FRAGMENT_SHADER_BARYCENTRIC);
+
     // Feature dependencies
     FeatureAndExtensionDependencies<1, 3> dynamic_rendering_deps = {
         .flag = DeviceFeatures::DYNAMIC_RENDERING,
@@ -734,6 +739,13 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         .features_req = { (GenericFeatureStruct*)&mesh_shader_features },
         .features_sup = { (GenericFeatureStruct*)&mesh_shader_features_sup },
         .extensions = { VK_EXT_MESH_SHADER_EXTENSION_NAME },
+    };
+
+    FeatureAndExtensionDependencies<1, 1> fragment_shader_barycentric_deps = {
+        .flag = DeviceFeatures::FRAGMENT_SHADER_BARYCENTRIC,
+        .features_req = { (GenericFeatureStruct*)&fragment_shader_barycentric_features },
+        .features_sup = { (GenericFeatureStruct*)&fragment_shader_barycentric_features_sup },
+        .extensions = { VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME },
     };
 
 
@@ -969,6 +981,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(storage_16bit);
             CHECK_SUPPORTED_EXTENSIONS(draw_indirect_count);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(mesh_shader);
+            CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(fragment_shader_barycentric);
 
             if (features_to_check & DeviceFeatures::WIDE_LINES)
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.wideLines ? DeviceFeatures::WIDE_LINES : 0));
@@ -1142,6 +1155,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(storage_16bit);
     ENABLE_EXTENSIONS_IF_SUPPORTED(draw_indirect_count);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(mesh_shader);
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(fragment_shader_barycentric);
 
     void* enabled_next = 0;
     for (usize i = 0; i < enabled_features.length; i++) {

@@ -49,6 +49,8 @@
 #include "threedgs.h.slang"
 #include "threedgs_particles_storage.h.slang"
 
+#include "../scene.slang"
+
 // Parallel Processing : Each global invocation (thread) processes one splat.
 // Batch Processing : The workgroup can process up to RASTER_MESH_WORKGROUP_SIZE splats(outputQuadCount)
 
@@ -72,12 +74,12 @@ struct VertexOutput
   [[vk::location(2)]] float4 position : SV_Position;
 };
 
-[[vk::binding(BINDING_FRAME_INFO_UBO, 0)]]  ConstantBuffer<FrameInfo> frameInfo;
 [[vk::push_constant]] ConstantBuffer<PushConstant> pcRaster;
+
 // sorted indices
-[[vk::binding(BINDING_INDICES_BUFFER, 0)]]  RWStructuredBuffer<uint32_t> indices;
+[[vk::binding(BINDING_INDICES_BUFFER, 1)]]  StructuredBuffer<uint32_t> indices;
 // to get the actual number of splats (after culling if any)
-[[vk::binding(BINDING_INDIRECT_BUFFER, 0)]] RWStructuredBuffer<IndirectParams> indirectBuffer;
+[[vk::binding(BINDING_INDIRECT_BUFFER, 1)]] StructuredBuffer<DrawMeshTasksIndirectParams> indirectBuffer;
 
 // clang-format on
 
@@ -111,7 +113,7 @@ void main(
   const uint splatCount = indirectBuffer[0].instanceCount;
 #else
   // otherwise we use all the splats
-  const uint splatCount = frameInfo.splatCount;
+  const uint splatCount = pcRaster.splatCount;
 #endif
   const uint outputQuadCount = min(RASTER_MESH_WORKGROUP_SIZE, splatCount - groupID.x * RASTER_MESH_WORKGROUP_SIZE);
 
@@ -129,16 +131,15 @@ void main(
     tris[localIndex * 2 + 0] = uint3(0, 2, 1) + localIndex * 4;
     tris[localIndex * 2 + 1] = uint3(2, 0, 3) + localIndex * 4;
 
-    const float4x4 modelViewMatrix = mul(pcRaster.modelMatrix, frameInfo.viewMatrix);
+    const float4x4 modelViewMatrix = mul(g_constants.view, float4x4(pcRaster.modelMatrix, float4(0, 0, 0, 1)));
 
     // Fetches are done as early as possible.
-    float4       splatColor  = fetchColor(splatIndex);
     const float3x3 cov3Dm      = fetchCovariance(splatIndex);
-    const float3 splatCenter = fetchCenter(splatIndex);
+    float4         splatColor  = fetchColor(splatIndex);
+    const float3   splatCenter = fetchCenter(splatIndex);
 
-    // Row-major: vector * matrix
-    const float4 viewCenter = mul(float4(splatCenter, 1.0), modelViewMatrix);
-    const float4 clipCenter  = mul(viewCenter, frameInfo.projectionMatrix);
+    const float4 viewCenter = mul(modelViewMatrix, float4(splatCenter, 1.0));
+    const float4 clipCenter = mul(g_constants.projection, viewCenter);
 
 #if SHOW_SH_ONLY == 1
     splatColor.rgb = float3(0.5, 0.5, 0.5);
@@ -147,12 +148,13 @@ void main(
     // fetch radiance from SH coefs > degree 0
     // const float3 worldViewDir = normalize(splatCenter - frameInfo.cameraPosition);
     // Row-major: vector * matrix (camera position transformed by inverse model matrix)
-    const float3 worldViewDir = normalize(splatCenter - mul(float4(frameInfo.cameraPosition, 1.0), pcRaster.modelMatrixInverse).xyz);
+    const float3 worldViewDir =
+        normalize(splatCenter - mul(pcRaster.modelMatrixInverse, float4(g_constants.world_camera_position, 1.0)).xyz);
 
     splatColor.rgb += fetchViewDependentRadiance(splatIndex, worldViewDir);
 
     // alpha based culling
-    if(splatColor.a < frameInfo.alphaCullThreshold)
+    if(splatColor.a < pcRaster.alphaCullThreshold)
     {
       // Early return to discard splat
       emitDegeneratedQuad(localIndex, verts);
@@ -167,9 +169,9 @@ void main(
 #endif
 
 #if FRUSTUM_CULLING_MODE == FRUSTUM_CULLING_AT_RASTER
-    const float clip = (1.0 + frameInfo.frustumDilation) * clipCenter.w;
+    const float clip = (1.0 + pcRaster.frustumDilation) * clipCenter.w;
     if(abs(clipCenter.x) > clip || abs(clipCenter.y) > clip
-       || clipCenter.z < (0.0 - frameInfo.frustumDilation) * clipCenter.w || clipCenter.z > clipCenter.w)
+       || clipCenter.z < (0.0 - pcRaster.frustumDilation) * clipCenter.w || clipCenter.z > clipCenter.w)
     {
       // Early return to discard splat
       emitDegeneratedQuad(localIndex, verts);
@@ -191,12 +193,12 @@ void main(
 #endif
 
     // Computes the projected covariance
-    const float3 cov2Dv = threedgsCovarianceProjection(cov3Dm, viewCenter, frameInfo.focal, modelViewMatrix);
+    const float3 cov2Dv = threedgsCovarianceProjection(cov3Dm, viewCenter, g_constants.focal, modelViewMatrix);
 
     // computes the basis vectors of the extent of the projected covariance
     // We use sqrt(8) standard deviations instead of 3 to eliminate more of the splat with a very low opacity.
     float2 basisVector1, basisVector2;
-    if(!threedgsProjectedExtentBasis(cov2Dv, sqrt8, frameInfo.splatScale, splatColor.a, basisVector1, basisVector2))
+    if(!threedgsProjectedExtentBasis(cov2Dv, sqrt8, pcRaster.splatScale, splatColor.a, basisVector1, basisVector2))
     {
       // Early return to discard splat
       emitDegeneratedQuad(localIndex, verts);
@@ -219,8 +221,7 @@ void main(
     {
       const float2 fragPos = positions[i].xy;
 
-      const float2 ndcOffset = float2(fragPos.x * basisVector1 + fragPos.y * basisVector2) * frameInfo.basisViewport * 2.0
-                             * frameInfo.inverseFocalAdjustment;
+      const float2 ndcOffset = float2(fragPos.x * basisVector1 + fragPos.y * basisVector2) * g_constants.inverse_viewport_size * 2.0;
 
       const float4 quadPos = float4(ndcCenter.xy + ndcOffset, ndcCenter.z, 1.0);
 

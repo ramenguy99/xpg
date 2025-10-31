@@ -72,7 +72,8 @@ struct DrawIndirectParams
 // for vkCmdDrawMeshTasksIndirectEXT
 struct DrawMeshTasksIndirectParams
 {
-  uint32_t groupCountX;  // will be incremented by the distance compute shader
-  uint32_t groupCountY;  // always one workgroup on Y
-  uint32_t groupCountZ;  // always one workgroup on Z
+  uint32_t groupCountX;   // will be incremented by the distance compute shader
+  uint32_t groupCountY;   // always one workgroup on Y
+  uint32_t groupCountZ;   // always one workgroup on Z
+  uint32_t instanceCount; // will be incremented by the distance compute shader
 };
