@@ -2198,6 +2198,25 @@ void CmdResolveImage(VkCommandBuffer cmd, const ResolveImageDesc&& desc) {
     );
 }
 
+void CmdDrawMeshTasks(VkCommandBuffer cmd, u32 groups_x, u32 groups_y, u32 groups_z) {
+#ifndef XPG_MOLTENVK_STATIC
+    vkCmdDrawMeshTasksEXT(cmd, groups_x, groups_y, groups_z);
+#endif
+}
+
+void CmdDrawMeshTasksIndirect(VkCommandBuffer cmd, VkBuffer buffer, VkDeviceSize offset, u32 draw_count, u32 stride) {
+#ifndef XPG_MOLTENVK_STATIC
+    vkCmdDrawMeshTasksIndirectEXT(cmd, buffer, offset, draw_count, stride);
+#endif
+}
+
+void CmdDrawMeshTasksIndirectCount(VkCommandBuffer cmd, VkBuffer buffer, VkDeviceSize offset, VkBuffer count_buffer, VkDeviceSize count_offset, u32 max_draw_count, u32 stride) {
+#ifndef XPG_MOLTENVK_STATIC
+    vkCmdDrawMeshTasksIndirectCountEXT(cmd, buffer, offset, count_buffer, count_offset, max_draw_count, stride);
+#endif
+}
+
+
 #ifdef _WIN32
 VkExternalSemaphoreHandleTypeFlagBits EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 VkExternalMemoryHandleTypeFlagBits EXTERNAL_MEMORY_HANDLE_TYPE_BIT = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;

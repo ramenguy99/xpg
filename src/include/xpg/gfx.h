@@ -732,6 +732,9 @@ struct ResolveImageDesc {
 };
 void CmdResolveImage(VkCommandBuffer cmd, const ResolveImageDesc&& desc);
 
+void CmdDrawMeshTasks(VkCommandBuffer cmd, u32 groups_x, u32 groups_y, u32 groups_z);
+void CmdDrawMeshTasksIndirect(VkCommandBuffer cmd, VkBuffer buffer, VkDeviceSize offset, u32 draw_count, u32 stride);
+void CmdDrawMeshTasksIndirectCount(VkCommandBuffer cmd, VkBuffer buffer, VkDeviceSize offset, VkBuffer count_buffer, VkDeviceSize count_offset, u32 max_draw_count, u32 stride);
 
 
 // - Shaders

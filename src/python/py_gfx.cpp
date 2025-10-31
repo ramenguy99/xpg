@@ -1576,7 +1576,7 @@ struct CommandBuffer: GfxObject {
         if (!(ctx->vk.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
             throw std::runtime_error("Device feature MESH_SHADER must be set to use CommandBuffer.draw_mesh_tasks");
         }
-        vkCmdDrawMeshTasksEXT(buffer, groups_x, groups_y, groups_z);
+        gfx::CmdDrawMeshTasks(buffer, groups_x, groups_y, groups_z);
     }
 
     void draw_mesh_tasks_indirect(
@@ -1588,7 +1588,7 @@ struct CommandBuffer: GfxObject {
         if (!(ctx->vk.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
             throw std::runtime_error("Device feature MESH_SHADER must be set to use CommandBuffer.draw_mesh_tasks_indirect");
         }
-        vkCmdDrawMeshTasksIndirectEXT(buffer, buf->buffer.buffer, offset, draw_count, stride);
+        gfx::CmdDrawMeshTasksIndirect(buffer, buf->buffer.buffer, offset, draw_count, stride);
     }
 
     void draw_mesh_tasks_indirect_count(
@@ -1605,7 +1605,7 @@ struct CommandBuffer: GfxObject {
         if (!(ctx->vk.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
             throw std::runtime_error("Device feature DRAW_INDIRECT_COUNT must be set to use CommandBuffer.draw_mesh_tasks_indirect_count");
         }
-        vkCmdDrawMeshTasksIndirectCountEXT(buffer, buf->buffer.buffer, offset, count_buf->buffer.buffer, count_offset, max_draw_count, stride);
+        gfx::CmdDrawMeshTasksIndirectCount(buffer, buf->buffer.buffer, offset, count_buf->buffer.buffer, count_offset, max_draw_count, stride);
     }
 
 
