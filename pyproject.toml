@@ -70,12 +70,10 @@ musllinux-aarch64-image = "musllinux_1_2"
 [[tool.cibuildwheel.overrides]]
 select = "*-manylinux*"
 before-all = [ "yum install -y libXcursor-devel libXi-devel libXinerama-devel libXrandr-devel wayland-devel libxkbcommon-devel wayland-protocols-devel" ]
+before-build = [ "rm -rf /project/python-build" ] # Work around Github runners running out of disk space during build
 
 # Install dependencies on musllinux
 [[tool.cibuildwheel.overrides]]
 select = "*-musllinux*"
 before-all = [ "apk add xorg-server-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev wayland-dev libxkbcommon-dev wayland-protocols" ]
-
-# Needed for full C++17 support on intel macOS
-[tool.cibuildwheel.macos.environment]
-MACOSX_DEPLOYMENT_TARGET = "10.14"
+before-build = [ "rm -rf /project/python-build" ] # Work around Github runners running out of disk space during build
