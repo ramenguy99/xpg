@@ -47,6 +47,14 @@
 #define ATTRIBUTE_LOC_MESH_POSITION 0
 #define ATTRIBUTE_LOC_MESH_NORMAL 1
 
+enum RenderFlags: uint32_t
+{
+  DisableOpacity = 1 << 0,
+  ShowSphericalHarmonicsOnly = 1 << 1,
+  OrthographicMode = 1 << 2,
+  PointCloudMode = 1 << 3,
+}
+
 // Push constant for raster
 struct PushConstant
 {
@@ -59,6 +67,7 @@ struct PushConstant
   float alphaCullThreshold;
   float frustumDilation;
   float splatScale;
+  RenderFlags flags;
 };
 
 // for vkCmdDrawIndexedIndirect

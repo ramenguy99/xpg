@@ -83,6 +83,8 @@ struct FragmentOutput
   [[vk::location(0)]] float4 outColor : SV_Target0;
 };
 
+[[vk::push_constant]] ConstantBuffer<PushConstant> pcRaster;
+
 // clang-format on
 
 ///////////////
@@ -167,14 +169,15 @@ FragmentOutput processFragment(float2 inFragPos, float4 inSplatCol, float3 baryC
   if(A > 8.0)
     discard;
 
-#if DISABLE_OPACITY_GAUSSIAN
-  const float opacity = 1.0;
-#else
-  // Since the rendered splat is scaled by sqrt(8), the inverse covariance matrix that is part of
-  // the gaussian formula becomes the identity matrix. We're then left with (X - mean) * (X - mean),
-  // and since 'mean' is zero, we have X * X, which is the same as A:
-  const float opacity = exp(-0.5 * A) * inSplatCol.a;
-#endif
+  float opacity;
+  if(pcRaster.flags & RenderFlags.DisableOpacity)
+    opacity = 1.0;
+  else {
+    // Since the rendered splat is scaled by sqrt(8), the inverse covariance matrix that is part of
+    // the gaussian formula becomes the identity matrix. We're then left with (X - mean) * (X - mean),
+    // and since 'mean' is zero, we have X * X, which is the same as A:
+    opacity = exp(-0.5 * A) * inSplatCol.a;
+  }
 
   output.outColor = float4(inSplatCol.rgb, opacity);
 

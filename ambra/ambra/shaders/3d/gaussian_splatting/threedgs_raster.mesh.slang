@@ -144,9 +144,9 @@ void main(
     const float4 viewCenter = mul(modelViewMatrix, float4(splatCenter, 1.0));
     const float4 clipCenter = mul(g_constants.projection, viewCenter);
 
-#if SHOW_SH_ONLY == 1
-    splatColor.rgb = float3(0.5, 0.5, 0.5);
-#endif
+    if (pcRaster.flags & RenderFlags.ShowSphericalHarmonicsOnly) {
+        splatColor.rgb = float3(0.5, 0.5, 0.5);
+    }
 
     // fetch radiance from SH coefs > degree 0
     // const float3 worldViewDir = normalize(splatCenter - frameInfo.cameraPosition);
@@ -196,12 +196,12 @@ void main(
 #endif
 
     // Computes the projected covariance
-    const float3 cov2Dv = threedgsCovarianceProjection(cov3Dm, viewCenter, g_constants.focal, modelViewMatrix);
+    const float3 cov2Dv = threedgsCovarianceProjection(cov3Dm, viewCenter, g_constants.focal, modelViewMatrix, pcRaster.flags & RenderFlags.OrthographicMode);
 
     // computes the basis vectors of the extent of the projected covariance
     // We use sqrt(8) standard deviations instead of 3 to eliminate more of the splat with a very low opacity.
     float2 basisVector1, basisVector2;
-    if(!threedgsProjectedExtentBasis(cov2Dv, sqrt8, pcRaster.splatScale, splatColor.a, basisVector1, basisVector2))
+    if(!threedgsProjectedExtentBasis(cov2Dv, sqrt8, pcRaster.splatScale, splatColor.a, basisVector1, basisVector2, pcRaster.flags & RenderFlags.PointCloudMode))
     {
       // Early return to discard splat
       emitDegeneratedQuad(localIndex, verts);

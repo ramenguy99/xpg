@@ -1,48 +1,15 @@
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
-from pyglm.glm import inverse, mat4x3
-from pyxpg import (
-    AllocType,
-    Attachment,
-    BlendFactor,
-    BlendOp,
-    Buffer,
-    BufferUsageFlags,
-    ComputePipeline,
-    Depth,
-    DescriptorSet,
-    DescriptorSetBinding,
-    DescriptorType,
-    DeviceFeatures,
-    Format,
-    GraphicsPipeline,
-    InputAssembly,
-    MemoryUsage,
-    PipelineStage,
-    PipelineStageFlags,
-    PrimitiveTopology,
-    PushConstantsRange,
-    Shader,
-    Stage,
-    VertexAttribute,
-    VertexBinding,
-    VertexInputRate,
-)
+from pyxpg import imgui
 from scipy.spatial.transform import Rotation
 
 from ambra.config import CameraConfig, Config, GuiConfig, RendererConfig
-from ambra.gpu_sorting import GpuSortingPipeline, SortDataType, SortOptions
-from ambra.primitives3d import Lines
-from ambra.property import BufferProperty
-from ambra.renderer import Renderer
-from ambra.renderer_frame import RendererFrame
-from ambra.scene import Object, Object3D
-from ambra.utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
-from ambra.utils.gpu import div_round_up
+from ambra.primitives3d import GaussianSplats, GaussianSplatsRenderFlags, Lines
+from ambra.property import UploadSettings, as_buffer_property
+from ambra.utils.hook import hook
 from ambra.viewer import Viewer
 
 
@@ -53,17 +20,6 @@ class Splats:
     opacity: np.ndarray
     scale: np.ndarray
     rotation: np.ndarray
-
-
-DISTANCE_COMPUTE_WORKGROUP_SIZE = 256
-
-FRUSTUM_CULLING_AT_NONE = 0
-FRUSTUM_CULLING_AT_DIST = 1
-FRUSTUM_CULLING_AT_RASTER = 2
-
-FORMAT_FLOAT32 = 0
-FORMAT_FLOAT16 = 1
-FORMAT_UINT8 = 2
 
 
 def load_ply(path: Path, sh_degree: int = 1):
@@ -121,355 +77,6 @@ def load_ply(path: Path, sh_degree: int = 1):
         return Splats(position, sh, opacity, scale, rotation)
 
 
-class GaussianSplats(Object3D):
-    def __init__(
-        self,
-        positions: BufferProperty,
-        colors: BufferProperty,
-        spherical_harmonics: BufferProperty,
-        covariances: BufferProperty,
-        cull_at_dist: bool = True,
-        mip_splatting_antialiasing: bool = False,
-        name: Optional[str] = None,
-        translation: Optional[BufferProperty] = None,
-        rotation: Optional[BufferProperty] = None,
-        scale: Optional[BufferProperty] = None,
-    ):
-        self.constants_dtype = np.dtype(
-            {
-                "transform": (np.dtype((np.float32, (3, 4))), 0),
-                "inverse_transform": (np.dtype((np.float32, (3, 4))), 48),
-                "splat_count": (np.uint32, 96),
-                "alpha_cull_threshold": (np.float32, 100),
-                "frustum_dilation": (np.float32, 104),
-                "splat_scale": (np.float32, 108),
-            }
-        )  # type: ignore
-        self.constants = np.zeros((1,), self.constants_dtype)
-
-        super().__init__(name, translation, rotation, scale)
-        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions")
-        self.colors = self.add_buffer_property(colors, np.float32, (-1, 4), name="colors")
-        self.spherical_harmonics = self.add_buffer_property(
-            spherical_harmonics, np.uint8, (-1, -1), name="spherical-harmonics"
-        )
-        self.covariances = self.add_buffer_property(covariances, np.float32, (-1, 6), name="covariances")
-        self.mip_splatting_antialiasing = mip_splatting_antialiasing
-        self.cull_at_dist = cull_at_dist
-
-    def create(self, r: Renderer) -> None:
-        if (r.ctx.device_features & DeviceFeatures.STORAGE_8BIT) == 0:
-            raise RuntimeError("Device does not support 8bit storage")
-
-        # TODO: actually check the storage type we are using when we will support multiple
-        # if (r.ctx.device_features & DeviceFeatures.STORAGE_16BIT) == 0:
-        #     raise RuntimeError("Device does not support 16bit storage")
-
-        self.use_barycentric = (r.ctx.device_features & DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC) != 0
-        self.use_mesh_shader = (r.ctx.device_features & DeviceFeatures.MESH_SHADER) != 0
-
-        self.positions_buf = r.add_gpu_buffer_property(
-            self.positions,
-            BufferUsageFlags.STORAGE,
-            MemoryUsage.COMPUTE_SHADER,
-            PipelineStageFlags.COMPUTE_SHADER,
-            f"{self.name}-positions",
-        )
-        self.colors_buf = r.add_gpu_buffer_property(
-            self.colors,
-            BufferUsageFlags.STORAGE,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_SHADER,
-            f"{self.name}-colors",
-        )
-        self.covariances_buf = r.add_gpu_buffer_property(
-            self.covariances,
-            BufferUsageFlags.STORAGE,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_SHADER,
-            f"{self.name}-covariances",
-        )
-        self.spherical_harmonics_buf = r.add_gpu_buffer_property(
-            self.spherical_harmonics,
-            BufferUsageFlags.STORAGE,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_SHADER,
-            f"{self.name}-spherical-harmonics",
-        )
-
-        max_splats = self.positions.max_size // 12
-        self.dists_buf = Buffer(
-            r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-dists"
-        )
-        self.dists_alt_buf = Buffer(
-            r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-dists-alt"
-        )
-        self.sorted_indices_buf = Buffer(
-            r.ctx,
-            max_splats * 4,
-            BufferUsageFlags.STORAGE | BufferUsageFlags.VERTEX,
-            AllocType.DEVICE,
-            name=f"{self.name}-sorted-indices",
-        )
-        self.sorted_indices_alt_buf = Buffer(
-            r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-sorted-indices-alt"
-        )
-
-        if not self.use_mesh_shader:
-            quad_vertices = np.array([-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0], np.float32)
-            quad_indices = np.array([0, 2, 1, 2, 0, 3], np.uint32)
-            self.quad_vertices = Buffer.from_data(
-                r.ctx,
-                quad_vertices,
-                BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST,
-                AllocType.DEVICE,
-                name=f"{self.name}-quad-vertices",
-            )
-            self.quad_indices = Buffer.from_data(
-                r.ctx,
-                quad_indices,
-                BufferUsageFlags.INDEX | BufferUsageFlags.TRANSFER_DST,
-                AllocType.DEVICE,
-                name=f"{self.name}-quad-indices",
-            )
-
-            draw_parameters = np.array([6, max_splats, 0, 0, 0], np.uint32)
-            self.draw_parameters_buf = Buffer.from_data(
-                r.ctx,
-                draw_parameters,
-                BufferUsageFlags.INDIRECT | BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
-                AllocType.DEVICE,
-                name=f"{self.name}-draw-param",
-            )
-            self.draw_parameters_init = np.array([6, 0, 0, 0, 0], np.uint32).tobytes()
-        else:
-            mesh_workgroup_size = min(
-                r.ctx.device_properties.mesh_shader_properties.max_preferred_mesh_work_group_invocations,
-                r.ctx.device_properties.mesh_shader_properties.max_mesh_work_group_count[0],
-            )
-            draw_mesh_tasks_parameters = np.array(
-                [div_round_up(max_splats, mesh_workgroup_size), 1, 1, max_splats], np.uint32
-            )
-            self.draw_mesh_tasks_buf = Buffer.from_data(
-                r.ctx,
-                draw_mesh_tasks_parameters,
-                BufferUsageFlags.INDIRECT | BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
-                AllocType.DEVICE,
-                name=f"{self.name}-draw-mesh-tasks-param",
-            )
-            self.draw_mesh_tasks_init = np.array([0, 1, 1, 0], np.uint32).tobytes()
-
-        # TODO: optionally allow wireframe (if barycentrics are available), disable opacity mode and MS_ANTIALIASING
-        # Currently these are compile time, but they should likely be runtime (or we can precompute permutations)
-        defines = [
-            ("DISTANCE_COMPUTE_WORKGROUP_SIZE", str(DISTANCE_COMPUTE_WORKGROUP_SIZE)),
-            (
-                "FRUSTUM_CULLING_MODE",
-                str(FRUSTUM_CULLING_AT_DIST) if self.cull_at_dist else str(FRUSTUM_CULLING_AT_RASTER),
-            ),
-            ("USE_BARYCENTRIC", "1" if self.use_barycentric else "0"),
-            (
-                "MS_ANTIALIASING",
-                "1" if self.mip_splatting_antialiasing else "0",
-            ),  # Only useful when model comes from mip splatting
-            ("MAX_SH_DEGREE", "3"),
-            ("SH_FORMAT", str(FORMAT_UINT8)),
-            # Flags
-            ("ORTHOGRAPHIC_MODE", "0"),
-            ("POINT_CLOUD_MODE", "0"),
-            ("SHOW_SH_ONLY", "0"),
-            ("WIREFRAME", "0"),
-            ("DISABLE_OPACITY_GAUSSIAN", "0"),
-        ]
-
-        if self.use_mesh_shader:
-            defines.append(("RASTER_MESH_WORKGROUP_SIZE", str(mesh_workgroup_size)))
-
-        dist_shader = r.compile_builtin_shader("3d/gaussian_splatting/dist.comp.slang", defines=defines)
-        self.descriptor_layout, self.descriptor_pool, self.descriptor_sets = (
-            create_descriptor_layout_pool_and_sets_ringbuffer(
-                r.ctx,
-                [DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in range(7)],
-                r.num_frames_in_flight,
-            )
-        )
-
-        for s in self.descriptor_sets:
-            s.write_buffer(self.dists_buf, DescriptorType.STORAGE_BUFFER, 0)
-            s.write_buffer(self.sorted_indices_buf, DescriptorType.STORAGE_BUFFER, 1)
-            if not self.use_mesh_shader:
-                s.write_buffer(self.draw_parameters_buf, DescriptorType.STORAGE_BUFFER, 2)
-            else:
-                s.write_buffer(self.draw_mesh_tasks_buf, DescriptorType.STORAGE_BUFFER, 2)
-
-        self.dist_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, dist_shader.code),
-            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
-            descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,
-                self.descriptor_layout,
-            ],
-        )
-
-        # Keys are UINT32 because we already convert them to being ordered when
-        # interpreted as integers in the dist computation pass.
-        self.sort_pipeline = GpuSortingPipeline(
-            r,
-            SortOptions(
-                key_type=SortDataType.UINT32,
-                payload_type=SortDataType.UINT32,
-                indirect=self.cull_at_dist,
-                unsafe_has_forward_thread_progress_guarantee=False,
-            ),
-        )
-
-        if not self.use_mesh_shader:
-            vert = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.vert.slang", defines=defines)
-            frag = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.frag.slang", defines=defines)
-        else:
-            mesh = r.compile_builtin_shader(
-                "3d/gaussian_splatting/threedgs_raster.mesh.slang", target="spirv_1_4", defines=defines
-            )
-            frag = r.compile_builtin_shader(
-                "3d/gaussian_splatting/threedgs_raster.frag.slang", entry="main_mesh", defines=defines
-            )
-
-        # Instantiate the pipeline using the compiled shaders
-        self.pipeline = GraphicsPipeline(
-            r.ctx,
-            stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX)
-                if not self.use_mesh_shader
-                else PipelineStage(Shader(r.ctx, mesh.code), Stage.MESH),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
-            ],
-            vertex_bindings=[
-                VertexBinding(0, 8, VertexInputRate.VERTEX),
-                VertexBinding(1, 4, VertexInputRate.INSTANCE),
-            ]
-            if not self.use_mesh_shader
-            else [],
-            vertex_attributes=[
-                VertexAttribute(0, 0, Format.R32G32_SFLOAT),
-                VertexAttribute(1, 1, Format.R32_UINT),
-            ]
-            if not self.use_mesh_shader
-            else [],
-            input_assembly=InputAssembly(
-                PrimitiveTopology.TRIANGLE_LIST,
-            ),
-            samples=1,
-            attachments=[
-                Attachment(
-                    format=r.output_format,
-                    blend_enable=True,
-                    src_color_blend_factor=BlendFactor.SRC_ALPHA,
-                    dst_color_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
-                    color_blend_op=BlendOp.ADD,
-                    src_alpha_blend_factor=BlendFactor.ONE,
-                    dst_alpha_blend_factor=BlendFactor.ZERO,
-                    alpha_blend_op=BlendOp.ADD,
-                )
-            ],
-            depth=Depth(r.depth_format, False, False, r.depth_compare_op),
-            descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,
-                self.descriptor_layout,
-            ],
-            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
-        )
-
-    def update_transform(self, parent: Optional[Object]) -> None:
-        super().update_transform(parent)
-        self.constants["transform"] = mat4x3(self.current_transform_matrix)
-        self.constants["inverse_transform"] = mat4x3(inverse(self.current_transform_matrix))
-
-    def upload(self, r: Renderer, frame: RendererFrame):
-        num_splats = self.positions.get_current().shape[0]
-        self.constants["splat_count"] = num_splats
-        self.constants["alpha_cull_threshold"] = 1.0 / 255.0
-        self.constants["frustum_dilation"] = 0.2
-        self.constants["splat_scale"] = 1.0
-
-        self.descriptor_set = self.descriptor_sets.get_current_and_advance()
-        self.descriptor_set.write_buffer(self.positions_buf.get_current(), DescriptorType.STORAGE_BUFFER, 3)
-        self.descriptor_set.write_buffer(self.colors_buf.get_current(), DescriptorType.STORAGE_BUFFER, 4)
-        self.descriptor_set.write_buffer(self.covariances_buf.get_current(), DescriptorType.STORAGE_BUFFER, 5)
-        self.descriptor_set.write_buffer(self.spherical_harmonics_buf.get_current(), DescriptorType.STORAGE_BUFFER, 6)
-
-        # Distances
-        if self.cull_at_dist:
-            frame.cmd.memory_barrier(MemoryUsage.ALL, MemoryUsage.ALL)
-            if self.use_mesh_shader:
-                frame.cmd.update_buffer(self.draw_mesh_tasks_buf, self.draw_mesh_tasks_init)
-            else:
-                frame.cmd.fill_buffer(self.draw_parameters_buf, 0, 4, 4)
-            frame.cmd.memory_barrier(MemoryUsage.TRANSFER_DST, MemoryUsage.COMPUTE_SHADER)
-
-        frame.cmd.bind_compute_pipeline(
-            self.dist_pipeline,
-            descriptor_sets=[frame.scene_descriptor_set, self.descriptor_set],
-            push_constants=self.constants.tobytes(),
-        )
-        frame.cmd.dispatch(div_round_up(num_splats, DISTANCE_COMPUTE_WORKGROUP_SIZE), 1, 1)
-
-        frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
-
-        # Sort
-        if self.cull_at_dist:
-            if self.use_mesh_shader:
-                count_buf = self.draw_mesh_tasks_buf
-                count_offset = 12
-            else:
-                count_buf = self.draw_parameters_buf
-                count_offset = 4
-
-            self.sort_pipeline.run_indirect(
-                r,
-                frame.cmd,
-                count_buf,
-                count_offset,
-                self.dists_buf,
-                self.dists_alt_buf,
-                self.sorted_indices_buf,
-                self.sorted_indices_alt_buf,
-            )
-        else:
-            self.sort_pipeline.run(
-                r,
-                frame.cmd,
-                num_splats,
-                self.dists_buf,
-                self.dists_alt_buf,
-                self.sorted_indices_buf,
-                self.sorted_indices_alt_buf,
-            )
-
-        frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.ALL)
-
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        frame.cmd.bind_graphics_pipeline(
-            self.pipeline,
-            vertex_buffers=[
-                self.quad_vertices,
-                self.sorted_indices_buf,
-            ]
-            if not self.use_mesh_shader
-            else [],
-            index_buffer=self.quad_indices if not self.use_mesh_shader else None,
-            descriptor_sets=[
-                scene_descriptor_set,
-                self.descriptor_set,
-            ],
-            push_constants=self.constants.tobytes(),
-        )
-        if self.use_mesh_shader:
-            frame.cmd.draw_mesh_tasks_indirect(self.draw_mesh_tasks_buf, 0, 1, 16)
-        else:
-            frame.cmd.draw_indexed_indirect(self.draw_parameters_buf, 0, 1, 20)
-
-
 splats = load_ply(sys.argv[1], 3)
 
 if False:
@@ -479,6 +86,7 @@ if False:
     covariances = np.array([[1, 0, 0, 2, 0, 3]], np.float32) * 1
 else:
     positions = splats.position
+    # positions = np.vstack((np.linspace(positions * 0.5, positions, 30), np.linspace(positions, positions * 0.5, 30)))
 
     SH_C0 = 0.28209479177387814
     colors = np.hstack((splats.sh[:, :3] * SH_C0 + 0.5, splats.opacity[..., np.newaxis]))
@@ -497,14 +105,54 @@ else:
     transformed_covariance: np.ndarray = np.matmul(covariance_matrices, np.transpose(covariance_matrices, (0, 2, 1)))
     covariances = transformed_covariance.reshape((-1, 9))[:, (0, 1, 2, 4, 5, 8)]
 
-
+# positions = as_buffer_property(
+#     positions,
+#     np.float32,
+#     (-1, 3),
+#     upload=UploadSettings(preupload=False, cpu_prefetch_count=2, gpu_prefetch_count=2, async_load=True),
+# )
 gs = GaussianSplats(positions, colors, sh, covariances)
 
-v = Viewer(
+
+class CustomViewer(Viewer):
+    @hook
+    def on_gui(self):
+        if imgui.begin("Gaussian splatting")[0]:
+            _, v = imgui.checkbox("Disable opacity", (gs.flags & GaussianSplatsRenderFlags.DISABLE_OPACITY) != 0)
+            if v:
+                gs.flags |= GaussianSplatsRenderFlags.DISABLE_OPACITY
+            else:
+                gs.flags &= ~GaussianSplatsRenderFlags.DISABLE_OPACITY
+
+            _, v = imgui.checkbox(
+                "Show SH only", (gs.flags & GaussianSplatsRenderFlags.SHOW_SPHERICAL_HARMONICS_ONLY) != 0
+            )
+            if v:
+                gs.flags |= GaussianSplatsRenderFlags.SHOW_SPHERICAL_HARMONICS_ONLY
+            else:
+                gs.flags &= ~GaussianSplatsRenderFlags.SHOW_SPHERICAL_HARMONICS_ONLY
+
+            _, v = imgui.checkbox("Point cloud mode", (gs.flags & GaussianSplatsRenderFlags.POINT_CLOUD_MODE) != 0)
+            if v:
+                gs.flags |= GaussianSplatsRenderFlags.POINT_CLOUD_MODE
+            else:
+                gs.flags &= ~GaussianSplatsRenderFlags.POINT_CLOUD_MODE
+            _, gs.alpha_cull_threshold = imgui.drag_float(
+                "Alpha cull threshold", gs.alpha_cull_threshold, v_speed=0.01, v_min=0.0, v_max=1.0
+            )
+            _, gs.frustum_dilation = imgui.drag_float(
+                "Frustum dilation", gs.frustum_dilation, v_speed=0.01, v_min=0.0, v_max=1.0
+            )
+            _, gs.splat_scale = imgui.drag_float("Splat scale", gs.splat_scale, v_speed=0.01, v_min=0.0, v_max=10.0)
+        imgui.end()
+
+
+v = CustomViewer(
     config=Config(
         gui=GuiConfig(
             stats=True,
             inspector=True,
+            renderer=True,
         ),
         world_up=(0, -1, 0),
         renderer=RendererConfig(

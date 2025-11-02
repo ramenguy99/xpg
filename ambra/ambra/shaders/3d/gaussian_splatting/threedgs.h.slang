@@ -26,20 +26,23 @@
 // cov3Dm: 3D covariance matrix
 // splatCenterView: splat center in view coordinates
 // returns: the upper-left 2x2 portion of the projected 3D covariance matrix (see comments in function body).
-float3 threedgsCovarianceProjection(float3x3 cov3Dm, float4 splatCenterView, float2 focal, float4x4 modelViewTransform)
+float3 threedgsCovarianceProjection(float3x3 cov3Dm, float4 splatCenterView, float2 focal, float4x4 modelViewTransform, bool orthographic_mode)
 {
-  // TODO: the ortho mode is not supported yet
-#if ORTHOGRAPHIC_MODE == 1
-  // Since the projection is linear, we don't need an approximation
-  const float3x3 J = float3x3(orthoZoom, 0.0, 0.0, 0.0, orthoZoom, 0.0, 0.0, 0.0, 0.0);
-#else
-  // Construct the Jacobian of the affine approximation of the projection matrix. It will be used to transform the
-  // 3D covariance matrix instead of using the actual projection matrix because that transformation would
-  // require a non-linear component (perspective division) which would yield a non-gaussian result.
-  const float s = 1.0 / (splatCenterView.z * splatCenterView.z);
-  const float3x3  J = float3x3(focal.x / splatCenterView.z, 0., -(focal.x * splatCenterView.x) * s, 0.,
-                       focal.y / splatCenterView.z, -(focal.y * splatCenterView.y) * s, 0., 0., 0.);
-#endif
+    float3x3 J;
+
+  if (orthographic_mode) {
+    // TODO: properly support this by adding ortho info to scene constants.
+    // Since the projection is linear, we don't need an approximation
+    float orthoZoom = 1.0;
+    J = float3x3(orthoZoom, 0.0, 0.0, 0.0, orthoZoom, 0.0, 0.0, 0.0, 0.0);
+  } else {
+    // Construct the Jacobian of the affine approximation of the projection matrix. It will be used to transform the
+    // 3D covariance matrix instead of using the actual projection matrix because that transformation would
+    // require a non-linear component (perspective division) which would yield a non-gaussian result.
+    const float s = 1.0 / (splatCenterView.z * splatCenterView.z);
+    J = float3x3(focal.x / splatCenterView.z, 0., -(focal.x * splatCenterView.x) * s, 0.,
+                        focal.y / splatCenterView.z, -(focal.y * splatCenterView.y) * s, 0., 0., 0.);
+  }
 
   // Concatenate the projection approximation with the model-view transformation
   const float3x3 W = float3x3(modelViewTransform);
@@ -57,7 +60,7 @@ float3 threedgsCovarianceProjection(float3x3 cov3Dm, float4 splatCenterView, flo
 
 // This function ingests the projected 2D covariance and outputs the basis vectors of its 2D extent
 // opacity is updated if MipSplatting antialiasing is applied.
-bool threedgsProjectedExtentBasis(float3 cov2Dv, float stdDev, float splatScale, inout float opacity, out float2 basisVector1, out float2 basisVector2)
+bool threedgsProjectedExtentBasis(float3 cov2Dv, float stdDev, float splatScale, inout float opacity, out float2 basisVector1, out float2 basisVector2, bool pointCloudMode)
 {
 
 #if MS_ANTIALIASING == 1
@@ -105,9 +108,9 @@ bool threedgsProjectedExtentBasis(float3 cov2Dv, float stdDev, float splatScale,
 #pragma warning(default: 41018)
   }
 
-#if POINT_CLOUD_MODE
-  eigenValue1 = eigenValue2 = 0.2;
-#endif
+  if (pointCloudMode) {
+    eigenValue1 = eigenValue2 = 0.2;
+  }
 
   const float2 eigenVector1 = normalize(float2(b, eigenValue1 - a));
   // since the eigen vectors are orthogonal, we derive the second one from the first
