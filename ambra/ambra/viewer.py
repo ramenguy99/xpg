@@ -462,7 +462,7 @@ class Viewer:
                 else:
                     kind = "CPU"
                 imgui.text(
-                    f"Heap {i} - {kind}: {stats.allocation_bytes / (1024 * 1024 * 1024):4.02f} / {heap.size / (1024 * 1024 * 1024):4.02f} GB"
+                    f"Heap {i} - {kind}: {stats.block_bytes / (1024 * 1024 * 1024):4.02f} / {heap.size / (1024 * 1024 * 1024):4.02f} GB"
                 )
         imgui.end()
 

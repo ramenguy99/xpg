@@ -120,8 +120,8 @@ struct HeapStatistics: nb::intrusive_base {
     // See VmaStatistics
     u32 block_count;
     u32 allocation_count;
-    u32 block_bytes;
-    u32 allocation_bytes;
+    u64 block_bytes;
+    u64 allocation_bytes;
 
     // See VmaBudget
     VkDeviceSize usage;
