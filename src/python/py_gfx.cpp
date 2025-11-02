@@ -631,6 +631,7 @@ enum class MemoryUsage {
     HostWrite,
     TransferSrc,
     TransferDst,
+    Indirect,
     VertexInput,
     ShaderUniform,
     ComputeShaderUniform,
@@ -681,6 +682,11 @@ namespace MemoryUsagePresets {
         .first_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         .last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         .access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+    };
+    constexpr MemoryUsageState Indirect {
+        .first_stage = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+        .access = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
     };
     constexpr MemoryUsageState ShaderUniform {
         .first_stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
@@ -763,6 +769,7 @@ namespace MemoryUsagePresets {
         HostWrite,
         TransferSrc,
         TransferDst,
+        Indirect,
         VertexInput,
         ShaderUniform,
         ComputeShaderUniform,
@@ -4292,6 +4299,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("HOST_WRITE", MemoryUsage::HostWrite)
         .value("TRANSFER_SRC", MemoryUsage::TransferSrc)
         .value("TRANSFER_DST", MemoryUsage::TransferDst)
+        .value("INDIRECT", MemoryUsage::Indirect)
         .value("VERTEX_INPUT", MemoryUsage::VertexInput)
         .value("SHADER_UNIFORM", MemoryUsage::ShaderUniform)
         .value("COMPUTE_SHADER_UNIFORM", MemoryUsage::ComputeShaderUniform)

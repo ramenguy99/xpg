@@ -38,6 +38,28 @@ groupshared uint g_scan[SCAN_DIM];  //Shared memory for the scan
 void InitDeviceRadixSort(int3 id : SV_DispatchThreadID)
 {
     b_globalHist[id.x] = 0;
+
+#ifdef INDIRECT_DISPATCH
+    if (id.x == 0) {
+        uint numKeys = g_indirect_num_keys[g_constants.numKeys];
+        uint threadBlocks = (numKeys + PART_SIZE - 1) / PART_SIZE;
+        uint fullBlocks = threadBlocks / MAX_DISPATCH_DIM;
+        uint partialBlocks = threadBlocks - fullBlocks * MAX_DISPATCH_DIM;
+
+        g_indirect_constants_write[0].numKeys = numKeys;
+        g_indirect_constants_write[0].threadBlocks = threadBlocks;
+        g_indirect_constants_write[0].threadBlocksGlobalHistogram = 0;
+        g_indirect_constants_write[0].fullBlocks = fullBlocks;
+
+        g_indirect_dispatch_write[0].groups_x = MAX_DISPATCH_DIM;
+        g_indirect_dispatch_write[0].groups_y = fullBlocks;
+        g_indirect_dispatch_write[0].groups_z = 1;
+
+        g_indirect_dispatch_write[1].groups_x = partialBlocks;
+        g_indirect_dispatch_write[1].groups_y = 1;
+        g_indirect_dispatch_write[1].groups_z = 1;
+    }
+#endif
 }
 
 //*****************************************************************************
@@ -47,8 +69,8 @@ void InitDeviceRadixSort(int3 id : SV_DispatchThreadID)
 inline void HistogramDigitCounts(uint gtid, uint gid)
 {
     const uint histOffset = gtid / 64 * RADIX;
-    const uint partitionEnd = gid == g_constants.threadBlocks - 1 ?
-        g_constants.numKeys : (gid + 1) * PART_SIZE;
+    const uint partitionEnd = gid == getThreadBlocks() - 1 ?
+        getNumKeys() : (gid + 1) * PART_SIZE;
     for (uint i = gtid + gid * PART_SIZE; i < partitionEnd; i += US_DIM)
     {
 #if defined(KEY_UINT)
@@ -67,7 +89,7 @@ inline void ReduceWriteDigitCounts(uint gtid, uint gid)
     for (uint i = gtid; i < RADIX; i += US_DIM)
     {
         g_us[i] += g_us[i + RADIX];
-        b_passHist[i * g_constants.threadBlocks + gid] = g_us[i];
+        b_passHist[i * getThreadBlocks() + gid] = g_us[i];
         g_us[i] += WavePrefixSum(g_us[i]);
     }
 }
@@ -219,7 +241,7 @@ inline void ExclusiveThreadBlockScanPartialWGE16(
     uint reduction)
 {
     uint i = gtid + partEnd;
-    if (i < g_constants.threadBlocks)
+    if (i < getThreadBlocks())
         g_scan[gtid] = b_passHist[deviceOffset + i];
     g_scan[gtid] += WavePrefixSum(g_scan[gtid]);
     GroupMemoryBarrierWithGroupSync();
@@ -232,7 +254,7 @@ inline void ExclusiveThreadBlockScanPartialWGE16(
     GroupMemoryBarrierWithGroupSync();
 
     const uint index = circularLaneShift + (i & ~laneMask);
-    if (index < g_constants.threadBlocks)
+    if (index < getThreadBlocks())
     {
         b_passHist[index + deviceOffset] =
             (WaveGetLaneIndex() != laneMask ? g_scan[gtid.x] : 0) +
@@ -247,8 +269,8 @@ inline void ExclusiveThreadBlockScanWGE16(uint gtid, uint gid)
     uint reduction = 0;
     const uint laneMask = WaveGetLaneCount() - 1;
     const uint circularLaneShift = WaveGetLaneIndex() + 1 & laneMask;
-    const uint partionsEnd = g_constants.threadBlocks / SCAN_DIM * SCAN_DIM;
-    const uint deviceOffset = gid * g_constants.threadBlocks;
+    const uint partionsEnd = getThreadBlocks() / SCAN_DIM * SCAN_DIM;
+    const uint deviceOffset = gid * getThreadBlocks();
 
     ExclusiveThreadBlockScanFullWGE16(
         gtid,
@@ -340,7 +362,7 @@ inline void ExclusiveThreadBlockScanParitalWLT16(
     uint circularLaneShift,
     uint reduction)
 {
-    const uint finalPartSize = g_constants.threadBlocks - partitions * SCAN_DIM;
+    const uint finalPartSize = getThreadBlocks() - partitions * SCAN_DIM;
     if (gtid < finalPartSize)
     {
         g_scan[gtid] = b_passHist[gtid + partitions * SCAN_DIM + deviceOffset];
@@ -387,8 +409,8 @@ inline void ExclusiveThreadBlockScanParitalWLT16(
 inline void ExclusiveThreadBlockScanWLT16(uint gtid, uint gid)
 {
     uint reduction = 0;
-    const uint partitions = g_constants.threadBlocks / SCAN_DIM;
-    const uint deviceOffset = gid * g_constants.threadBlocks;
+    const uint partitions = getThreadBlocks() / SCAN_DIM;
+    const uint deviceOffset = gid * getThreadBlocks();
     const uint laneLog = countbits(WaveGetLaneCount() - 1);
     const uint circularLaneShift = WaveGetLaneIndex() + 1 &
                     WaveGetLaneCount() - 1;
@@ -429,7 +451,7 @@ inline void LoadThreadBlockReductions(uint gtid, uint gid, uint exclusiveHistRed
     if (gtid < RADIX)
     {
         g_d[gtid + PART_SIZE] = b_globalHist[gtid + GlobalHistOffset()] +
-            b_passHist[gtid * g_constants.threadBlocks + gid] - exclusiveHistReduction;
+            b_passHist[gtid * getThreadBlocks() + gid] - exclusiveHistReduction;
     }
 }
 
@@ -445,7 +467,7 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 
     ClearWaveHists(gtid.x);
 
-    if (flattenGid(gid) < g_constants.threadBlocks - 1)
+    if (flattenGid(gid) < getThreadBlocks() - 1)
     {
         if (WaveGetLaneCount() >= 16)
             keys = LoadKeysWGE16(gtid.x, flattenGid(gid));
@@ -454,7 +476,7 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             keys = LoadKeysWLT16(gtid.x, flattenGid(gid), SerialIterations());
     }
 
-    if (flattenGid(gid) == g_constants.threadBlocks - 1)
+    if (flattenGid(gid) == getThreadBlocks() - 1)
     {
         if (WaveGetLaneCount() >= 16)
             keys = LoadKeysPartialWGE16(gtid.x, flattenGid(gid));
@@ -511,9 +533,9 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     LoadThreadBlockReductions(gtid.x, flattenGid(gid), exclusiveHistReduction);
     GroupMemoryBarrierWithGroupSync();
 
-    if (flattenGid(gid) < g_constants.threadBlocks - 1)
+    if (flattenGid(gid) < getThreadBlocks() - 1)
         ScatterDevice(gtid.x, flattenGid(gid), offsets);
 
-    if (flattenGid(gid) == g_constants.threadBlocks - 1)
+    if (flattenGid(gid) == getThreadBlocks() - 1)
         ScatterDevicePartial(gtid.x, flattenGid(gid), offsets);
 }

@@ -49,15 +49,22 @@ inline uint CurrentPass()
 
 inline uint PassHistOffset(uint index)
 {
-    return ((CurrentPass() * g_constants.threadBlocks) + index) << RADIX_LOG;
+    return ((CurrentPass() * getThreadBlocks()) + index) << RADIX_LOG;
 }
 
 //Init does not require flattening
 [numthreads(256, 1, 1)]
 void InitSweep(uint3 id : SV_DispatchThreadID)
 {
+#ifdef INDIRECT_DISPATCH
+    uint numKeys = g_indirect_num_keys[g_constants.numKeys];
+    uint threadBlocks = (numKeys + PART_SIZE - 1) / PART_SIZE;
+#else
+    uint threadBlocks = getThreadBlocks();
+#endif
+
     const uint increment = 256 * 256;
-    const uint clearEnd = g_constants.threadBlocks * RADIX * RADIX_PASSES;
+    const uint clearEnd = threadBlocks * RADIX * RADIX_PASSES;
     for (uint i = id.x; i < clearEnd; i += increment)
         b_passHist[i] = 0;
 
@@ -66,6 +73,40 @@ void InitSweep(uint3 id : SV_DispatchThreadID)
 
     if (id.x < RADIX_PASSES)
         b_index[id.x] = 0;
+
+#ifdef INDIRECT_DISPATCH
+    if (id.x == 0) {
+        uint fullBlocks = threadBlocks / MAX_DISPATCH_DIM;
+        uint partialBlocks = threadBlocks - fullBlocks * MAX_DISPATCH_DIM;
+
+        uint globalHistogramThreadBlocks = (numKeys + G_HIST_PART_SIZE - 1) / G_HIST_PART_SIZE;
+        uint globalHistogramFullBlocks = globalHistogramThreadBlocks / MAX_DISPATCH_DIM;
+        uint globalHistogramPartialBlocks = globalHistogramThreadBlocks - globalHistogramFullBlocks * MAX_DISPATCH_DIM;
+
+        g_indirect_constants_write[0].numKeys = numKeys;
+        g_indirect_constants_write[0].threadBlocks = threadBlocks;
+        g_indirect_constants_write[0].threadBlocksGlobalHistogram = globalHistogramThreadBlocks;
+        g_indirect_constants_write[0].fullBlocks = globalHistogramFullBlocks;
+
+        // Global histogram
+        g_indirect_dispatch_write[0].groups_x = MAX_DISPATCH_DIM;
+        g_indirect_dispatch_write[0].groups_y = globalHistogramFullBlocks;
+        g_indirect_dispatch_write[0].groups_z = 1;
+
+        g_indirect_dispatch_write[1].groups_x = globalHistogramPartialBlocks;
+        g_indirect_dispatch_write[1].groups_y = 1;
+        g_indirect_dispatch_write[1].groups_z = 1;
+
+        // Sweep
+        g_indirect_dispatch_write[2].groups_x = MAX_DISPATCH_DIM;
+        g_indirect_dispatch_write[2].groups_y = fullBlocks;
+        g_indirect_dispatch_write[2].groups_z = 1;
+
+        g_indirect_dispatch_write[3].groups_x = partialBlocks;
+        g_indirect_dispatch_write[3].groups_y = 1;
+        g_indirect_dispatch_write[3].groups_z = 1;
+    }
+#endif
 }
 
 //*****************************************************************************
@@ -75,8 +116,8 @@ void InitSweep(uint3 id : SV_DispatchThreadID)
 inline void HistogramDigitCounts(uint gtid, uint gid)
 {
     const uint histOffset = gtid / 64 * RADIX;
-    const uint partitionEnd = gid == g_constants.threadBlocks - 1 ?
-        g_constants.numKeys : (gid + 1) * G_HIST_PART_SIZE;
+    const uint partitionEnd = gid == getThreadBlocksGlobalHistogram() - 1 ?
+        getNumKeys() : (gid + 1) * G_HIST_PART_SIZE;
 
     uint t;
     for (uint i = gtid + gid * G_HIST_PART_SIZE; i < partitionEnd; i += G_HIST_DIM)
@@ -143,14 +184,14 @@ inline void GlobalHistExclusiveScanWGE16(uint gtid, uint gid)
 
     const uint laneMask = WaveGetLaneCount() - 1;
     const uint index = (WaveGetLaneIndex() + 1 & laneMask) + (gtid & ~laneMask);
-    b_passHist[index + gid * RADIX * g_constants.threadBlocks] =
+    b_passHist[index + gid * RADIX * getThreadBlocks()] =
         ((WaveGetLaneIndex() != laneMask ? g_scan[gtid] : 0) +
         (gtid >= WaveGetLaneCount() ? WaveReadLaneAt(g_scan[gtid - 1], 0) : 0)) << 2 | FLAG_INCLUSIVE;
 }
 
 inline void GlobalHistExclusiveScanWLT16(uint gtid, uint gid)
 {
-    const uint passHistOffset = gid * RADIX * g_constants.threadBlocks;
+    const uint passHistOffset = gid * RADIX * getThreadBlocks();
     if (gtid < WaveGetLaneCount())
     {
         const uint circularLaneShift = WaveGetLaneIndex() + 1 &
@@ -230,7 +271,7 @@ inline void AssignPartitionTile(uint gtid, inout uint partitionIndex)
 //For OneSweep
 inline void DeviceBroadcastReductionsWGE16(uint gtid, uint partIndex, uint histReduction)
 {
-    if (partIndex < g_constants.threadBlocks - 1)
+    if (partIndex < getThreadBlocks() - 1)
     {
         InterlockedAdd(b_passHist[gtid + PassHistOffset(partIndex + 1)],
             FLAG_REDUCTION | histReduction << 2);
@@ -239,7 +280,7 @@ inline void DeviceBroadcastReductionsWGE16(uint gtid, uint partIndex, uint histR
 
 inline void DeviceBroadcastReductionsWLT16(uint gtid, uint partIndex, uint histReduction)
 {
-    if (partIndex < g_constants.threadBlocks - 1)
+    if (partIndex < getThreadBlocks() - 1)
     {
         InterlockedAdd(b_passHist[(gtid << 1) + PassHistOffset(partIndex + 1)],
             FLAG_REDUCTION | (histReduction & 0xffff) << 2);
@@ -252,7 +293,7 @@ inline void DeviceBroadcastReductionsWLT16(uint gtid, uint partIndex, uint histR
 //For ForwardSweep
 inline void CASDeviceBroadcastReductionsWGE16(uint gtid, uint partIndex, uint histReduction)
 {
-    if (partIndex < g_constants.threadBlocks - 1)
+    if (partIndex < getThreadBlocks() - 1)
     {
         InterlockedCompareStore(b_passHist[gtid + PassHistOffset(partIndex + 1)], 0,
             FLAG_REDUCTION | histReduction << 2);
@@ -261,7 +302,7 @@ inline void CASDeviceBroadcastReductionsWGE16(uint gtid, uint partIndex, uint hi
 
 inline void CASDeviceBroadcastReductionsWLT16(uint gtid, uint partIndex, uint histReduction)
 {
-    if (partIndex < g_constants.threadBlocks - 1)
+    if (partIndex < getThreadBlocks() - 1)
     {
         InterlockedCompareStore(b_passHist[gtid + PassHistOffset(partIndex + 1)], 0,
             FLAG_REDUCTION | (histReduction & 0xffff) << 2);
@@ -282,7 +323,7 @@ inline void Lookback(uint gtid, uint partIndex, uint exclusiveHistReduction)
             if ((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE)
             {
                 lookbackReduction += flagPayload >> 2;
-                if (partIndex < g_constants.threadBlocks - 1)
+                if (partIndex < getThreadBlocks() - 1)
                 {
                     InterlockedAdd(b_passHist[gtid + PassHistOffset(partIndex + 1)],
                         1 | lookbackReduction << 2);
@@ -361,15 +402,15 @@ inline void LookbackWithFallback(uint gtid, uint partIndex, uint exclusiveHistRe
             if(!gtid)
                 g_d[1] = 0;
 
-            const uint fallbackEnd = PART_SIZE * ((lookbackIndex >> RADIX_LOG) - g_constants.threadBlocks * CurrentPass());
-            for (uint i = gtid + PART_SIZE * ((lookbackIndex >> RADIX_LOG) - g_constants.threadBlocks * CurrentPass() - 1); i < fallbackEnd; i += D_DIM)
+            const uint fallbackEnd = PART_SIZE * ((lookbackIndex >> RADIX_LOG) - getThreadBlocks() * CurrentPass());
+            for (uint i = gtid + PART_SIZE * ((lookbackIndex >> RADIX_LOG) - getThreadBlocks() * CurrentPass() - 1); i < fallbackEnd; i += D_DIM)
                 FallbackHistogram(i);
             GroupMemoryBarrierWithGroupSync();
 
             uint reduceOut;
             if(gtid < RADIX)
             {
-                InterlockedCompareExchange(b_passHist[gtid + PassHistOffset((lookbackIndex >> RADIX_LOG) - g_constants.threadBlocks * CurrentPass())], 0,
+                InterlockedCompareExchange(b_passHist[gtid + PassHistOffset((lookbackIndex >> RADIX_LOG) - getThreadBlocks() * CurrentPass())], 0,
                     FLAG_REDUCTION | g_d[gtid + RADIX] << 2, reduceOut);
             }
 
@@ -378,7 +419,7 @@ inline void LookbackWithFallback(uint gtid, uint partIndex, uint exclusiveHistRe
                 if ((reduceOut & FLAG_MASK) == FLAG_INCLUSIVE)
                 {
                     lookbackReduction += reduceOut >> 2;
-                    if (partIndex < g_constants.threadBlocks - 1)
+                    if (partIndex < getThreadBlocks() - 1)
                     {
                         InterlockedAdd(b_passHist[gtid + PassHistOffset(partIndex + 1)],
                             1 | lookbackReduction << 2);
@@ -400,7 +441,7 @@ inline void LookbackWithFallback(uint gtid, uint partIndex, uint exclusiveHistRe
                 lookbackReduction += flagPayload >> 2;
                 if ((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE)
                 {
-                    if (partIndex < g_constants.threadBlocks - 1)
+                    if (partIndex < getThreadBlocks() - 1)
                     {
                         InterlockedAdd(b_passHist[gtid + PassHistOffset(partIndex + 1)],
                             1 | lookbackReduction << 2);

@@ -34,7 +34,7 @@ from pyxpg import (
 )
 from scipy.spatial.transform import Rotation
 
-from ambra.config import Config, GuiConfig, RendererConfig
+from ambra.config import CameraConfig, Config, GuiConfig, RendererConfig
 from ambra.gpu_sorting import GpuSortingPipeline, SortDataType, SortOptions
 from ambra.primitives3d import Lines
 from ambra.property import BufferProperty
@@ -128,6 +128,7 @@ class GaussianSplats(Object3D):
         colors: BufferProperty,
         spherical_harmonics: BufferProperty,
         covariances: BufferProperty,
+        cull_at_dist: bool = True,
         mip_splatting_antialiasing: bool = False,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
@@ -154,18 +155,18 @@ class GaussianSplats(Object3D):
         )
         self.covariances = self.add_buffer_property(covariances, np.float32, (-1, 6), name="covariances")
         self.mip_splatting_antialiasing = mip_splatting_antialiasing
+        self.cull_at_dist = cull_at_dist
 
     def create(self, r: Renderer) -> None:
-        # TODO: actually check the storage type we are using instead of all
         if (r.ctx.device_features & DeviceFeatures.STORAGE_8BIT) == 0:
             raise RuntimeError("Device does not support 8bit storage")
 
-        if (r.ctx.device_features & DeviceFeatures.STORAGE_16BIT) == 0:
-            raise RuntimeError("Device does not support 16bit storage")
+        # TODO: actually check the storage type we are using when we will support multiple
+        # if (r.ctx.device_features & DeviceFeatures.STORAGE_16BIT) == 0:
+        #     raise RuntimeError("Device does not support 16bit storage")
 
         self.use_barycentric = (r.ctx.device_features & DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC) != 0
         self.use_mesh_shader = (r.ctx.device_features & DeviceFeatures.MESH_SHADER) != 0
-        self.cull_at_dist = False # TODO: requires run_indirect on sort
 
         self.positions_buf = r.add_gpu_buffer_property(
             self.positions,
@@ -214,7 +215,6 @@ class GaussianSplats(Object3D):
             r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-sorted-indices-alt"
         )
 
-
         if not self.use_mesh_shader:
             quad_vertices = np.array([-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0], np.float32)
             quad_indices = np.array([0, 2, 1, 2, 0, 3], np.uint32)
@@ -243,8 +243,13 @@ class GaussianSplats(Object3D):
             )
             self.draw_parameters_init = np.array([6, 0, 0, 0, 0], np.uint32).tobytes()
         else:
-            mesh_workgroup_size = min(r.ctx.device_properties.mesh_shader_properties.max_preferred_mesh_work_group_invocations, r.ctx.device_properties.mesh_shader_properties.max_mesh_work_group_count[0])
-            draw_mesh_tasks_parameters = np.array([div_round_up(max_splats, mesh_workgroup_size), 1, 1, max_splats], np.uint32)
+            mesh_workgroup_size = min(
+                r.ctx.device_properties.mesh_shader_properties.max_preferred_mesh_work_group_invocations,
+                r.ctx.device_properties.mesh_shader_properties.max_mesh_work_group_count[0],
+            )
+            draw_mesh_tasks_parameters = np.array(
+                [div_round_up(max_splats, mesh_workgroup_size), 1, 1, max_splats], np.uint32
+            )
             self.draw_mesh_tasks_buf = Buffer.from_data(
                 r.ctx,
                 draw_mesh_tasks_parameters,
@@ -258,16 +263,23 @@ class GaussianSplats(Object3D):
         # Currently these are compile time, but they should likely be runtime (or we can precompute permutations)
         defines = [
             ("DISTANCE_COMPUTE_WORKGROUP_SIZE", str(DISTANCE_COMPUTE_WORKGROUP_SIZE)),
-            ("FRUSTUM_CULLING_MODE", str(FRUSTUM_CULLING_AT_DIST) if self.cull_at_dist else str(FRUSTUM_CULLING_AT_RASTER)),
+            (
+                "FRUSTUM_CULLING_MODE",
+                str(FRUSTUM_CULLING_AT_DIST) if self.cull_at_dist else str(FRUSTUM_CULLING_AT_RASTER),
+            ),
             ("USE_BARYCENTRIC", "1" if self.use_barycentric else "0"),
-            ("WIREFRAME", "0"),
-            ("DISABLE_OPACITY_GAUSSIAN", "0"),
-            ("MS_ANTIALIASING", "1" if self.mip_splatting_antialiasing else "0"), # Only useful when model comes from mip splatting
+            (
+                "MS_ANTIALIASING",
+                "1" if self.mip_splatting_antialiasing else "0",
+            ),  # Only useful when model comes from mip splatting
             ("MAX_SH_DEGREE", "3"),
             ("SH_FORMAT", str(FORMAT_UINT8)),
+            # Flags
             ("ORTHOGRAPHIC_MODE", "0"),
             ("POINT_CLOUD_MODE", "0"),
             ("SHOW_SH_ONLY", "0"),
+            ("WIREFRAME", "0"),
+            ("DISABLE_OPACITY_GAUSSIAN", "0"),
         ]
 
         if self.use_mesh_shader:
@@ -303,34 +315,47 @@ class GaussianSplats(Object3D):
         # Keys are UINT32 because we already convert them to being ordered when
         # interpreted as integers in the dist computation pass.
         self.sort_pipeline = GpuSortingPipeline(
-            r, SortOptions(key_type=SortDataType.UINT32, payload_type=SortDataType.UINT32, descending=False)
+            r,
+            SortOptions(
+                key_type=SortDataType.UINT32,
+                payload_type=SortDataType.UINT32,
+                indirect=self.cull_at_dist,
+                unsafe_has_forward_thread_progress_guarantee=False,
+            ),
         )
 
         if not self.use_mesh_shader:
             vert = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.vert.slang", defines=defines)
             frag = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.frag.slang", defines=defines)
         else:
-            mesh = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.mesh.slang", target="spirv_1_4",  defines=defines)
-            frag = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.frag.slang", entry="main_mesh", defines=defines)
-
+            mesh = r.compile_builtin_shader(
+                "3d/gaussian_splatting/threedgs_raster.mesh.slang", target="spirv_1_4", defines=defines
+            )
+            frag = r.compile_builtin_shader(
+                "3d/gaussian_splatting/threedgs_raster.frag.slang", entry="main_mesh", defines=defines
+            )
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
             r.ctx,
             stages=[
                 PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX)
-                if not self.use_mesh_shader else
-                PipelineStage(Shader(r.ctx, mesh.code), Stage.MESH),
+                if not self.use_mesh_shader
+                else PipelineStage(Shader(r.ctx, mesh.code), Stage.MESH),
                 PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
             ],
             vertex_bindings=[
                 VertexBinding(0, 8, VertexInputRate.VERTEX),
                 VertexBinding(1, 4, VertexInputRate.INSTANCE),
-            ] if not self.use_mesh_shader else [],
+            ]
+            if not self.use_mesh_shader
+            else [],
             vertex_attributes=[
                 VertexAttribute(0, 0, Format.R32G32_SFLOAT),
                 VertexAttribute(1, 1, Format.R32_UINT),
-            ] if not self.use_mesh_shader else [],
+            ]
+            if not self.use_mesh_shader
+            else [],
             input_assembly=InputAssembly(
                 PrimitiveTopology.TRIANGLE_LIST,
             ),
@@ -392,15 +417,35 @@ class GaussianSplats(Object3D):
         frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
 
         # Sort
-        self.sort_pipeline.run(
-            r,
-            frame.cmd,
-            num_splats,
-            self.dists_buf,
-            self.dists_alt_buf,
-            self.sorted_indices_buf,
-            self.sorted_indices_alt_buf,
-        )
+        if self.cull_at_dist:
+            if self.use_mesh_shader:
+                count_buf = self.draw_mesh_tasks_buf
+                count_offset = 12
+            else:
+                count_buf = self.draw_parameters_buf
+                count_offset = 4
+
+            self.sort_pipeline.run_indirect(
+                r,
+                frame.cmd,
+                count_buf,
+                count_offset,
+                self.dists_buf,
+                self.dists_alt_buf,
+                self.sorted_indices_buf,
+                self.sorted_indices_alt_buf,
+            )
+        else:
+            self.sort_pipeline.run(
+                r,
+                frame.cmd,
+                num_splats,
+                self.dists_buf,
+                self.dists_alt_buf,
+                self.sorted_indices_buf,
+                self.sorted_indices_alt_buf,
+            )
+
         frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.ALL)
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
@@ -409,7 +454,9 @@ class GaussianSplats(Object3D):
             vertex_buffers=[
                 self.quad_vertices,
                 self.sorted_indices_buf,
-            ] if not self.use_mesh_shader else [],
+            ]
+            if not self.use_mesh_shader
+            else [],
             index_buffer=self.quad_indices if not self.use_mesh_shader else None,
             descriptor_sets=[
                 scene_descriptor_set,
@@ -435,7 +482,10 @@ else:
 
     SH_C0 = 0.28209479177387814
     colors = np.hstack((splats.sh[:, :3] * SH_C0 + 0.5, splats.opacity[..., np.newaxis]))
-    sh = np.transpose(np.clip(np.rint((splats.sh[:, 3:] * 0.5 + 0.5) * 255.0), 0.0, 255.0).astype(np.uint8).reshape((-1, 3, 15)), (0, 2, 1)).reshape((-1, 45))
+    sh = np.transpose(
+        np.clip(np.rint((splats.sh[:, 3:] * 0.5 + 0.5) * 255.0), 0.0, 255.0).astype(np.uint8).reshape((-1, 3, 15)),
+        (0, 2, 1),
+    ).reshape((-1, 45))
 
     rots = Rotation.from_quat(splats.rotation).as_matrix()
     scale = np.empty((splats.scale.shape[0], 3, 3), np.float32)
@@ -460,6 +510,7 @@ v = Viewer(
         renderer=RendererConfig(
             background_color=(0, 0, 0, 1),
         ),
+        camera=CameraConfig(position=(-1, -1, -1)),
     )
 )
 v.viewport.scene.objects.append(gs)

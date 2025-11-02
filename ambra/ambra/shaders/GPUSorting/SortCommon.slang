@@ -62,10 +62,10 @@
 
 struct GpuSortingConstants
 {
-    uint numKeys;
+    uint numKeys;         // Number of keys if direct dispatch, offset of numKeys in buffer in number of 32 bit words if indirect dispatch
     uint radixShift;
-    uint threadBlocks;
-    uint isPartial;
+    uint threadBlocks;    // Unused if indirect dispatch
+    uint isPartial;       // Boolean only if indirect dispatch
 };
 
 [vk::push_constant]
@@ -104,6 +104,58 @@ RWStructuredBuffer<float> b_sortPayload;
 [vk::binding(3, 0)]
 RWStructuredBuffer<float> b_altPayload;
 #endif
+
+#ifdef INDIRECT_DISPATCH
+struct GpuSortingIndirectConstants
+{
+    uint numKeys;
+    uint threadBlocks;
+    uint threadBlocksGlobalHistogram; // Only used by onesweep global histogram kernel
+    uint fullBlocks; // When using onesweep this is the global histogram blocks, when using DeviceRadixSort this is the partition blocks
+};
+[vk::binding(7, 0)]
+ConstantBuffer<GpuSortingIndirectConstants> g_indirect_constants;
+
+[vk::binding(8, 0)]
+RWStructuredBuffer<GpuSortingIndirectConstants> g_indirect_constants_write;
+
+struct IndirectDispatch {
+    uint32_t groups_x;
+    uint32_t groups_y;
+    uint32_t groups_z;
+};
+
+[vk::binding(9, 0)]
+RWStructuredBuffer<IndirectDispatch> g_indirect_dispatch_write;
+
+[vk::binding(10, 0)]
+StructuredBuffer<uint32_t> g_indirect_num_keys;
+#endif
+
+
+uint getNumKeys() {
+#ifdef INDIRECT_DISPATCH
+    return g_indirect_constants.numKeys;
+#else
+    return g_constants.numKeys;
+#endif
+}
+
+uint getThreadBlocks() {
+#ifdef INDIRECT_DISPATCH
+    return g_indirect_constants.threadBlocks;
+#else
+    return g_constants.threadBlocks;
+#endif
+}
+
+uint getThreadBlocksGlobalHistogram() {
+#ifdef INDIRECT_DISPATCH
+    return g_indirect_constants.threadBlocksGlobalHistogram;
+#else
+    return g_constants.threadBlocks;
+#endif
+}
 
 groupshared uint g_d[D_TOTAL_SMEM]; //Shared memory for DigitBinningPass and DownSweep kernels
 
@@ -146,7 +198,11 @@ inline bool isPartialDispatch()
 inline uint flattenGid(uint3 gid)
 {
     return isPartialDispatch() ?
+#ifdef INDIRECT_DISPATCH
+        gid.x + g_indirect_constants.fullBlocks * MAX_DISPATCH_DIM :
+#else
         gid.x + (g_constants.isPartial >> 1) * MAX_DISPATCH_DIM :
+#endif
         gid.x + gid.y * MAX_DISPATCH_DIM;
 }
 
@@ -320,7 +376,7 @@ inline KeyStruct LoadKeysPartialWGE16(uint gtid, uint partIndex)
                  i < KEYS_PER_THREAD;
                  ++i, t += WaveGetLaneCount())
     {
-        if (t < g_constants.numKeys)
+        if (t < getNumKeys())
             LoadKey(keys.k[i], t);
         else
             LoadDummyKey(keys.k[i]);
@@ -336,7 +392,7 @@ inline KeyStruct LoadKeysPartialWLT16(uint gtid, uint partIndex, uint serialIter
         i < KEYS_PER_THREAD;
         ++i, t += WaveGetLaneCount() * serialIterations)
     {
-        if (t < g_constants.numKeys)
+        if (t < getNumKeys())
             LoadKey(keys.k[i], t);
         else
             LoadDummyKey(keys.k[i]);
@@ -614,7 +670,7 @@ inline void ScatterKeysShared(OffsetStruct offsets, KeyStruct keys)
 
 inline uint DescendingIndex(uint deviceIndex)
 {
-    return g_constants.numKeys - deviceIndex - 1;
+    return getNumKeys() - deviceIndex - 1;
 }
 
 inline void WriteKey(uint deviceIndex, uint groupSharedIndex)
@@ -841,7 +897,7 @@ inline void ScatterKeysOnlyDevicePartialDescending(uint gtid, uint finalPartSize
 
 inline void ScatterKeysOnlyDevicePartial(uint gtid, uint partIndex)
 {
-    const uint finalPartSize = g_constants.numKeys - partIndex * PART_SIZE;
+    const uint finalPartSize = getNumKeys() - partIndex * PART_SIZE;
 #if defined(SHOULD_ASCEND)
     ScatterKeysOnlyDevicePartialAscending(gtid, finalPartSize);
 #else
@@ -899,7 +955,7 @@ inline void LoadPayloadsPartialWGE16(
         i < KEYS_PER_THREAD;
         ++i, t += WaveGetLaneCount())
     {
-        if (t < g_constants.numKeys)
+        if (t < getNumKeys())
             LoadPayload(payloads.k[i], t);
     }
 }
@@ -915,7 +971,7 @@ inline void LoadPayloadsPartialWLT16(
         i < KEYS_PER_THREAD;
         ++i, t += WaveGetLaneCount() * serialIterations)
     {
-        if (t < g_constants.numKeys)
+        if (t < getNumKeys())
             LoadPayload(payloads.k[i], t);
     }
 }
@@ -959,7 +1015,7 @@ inline void ScatterPairsDevicePartial(
     OffsetStruct offsets)
 {
     DigitStruct digits;
-    const uint finalPartSize = g_constants.numKeys - partIndex * PART_SIZE;
+    const uint finalPartSize = getNumKeys() - partIndex * PART_SIZE;
 #if defined(SHOULD_ASCEND)
     ScatterPairsKeyPhaseAscendingPartial(gtid, finalPartSize, digits);
 #else

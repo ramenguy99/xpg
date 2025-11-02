@@ -4,7 +4,7 @@
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 from pyxpg import (
@@ -69,6 +69,7 @@ class SortOptions:
     max_count: int = 256 * 1024 * 1024  # Max number of elements that can be sorted
     descending: bool = False  # If True sort in descending order. Otherwise ascending.
     unsafe_has_forward_thread_progress_guarantee: bool = False
+    indirect: bool = False  # If True sort will be dispatched indirectly (currently direct dispatch is not allowed if this is set, but could be extended to allow both)
 
 
 @dataclass
@@ -102,14 +103,32 @@ class GpuSortingPipeline:
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
+        # NOTE: could switch to a different descriptor set just for the init kernel to use less max slots
+        descriptors = [
+            DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  # 0 - Keys
+            DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  # 1 - Alt-keys
+            DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  # 2 - Payload
+            DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  # 3 - Alt-payload
+            DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  # 4 - Global hist
+            DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  # 5 - Pass hist
+            DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  # 6 - Index (sweep only)
+        ]
+
+        if options.indirect:
+            descriptors.extend(
+                [
+                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),  #  7 - indirect constants
+                    DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  #  8 - indirect constants write
+                    DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  #  9 - indirect dispatch write
+                    DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  # 10 - indirect num keys
+                ]
+            )
+
         # Allocate 2 sets per frame to ping-pong radix passes
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
                 r.ctx,
-                [
-                    DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER)
-                    for _ in range(7 if options.unsafe_has_forward_thread_progress_guarantee else 6)
-                ],
+                descriptors,
                 2 * r.num_frames_in_flight,
             )
         )
@@ -156,6 +175,8 @@ class GpuSortingPipeline:
             defines.append(("ENABLE_16_BIT", ""))
 
         defines.append(("MAX_DISPATCH_DIM", str(r.ctx.device_properties.limits.max_compute_work_group_count[0])))
+        if options.indirect:
+            defines.append(("INDIRECT_DISPATCH", ""))
 
         # Tuning
         defines.append((f"KEYS_PER_THREAD_{self.tuning.keys_per_thread}", ""))
@@ -220,13 +241,40 @@ class GpuSortingPipeline:
                 name="gpu-sorting-index",
             )
 
+        if options.indirect:
+            self.indirect_constants_buf = Buffer(
+                r.ctx,
+                16,
+                BufferUsageFlags.STORAGE | BufferUsageFlags.UNIFORM,
+                AllocType.DEVICE,
+                name="gpu-sorting-indirect-constants",
+            )
+
+            self.indirect_dispatch_buf = Buffer(
+                r.ctx,
+                48 if options.unsafe_has_forward_thread_progress_guarantee else 24,
+                BufferUsageFlags.STORAGE | BufferUsageFlags.INDIRECT,
+                AllocType.DEVICE,
+                name="gpu-sorting-indirect-dispatch-buf",
+            )
+
         for s in self.descriptor_sets:
             s.write_buffer(self.global_histogram_buf, DescriptorType.STORAGE_BUFFER, 4)
             s.write_buffer(self.pass_histogram_buf, DescriptorType.STORAGE_BUFFER, 5)
             if options.unsafe_has_forward_thread_progress_guarantee:
                 s.write_buffer(self.index_buf, DescriptorType.STORAGE_BUFFER, 6)
+            if options.indirect:
+                s.write_buffer(
+                    self.indirect_constants_buf, DescriptorType.UNIFORM_BUFFER, 7
+                )  # Indirect constants for reading
+                s.write_buffer(
+                    self.indirect_constants_buf, DescriptorType.STORAGE_BUFFER, 8
+                )  # Indirect constants for writing in init shader
+                s.write_buffer(
+                    self.indirect_dispatch_buf, DescriptorType.STORAGE_BUFFER, 9
+                )  # Indirect dispatch counts for writing in init shader
 
-    def run(
+    def _run(
         self,
         r: "renderer.Renderer",
         cmd: CommandBuffer,
@@ -235,11 +283,8 @@ class GpuSortingPipeline:
         key_alt: Buffer,
         payload: Buffer,
         payload_alt: Buffer,
+        indirect_count: Optional[Tuple[Buffer, int]],
     ) -> None:
-        # Nothing to do
-        if count <= 1:
-            return
-
         # Count exceeds max
         if self.options.max_count < count:
             raise ValueError(
@@ -253,6 +298,9 @@ class GpuSortingPipeline:
         set0.write_buffer(key_alt, DescriptorType.STORAGE_BUFFER, 1)
         set0.write_buffer(payload, DescriptorType.STORAGE_BUFFER, 2)
         set0.write_buffer(payload_alt, DescriptorType.STORAGE_BUFFER, 3)
+
+        if indirect_count is not None:
+            set0.write_buffer(indirect_count[0], DescriptorType.STORAGE_BUFFER, 10)
 
         set1.write_buffer(key_alt, DescriptorType.STORAGE_BUFFER, 0)
         set1.write_buffer(key, DescriptorType.STORAGE_BUFFER, 1)
@@ -268,7 +316,7 @@ class GpuSortingPipeline:
         full_blocks = thread_blocks // max_dispatch_size
         partial_blocks = thread_blocks - full_blocks * max_dispatch_size
 
-        self.constants["numKeys"] = count
+        self.constants["numKeys"] = count if indirect_count is None else (indirect_count[1] >> 2)
         self.constants["threadBlocks"] = thread_blocks
 
         if self.options.unsafe_has_forward_thread_progress_guarantee:
@@ -277,29 +325,42 @@ class GpuSortingPipeline:
             self.constants["radixShift"] = 0
 
             # Init
-            # TODO: this just clears 3 buffers to 0, could also use vkCmdFillBuffer maybe.
             cmd.bind_descriptor_sets(self.onesweep_pipeline.init, [sets[0]])
             cmd.bind_pipeline(self.onesweep_pipeline.init)
             cmd.push_constants(self.onesweep_pipeline.init, self.constants.tobytes())
             cmd.dispatch(256, 1, 1)
+
+            # TODO: if we had a more expressive sync API we could do both in one barrier.
             cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+            if indirect_count is not None:
+                cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.INDIRECT)
 
             # Global hist
-            global_hist_thread_blocks = div_round_up(count, RADIX_SORT_GLOBAL_HIST_PARTITION_SIZE)
-            global_hist_full_blocks = global_hist_thread_blocks // max_dispatch_size
-            global_hist_partial_blocks = global_hist_thread_blocks - global_hist_full_blocks * max_dispatch_size
-            self.constants["threadBlocks"] = global_hist_thread_blocks
-
             cmd.bind_pipeline(self.onesweep_pipeline.global_histogram)
-            if full_blocks > 0:
+
+            if indirect_count is not None:
                 self.constants["isPartial"] = 0
                 cmd.push_constants(self.onesweep_pipeline.global_histogram, self.constants.tobytes())
-                cmd.dispatch(max_dispatch_size, global_hist_full_blocks, 1)
+                cmd.dispatch_indirect(self.indirect_dispatch_buf, 0)
 
-            if partial_blocks > 0:
-                self.constants["isPartial"] = (full_blocks << 1) | 1
+                self.constants["isPartial"] = 1
                 cmd.push_constants(self.onesweep_pipeline.global_histogram, self.constants.tobytes())
-                cmd.dispatch(global_hist_partial_blocks, 1, 1)
+                cmd.dispatch_indirect(self.indirect_dispatch_buf, 12)
+            else:
+                global_hist_thread_blocks = div_round_up(count, RADIX_SORT_GLOBAL_HIST_PARTITION_SIZE)
+                global_hist_full_blocks = global_hist_thread_blocks // max_dispatch_size
+                global_hist_partial_blocks = global_hist_thread_blocks - global_hist_full_blocks * max_dispatch_size
+                self.constants["threadBlocks"] = global_hist_thread_blocks
+
+                if full_blocks > 0:
+                    self.constants["isPartial"] = 0
+                    cmd.push_constants(self.onesweep_pipeline.global_histogram, self.constants.tobytes())
+                    cmd.dispatch(max_dispatch_size, global_hist_full_blocks, 1)
+
+                if partial_blocks > 0:
+                    self.constants["isPartial"] = (full_blocks << 1) | 1
+                    cmd.push_constants(self.onesweep_pipeline.global_histogram, self.constants.tobytes())
+                    cmd.dispatch(global_hist_partial_blocks, 1, 1)
 
             cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
 
@@ -322,27 +383,36 @@ class GpuSortingPipeline:
                 self.constants["radixShift"] = radix_shift
                 cmd.push_constants(self.onesweep_pipeline.onesweep, self.constants.tobytes())
 
-                if full_blocks > 0:
-                    cmd.dispatch(max_dispatch_size, full_blocks, 1)
-                    # Need a memory barrier between passes because they are dependent
+                if indirect_count is not None:
+                    cmd.dispatch_indirect(self.indirect_dispatch_buf, 24)
                     cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
-
-                if partial_blocks > 0:
-                    cmd.dispatch(partial_blocks, 1, 1)
-
-                    # Skip barrier for last iteration
-                    if radix_shift < 24:
+                    cmd.dispatch_indirect(self.indirect_dispatch_buf, 36)
+                else:
+                    if full_blocks > 0:
+                        cmd.dispatch(max_dispatch_size, full_blocks, 1)
+                        # Need a memory barrier between passes because they are dependent
                         cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+
+                    if partial_blocks > 0:
+                        cmd.dispatch(partial_blocks, 1, 1)
+
+                # Skip barrier for last iteration
+                if radix_shift < 24:
+                    cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
 
         else:
             # Device radix sort
 
             # Init
-            # TODO: this just clears 4096 bytes to 0, could also use vkCmdFillBuffer maybe.
-            cmd.bind_descriptor_sets(self.device_radix_sort_pipeline.upsweep, [sets[0]])
+            cmd.bind_descriptor_sets(self.device_radix_sort_pipeline.init, [sets[0]])
+            cmd.push_constants(self.device_radix_sort_pipeline.init, self.constants.tobytes())
             cmd.bind_pipeline(self.device_radix_sort_pipeline.init)
             cmd.dispatch(1, 1, 1)
+
+            # TODO: if we had a more expressive sync API we could do both in one barrier.
             cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+            if indirect_count is not None:
+                cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.INDIRECT)
 
             for radix_shift in range(0, 32, 8):
                 # Bind descriptor set (skip first because already bound)
@@ -354,15 +424,24 @@ class GpuSortingPipeline:
                 self.constants["radixShift"] = radix_shift
 
                 cmd.bind_pipeline(self.device_radix_sort_pipeline.upsweep)
-                if full_blocks > 0:
+                if indirect_count is not None:
                     self.constants["isPartial"] = 0
                     cmd.push_constants(self.device_radix_sort_pipeline.upsweep, self.constants.tobytes())
-                    cmd.dispatch(max_dispatch_size, full_blocks, 1)
+                    cmd.dispatch_indirect(self.indirect_dispatch_buf, 0)
 
-                if partial_blocks > 0:
-                    self.constants["isPartial"] = (full_blocks << 1) | 1
+                    self.constants["isPartial"] = 1
                     cmd.push_constants(self.device_radix_sort_pipeline.upsweep, self.constants.tobytes())
-                    cmd.dispatch(partial_blocks, 1, 1)
+                    cmd.dispatch_indirect(self.indirect_dispatch_buf, 12)
+                else:
+                    if full_blocks > 0:
+                        self.constants["isPartial"] = 0
+                        cmd.push_constants(self.device_radix_sort_pipeline.upsweep, self.constants.tobytes())
+                        cmd.dispatch(max_dispatch_size, full_blocks, 1)
+
+                    if partial_blocks > 0:
+                        self.constants["isPartial"] = (full_blocks << 1) | 1
+                        cmd.push_constants(self.device_radix_sort_pipeline.upsweep, self.constants.tobytes())
+                        cmd.dispatch(partial_blocks, 1, 1)
 
                 cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
 
@@ -374,16 +453,59 @@ class GpuSortingPipeline:
 
                 # Downsweep
                 cmd.bind_pipeline(self.device_radix_sort_pipeline.downsweep)
-                if full_blocks > 0:
+                if indirect_count is not None:
                     self.constants["isPartial"] = 0
                     cmd.push_constants(self.device_radix_sort_pipeline.downsweep, self.constants.tobytes())
-                    cmd.dispatch(max_dispatch_size, full_blocks, 1)
+                    cmd.dispatch_indirect(self.indirect_dispatch_buf, 0)
 
-                if partial_blocks > 0:
-                    self.constants["isPartial"] = (full_blocks << 1) | 1
+                    self.constants["isPartial"] = 1
                     cmd.push_constants(self.device_radix_sort_pipeline.downsweep, self.constants.tobytes())
-                    cmd.dispatch(partial_blocks, 1, 1)
+                    cmd.dispatch_indirect(self.indirect_dispatch_buf, 12)
+                else:
+                    if full_blocks > 0:
+                        self.constants["isPartial"] = 0
+                        cmd.push_constants(self.device_radix_sort_pipeline.downsweep, self.constants.tobytes())
+                        cmd.dispatch(max_dispatch_size, full_blocks, 1)
+
+                    if partial_blocks > 0:
+                        self.constants["isPartial"] = (full_blocks << 1) | 1
+                        cmd.push_constants(self.device_radix_sort_pipeline.downsweep, self.constants.tobytes())
+                        cmd.dispatch(partial_blocks, 1, 1)
 
                 # Skip barrier for last iteration
                 if radix_shift < 24:
                     cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+
+    def run(
+        self,
+        r: "renderer.Renderer",
+        cmd: CommandBuffer,
+        count: int,
+        key: Buffer,
+        key_alt: Buffer,
+        payload: Buffer,
+        payload_alt: Buffer,
+    ) -> None:
+        if self.options.indirect:
+            raise RuntimeError("GpuSortingPipeline was created for indirect dispatch. Direct dispatch is not allowed.")
+
+        # Nothing to do
+        if count <= 1:
+            return
+
+        self._run(r, cmd, count, key, key_alt, payload, payload_alt, None)
+
+    def run_indirect(
+        self,
+        r: "renderer.Renderer",
+        cmd: CommandBuffer,
+        count_buffer: Buffer,
+        count_offset: int,
+        key: Buffer,
+        key_alt: Buffer,
+        payload: Buffer,
+        payload_alt: Buffer,
+    ) -> None:
+        if not self.options.indirect:
+            raise RuntimeError("GpuSortingPipeline was created for direct dispatch. Indirect dispatch is not allowed.")
+        self._run(r, cmd, 0, key, key_alt, payload, payload_alt, (count_buffer, count_offset))

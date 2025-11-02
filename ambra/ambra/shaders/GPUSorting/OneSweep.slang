@@ -59,7 +59,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
         GroupMemoryBarrierWithGroupSync();
     }
 
-    if(partitionIndex < g_constants.threadBlocks - 1)
+    if(partitionIndex < getThreadBlocks() - 1)
     {
         if (WaveGetLaneCount() >= 16)
             keys = LoadKeysWGE16(gtid.x, partitionIndex);
@@ -68,7 +68,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             keys = LoadKeysWLT16(gtid.x, partitionIndex, SerialIterations());
     }
 
-    if(partitionIndex == g_constants.threadBlocks - 1)
+    if(partitionIndex == getThreadBlocks() - 1)
     {
         if (WaveGetLaneCount() >= 16)
             keys = LoadKeysPartialWGE16(gtid.x, partitionIndex);
@@ -125,9 +125,9 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
     Lookback(gtid.x, partitionIndex, exclusiveHistReduction);
     GroupMemoryBarrierWithGroupSync();
 
-    if(partitionIndex < g_constants.threadBlocks - 1)
+    if(partitionIndex < getThreadBlocks() - 1)
         ScatterDevice(gtid.x, partitionIndex, offsets);
 
-    if(partitionIndex == g_constants.threadBlocks - 1)
+    if(partitionIndex == getThreadBlocks() - 1)
         ScatterDevicePartial(gtid.x, partitionIndex, offsets);
 }
