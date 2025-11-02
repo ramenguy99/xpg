@@ -1,5 +1,6 @@
 // Copyright Dario Mylonopoulos
 // SPDX-License-Identifier: MIT
+
 import "scene";
 
 // Adapted from "Pristine Grid" by Ben Golus:

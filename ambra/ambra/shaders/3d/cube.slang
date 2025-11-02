@@ -1,5 +1,6 @@
 // Copyright Dario Mylonopoulos
 // SPDX-License-Identifier: MIT
+
 import "scene";
 import "utils";
 

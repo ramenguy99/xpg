@@ -1,3 +1,6 @@
+// Copyright Dario Mylonopoulos
+// SPDX-License-Identifier: MIT
+
 /******************************************************************************
  * GPUSorting
  * Device Level 8-bit LSD Radix Sort using reduce then scan

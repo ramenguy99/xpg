@@ -1,3 +1,6 @@
+// Copyright Dario Mylonopoulos
+// SPDX-License-Identifier: MIT
+
 import "utils";
 
 static const float3x3 k_face_rotations[6] = {

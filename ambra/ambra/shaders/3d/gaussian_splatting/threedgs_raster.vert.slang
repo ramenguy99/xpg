@@ -1,3 +1,6 @@
+// Copyright Dario Mylonopoulos
+// SPDX-License-Identifier: MIT
+
 /*
  * Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
  *
