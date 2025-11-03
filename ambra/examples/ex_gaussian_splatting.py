@@ -96,7 +96,7 @@ else:
     ).reshape((-1, 45))
 
     rots = Rotation.from_quat(splats.rotation).as_matrix()
-    scale = np.empty((splats.scale.shape[0], 3, 3), np.float32)
+    scale = np.zeros((splats.scale.shape[0], 3, 3), np.float32)
     scale[:, 0, 0] = splats.scale[:, 0]
     scale[:, 1, 1] = splats.scale[:, 1]
     scale[:, 2, 2] = splats.scale[:, 2]
