@@ -60,23 +60,87 @@ Priority:
         - [ ] Frame / timestamp range customization with different playback and render rate
 
 New property API plans:
-- [ ] Try to add all new constraints first:
-    - [ ] mip generation in materials
-        - [ ] Likely
-    - [ ] batching of buffer properties in a single buffer, and images in a texture array
+- Front-end (public property / primitive / user API):
+    - [o] reuse Property and GpuProperty across different objects
+        -> primitive (or user directly) specifies list of constraints when adding property and will aggregate (likely can do live aggregation don't need to store the actual list)
+            - Buffer or Image flags -> just OR
+            - Memory usage / pipeline stage -> ideally just pipeline stage and access and this will be used with lower level barrier API -> take earliest stage and or of accesses
+            - Image layout -> use first specified or fallback to general if more than one given (potentially track this / warn for debugging perf issues)
+            - mips will enable mips (if anyone wants them)
+            - srgb will create an additional view of the image just for srgb purposes which is anyways
+              what we most likely want. (in theory we could use default view only when possible
+              but need a way to check if this is allowed).
+        -> some usage/format combinations (especially on images) will not be allowed on some hardware,
+           currently VMA / validation is catching this for us, but we might want to add a check for this
+           at creation time to give a more useful combination. I think this is fine, the viewer will
+           not reuse images on it's own so it should not run into this. If users do something that is
+           not legal for their device it's better to know this explicitly than to provide an unexpected
+           fallback to having multiple copies.
+        -> Will not allow new users of a property that has already been
+           realized, this will just error if you specify tighter constraints (can
+           implement incrementally by adding constraint and checking if something
+           changed), if needed users are expected to specify all constraints
+           upfront and handle that (same rationale as above).
+    - [o] free GpuProperty when dropped (do not hold references in renderer)
+        -> hold gpu properties in property
+        -> expose manual destroy to ensure instant destruction
+    - [o] mip generation in materials
+        -> set as a boolean on material, forwarded to ImageProperty
+    - [ ] material creation currently requires creating DataImageProperty manually,
+          it makes sense from an implementation perspective because you need a way
+          to distinguish between textures and arrays of scalars.
+          Normal engines have a split at a higher level where you need to create
+          textures before creating materials but we allow numpy arrays directly which
+          maybe creates more problems than solutions.
+          We have this tradeoff between userspace Buffer and Texture in normal engines
+          vs userspace Property. Still not 100% sold on this.
     - [ ] updating, inserting and removing frames
         - [ ] Both API objects and underlying data needs to be updated
             - [ ] API objects are likely in list and can be cheap to move / realloc
-            - [ ] If we really want to
         - [ ] Texture arrays and batched buffers are implicitly incompatible with append / insert / remove
               But we could use them for static data and fallback for dynamic to different strat
-        - [ ]
+    - [ ] allow different dtypes for a property
+        - Better definition of what you need to implement a property:
+            All:
+            - number of frames -> len()
+            - dtype (to support multiple dtypes)
+            - shape without frames (to support multiple shapes)
+            - animation settings
+            - upload settings
+            Pre-allocated:
+            - size of each element (size in bytes for buffer, width / height / format for image)
+            Streaming:
+            - size of max element  (size in bytes for buffer, width / height / format for image)
+        - Things you want to verify on a property before using it
+            - Shape constraints (potentially arbitrary rules)
+            - dtype constraints (set of dtypes allowed)
+        - Notes:
+            - I think some of our issues come from the fact that we have the same constructor
+              for users and for primitives that are just trying to typecheck a property.
+            - User really just wants to do np.array -> Property and List[np.array] -> Property
+                - Here there needs to be a balance between what is allowed
+                - I'd prefer to not allow any transformation that allows copies, except
+                  for scalars and tuples that kinda require it (but should be small anyways)
+                  Not sure yet how to detect this case exactly though, maybe just a bunch of isinstance?
+            - Primitive wants to know shape and dtype of property to make sure it's of the
+              right shape for what it wants to do.
+                - Here the plan is to ensure that a BufferProperty always exposes dtype shape
+                  and primitives will first try to create one then decide what to do with it
+- Backend (non-public property and renderer API):
+    - [ ] batching of buffer properties in a single buffer, and images in a texture array
     - [ ] ideally remove or integrate generation index, I'd like it if we
           did not have stuff that scales in cost or memory with number
-          of frames for the streaming case.
-- [ ] find an API to allow deduping GPU properties -> maybe opt-in?
+          of frames for the streaming case, it's also one more thing to keep in
+          sync when updating / removing frames, but maybe unavoidable?
+    - [o] multiple GpuProperties backed up by the same property?
+        -> does not make sense, main use case would be to save CPU memory
+           but you can create multiple properties over the same data without copying.
+        -> somehow connected to multiple dtypes for a property, current behaviour is
+           to astype() properties, but if you really care about memory you want to either
+           create a view or error out if type is not ok. Maybe this should anyways be
+           the default behavior (or opt in with some flag just for when you care).
 - [ ] think about minimizing scene traversals (ideally only one per-frame)
-        and quickly filtering properties that do not need updates
+      and quickly filtering properties that do not need updates
 
 TODO:
 - [ ] Primitives

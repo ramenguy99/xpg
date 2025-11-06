@@ -25,7 +25,7 @@ from pyxpg import (
 )
 
 from . import renderer
-from .property import view_bytes
+from .utils.gpu import view_bytes
 from .utils.descriptors import create_descriptor_layout_pool_and_set
 
 SPD_MAX_LEVELS = 12

@@ -328,8 +328,6 @@ class Renderer:
             else:
                 self.image_upload_method = UploadMethod.GRAPHICS_QUEUE
 
-        self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
-
         # Allocate buffers for bulk upload
         self.bulk_uploader = BulkUploader(self.ctx, config.upload_buffer_size, config.upload_buffer_count)
         self.bulk_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]] = []
@@ -378,7 +376,7 @@ class Renderer:
                 samples=self.msaa_samples,
             )
 
-    def add_gpu_buffer_property(
+    def create_gpu_buffer_property(
         self,
         property: BufferProperty,
         usage_flags: BufferUsageFlags,
@@ -398,10 +396,9 @@ class Renderer:
             pipeline_stage_flags,
             name,
         )
-        self.gpu_properties.append(prop)
         return prop
 
-    def add_gpu_image_property(
+    def create_gpu_image_property(
         self,
         property: ImageProperty,
         usage_flags: ImageUsageFlags,
@@ -427,7 +424,6 @@ class Renderer:
             srgb,
             name,
         )
-        self.gpu_properties.append(prop)
         return prop
 
     def run_ibl_pipeline(
@@ -579,12 +575,12 @@ class Renderer:
             frame.transfer_semaphores,
         )
 
-        # Update properties
-        for p in self.gpu_properties:
-            p.load(f)
+        # TODO: Update properties
+        # for p in self.gpu_properties:
+        #     p.load(f)
 
-        for p in self.gpu_properties:
-            p.upload(f)
+        # for p in self.gpu_properties:
+        #     p.upload(f)
 
         # Upload per-object data
         viewport.scene.upload(self, f)

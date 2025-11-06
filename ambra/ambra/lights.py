@@ -33,7 +33,7 @@ from pyxpg import (
 )
 
 from . import renderer
-from .property import BufferProperty, view_bytes
+from .property import BufferProperty
 from .renderer_frame import RendererFrame
 from .scene import Object3D, Scene
 from .utils.descriptors import (
@@ -41,7 +41,7 @@ from .utils.descriptors import (
     create_descriptor_layout_pool_and_sets,
     create_descriptor_pool_and_sets_ringbuffer,
 )
-from .utils.gpu import UploadableBuffer
+from .utils.gpu import UploadableBuffer, view_bytes
 from .utils.ring_buffer import RingBuffer
 
 

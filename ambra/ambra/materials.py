@@ -24,10 +24,10 @@ from pyxpg import (
 
 from . import renderer
 from .gpu_property import GpuImageProperty
-from .property import BufferProperty, ImageProperty, as_buffer_property, as_image_property, view_bytes
+from .property import BufferProperty, ImageProperty, as_buffer_property, as_image_property
 from .renderer_frame import RendererFrame
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
-from .utils.gpu import UploadableBuffer, align_up
+from .utils.gpu import UploadableBuffer, align_up, view_bytes
 from .utils.ring_buffer import RingBuffer
 
 MaterialData = Union[float, Tuple[float, ...], NDArray[np.float32], BufferProperty, ImageProperty]

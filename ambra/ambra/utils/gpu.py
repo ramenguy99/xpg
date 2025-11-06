@@ -33,6 +33,10 @@ def div_round_up(a: int, b: int) -> int:
     return (a + b - 1) // b
 
 
+def view_bytes(a: NDArray[Any]) -> memoryview:
+    return a.reshape((-1,)).view(np.uint8).data
+
+
 @dataclass
 class BufferUploadInfo:
     data: memoryview

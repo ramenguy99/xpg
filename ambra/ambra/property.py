@@ -9,7 +9,8 @@ import numpy as np
 from numpy.typing import ArrayLike, DTypeLike, NDArray
 from pyxpg import Format
 
-from .utils.gpu import format_from_channels_dtype
+from .utils.gpu import format_from_channels_dtype, view_bytes
+from . import gpu_property
 
 PropertyItem = NDArray[Any]
 PropertyData = ArrayLike
@@ -25,9 +26,6 @@ PropertyData = ArrayLike
 #     NLERP = auto()
 #     SLERP = auto()
 
-
-def view_bytes(a: NDArray[Any]) -> memoryview:
-    return a.reshape((-1,)).view(np.uint8).data
 
 
 class AnimationBoundary(Enum):
@@ -226,6 +224,7 @@ class BufferProperty(Property):
         self.max_size = max_size
         self.dtype = dtype
         self.shape = shape
+        self.gpu_property: Optional[gpu_property.GpuBufferProperty] = None
 
 
 class ImageProperty(Property):
@@ -243,6 +242,7 @@ class ImageProperty(Property):
         self.width = width
         self.height = height
         self.format = format
+        self.gpu_property: Optional[gpu_property.GpuImageProperty] = None
 
 
 class ShapeError(Exception):
