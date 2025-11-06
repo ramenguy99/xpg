@@ -58,6 +58,7 @@ class Lines(Object3D):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -66,7 +67,7 @@ class Lines(Object3D):
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
-        super().__init__(name, translation, rotation, scale)
+        super().__init__(name, translation, rotation, scale, enabled=enabled)
         self.is_strip = is_strip
         self.lines = self.add_buffer_property(lines, np.float32, (-1, 3), name="lines")
         self.colors = self.add_buffer_property(colors, np.uint32, (-1,), name="colors")
@@ -158,6 +159,7 @@ class Mesh(Object3D):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
         self.primitive_topology = primitive_topology
         self.cull_mode = cull_mode
@@ -171,7 +173,12 @@ class Mesh(Object3D):
         self.constants = np.zeros((1,), self.constants_dtype)
 
         super().__init__(
-            name, translation, rotation, scale, material if material is not None else DiffuseMaterial((0.5, 0.5, 0.5))
+            name,
+            translation,
+            rotation,
+            scale,
+            material if material is not None else DiffuseMaterial((0.5, 0.5, 0.5)),
+            enabled,
         )
 
         # Add properties
@@ -384,6 +391,7 @@ class Image(Mesh):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
         material = ColorMaterial(as_image_property(image))
         positions = np.array(
@@ -423,6 +431,7 @@ class Image(Mesh):
             translation=translation,
             rotation=rotation,
             scale=scale,
+            enabled=enabled,
         )
 
 
@@ -451,6 +460,7 @@ class Grid(Object3D):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -485,7 +495,7 @@ class Grid(Object3D):
 
         self.is_transparent = base_color[3] < 1.0
 
-        super().__init__(name, translation, rotation, scale)
+        super().__init__(name, translation, rotation, scale, enabled=enabled)
 
     @classmethod
     def white(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
@@ -586,6 +596,7 @@ class GaussianSplats(Object3D):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -600,7 +611,7 @@ class GaussianSplats(Object3D):
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
-        super().__init__(name, translation, rotation, scale)
+        super().__init__(name, translation, rotation, scale, enabled=enabled)
         self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions")
         self.colors = self.add_buffer_property(colors, np.float32, (-1, 4), name="colors")
         self.spherical_harmonics = self.add_buffer_property(
@@ -838,7 +849,7 @@ class GaussianSplats(Object3D):
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
         self.constants["inverse_transform"] = mat4x3(inverse(self.current_transform_matrix))
 
-    def upload(self, r: Renderer, frame: RendererFrame):
+    def upload(self, r: Renderer, frame: RendererFrame) -> None:
         num_splats = self.positions.get_current().shape[0]
         self.constants["splat_count"] = num_splats
         self.constants["alpha_cull_threshold"] = self.alpha_cull_threshold

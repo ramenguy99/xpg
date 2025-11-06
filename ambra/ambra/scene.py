@@ -31,6 +31,7 @@ class Object:
         self,
         name: Optional[str] = None,
         material: Optional["materials.Material"] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
         self.uid = Object.next_id()
         self.name = name or f"{type(self).__name__}<{self.uid}>"
@@ -42,6 +43,8 @@ class Object:
         self.gui_expanded = False
         self.gui_selected = False
         self.gui_selected_property: Optional[Property] = None
+
+        self.enabled = self.add_buffer_property(enabled if enabled is not None else True, bool, name="enabled")
 
     @staticmethod
     def next_id() -> int:
@@ -142,8 +145,9 @@ class Object2D(Object):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
-        super().__init__(name)
+        super().__init__(name, enabled=enabled)
         self.translation = self.add_buffer_property(
             translation if translation is not None else np.array([0, 0]),
             np.float32,
@@ -184,8 +188,9 @@ class Object3D(Object):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         material: Optional["materials.Material"] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
-        super().__init__(name, material)
+        super().__init__(name, material, enabled)
         self.translation = self.add_buffer_property(
             translation if translation is not None else np.array([0, 0, 0]),
             np.float32,
@@ -292,21 +297,24 @@ class Scene:
 
     def render(self, renderer: "renderer.Renderer", frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
         def visit(o: Object) -> None:
-            o.render(renderer, frame, descriptor_set)
+            if o.enabled.get_current():
+                o.render(renderer, frame, descriptor_set)
 
         self.visit_objects(visit)
 
     def upload(self, renderer: "renderer.Renderer", frame: RendererFrame) -> None:
         def visit(o: Object) -> None:
-            if o.material is not None:
-                o.material.upload(renderer, frame)
-            o.upload(renderer, frame)
+            if o.enabled.get_current():
+                if o.material is not None:
+                    o.material.upload(renderer, frame)
+                o.upload(renderer, frame)
 
         self.visit_objects(visit)
 
     def render_depth(self, renderer: "renderer.Renderer", frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
         def visit(o: Object) -> None:
-            o.render_depth(renderer, frame, descriptor_set)
+            if o.enabled.get_current():
+                o.render_depth(renderer, frame, descriptor_set)
 
         self.visit_objects(visit)
 

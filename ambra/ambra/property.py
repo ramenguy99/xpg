@@ -35,7 +35,7 @@ class AnimationBoundary(Enum):
     REPEAT = auto()
     MIRROR = auto()
 
-    def map(self, frame: int, n: int) -> int:
+    def map_frame_index(self, frame: int, n: int) -> int:
         if self == AnimationBoundary.HOLD:
             return min(frame, n - 1)
         elif self == AnimationBoundary.MIRROR:
@@ -47,13 +47,45 @@ class AnimationBoundary(Enum):
         elif self == AnimationBoundary.REPEAT:
             return frame % n
         else:
-            raise ValueError(f"Unhandled enum variant: {self.boundary}")
+            raise ValueError(f"Unhandled enum variant: {self}")
+
+    def map_frame_index_range(self, frame: int, begin: int, end: int) -> int:
+        if self == AnimationBoundary.HOLD:
+            return np.clip(frame, begin, end - 1)  # type: ignore
+
+        n = end - begin
+        norm_frame = frame - begin
+        if self == AnimationBoundary.MIRROR:
+            dr = norm_frame % (2 * n)
+            if dr >= n:
+                return 2 * n - dr - 1 + begin
+            else:
+                return dr + begin
+        if self == AnimationBoundary.REPEAT:
+            return (norm_frame % n) + begin
+        else:
+            raise ValueError(f"Unhandled enum variant: {self}")
+
+    def map_time(self, t: float, t_min: float, t_max: float) -> float:
+        if self == AnimationBoundary.HOLD:
+            return np.clip(t, t_min, t_max)  # type: ignore
+        elif self == AnimationBoundary.MIRROR:
+            double_dt = (t_max - t_min) * 2.0
+            dr: float = np.fmod(t - t_min, double_dt)
+            if dr >= t_max - t_min:
+                return double_dt - dr + t_min
+            else:
+                return dr + t_min
+        elif self == AnimationBoundary.REPEAT:
+            return np.fmod(t - t_min, t_max - t_min) + t_min  # type: ignore
+        else:
+            raise ValueError(f"Unhandled enum variant: {self}")
 
 
-@dataclass
 class Animation:
     # interpolation = AnimationInterpolation.NEAREST
-    boundary: AnimationBoundary
+    def __init__(self, boundary: AnimationBoundary):
+        self.boundary = boundary
 
     def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
         return 0
@@ -62,12 +94,43 @@ class Animation:
         return 0
 
 
-# @dataclass
-# class SampledAnimation(Animation):
-#     samples: np.typing.ArrayLike[float] # list of animation samples in seconds
+class TimeSampledAnimation(Animation):
+    def __init__(self, boundary: AnimationBoundary, timestamps: NDArray[np.float64]):
+        super().__init__(boundary)
+        self.timestamps = np.asarray(timestamps)
 
-#     def get_frame_index(self, time: float) -> int:
-#         return
+    def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
+        count = self.timestamps.size
+        if count == 0:
+            return -1
+        elif count == 1:
+            return 0
+        else:
+            t = self.boundary.map_time(time, self.timestamps[0], self.timestamps[-1])
+            return max(np.searchsorted(self.timestamps, t, side="right") - 1, 0)  # type: ignore
+
+    def max_animation_time(self, n: int, fps: float) -> float:
+        return self.timestamps[-1] if self.timestamps.size > 0 else 0.0
+
+
+@dataclass
+class FrameSampledAnimation(Animation):
+    def __init__(self, boundary: AnimationBoundary, indices: NDArray[np.uint32]):
+        super().__init__(boundary)
+        self.indices = np.asarray(indices, np.uint32)
+
+    def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
+        count = self.indices.size
+        if count == 0:
+            return -1
+        elif count == 1:
+            return 0
+        else:
+            idx = self.boundary.map_frame_index_range(frame_index, self.indices[0], self.indices[-1] + 1)
+            return max(np.searchsorted(self.indices, idx, side="right") - 1, 0)  # type: ignore
+
+    def max_animation_time(self, n: int, fps: float) -> float:
+        return (self.indices[-1] + 1) / fps if self.indices.size > 0 else 0.0
 
 
 @dataclass
@@ -77,18 +140,17 @@ class ConstantSpeedAnimation(Animation):
     def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
         if n == 0:
             return -1
-        return self.boundary.map(int(time * self.frames_per_second), n)
+        return self.boundary.map_frame_index(int(time * self.frames_per_second), n)
 
     def max_animation_time(self, n: int, fps: float) -> float:
         return n / self.frames_per_second
 
 
-@dataclass
 class FrameAnimation(Animation):
     def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
         if n == 0:
             return -1
-        return self.boundary.map(frame_index, n)
+        return self.boundary.map_frame_index(frame_index, n)
 
     def max_animation_time(self, n: int, frames_per_second: float) -> float:
         return n / frames_per_second

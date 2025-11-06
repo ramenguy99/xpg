@@ -52,6 +52,7 @@ class Lines(Object2D):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -60,7 +61,7 @@ class Lines(Object2D):
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
-        super().__init__(name, translation, rotation, scale)
+        super().__init__(name, translation, rotation, scale, enabled=enabled)
         self.is_strip = is_strip
         self.lines = self.add_buffer_property(lines, np.float32, (-1, 2), name="lines")
         self.colors = self.add_buffer_property(colors, np.uint32, (-1,), name="colors")
@@ -144,6 +145,7 @@ class Image(Object2D):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -151,7 +153,7 @@ class Image(Object2D):
             }
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
-        super().__init__(name, translation, rotation, scale)
+        super().__init__(name, translation, rotation, scale, enabled=enabled)
         self.image = self.add_image_property(image, name="image")
 
     def create(self, r: Renderer) -> None:
