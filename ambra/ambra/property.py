@@ -13,7 +13,6 @@ from .utils.gpu import format_from_channels_dtype, view_bytes
 from . import gpu_property
 
 PropertyItem = NDArray[Any]
-PropertyData = ArrayLike
 
 # class AnimationInterpolation(Enum):
 #     NEAREST = auto()
@@ -214,8 +213,8 @@ class BufferProperty(Property):
         self,
         max_size: int,
         num_frames: int,
-        dtype: Optional[DTypeLike] = None,
-        shape: Optional[Tuple[int, ...]] = None,
+        dtype: DTypeLike,
+        shape: Tuple[int, ...],
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
         name: str = "",
@@ -276,85 +275,73 @@ def shape_match(
     return True
 
 
-class DataBufferProperty(BufferProperty):
+class ArrayBufferProperty(BufferProperty):
     def __init__(
         self,
-        in_data: Union[PropertyData, int, float],
+        data: ArrayLike,
         dtype: Optional[DTypeLike] = None,
-        shape: Optional[Tuple[int, ...]] = None,
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
         name: str = "",
     ):
-        data: Union[List[PropertyItem], NDArray[Any]]
-        if shape is None:
-            array = np.atleast_1d(np.asarray(in_data, dtype, order="C"))
-            if len(array.shape) > 1:
-                raise ShapeError((1,), array.shape[1:])
-            data = array
-        else:
-            if isinstance(in_data, List):
-                data = in_data
-                for i in range(len(in_data)):
-                    a = np.asarray(in_data[i], dtype, order="C")
-                    if not shape_match(shape, a.shape):
-                        raise ShapeError(shape, a.shape)
-                    data[i] = a
-            else:
-                data = np.asarray(in_data, dtype, order="C")
-                if shape_match(shape, data.shape):
-                    # Implicitly add animation dimension
-                    data = data[np.newaxis]
-                elif shape_match(shape, data.shape[1:]):
-                    # Shape already matches
-                    pass
-                else:
-                    raise ShapeError(shape, data.shape)
-
-        max_size: int
-        if isinstance(data, List):
-            max_size = max([d.itemsize * np.prod(d.shape, dtype=np.int64) for d in data])  # type: ignore
-        else:
-            max_size = data.itemsize * np.prod(data.shape[1:], dtype=np.int64)  # type: ignore
-
-        super().__init__(max_size, len(data), dtype, shape, animation, upload, name)
+        data = np.atleast_1d(np.asarray(data, dtype, order="C"))
+        max_size = data.itemsize * np.prod(data.shape[1:], dtype=np.uint64)  # type: ignore
+        super().__init__(max_size, len(data), data.dtype, data.shape[1:], animation, upload, name)
         self.data = data
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         return self.data[frame_index]
 
 
-class DataImageProperty(ImageProperty):
+class ListBufferProperty(BufferProperty):
     def __init__(
         self,
-        in_data: PropertyData,
+        data: List[ArrayLike],
+        dtype: Optional[DTypeLike] = None,
+        shape: Optional[Tuple[int, ...]] = None,
+        max_size: int = 0,
+        animation: Optional[Animation] = None,
+        upload: Optional[UploadSettings] = None,
+        name: str = "",
+    ):
+        property_data = []
+        for i in range(len(data)):
+            a = np.asarray(data[i], dtype, order="C")
+
+            # Shape checking
+            if not shape_match(shape, a.shape):
+                raise ShapeError(shape, a.shape)
+
+            # If no dtype was given, use dtype inferred for first element
+            if dtype is None:
+                dtype = a.dtype
+
+            property_data.append(a)
+            max_size = max(max_size, a.nbytes)
+
+        super().__init__(max_size, len(property_data), dtype, shape, animation, upload, name)
+        self.data = property_data
+
+    def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
+        return self.data[frame_index]
+
+
+class ArrayImageProperty(ImageProperty):
+    def __init__(
+        self,
+        in_data: ArrayLike,
         format: Optional[Format] = None,
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
         name: str = "",
     ):
-        data: Union[List[PropertyItem], NDArray[Any]]
-        if isinstance(in_data, List):
-            data = in_data
-            for i in range(len(in_data)):
-                a = np.asarray(in_data[i])
-                if len(a.shape) != 3:
-                    raise ShapeError((-1, -1, -1), a.shape)
-                data[i] = a
-        else:
-            data = np.asarray(in_data, order="C")
-            if len(data.shape) == 3:
-                # Implicitly add animation dimension
-                data = data[np.newaxis]
-            elif len(data.shape) == 4:
-                # Shape already matches
-                pass
-            else:
-                raise ShapeError((-1, -1, -1), data.shape)
+        data = np.asarray(in_data, order="C")
+        if len(data.shape) != 4:
+            raise ShapeError((-1, -1, -1), data.shape)
 
-        height, width, channels = data[0].shape[:3]
+        height, width, channels = data.shape[1:4]
         if format is None:
-            format = format_from_channels_dtype(channels, data[0].dtype)
+            format = format_from_channels_dtype(channels, data.dtype)
         else:
             # TODO: check that format is compatible with data (maybe allow some conversions?)
             pass
@@ -365,13 +352,49 @@ class DataImageProperty(ImageProperty):
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         return self.data[frame_index]
 
+class ListImageProperty(ImageProperty):
+    def __init__(
+        self,
+        data: List[ArrayLike],
+        format: Optional[Format] = None,
+        animation: Optional[Animation] = None,
+        upload: Optional[UploadSettings] = None,
+        name: str = "",
+    ):
+        property_data: List[NDArray[Any]] = []
+        property_shape: Optional[Tuple[int, int, int]] = None
+        property_dtype: DTypeLike = None
+        for i in range(len(data)):
+            a = np.asarray(data[i], property_dtype, order="C")
+            if len(a.shape) != 3:
+                raise ShapeError((-1, -1, -1), a.shape)
+            if property_shape is None:
+                property_shape = a.shape
+            else:
+                if property_shape != a.shape:
+                    raise RuntimeError(f"ListImageProperty data elements must all have the same shape. First has {property_shape}. Element {i} has {a.shape}")
+            if property_dtype is None:
+                property_dtype = a.dtype
+            property_data.append(a)
+
+        height, width, channels = property_data[0].shape[:3]
+        if format is None:
+            format = format_from_channels_dtype(channels, property_data[0].dtype)
+        else:
+            # TODO: check that format is compatible with data (maybe allow some conversions?)
+            pass
+
+        super().__init__(width, height, format, len(property_data), animation, upload, name)
+        self.data = property_data
+
+    def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
+        return self.data[frame_index]
+
 
 def as_buffer_property(
-    value: Union[BufferProperty, PropertyData, int, float, Tuple[float, ...], Tuple[int, ...]],
+    value: Union[BufferProperty, List, ArrayLike],
     dtype: Optional[DTypeLike] = None,
     shape: Optional[Tuple[int, ...]] = None,
-    animation: Optional[Animation] = None,
-    upload: Optional[UploadSettings] = None,
     name: str = "",
 ) -> BufferProperty:
     if isinstance(value, BufferProperty):
@@ -379,30 +402,47 @@ def as_buffer_property(
             raise ShapeError(shape, value.shape)
         if dtype is not None and not np.dtype(dtype) == value.dtype:
             raise TypeError(f"dtype mismatch. Expected: {dtype}. Got: {value.dtype}")
-        if animation is not None:
-            value.animation = animation
-        if upload is not None:
-            value.upload = upload
         if not value.name:
             value.name = name
         return value
+    elif isinstance(value, List):
+        return ListBufferProperty(value, dtype, shape, name)
     else:
-        return DataBufferProperty(value, dtype, shape, animation, upload, name)
+        if shape is None:
+            value = np.atleast_1d(np.asarray(value, dtype, order="C"))
+            if len(value.shape) > 1:
+                raise ShapeError((1,), value.shape[1:])
+
+        if shape_match(shape, value.shape):
+            # Implicitly add animation dimension
+            value = value[np.newaxis]
+        elif shape_match(shape, value.shape[1:]):
+            # Shape already matches
+            pass
+        else:
+            raise ShapeError(shape, value.shape)
+
+        return ArrayBufferProperty(value, dtype, name)
 
 
 def as_image_property(
-    value: Union[ImageProperty, PropertyData],
-    animation: Optional[Animation] = None,
-    upload: Optional[UploadSettings] = None,
+    value: Union[ImageProperty, List, ArrayLike],
     name: str = "",
 ) -> ImageProperty:
     if isinstance(value, ImageProperty):
-        if animation is not None:
-            value.animation = animation
-        if upload is not None:
-            value.upload = upload
         if not value.name:
             value.name = name
         return value
+    elif isinstance(value, List):
+        return ListImageProperty(value, None, name=name)
     else:
-        return DataImageProperty(value, None, animation, upload, name)
+        if value.ndim == 3:
+            # Implicitly add animation dimension
+            value = value[np.newaxis]
+        elif value.ndim == 4:
+            # Shape already matches
+            pass
+        else:
+            raise ShapeError((-1, -1, -1), value.shape)
+
+        return ArrayImageProperty(value, None, name=name)

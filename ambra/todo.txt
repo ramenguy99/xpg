@@ -60,6 +60,25 @@ Priority:
         - [ ] Frame / timestamp range customization with different playback and render rate
 
 New property API plans:
+- Deps:
+    - [ ] New synchronization API:
+        - [ ] Remove memory usage concept and add back stages and access -> also removes API surface and allows more combining
+        - [ ] Make access default to READ | WRITE
+        - [ ] Expose combined barriers API (list of memory, buffer and image barriers)
+        - [ ] Also expose image barriers with prev layout
+        - [-] Only limitation left is that we cannot do different levels with different layouts (which vulkan would support) -> don't fix now
+- Plan:
+    - [x] Split DataBufferProperty into ArrayBufferProperty and ListBufferProperty
+        - [ ] Remove usages of as_buffer_property from examples
+        - [ ] Test that this actually works
+    - [ ] Can now use constraint_dtype=None to let as_buffer_property infer it for us -> test this for SH dtype
+    - [ ] Re-think GpuPropety and come up with a plan for insertion/remove/update and potential batching -> I am ok if batching is only allowed on Array* variants and those do not allow remove/insert (but do allow update).
+    - [ ] Move GPU property inside property -> maybe also take advantage of split between List and Array for is_jagged stuff in GpuBufferProperty (or add new API with default that exposes this info)
+        - [ ] Add the concept of a gpu usage (to collect constraints)
+        - [ ] Reroute gpu property creation and load/upload stuff through properties
+        - [ ] Enable mip generation and sRGB
+    - [ ] Re-organize scene traversals / collection (ideally minimize)
+    - [ ] Test a bunch of cases with user property creation
 - Front-end (public property / primitive / user API):
     - [o] reuse Property and GpuProperty across different objects
         -> primitive (or user directly) specifies list of constraints when adding property and will aggregate (likely can do live aggregation don't need to store the actual list)
@@ -126,6 +145,23 @@ New property API plans:
               right shape for what it wants to do.
                 - Here the plan is to ensure that a BufferProperty always exposes dtype shape
                   and primitives will first try to create one then decide what to do with it
+        - More notes with found issues:
+            - If you make a property out of an array you either need to know wanted dims or need to assume the first dimension is the frame (for a list you always assume it is, this does not cover list for tuple elements though, e.g. colors)
+            - List-based data property has two use modes:
+                - Jagged arrays of fixed length -> what we cover now
+                - Appendable property (potentially jagged) -> more efficient way to do appends than np.append
+            - Thoughts:
+                * We don't fully cover the appenadable jagged property because we don't expose max_size (and you might want to append a bigger size at some point)
+                * I think we leave the auto list -> BufferProperty in DataBufferProperty for the jagged array usecase and require people to do custom BufferProperty for the append to list with bigger size usecase
+            - Auto-casting property shape (e.g. auto add anim dimension) is very convenient at caller side but requires
+              shape constraint to be known at property add time (as we have now). However we have no way to specify
+              complex constraints (could add tuple of shape, but what about arbitrary rules).
+              We can also specify those variants as a set at primitive creation time but then we might require a lot of options.
+              E.g. think about the case where a mesh could use many different dtypes and interleavings for attributes.
+              Maybe inferring from dtype shape is not the play here and anyways we want a seperate API that exposes
+              a better way to do custom attributes on a mesh. Like an AdvancedMesh or something.
+            - Anyway we could at least enforce a BufferProperty to have a concrete dtype (similar to how an image needs a format)
+              and leave special shape constraints to options on the primitive.
 - Backend (non-public property and renderer API):
     - [ ] batching of buffer properties in a single buffer, and images in a texture array
     - [ ] ideally remove or integrate generation index, I'd like it if we

@@ -4,7 +4,7 @@
 from typing import Callable, List, Optional, Set, Tuple, Union
 
 import numpy as np
-from numpy.typing import DTypeLike
+from numpy.typing import DTypeLike, ArrayLike
 from pyglm.glm import mat3, mat4, quat, vec2, vec3
 from pyxpg import DescriptorSet, imgui
 
@@ -14,7 +14,6 @@ from .property import (
     BufferProperty,
     ImageProperty,
     Property,
-    PropertyData,
     UploadSettings,
     as_buffer_property,
     as_image_property,
@@ -54,7 +53,7 @@ class Object:
 
     def add_buffer_property(
         self,
-        prop: Union[BufferProperty, PropertyData, int, float],
+        prop: Union[BufferProperty, List, ArrayLike],
         dtype: Optional[DTypeLike] = None,
         shape: Optional[Tuple[int, ...]] = None,
         animation: Optional[Animation] = None,
@@ -67,7 +66,7 @@ class Object:
 
     def add_image_property(
         self,
-        prop: Union[ImageProperty, PropertyData],
+        prop: Union[ImageProperty, List, ArrayLike],
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
         name: str = "",
