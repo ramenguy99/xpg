@@ -8,7 +8,7 @@ from scipy.spatial.transform import Rotation
 
 from ambra.config import CameraConfig, Config, GuiConfig, RendererConfig
 from ambra.primitives3d import GaussianSplats, GaussianSplatsRenderFlags, Lines
-from ambra.property import UploadSettings, as_buffer_property
+from ambra.property import ArrayBufferProperty, UploadSettings
 from ambra.utils.hook import hook
 from ambra.viewer import Viewer
 
@@ -105,10 +105,9 @@ else:
     transformed_covariance: np.ndarray = np.matmul(covariance_matrices, np.transpose(covariance_matrices, (0, 2, 1)))
     covariances = transformed_covariance.reshape((-1, 9))[:, (0, 1, 2, 4, 5, 8)]
 
-# positions = as_buffer_property(
+# positions = ArrayBufferProperty(
 #     positions,
 #     np.float32,
-#     (-1, 3),
 #     upload=UploadSettings(preupload=False, cpu_prefetch_count=2, gpu_prefetch_count=2, async_load=True),
 # )
 gs = GaussianSplats(positions, colors, sh, covariances)

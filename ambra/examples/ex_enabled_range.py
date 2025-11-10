@@ -6,9 +6,9 @@ from ambra.materials import ColorMaterial
 from ambra.primitives3d import Mesh
 from ambra.property import (
     AnimationBoundary,
+    ArrayBufferProperty,
     FrameSampledAnimation,
     TimeSampledAnimation,
-    as_buffer_property,
 )
 from ambra.viewer import Viewer
 
@@ -35,14 +35,14 @@ v, f = create_sphere(0.5, rings=32, sectors=64)
 enabled_always = True
 
 # Disabled at frame 0, enabled at frame 20, disabled again at frame 40
-enabled_frame_range = as_buffer_property(
+enabled_frame_range = ArrayBufferProperty(
     [0, 1, 0],
     bool,
     animation=FrameSampledAnimation(AnimationBoundary.HOLD, [0, 20, 40]),
 )
 
 # Enabled at time 0s, enabled at time 1s, disabled again at time 2s
-enabled_timestamp_range = as_buffer_property(
+enabled_timestamp_range = ArrayBufferProperty(
     [0, 1, 0],
     bool,
     animation=TimeSampledAnimation(AnimationBoundary.HOLD, [0.0, 1.0, 2.0]),

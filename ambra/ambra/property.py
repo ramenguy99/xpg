@@ -9,8 +9,8 @@ import numpy as np
 from numpy.typing import ArrayLike, DTypeLike, NDArray
 from pyxpg import Format
 
-from .utils.gpu import format_from_channels_dtype, view_bytes
 from . import gpu_property
+from .utils.gpu import format_from_channels_dtype, view_bytes
 
 PropertyItem = NDArray[Any]
 
@@ -24,7 +24,6 @@ PropertyItem = NDArray[Any]
 #     # For rotations
 #     NLERP = auto()
 #     SLERP = auto()
-
 
 
 class AnimationBoundary(Enum):
@@ -285,12 +284,12 @@ class ArrayBufferProperty(BufferProperty):
         name: str = "",
     ):
         data = np.atleast_1d(np.asarray(data, dtype, order="C"))
-        max_size = data.itemsize * np.prod(data.shape[1:], dtype=np.uint64)  # type: ignore
-        super().__init__(max_size, len(data), data.dtype, data.shape[1:], animation, upload, name)
+        max_size = data.itemsize * np.prod(data.shape[1:], dtype=np.int64)
+        super().__init__(int(max_size), len(data), data.dtype, data.shape[1:], animation, upload, name)
         self.data = data
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
-        return self.data[frame_index]
+        return self.data[frame_index] # type: ignore
 
 
 class ListBufferProperty(BufferProperty):
@@ -298,7 +297,7 @@ class ListBufferProperty(BufferProperty):
         self,
         data: List[ArrayLike],
         dtype: Optional[DTypeLike] = None,
-        shape: Optional[Tuple[int, ...]] = None,
+        shape: Tuple[int, ...] = (),
         max_size: int = 0,
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
@@ -350,7 +349,9 @@ class ArrayImageProperty(ImageProperty):
         self.data = data
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
-        return self.data[frame_index]
+        return self.data[frame_index] #type: ignore
+
+
 
 class ListImageProperty(ImageProperty):
     def __init__(
@@ -372,7 +373,9 @@ class ListImageProperty(ImageProperty):
                 property_shape = a.shape
             else:
                 if property_shape != a.shape:
-                    raise RuntimeError(f"ListImageProperty data elements must all have the same shape. First has {property_shape}. Element {i} has {a.shape}")
+                    raise RuntimeError(
+                        f"ListImageProperty data elements must all have the same shape. First has {property_shape}. Element {i} has {a.shape}"
+                    )
             if property_dtype is None:
                 property_dtype = a.dtype
             property_data.append(a)
@@ -392,9 +395,9 @@ class ListImageProperty(ImageProperty):
 
 
 def as_buffer_property(
-    value: Union[BufferProperty, List, ArrayLike],
+    value: Union[BufferProperty, List[ArrayLike], ArrayLike],
     dtype: Optional[DTypeLike] = None,
-    shape: Optional[Tuple[int, ...]] = None,
+    shape: Tuple[int, ...] = (),
     name: str = "",
 ) -> BufferProperty:
     if isinstance(value, BufferProperty):
@@ -406,27 +409,26 @@ def as_buffer_property(
             value.name = name
         return value
     elif isinstance(value, List):
-        return ListBufferProperty(value, dtype, shape, name)
+        return ListBufferProperty(value, dtype, shape, name=name)
     else:
+        value = np.atleast_1d(np.asarray(value, dtype, order="C"))
         if shape is None:
-            value = np.atleast_1d(np.asarray(value, dtype, order="C"))
             if len(value.shape) > 1:
                 raise ShapeError((1,), value.shape[1:])
-
-        if shape_match(shape, value.shape):
-            # Implicitly add animation dimension
-            value = value[np.newaxis]
-        elif shape_match(shape, value.shape[1:]):
-            # Shape already matches
-            pass
         else:
-            raise ShapeError(shape, value.shape)
-
-        return ArrayBufferProperty(value, dtype, name)
+            if shape_match(shape, value.shape):
+                # Implicitly add animation dimension
+                value = value[np.newaxis]
+            elif shape_match(shape, value.shape[1:]):
+                # Shape already matches
+                pass
+            else:
+                raise ShapeError(shape, value.shape)
+        return ArrayBufferProperty(value, dtype, name=name)
 
 
 def as_image_property(
-    value: Union[ImageProperty, List, ArrayLike],
+    value: Union[ImageProperty, List[ArrayLike], ArrayLike],
     name: str = "",
 ) -> ImageProperty:
     if isinstance(value, ImageProperty):
@@ -436,13 +438,14 @@ def as_image_property(
     elif isinstance(value, List):
         return ListImageProperty(value, None, name=name)
     else:
-        if value.ndim == 3:
+        data = np.asarray(value)
+        if data.ndim == 3:
             # Implicitly add animation dimension
-            value = value[np.newaxis]
-        elif value.ndim == 4:
+            data = data[np.newaxis]
+        elif data.ndim == 4:
             # Shape already matches
             pass
         else:
-            raise ShapeError((-1, -1, -1), value.shape)
+            raise ShapeError((-1, -1, -1), data.shape)
 
-        return ArrayImageProperty(value, None, name=name)
+        return ArrayImageProperty(data, None, name=name)

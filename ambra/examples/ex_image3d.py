@@ -2,7 +2,7 @@ import numpy as np
 
 from ambra.config import CameraConfig, Config, PlaybackConfig
 from ambra.primitives3d import Image
-from ambra.property import AnimationBoundary, FrameAnimation, as_buffer_property
+from ambra.property import AnimationBoundary, ArrayBufferProperty, FrameAnimation
 from ambra.utils.gpu import Format
 from ambra.viewer import Viewer
 
@@ -20,10 +20,9 @@ viewer = Viewer(
     ),
 )
 
-translation = as_buffer_property(
+translation = ArrayBufferProperty(
     np.linspace(np.array([0, 0, 0]), np.array([5, 0, 0]), 100),
     np.float32,
-    (3,),
     FrameAnimation(AnimationBoundary.HOLD),
 )
 

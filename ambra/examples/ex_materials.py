@@ -11,7 +11,7 @@ from ambra.geometry import create_sphere
 from ambra.lights import DirectionalLight, DirectionalShadowSettings, EnvironmentLight, UniformEnvironmentLight
 from ambra.materials import PBRMaterial
 from ambra.primitives3d import Lines, Mesh
-from ambra.property import as_buffer_property
+from ambra.property import ArrayBufferProperty
 from ambra.viewer import Viewer
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
@@ -69,9 +69,9 @@ def main():
     v, f = create_sphere(0.5, rings=32, sectors=64)
     n = v / np.linalg.norm(v, axis=1, keepdims=True)
 
-    p_v = as_buffer_property(v, np.float32, (-1, 3))
-    p_n = as_buffer_property(n, np.float32, (-1, 3))
-    p_f = as_buffer_property(f, np.uint32, (-1,))
+    p_v = ArrayBufferProperty(v[np.newaxis], np.float32)
+    p_n = ArrayBufferProperty(n[np.newaxis], np.float32)
+    p_f = ArrayBufferProperty(f[np.newaxis], np.uint32)
 
     spheres = []
     for y in range(8):

@@ -169,6 +169,8 @@ class Renderer:
                 MemoryUsage.SHADER_READ_ONLY,
             )
 
+        self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
+
         self.shader_cache: Dict[Tuple[Union[str, Tuple[str, str], Path], ...], slang.Shader] = {}
 
         self.scene_descriptor_set_layout, self.scene_descriptor_pool, self.scene_descriptor_sets = (
@@ -376,7 +378,7 @@ class Renderer:
                 samples=self.msaa_samples,
             )
 
-    def create_gpu_buffer_property(
+    def add_gpu_buffer_property(
         self,
         property: BufferProperty,
         usage_flags: BufferUsageFlags,
@@ -396,9 +398,10 @@ class Renderer:
             pipeline_stage_flags,
             name,
         )
+        self.gpu_properties.append(prop)
         return prop
 
-    def create_gpu_image_property(
+    def add_gpu_image_property(
         self,
         property: ImageProperty,
         usage_flags: ImageUsageFlags,
@@ -424,6 +427,7 @@ class Renderer:
             srgb,
             name,
         )
+        self.gpu_properties.append(prop)
         return prop
 
     def run_ibl_pipeline(
@@ -576,11 +580,11 @@ class Renderer:
         )
 
         # TODO: Update properties
-        # for p in self.gpu_properties:
-        #     p.load(f)
+        for p in self.gpu_properties:
+            p.load(f)
 
-        # for p in self.gpu_properties:
-        #     p.upload(f)
+        for p in self.gpu_properties:
+            p.upload(f)
 
         # Upload per-object data
         viewport.scene.upload(self, f)

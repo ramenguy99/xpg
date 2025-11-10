@@ -10,7 +10,7 @@ from pyglm.glm import mat4, quat, rotate, vec3
 
 from ambra.config import CameraConfig, Config, GuiConfig
 from ambra.primitives3d import AnimatedMesh, Lines
-from ambra.property import UploadSettings, as_buffer_property
+from ambra.property import ArrayImageProperty, UploadSettings
 from ambra.scene import UploadSettings, as_property
 from ambra.transform3d import Transform3D
 from ambra.utils.gpu import Format
@@ -220,10 +220,9 @@ def fk():
 md = meshes[0]
 fk()
 
-joints_prop = as_buffer_property(
+joints_prop = ArrayImageProperty(
     joints_array,
     np.float32,
-    (-1, 4, 4),
     upload=UploadSettings(
         preupload=False,
     ),

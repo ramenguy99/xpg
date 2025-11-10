@@ -19,8 +19,8 @@ from pyxpg import (
     TimelineSemaphore,
 )
 
-from .config import UploadMethod
 from . import property as property_mod
+from .config import UploadMethod
 from .renderer_frame import RendererFrame, SemaphoreInfo
 from .utils.gpu import BufferUploadInfo, ImageUploadInfo, get_image_pitch_rows_and_texel_size, view_bytes
 from .utils.lru_pool import LRUPool
@@ -556,7 +556,9 @@ class GpuResourceProperty(Generic[R]):
             if self.gpu_pool is not None:
                 self.gpu_pool.clear()
 
-    def _create_resource_for_preupload(self, frame: "property_mod.PropertyItem", alloc_type: AllocType, name: str) -> R:
+    def _create_resource_for_preupload(
+        self, frame: "property_mod.PropertyItem", alloc_type: AllocType, name: str
+    ) -> R:
         raise NotImplementedError
 
     def _upload_mapped_resource(self, resource: R, frame: "property_mod.PropertyItem") -> None:
@@ -618,7 +620,9 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
             name,
         )
 
-    def _create_resource_for_preupload(self, frame: "property_mod.PropertyItem", alloc_type: AllocType, name: str) -> Buffer:
+    def _create_resource_for_preupload(
+        self, frame: "property_mod.PropertyItem", alloc_type: AllocType, name: str
+    ) -> Buffer:
         return Buffer(self.ctx, len(view_bytes(frame)), self.usage_flags, alloc_type, name=name)
 
     def _upload_mapped_resource(self, resource: Buffer, frame: "property_mod.PropertyItem") -> None:
@@ -728,7 +732,9 @@ class GpuImageProperty(GpuResourceProperty[Image]):
             name,
         )
 
-    def _create_resource_for_preupload(self, frame: "property_mod.PropertyItem", alloc_type: AllocType, name: str) -> Image:
+    def _create_resource_for_preupload(
+        self, frame: "property_mod.PropertyItem", alloc_type: AllocType, name: str
+    ) -> Image:
         return Image(self.ctx, self.width, self.height, self.format, self.usage_flags, alloc_type, name=name)
 
     def _create_bulk_upload_descriptor(self, resource: Image, frame: "property_mod.PropertyItem") -> ImageUploadInfo:

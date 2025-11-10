@@ -3,11 +3,7 @@ from pyglm.glm import vec3
 
 from ambra.config import CameraConfig, CameraProjection, Config, PlaybackConfig
 from ambra.primitives2d import Lines
-from ambra.property import (
-    AnimationBoundary,
-    FrameAnimation,
-    as_buffer_property,
-)
+from ambra.property import AnimationBoundary, ArrayBufferProperty, FrameAnimation
 from ambra.transform3d import RigidTransform3D
 from ambra.viewer import Viewer
 
@@ -52,15 +48,14 @@ colors = np.array(
 line_width = np.linspace(1, 32, 100)
 
 scale = np.linspace(np.array([1, 1]), np.array([1, 3]), 100)
-rotation = as_buffer_property(
+rotation = ArrayBufferProperty(
     np.linspace(0, 4 * np.pi, 50),
     np.float32,
     animation=FrameAnimation(AnimationBoundary.HOLD),
 )
-translation = as_buffer_property(
+translation = ArrayBufferProperty(
     np.linspace(np.array([0, 0]), np.array([1, 1]), 50),
     np.float32,
-    (2,),
     FrameAnimation(AnimationBoundary.MIRROR),
 )
 
@@ -73,10 +68,9 @@ line = Lines(
     rotation=rotation,
 )
 
-translation = as_buffer_property(
+translation = ArrayBufferProperty(
     np.linspace(np.array([1, 0]), np.array([2, 0]), 50),
     np.float32,
-    (2,),
     FrameAnimation(AnimationBoundary.MIRROR),
 )
 line2 = Lines(positions, colors, line_width, scale=None, translation=translation)

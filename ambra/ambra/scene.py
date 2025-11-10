@@ -4,17 +4,15 @@
 from typing import Callable, List, Optional, Set, Tuple, Union
 
 import numpy as np
-from numpy.typing import DTypeLike, ArrayLike
+from numpy.typing import ArrayLike, DTypeLike
 from pyglm.glm import mat3, mat4, quat, vec2, vec3
 from pyxpg import DescriptorSet, imgui
 
 from . import lights, materials, renderer
 from .property import (
-    Animation,
     BufferProperty,
     ImageProperty,
     Property,
-    UploadSettings,
     as_buffer_property,
     as_image_property,
 )
@@ -53,25 +51,21 @@ class Object:
 
     def add_buffer_property(
         self,
-        prop: Union[BufferProperty, List, ArrayLike],
+        prop: Union[BufferProperty, List[ArrayLike], ArrayLike],
         dtype: Optional[DTypeLike] = None,
-        shape: Optional[Tuple[int, ...]] = None,
-        animation: Optional[Animation] = None,
-        upload: Optional[UploadSettings] = None,
+        shape: Tuple[int, ...] = (),
         name: str = "",
     ) -> BufferProperty:
-        property = as_buffer_property(prop, dtype, shape, animation, upload, name)
+        property = as_buffer_property(prop, dtype, shape, name)
         self.properties.append(property)
         return property
 
     def add_image_property(
         self,
-        prop: Union[ImageProperty, List, ArrayLike],
-        animation: Optional[Animation] = None,
-        upload: Optional[UploadSettings] = None,
+        prop: Union[ImageProperty, List[ArrayLike], ArrayLike],
         name: str = "",
     ) -> ImageProperty:
-        property = as_image_property(prop, animation, upload, name)
+        property = as_image_property(prop, name)
         self.properties.append(property)
         return property
 
