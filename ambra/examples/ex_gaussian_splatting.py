@@ -92,6 +92,8 @@ else:
     colors = np.hstack((splats.sh[:, :3] * SH_C0 + 0.5, splats.opacity[..., np.newaxis]))
     sh = np.transpose(
         np.clip(np.rint((splats.sh[:, 3:] * 0.5 + 0.5) * 255.0), 0.0, 255.0).astype(np.uint8).reshape((-1, 3, 15)),
+        # splats.sh[:, 3:].astype(np.float16).reshape((-1, 3, 15)),
+        # splats.sh[:, 3:].reshape((-1, 3, 15)),
         (0, 2, 1),
     ).reshape((-1, 45))
 

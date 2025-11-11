@@ -615,8 +615,16 @@ class GaussianSplats(Object3D):
         self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions")
         self.colors = self.add_buffer_property(colors, np.float32, (-1, 4), name="colors")
         self.spherical_harmonics = self.add_buffer_property(
-            spherical_harmonics, np.uint8, (-1, -1), name="spherical-harmonics"
+            spherical_harmonics, None, (-1, -1), name="spherical-harmonics"
         )
+        if self.spherical_harmonics.dtype == np.uint8:
+            self.sh_format = self.FORMAT_UINT8
+        elif self.spherical_harmonics.dtype == np.float16:
+            self.sh_format = self.FORMAT_FLOAT16
+        elif self.spherical_harmonics.dtype == np.float32:
+            self.sh_format = self.FORMAT_FLOAT32
+        else:
+            raise TypeError(f"Spherical harmonics must be of dtype uint8, float16 or float32. Got {self.spherical_harmonics.dtype}.")
         self.covariances = self.add_buffer_property(covariances, np.float32, (-1, 6), name="covariances")
         self.mip_splatting_antialiasing = mip_splatting_antialiasing
         self.flags = flags
@@ -626,12 +634,12 @@ class GaussianSplats(Object3D):
         self.splat_scale = 1.0
 
     def create(self, r: Renderer) -> None:
-        if (r.ctx.device_features & DeviceFeatures.STORAGE_8BIT) == 0:
-            raise RuntimeError("Device does not support 8bit storage")
-
-        # TODO: actually check the storage type we are using when we will support multiple
-        # if (r.ctx.device_features & DeviceFeatures.STORAGE_16BIT) == 0:
-        #     raise RuntimeError("Device does not support 16bit storage")
+        if self.sh_format == self.FORMAT_UINT8:
+            if (r.ctx.device_features & DeviceFeatures.STORAGE_8BIT) == 0:
+                raise RuntimeError("Device does not support 8bit storage")
+        elif self.sh_format == self.FORMAT_FLOAT16:
+            if (r.ctx.device_features & DeviceFeatures.STORAGE_16BIT) == 0:
+                raise RuntimeError("Device does not support 16bit storage")
 
         self.use_barycentric = (r.ctx.device_features & DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC) != 0
         self.use_mesh_shader = (r.ctx.device_features & DeviceFeatures.MESH_SHADER) != 0
@@ -739,7 +747,7 @@ class GaussianSplats(Object3D):
                 "1" if self.mip_splatting_antialiasing else "0",
             ),  # Only useful when model comes from mip splatting
             ("MAX_SH_DEGREE", "3"),
-            ("SH_FORMAT", str(self.FORMAT_UINT8)),
+            ("SH_FORMAT", str(self.sh_format)),
             # Using this as a flag significantly lowers performance even if disabled.
             # Likely due to worse occupancy because of higher register pressure or due to some optimization
             # not kicking in because of to the use of shader derivatives.
