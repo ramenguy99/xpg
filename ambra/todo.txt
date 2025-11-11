@@ -72,9 +72,7 @@ New property API plans:
         - [x] Remove usages of as_buffer_property from examples
         - [x] Test that this actually works
     - [x] Can now use constraint_dtype=None to let as_buffer_property infer it for us -> test this for SH dtype
-    - [ ] Move GPU property inside property -> maybe also take advantage of split between List and Array for is_jagged stuff in GpuBufferProperty (or add new API with default that exposes this info)
-        - [x] Add the concept of a gpu usage (to collect constraints)
-        - [ ] Reroute gpu property creation and load/upload stuff through properties
+    - [x] Re-organize scene traversals / collection (ideally minimize)
             - Scene traversal notes:
                 - Startup:
                     One full traversal on first frame to collect max_animation_time
@@ -86,9 +84,11 @@ New property API plans:
                         - Call create_if_needed on each unique enabled property
                         - Call load on each enabled property
                         - Call upload on each enabled property
-
+    - [ ] Move GPU property inside property -> maybe also take advantage of split between List and Array for is_jagged stuff in GpuBufferProperty (or add new API with default that exposes this info)
+        - [x] Add the concept of a gpu usage (to collect constraints)
+        - [x] Reroute gpu property creation and load/upload stuff through properties
         - [ ] Enable mip generation and sRGB
-    - [ ] Re-organize scene traversals / collection (ideally minimize)
+            - Need to find a way to include extra data in GpuResourceProperty -> e.g. offset + size for buffer, ImageViews for images
     - [ ] Re-think GpuPropety and come up with a plan for insertion/remove/update and potential batching -> I am ok if batching is only allowed on Array* variants and those do not allow remove/insert (but do allow update).
     - [ ] Test a bunch of cases with user property creation
 - Front-end (public property / primitive / user API):

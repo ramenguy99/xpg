@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Dict, Generic, List, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Dict, Generic, List, Optional, TypeVar, Union
 
 from pyxpg import (
     AllocType,
@@ -19,12 +19,14 @@ from pyxpg import (
     TimelineSemaphore,
 )
 
-from . import property as property_mod
 from .config import UploadMethod
 from .renderer_frame import RendererFrame, SemaphoreInfo
 from .utils.gpu import BufferUploadInfo, ImageUploadInfo, get_image_pitch_rows_and_texel_size, view_bytes
 from .utils.lru_pool import LRUPool
 from .utils.threadpool import Promise, ThreadPool
+
+if TYPE_CHECKING:
+    from .property import BufferProperty, ImageProperty, Property, PropertyItem
 
 
 class CpuBuffer:
@@ -91,7 +93,7 @@ class GpuResourceProperty(Generic[R]):
         upload_method: UploadMethod,
         thread_pool: ThreadPool,
         out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
-        property: "property_mod.Property",
+        property: "Property",
         pipeline_stage_flags: PipelineStageFlags,
         name: str,
     ):
@@ -154,9 +156,9 @@ class GpuResourceProperty(Generic[R]):
             # clear where is the best way to ensure this is thread safe so
             # for now we don't do it.
             if self.async_load:
-                promises: List[Promise[property_mod.PropertyItem]] = []
+                promises: List[Promise[PropertyItem]] = []
                 for i in range(property.num_frames):
-                    promise: Promise[property_mod.PropertyItem] = Promise()
+                    promise: Promise[PropertyItem] = Promise()
                     self.thread_pool.submit(promise, self._load_async, i)  # type: ignore
                     promises.append(promise)
 
@@ -229,7 +231,7 @@ class GpuResourceProperty(Generic[R]):
                         for i in range(gpu_prefetch_count)
                     ]
 
-    def _load_async(self, i: int, thread_index: int) -> "property_mod.PropertyItem":
+    def _load_async(self, i: int, thread_index: int) -> "PropertyItem":
         return self.property.get_frame_by_index(i, thread_index)
 
     def _load_async_into(self, i: int, buf: CpuBuffer, thread_index: int) -> None:
@@ -556,16 +558,14 @@ class GpuResourceProperty(Generic[R]):
             if self.gpu_pool is not None:
                 self.gpu_pool.clear()
 
-    def _create_resource_for_preupload(
-        self, frame: "property_mod.PropertyItem", alloc_type: AllocType, name: str
-    ) -> R:
+    def _create_resource_for_preupload(self, frame: "PropertyItem", alloc_type: AllocType, name: str) -> R:
         raise NotImplementedError
 
-    def _upload_mapped_resource(self, resource: R, frame: "property_mod.PropertyItem") -> None:
+    def _upload_mapped_resource(self, resource: R, frame: "PropertyItem") -> None:
         raise NotImplementedError
 
     def _create_bulk_upload_descriptor(
-        self, resource: R, frame: "property_mod.PropertyItem"
+        self, resource: R, frame: "PropertyItem"
     ) -> Union[BufferUploadInfo, ImageUploadInfo]:
         raise NotImplementedError
 
@@ -599,7 +599,7 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
         upload_method: UploadMethod,
         thread_pool: ThreadPool,
         out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
-        property: "property_mod.BufferProperty",
+        property: "BufferProperty",
         usage_flags: BufferUsageFlags,
         memory_usage: MemoryUsage,
         pipeline_stage_flags: PipelineStageFlags,
@@ -620,16 +620,14 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
             name,
         )
 
-    def _create_resource_for_preupload(
-        self, frame: "property_mod.PropertyItem", alloc_type: AllocType, name: str
-    ) -> Buffer:
+    def _create_resource_for_preupload(self, frame: "PropertyItem", alloc_type: AllocType, name: str) -> Buffer:
         return Buffer(self.ctx, len(view_bytes(frame)), self.usage_flags, alloc_type, name=name)
 
-    def _upload_mapped_resource(self, resource: Buffer, frame: "property_mod.PropertyItem") -> None:
+    def _upload_mapped_resource(self, resource: Buffer, frame: "PropertyItem") -> None:
         # NOTE: here we can assume that the buffer is always the same size as frame data.
         resource.data[:] = view_bytes(frame)
 
-    def _create_bulk_upload_descriptor(self, resource: Buffer, frame: "property_mod.PropertyItem") -> BufferUploadInfo:
+    def _create_bulk_upload_descriptor(self, resource: Buffer, frame: "PropertyItem") -> BufferUploadInfo:
         return BufferUploadInfo(view_bytes(frame), resource)
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:
@@ -697,7 +695,7 @@ class GpuImageProperty(GpuResourceProperty[Image]):
         upload_method: UploadMethod,
         thread_pool: ThreadPool,
         out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
-        property: "property_mod.ImageProperty",
+        property: "ImageProperty",
         usage_flags: ImageUsageFlags,
         layout: ImageLayout,
         memory_usage: MemoryUsage,
@@ -728,12 +726,10 @@ class GpuImageProperty(GpuResourceProperty[Image]):
             name,
         )
 
-    def _create_resource_for_preupload(
-        self, frame: "property_mod.PropertyItem", alloc_type: AllocType, name: str
-    ) -> Image:
+    def _create_resource_for_preupload(self, frame: "PropertyItem", alloc_type: AllocType, name: str) -> Image:
         return Image(self.ctx, self.width, self.height, self.format, self.usage_flags, alloc_type, name=name)
 
-    def _create_bulk_upload_descriptor(self, resource: Image, frame: "property_mod.PropertyItem") -> ImageUploadInfo:
+    def _create_bulk_upload_descriptor(self, resource: Image, frame: "PropertyItem") -> ImageUploadInfo:
         return ImageUploadInfo(view_bytes(frame), resource, self.layout)
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:

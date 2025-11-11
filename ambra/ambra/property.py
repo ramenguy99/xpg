@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import ArrayLike, DTypeLike, NDArray
@@ -20,6 +20,10 @@ from pyxpg import (
 
 from . import gpu_property
 from .utils.gpu import format_from_channels_dtype, view_bytes
+
+if TYPE_CHECKING:
+    from .renderer import Renderer
+
 
 PropertyItem = NDArray[Any]
 
@@ -187,7 +191,7 @@ class Property:
 
         self.update_callbacks: List[Callable[[Property], None]] = []
 
-    def create(self, r: "renderer.Renderer") -> None:
+    def create(self, r: "Renderer") -> None:
         pass
 
     def update(self, time: float, playback_frame: int) -> None:
@@ -236,8 +240,8 @@ class BufferProperty(Property):
         self.dtype = dtype
         self.shape = shape
 
-        self.gpu_usage: BufferUsageFlags = 0
-        self.gpu_stage: PipelineStageFlags = 0
+        self.gpu_usage = BufferUsageFlags(0)
+        self.gpu_stage = PipelineStageFlags(0)
 
     def use_gpu(self, usage: BufferUsageFlags, stage: PipelineStageFlags) -> "BufferProperty":
         self.gpu_usage |= usage
@@ -248,7 +252,7 @@ class BufferProperty(Property):
         assert isinstance(self.gpu_property, gpu_property.GpuBufferProperty)
         return self.gpu_property.get_current()
 
-    def create(self, r: "renderer.Renderer") -> None:
+    def create(self, r: "Renderer") -> None:
         if self.gpu_usage and self.gpu_property is None:
             self.gpu_property = gpu_property.GpuBufferProperty(
                 r.ctx,
@@ -280,8 +284,8 @@ class ImageProperty(Property):
         self.height = height
         self.format = format
 
-        self.gpu_usage: ImageUsageFlags = 0
-        self.gpu_stage: PipelineStageFlags = 0
+        self.gpu_usage = ImageUsageFlags(0)
+        self.gpu_stage = PipelineStageFlags(0)
         self.gpu_layout = ImageLayout.UNDEFINED
 
     def use_gpu(self, usage: ImageUsageFlags, layout: ImageLayout, stage: PipelineStageFlags) -> "ImageProperty":
@@ -298,7 +302,7 @@ class ImageProperty(Property):
         assert isinstance(self.gpu_property, gpu_property.GpuImageProperty), self.gpu_property
         return self.gpu_property.get_current()
 
-    def create(self, r: "renderer.Renderer") -> None:
+    def create(self, r: "Renderer") -> None:
         if self.gpu_usage and self.gpu_property is None:
             self.gpu_property = gpu_property.GpuImageProperty(
                 r.ctx,
@@ -422,7 +426,6 @@ class ArrayImageProperty(ImageProperty):
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         return self.data[frame_index]  # type: ignore
-
 
 
 class ListImageProperty(ImageProperty):

@@ -1,14 +1,13 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
-from typing import Callable, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Callable, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from numpy.typing import ArrayLike, DTypeLike
 from pyglm.glm import mat3, mat4, quat, vec2, vec3
 from pyxpg import DescriptorSet, imgui
 
-from . import materials, renderer
 from .property import (
     BufferProperty,
     ImageProperty,
@@ -20,6 +19,11 @@ from .renderer_frame import RendererFrame
 from .transform2d import Transform2D
 from .transform3d import Transform3D
 
+if TYPE_CHECKING:
+    from .materials import Material
+    from .renderer import Renderer
+
+
 _counter = 0
 
 
@@ -27,7 +31,7 @@ class Object:
     def __init__(
         self,
         name: Optional[str] = None,
-        material: Optional["materials.Material"] = None,
+        material: Optional["Material"] = None,
         enabled: Optional[BufferProperty] = None,
     ):
         self.uid = Object.next_id()
@@ -69,7 +73,7 @@ class Object:
         self.properties.append(property)
         return property
 
-    def create_if_needed(self, renderer: "renderer.Renderer") -> None:
+    def create_if_needed(self, renderer: "Renderer") -> None:
         if self.material is not None:
             self.material.create_if_needed(renderer)
             for mp in self.material.properties:
@@ -87,7 +91,7 @@ class Object:
 
             self.created = True
 
-    def create(self, renderer: "renderer.Renderer") -> None:
+    def create(self, renderer: "Renderer") -> None:
         pass
 
     def collect_dynamic_properties(self, all_properties: Set[Property]) -> None:
@@ -106,15 +110,13 @@ class Object:
         # TODO: can merge with udpate? Where to find parent? With link?
         pass
 
-    def upload(self, renderer: "renderer.Renderer", frame: RendererFrame) -> None:
+    def upload(self, renderer: "Renderer", frame: RendererFrame) -> None:
         pass
 
-    def render(self, renderer: "renderer.Renderer", frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render(self, renderer: "Renderer", frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         pass
 
-    def render_depth(
-        self, renderer: "renderer.Renderer", frame: RendererFrame, scene_descriptor_set: DescriptorSet
-    ) -> None:
+    def render_depth(self, renderer: "Renderer", frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         pass
 
     def destroy(self) -> None:
@@ -190,7 +192,7 @@ class Object3D(Object):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
-        material: Optional["materials.Material"] = None,
+        material: Optional["Material"] = None,
         enabled: Optional[BufferProperty] = None,
     ):
         super().__init__(name, material, enabled)

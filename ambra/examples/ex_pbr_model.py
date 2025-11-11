@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 
 import cv2
 import gltf
@@ -12,7 +13,7 @@ from ambra.geometry import create_sphere
 from ambra.lights import EnvironmentLight
 from ambra.materials import DiffuseMaterial, PBRMaterial
 from ambra.primitives3d import Grid, GridType, Mesh
-from ambra.property import DataImageProperty
+from ambra.property import ArrayImageProperty
 from ambra.utils.gpu import readback
 from ambra.viewer import Viewer
 
@@ -21,17 +22,18 @@ os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 equirectangular = cv2.imread(sys.argv[2], cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH | cv2.IMREAD_COLOR_RGB)
 lights = [EnvironmentLight.from_equirectangular(equirectangular)]
 
-model = gltf.load(sys.argv[1])
+model = gltf.load(Path(sys.argv[1]))
 
 meshes = []
 for mesh_data in model.meshes:
     print(mesh_data.ao_texture.shape)
     material = PBRMaterial(
-        DataImageProperty(mesh_data.base_color_texture, Format.R8G8B8A8_SRGB),
-        roughness=DataImageProperty(mesh_data.metallic_roughness_texture[:, :, 1:2], Format.R8_UNORM),
-        metallic=DataImageProperty(mesh_data.metallic_roughness_texture[:, :, 2:3], Format.R8_UNORM),
-        ao=DataImageProperty(mesh_data.ao_texture[..., :1]),
-        normal=DataImageProperty(mesh_data.normal_texture),
+        # albedo=ArrayImageProperty(mesh_data.base_color_texture[np.newaxis], Format.R8G8B8A8_SRGB),
+        albedo=ArrayImageProperty(mesh_data.base_color_texture[np.newaxis], Format.R8G8B8A8_UNORM),
+        roughness=ArrayImageProperty(mesh_data.metallic_roughness_texture[:, :, 1:2][np.newaxis], Format.R8_UNORM),
+        metallic=ArrayImageProperty(mesh_data.metallic_roughness_texture[:, :, 2:3][np.newaxis], Format.R8_UNORM),
+        ao=ArrayImageProperty(mesh_data.ao_texture[..., :1][np.newaxis]),
+        normal=ArrayImageProperty(mesh_data.normal_texture[np.newaxis]),
     )
 
     assert np.all(mesh_data.tangents[:, 3] > 0.0)

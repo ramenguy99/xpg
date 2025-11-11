@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -32,7 +32,6 @@ from pyxpg import (
     StoreOp,
 )
 
-from . import renderer
 from .property import BufferProperty
 from .renderer_frame import RendererFrame
 from .scene import Object, Object3D
@@ -43,6 +42,9 @@ from .utils.descriptors import (
 )
 from .utils.gpu import UploadableBuffer, view_bytes
 from .utils.ring_buffer import RingBuffer
+
+if TYPE_CHECKING:
+    from .renderer import Renderer
 
 
 class LightTypes(Enum):
@@ -71,7 +73,7 @@ LIGHT_TYPES_INFO = [
 
 
 class Light(Object3D):
-    def render_shadowmaps(self, renderer: "renderer.Renderer", frame: RendererFrame, objects: List[Object]) -> None:
+    def render_shadowmaps(self, renderer: "Renderer", frame: RendererFrame, objects: List[Object]) -> None:
         pass
 
 
@@ -153,7 +155,7 @@ class DirectionalLight(Light):
             scale=scale,
         )
 
-    def create(self, r: "renderer.Renderer") -> None:
+    def create(self, r: "Renderer") -> None:
         if self.shadow_settings.casts_shadow:
             self.shadow_map = Image(
                 r.ctx,
@@ -206,7 +208,7 @@ class DirectionalLight(Light):
         self.light_buffer_offset, self.shadowmap_index = r.add_light(LightTypes.DIRECTIONAL, self.shadow_map)
         self.light_info = np.zeros((1,), directional_light_dtype)
 
-    def upload(self, renderer: "renderer.Renderer", frame: RendererFrame) -> None:
+    def upload(self, renderer: "Renderer", frame: RendererFrame) -> None:
         view = inverse(self.current_transform_matrix)
         direction = vec3(self.current_transform_matrix * vec4(0, 0, -1, 0))
         self.light_info["orthographic_camera"] = self.projection * view
@@ -216,7 +218,7 @@ class DirectionalLight(Light):
         self.light_info["bias"] = self.shadow_settings.bias
         renderer.upload_light(frame, LightTypes.DIRECTIONAL, view_bytes(self.light_info), self.light_buffer_offset)
 
-    def render_shadowmaps(self, renderer: "renderer.Renderer", frame: RendererFrame, objects: List[Object]) -> None:
+    def render_shadowmaps(self, renderer: "Renderer", frame: RendererFrame, objects: List[Object]) -> None:
         if not self.shadow_settings.casts_shadow:
             return
 
@@ -269,7 +271,7 @@ class UniformEnvironmentLight(Light):
         super().__init__(name)
         self.radiance = self.add_buffer_property(radiance, np.float32, (3,), name="radiance")
 
-    def create(self, r: "renderer.Renderer") -> None:
+    def create(self, r: "Renderer") -> None:
         r.add_uniform_environment_light(self)
 
 
@@ -451,7 +453,7 @@ class GpuEnvironmentCubemaps:
 
 
 class GGXLUTPipeline:
-    def __init__(self, r: "renderer.Renderer"):
+    def __init__(self, r: "Renderer"):
         self.lut_constants_dtype = np.dtype(
             {
                 "samples": (np.uint32, 0),
@@ -472,7 +474,7 @@ class GGXLUTPipeline:
             push_constants_ranges=[PushConstantsRange(self.lut_constants_dtype.itemsize)],
         )
 
-    def run(self, r: "renderer.Renderer", width: int = 512, height: int = 512, samples: int = 1024) -> Image:
+    def run(self, r: "Renderer", width: int = 512, height: int = 512, samples: int = 1024) -> Image:
         lut = Image(
             r.ctx,
             width,
@@ -502,7 +504,7 @@ class GGXLUTPipeline:
 
 
 class IBLPipeline:
-    def __init__(self, r: "renderer.Renderer"):
+    def __init__(self, r: "Renderer"):
         # Common
         self.max_specular_mips = 16
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
@@ -566,7 +568,7 @@ class IBLPipeline:
             push_constants_ranges=[PushConstantsRange(self.specular_constants_dtype.itemsize)],
         )
 
-    def run(self, r: "renderer.Renderer", equirectangular: Image, params: IBLParams) -> GpuEnvironmentCubemaps:
+    def run(self, r: "Renderer", equirectangular: Image, params: IBLParams) -> GpuEnvironmentCubemaps:
         skybox_size = params.skybox_size
         skybox_mip_levels = skybox_size.bit_length()
         skybox_cubemap = Image(
@@ -739,7 +741,7 @@ class EnvironmentLight(Light):
         self.ibl_params = ibl_params
         super().__init__(name)
 
-    def create(self, r: "renderer.Renderer") -> None:
+    def create(self, r: "Renderer") -> None:
         if self.equirectangular is not None:
             height, width, _channels = self.equirectangular.shape
             equirectangular_img = Image.from_data(

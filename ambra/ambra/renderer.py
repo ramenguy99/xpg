@@ -40,10 +40,24 @@ from pyxpg import (
     slang,
 )
 
-from . import ffx, lights, scene
 from .config import RendererConfig, UploadMethod
+
+# from . import ffx, lights, scene
+from .ffx import SPDPipeline
 from .gpu_property import GpuBufferProperty, GpuImageProperty
+from .lights import (
+    LIGHT_TYPES_INFO,
+    EnvironmentLight,
+    GGXLUTPipeline,
+    GpuEnvironmentCubemaps,
+    IBLParams,
+    IBLPipeline,
+    Light,
+    LightTypes,
+    UniformEnvironmentLight,
+)
 from .renderer_frame import RendererFrame, SemaphoreInfo
+from .scene import Object
 from .shaders import compile
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import (
@@ -179,7 +193,7 @@ class Renderer:
                     DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 3 - Environment irradiance cubemap
                     DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 4 - Environment specular cubemap
                     DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 5 - Environment GGX LUT
-                    *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in lights.LIGHT_TYPES_INFO],
+                    *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in LIGHT_TYPES_INFO],
                     DescriptorSetBinding(self.max_shadowmaps, DescriptorType.SAMPLED_IMAGE),
                 ],
                 self.num_frames_in_flight,
@@ -205,7 +219,7 @@ class Renderer:
                 "focal": (np.dtype((np.float32, (2,))), 160),
                 "inverse_viewport_size": (np.dtype((np.float32, (2,))), 168),
                 "max_specular_mip": (np.float32, 176),
-                "num_lights": (np.dtype((np.uint32, (len(lights.LIGHT_TYPES_INFO),))), 180),
+                "num_lights": (np.dtype((np.uint32, (len(LIGHT_TYPES_INFO),))), 180),
             }
         )  # type: ignore
 
@@ -218,22 +232,22 @@ class Renderer:
         )
 
         self.max_lights_per_type = config.max_lights_per_type
-        self.num_lights = [0] * len(lights.LIGHT_TYPES_INFO)
+        self.num_lights = [0] * len(LIGHT_TYPES_INFO)
         self.light_buffers = RingBuffer(
             [
                 [
                     UploadableBuffer(ctx, info.size * self.max_lights_per_type, BufferUsageFlags.STORAGE)
-                    for info in lights.LIGHT_TYPES_INFO
+                    for info in LIGHT_TYPES_INFO
                 ]
                 for _ in range(self.num_frames_in_flight)
             ]
         )
 
-        self.spd_pipeline = ffx.SPDPipeline(self)
+        self.spd_pipeline = SPDPipeline(self)
 
-        self.ibl_default_params = lights.IBLParams()
-        self.ibl_pipeline: Optional[lights.IBLPipeline] = None
-        self.ggx_lut_pipeline = lights.GGXLUTPipeline(self)
+        self.ibl_default_params = IBLParams()
+        self.ibl_pipeline: Optional[IBLPipeline] = None
+        self.ggx_lut_pipeline = GGXLUTPipeline(self)
         self.ggx_lut = self.ggx_lut_pipeline.run(self)
 
         for s, buf, light_bufs in zip(self.scene_descriptor_sets, self.uniform_buffers, self.light_buffers):
@@ -255,8 +269,8 @@ class Renderer:
                     i,
                 )
 
-        self.uniform_environment_lights: List[lights.UniformEnvironmentLight] = []
-        self.environment_light: Optional[lights.EnvironmentLight] = None
+        self.uniform_environment_lights: List[UniformEnvironmentLight] = []
+        self.environment_light: Optional[EnvironmentLight] = None
 
         self.uniform_pool = UniformPool(ctx, self.num_frames_in_flight, config.uniform_pool_block_size)
 
@@ -378,20 +392,18 @@ class Renderer:
             )
 
     def run_ibl_pipeline(
-        self, equirectangular: Image, ibl_params: Optional["lights.IBLParams"] = None
-    ) -> "lights.GpuEnvironmentCubemaps":
+        self, equirectangular: Image, ibl_params: Optional["IBLParams"] = None
+    ) -> "GpuEnvironmentCubemaps":
         if self.ibl_pipeline is None:
-            self.ibl_pipeline = lights.IBLPipeline(self)
+            self.ibl_pipeline = IBLPipeline(self)
         if ibl_params is None:
             ibl_params = self.ibl_default_params
         return self.ibl_pipeline.run(self, equirectangular, ibl_params)
 
-    def add_uniform_environment_light(self, light: "lights.UniformEnvironmentLight") -> None:
+    def add_uniform_environment_light(self, light: "UniformEnvironmentLight") -> None:
         self.uniform_environment_lights.append(light)
 
-    def add_environment_light(
-        self, light: "lights.EnvironmentLight", cubemaps: "lights.GpuEnvironmentCubemaps"
-    ) -> None:
+    def add_environment_light(self, light: "EnvironmentLight", cubemaps: "GpuEnvironmentCubemaps") -> None:
         if self.environment_light is not None:
             raise RuntimeError(
                 "Attempting to add a second environment light. Only a single light environment light is currently supported"
@@ -406,7 +418,7 @@ class Renderer:
                 cubemaps.specular_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 4
             )
 
-    def add_light(self, light_type: "lights.LightTypes", shadowmap: Optional[Image]) -> Tuple[int, int]:
+    def add_light(self, light_type: "LightTypes", shadowmap: Optional[Image]) -> Tuple[int, int]:
         if self.num_lights[light_type.value] >= self.max_lights_per_type:
             raise RuntimeError(
                 f'Too many ligths of type: {light_type}. Increase "config.renderer.max_lights_per_type" (current value: {self.max_lights_per_type}) to allow more lights.'
@@ -432,15 +444,13 @@ class Renderer:
                     shadowmap,
                     ImageLayout.SHADER_READ_ONLY_OPTIMAL,
                     DescriptorType.SAMPLED_IMAGE,
-                    6 + len(lights.LIGHT_TYPES_INFO),
+                    6 + len(LIGHT_TYPES_INFO),
                     shadowmap_idx,
                 )
 
-        return light_idx * lights.LIGHT_TYPES_INFO[light_type.value].size, shadowmap_idx
+        return light_idx * LIGHT_TYPES_INFO[light_type.value].size, shadowmap_idx
 
-    def upload_light(
-        self, frame: RendererFrame, light_type: "lights.LightTypes", data: memoryview, offset: int
-    ) -> None:
+    def upload_light(self, frame: RendererFrame, light_type: "LightTypes", data: memoryview, offset: int) -> None:
         self.light_buffers.get_current()[light_type.value].upload(
             frame.cmd, MemoryUsage.SHADER_READ_ONLY, data, offset
         )
@@ -473,14 +483,14 @@ class Renderer:
         return self.compile_shader(SHADERS_PATH.joinpath(SHADERS_PATH, path), entry, target, defines, include_paths)
 
     def render(self, viewport: Viewport, frame: FrameInputs, gui: Gui) -> None:
-        enabled_objects: List[scene.Object] = []
-        enabled_lights: List[lights.Light] = []
+        enabled_objects: List[Object] = []
+        enabled_lights: List[Light] = []
         enabled_gpu_properties: Set[Union[GpuBufferProperty, GpuImageProperty]] = set()
 
-        def visit(o: scene.Object) -> None:
+        def visit(o: Object) -> None:
             if o.enabled:
                 enabled_objects.append(o)
-                if isinstance(o, lights.Light):
+                if isinstance(o, Light):
                     enabled_lights.append(o)
                 o.create_if_needed(self)
                 if o.material is not None:
