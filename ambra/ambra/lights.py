@@ -35,7 +35,7 @@ from pyxpg import (
 from . import renderer
 from .property import BufferProperty
 from .renderer_frame import RendererFrame
-from .scene import Object3D, Scene
+from .scene import Object, Object3D
 from .utils.descriptors import (
     create_descriptor_layout_pool_and_set,
     create_descriptor_layout_pool_and_sets,
@@ -71,7 +71,7 @@ LIGHT_TYPES_INFO = [
 
 
 class Light(Object3D):
-    def render_shadowmaps(self, renderer: "renderer.Renderer", frame: RendererFrame, scene: Scene) -> None:
+    def render_shadowmaps(self, renderer: "renderer.Renderer", frame: RendererFrame, objects: List[Object]) -> None:
         pass
 
 
@@ -216,7 +216,7 @@ class DirectionalLight(Light):
         self.light_info["bias"] = self.shadow_settings.bias
         renderer.upload_light(frame, LightTypes.DIRECTIONAL, view_bytes(self.light_info), self.light_buffer_offset)
 
-    def render_shadowmaps(self, renderer: "renderer.Renderer", frame: RendererFrame, scene: Scene) -> None:
+    def render_shadowmaps(self, renderer: "renderer.Renderer", frame: RendererFrame, objects: List[Object]) -> None:
         if not self.shadow_settings.casts_shadow:
             return
 
@@ -225,7 +225,7 @@ class DirectionalLight(Light):
         view = inverse(self.current_transform_matrix)
         self.constants["camera_matrix"] = self.projection * view
 
-        set = self.descriptor_sets.get_current_and_advance()
+        descriptor_set = self.descriptor_sets.get_current_and_advance()
         buf = self.uniform_buffers.get_current_and_advance()
 
         buf.upload(
@@ -248,7 +248,8 @@ class DirectionalLight(Light):
         with frame.cmd.rendering(
             self.shadow_map_viewport, [], DepthAttachment(self.shadow_map, LoadOp.CLEAR, StoreOp.STORE, 1.0)
         ):
-            scene.render_depth(renderer, frame, set)
+            for o in objects:
+                o.render_depth(renderer, frame, descriptor_set)
 
         frame.cmd.image_barrier(
             self.shadow_map,

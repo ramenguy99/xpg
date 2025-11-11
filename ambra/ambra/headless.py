@@ -59,6 +59,8 @@ class HeadlessSwapchain:
         self.ctx = ctx
         self.num_frames_in_flight = num_frames_in_flight
         self.format = format
+        self.width = 0
+        self.height = 0
 
         self.frames = RingBuffer(
             [
@@ -78,6 +80,9 @@ class HeadlessSwapchain:
         )
 
     def ensure_size(self, width: int, height: int) -> None:
+        if self.width == width and self.height == height:
+            return
+
         pitch, rows, _ = get_image_pitch_rows_and_texel_size(width, height, self.format)
         size = pitch * rows
 

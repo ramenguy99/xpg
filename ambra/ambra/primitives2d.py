@@ -19,7 +19,6 @@ from pyxpg import (
     ImageLayout,
     ImageUsageFlags,
     InputAssembly,
-    MemoryUsage,
     PipelineStage,
     PipelineStageFlags,
     PrimitiveTopology,
@@ -63,26 +62,15 @@ class Lines(Object2D):
 
         super().__init__(name, translation, rotation, scale, enabled=enabled)
         self.is_strip = is_strip
-        self.lines = self.add_buffer_property(lines, np.float32, (-1, 2), name="lines")
-        self.colors = self.add_buffer_property(colors, np.uint32, (-1,), name="colors")
+        self.lines = self.add_buffer_property(lines, np.float32, (-1, 2), name="lines").use_gpu(
+            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+        )
+        self.colors = self.add_buffer_property(colors, np.uint32, (-1,), name="colors").use_gpu(
+            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+        )
         self.line_width = self.add_buffer_property(line_width, np.float32, name="line_width")
 
     def create(self, r: Renderer) -> None:
-        self.lines_buffer = r.add_gpu_buffer_property(
-            self.lines,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-lines-2d",
-        )
-        self.colors_buffer = r.add_gpu_buffer_property(
-            self.colors,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-colors-2d",
-        )
-
         vert = r.compile_builtin_shader("2d/basic.slang", "vertex_main")
         frag = r.compile_builtin_shader("2d/basic.slang", "pixel_main")
 
@@ -122,8 +110,8 @@ class Lines(Object2D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[
-                self.lines_buffer.get_current(),
-                self.colors_buffer.get_current(),
+                self.lines.get_current_gpu(),
+                self.colors.get_current_gpu(),
             ],
             descriptor_sets=[
                 scene_descriptor_set,
@@ -154,7 +142,13 @@ class Image(Object2D):
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
         super().__init__(name, translation, rotation, scale, enabled=enabled)
-        self.image = self.add_image_property(image, name="image")
+        self.image = self.add_image_property(image, name="image").use_gpu(
+            ImageUsageFlags.SAMPLED,
+            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+            PipelineStageFlags.FRAGMENT_SHADER,
+            # mips=False,
+            # srgb=False,
+        )
 
     def create(self, r: Renderer) -> None:
         if not (r.ctx.device_features & DeviceFeatures.SHADER_DRAW_PARAMETERS):
@@ -162,16 +156,6 @@ class Image(Object2D):
                 f"Image primitive requires {DeviceFeatures.SHADER_DRAW_PARAMETERS} whis is not available on current device."
             )
 
-        self.images = r.add_gpu_image_property(
-            self.image,
-            ImageUsageFlags.SAMPLED,
-            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-            MemoryUsage.SHADER_READ_ONLY,
-            PipelineStageFlags.FRAGMENT_SHADER,
-            mips=False,
-            srgb=False,
-            name=f"{self.name}-image",
-        )
         self.sampler = Sampler(
             r.ctx,
             min_filter=Filter.LINEAR,
@@ -222,7 +206,7 @@ class Image(Object2D):
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         descriptor_set = self.descriptor_sets.get_current_and_advance()
         descriptor_set.write_image(
-            self.images.get_current(),
+            self.image.get_current_gpu(),
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
             DescriptorType.SAMPLED_IMAGE,
             1,

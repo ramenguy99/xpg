@@ -8,7 +8,7 @@ from numpy.typing import ArrayLike, DTypeLike
 from pyglm.glm import mat3, mat4, quat, vec2, vec3
 from pyxpg import DescriptorSet, imgui
 
-from . import lights, materials, renderer
+from . import materials, renderer
 from .property import (
     BufferProperty,
     ImageProperty,
@@ -72,9 +72,19 @@ class Object:
     def create_if_needed(self, renderer: "renderer.Renderer") -> None:
         if self.material is not None:
             self.material.create_if_needed(renderer)
+            for mp in self.material.properties:
+                mp.property.create(renderer)
 
         if not self.created:
             self.create(renderer)
+
+            # NOTE: if you were to switch a property with a new one that has not
+            # been created yet, this will not create it here because the created
+            # flag is already True for this primitive. Not sure if this is a supported
+            # use case yet.
+            for p in self.properties:
+                p.create(renderer)
+
             self.created = True
 
     def create(self, renderer: "renderer.Renderer") -> None:
@@ -266,7 +276,7 @@ class Scene:
 
         return time
 
-    def update(self, time: float, frame: int) -> None:
+    def update(self, time: float, frame: int) -> List[Object]:
         all_dynamic_properties: Set[Property] = set()
 
         def collect(o: Object) -> None:
@@ -277,43 +287,12 @@ class Scene:
         for p in all_dynamic_properties:
             p.update(time, frame)
 
+        enabled_objects: List[Object] = []
+
         def update(p: Optional[Object], o: Object) -> None:
             o.update_transform(p)
+            if o.enabled.get_current():
+                enabled_objects.append(o)
 
         self.visit_objects_with_parent(update)
-
-    def create_if_needed(self, renderer: "renderer.Renderer") -> None:
-        def visit(o: Object) -> None:
-            o.create_if_needed(renderer)
-
-        self.visit_objects(visit)
-
-    def render(self, renderer: "renderer.Renderer", frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
-        def visit(o: Object) -> None:
-            if o.enabled.get_current():
-                o.render(renderer, frame, descriptor_set)
-
-        self.visit_objects(visit)
-
-    def upload(self, renderer: "renderer.Renderer", frame: RendererFrame) -> None:
-        def visit(o: Object) -> None:
-            if o.enabled.get_current():
-                if o.material is not None:
-                    o.material.upload(renderer, frame)
-                o.upload(renderer, frame)
-
-        self.visit_objects(visit)
-
-    def render_depth(self, renderer: "renderer.Renderer", frame: RendererFrame, descriptor_set: DescriptorSet) -> None:
-        def visit(o: Object) -> None:
-            if o.enabled.get_current():
-                o.render_depth(renderer, frame, descriptor_set)
-
-        self.visit_objects(visit)
-
-    def render_shadowmaps(self, renderer: "renderer.Renderer", frame: RendererFrame) -> None:
-        def visit(o: Object) -> None:
-            if isinstance(o, lights.Light):
-                o.render_shadowmaps(renderer, frame, self)
-
-        self.visit_objects(visit)
+        return enabled_objects

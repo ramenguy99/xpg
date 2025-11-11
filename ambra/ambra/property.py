@@ -7,7 +7,16 @@ from typing import Any, Callable, List, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import ArrayLike, DTypeLike, NDArray
-from pyxpg import Format
+from pyxpg import (
+    Buffer,
+    BufferUsageFlags,
+    Format,
+    Image,
+    ImageLayout,
+    ImageUsageFlags,
+    MemoryUsage,
+    PipelineStageFlags,
+)
 
 from . import gpu_property
 from .utils.gpu import format_from_channels_dtype, view_bytes
@@ -174,8 +183,12 @@ class Property:
         self.upload = upload if upload is not None else UploadSettings(preupload=True)
 
         self.current_frame_index = 0
+        self.gpu_property: Union[None, gpu_property.GpuBufferProperty, gpu_property.GpuImageProperty] = None
 
         self.update_callbacks: List[Callable[[Property], None]] = []
+
+    def create(self, r: "renderer.Renderer") -> None:
+        pass
 
     def update(self, time: float, playback_frame: int) -> None:
         old_frame = self.current_frame_index
@@ -222,7 +235,33 @@ class BufferProperty(Property):
         self.max_size = max_size
         self.dtype = dtype
         self.shape = shape
-        self.gpu_property: Optional[gpu_property.GpuBufferProperty] = None
+
+        self.gpu_usage: BufferUsageFlags = 0
+        self.gpu_stage: PipelineStageFlags = 0
+
+    def use_gpu(self, usage: BufferUsageFlags, stage: PipelineStageFlags) -> "BufferProperty":
+        self.gpu_usage |= usage
+        self.gpu_stage |= stage
+        return self
+
+    def get_current_gpu(self) -> Buffer:
+        assert isinstance(self.gpu_property, gpu_property.GpuBufferProperty)
+        return self.gpu_property.get_current()
+
+    def create(self, r: "renderer.Renderer") -> None:
+        if self.gpu_usage and self.gpu_property is None:
+            self.gpu_property = gpu_property.GpuBufferProperty(
+                r.ctx,
+                r.num_frames_in_flight,
+                r.buffer_upload_method,
+                r.thread_pool,
+                r.bulk_upload_list,
+                self,
+                self.gpu_usage,
+                MemoryUsage.ALL,  # TODO: new sync API
+                self.gpu_stage,
+                self.name,
+            )
 
 
 class ImageProperty(Property):
@@ -240,7 +279,40 @@ class ImageProperty(Property):
         self.width = width
         self.height = height
         self.format = format
-        self.gpu_property: Optional[gpu_property.GpuImageProperty] = None
+
+        self.gpu_usage: ImageUsageFlags = 0
+        self.gpu_stage: PipelineStageFlags = 0
+        self.gpu_layout = ImageLayout.UNDEFINED
+
+    def use_gpu(self, usage: ImageUsageFlags, layout: ImageLayout, stage: PipelineStageFlags) -> "ImageProperty":
+        if self.gpu_layout == ImageLayout.UNDEFINED:
+            self.gpu_layout = layout
+        elif self.gpu_layout != layout:
+            # Fallback to general if we need multiple layouts
+            self.gpu_layout = ImageLayout.GENERAL
+        self.gpu_usage |= usage
+        self.gpu_stage |= stage
+        return self
+
+    def get_current_gpu(self) -> Image:
+        assert isinstance(self.gpu_property, gpu_property.GpuImageProperty), self.gpu_property
+        return self.gpu_property.get_current()
+
+    def create(self, r: "renderer.Renderer") -> None:
+        if self.gpu_usage and self.gpu_property is None:
+            self.gpu_property = gpu_property.GpuImageProperty(
+                r.ctx,
+                r.num_frames_in_flight,
+                r.image_upload_method,
+                r.thread_pool,
+                r.bulk_upload_list,
+                self,
+                self.gpu_usage,
+                self.gpu_layout,
+                MemoryUsage.ALL,  # TODO: new sync API
+                self.gpu_stage,
+                self.name,
+            )
 
 
 class ShapeError(Exception):
@@ -289,7 +361,7 @@ class ArrayBufferProperty(BufferProperty):
         self.data = data
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
-        return self.data[frame_index] # type: ignore
+        return self.data[frame_index]  # type: ignore
 
 
 class ListBufferProperty(BufferProperty):
@@ -349,7 +421,7 @@ class ArrayImageProperty(ImageProperty):
         self.data = data
 
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
-        return self.data[frame_index] #type: ignore
+        return self.data[frame_index]  # type: ignore
 
 
 

@@ -69,26 +69,15 @@ class Lines(Object3D):
 
         super().__init__(name, translation, rotation, scale, enabled=enabled)
         self.is_strip = is_strip
-        self.lines = self.add_buffer_property(lines, np.float32, (-1, 3), name="lines")
-        self.colors = self.add_buffer_property(colors, np.uint32, (-1,), name="colors")
+        self.lines = self.add_buffer_property(lines, np.float32, (-1, 3), name="lines").use_gpu(
+            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+        )
+        self.colors = self.add_buffer_property(colors, np.uint32, (-1,), name="colors").use_gpu(
+            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+        )
         self.line_width = self.add_buffer_property(line_width, np.float32, name="line_width")
 
     def create(self, r: Renderer) -> None:
-        self.lines_buffer = r.add_gpu_buffer_property(
-            self.lines,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-lines-3d",
-        )
-        self.colors_buffer = r.add_gpu_buffer_property(
-            self.colors,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-colors-3d",
-        )
-
         vert = r.compile_builtin_shader("3d/basic.slang", "vertex_main")
         frag = r.compile_builtin_shader("3d/basic.slang", "pixel_main")
 
@@ -128,8 +117,8 @@ class Lines(Object3D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[
-                self.lines_buffer.get_current(),
-                self.colors_buffer.get_current(),
+                self.lines.get_current_gpu(),
+                self.colors.get_current_gpu(),
             ],
             descriptor_sets=[
                 scene_descriptor_set,
@@ -182,72 +171,39 @@ class Mesh(Object3D):
         )
 
         # Add properties
-        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions")
+        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
+            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+        )
         self.normals = (
-            self.add_buffer_property(normals, np.float32, (-1, 3), name="normals") if normals is not None else None
+            self.add_buffer_property(normals, np.float32, (-1, 3), name="normals").use_gpu(
+                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+            )
+            if normals is not None
+            else None
         )
         self.tangents = (
-            self.add_buffer_property(tangents, np.float32, (-1, 3), name="tangents") if tangents is not None else None
+            self.add_buffer_property(tangents, np.float32, (-1, 3), name="tangents").use_gpu(
+                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+            )
+            if tangents is not None
+            else None
         )
-        self.uvs = self.add_buffer_property(uvs, np.float32, (-1, 2), name="uvs") if uvs is not None else None
+        self.uvs = (
+            self.add_buffer_property(uvs, np.float32, (-1, 2), name="uvs").use_gpu(
+                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+            )
+            if uvs is not None
+            else None
+        )
         self.indices = (
-            self.add_buffer_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
+            self.add_buffer_property(indices, np.uint32, (-1,), name="indices").use_gpu(
+                BufferUsageFlags.INDEX, PipelineStageFlags.VERTEX_INPUT
+            )
+            if indices is not None
+            else None
         )
 
     def create(self, r: Renderer) -> None:
-        self.positions_buffer = r.add_gpu_buffer_property(
-            self.positions,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-positions",
-        )
-        self.normals_buffer = (
-            r.add_gpu_buffer_property(
-                self.normals,
-                BufferUsageFlags.VERTEX,
-                MemoryUsage.VERTEX_INPUT,
-                PipelineStageFlags.VERTEX_INPUT,
-                name=f"{self.name}-normals",
-            )
-            if self.normals is not None
-            else None
-        )
-        self.tangents_buffer = (
-            r.add_gpu_buffer_property(
-                self.tangents,
-                BufferUsageFlags.VERTEX,
-                MemoryUsage.VERTEX_INPUT,
-                PipelineStageFlags.VERTEX_INPUT,
-                name=f"{self.name}-tangents",
-            )
-            if self.tangents is not None
-            else None
-        )
-        self.uvs_buffer = (
-            r.add_gpu_buffer_property(
-                self.uvs,
-                BufferUsageFlags.VERTEX,
-                MemoryUsage.VERTEX_INPUT,
-                PipelineStageFlags.VERTEX_INPUT,
-                name=f"{self.name}-uvs",
-            )
-            if self.uvs is not None
-            else None
-        )
-
-        self.indices_buffer = (
-            r.add_gpu_buffer_property(
-                self.indices,
-                BufferUsageFlags.INDEX,
-                MemoryUsage.VERTEX_INPUT,
-                PipelineStageFlags.VERTEX_INPUT,
-                name=f"{self.name}-indices",
-            )
-            if self.indices is not None
-            else None
-        )
-
         assert self.material is not None
         defines: List[Tuple[str, str]] = []
         defines.extend(self.material.shader_defines)
@@ -333,12 +289,12 @@ class Mesh(Object3D):
         self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3(self.current_transform_matrix)))
 
     def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        index_buffer = self.indices_buffer.get_current() if self.indices_buffer is not None else None
+        index_buffer = self.indices.get_current_gpu() if self.indices is not None else None
 
         frame.cmd.bind_graphics_pipeline(
             self.depth_pipeline,
             vertex_buffers=[
-                self.positions_buffer.get_current(),
+                self.positions.get_current_gpu(),
             ],
             index_buffer=index_buffer,
             descriptor_sets=[
@@ -355,16 +311,16 @@ class Mesh(Object3D):
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         assert self.material is not None
 
-        index_buffer = self.indices_buffer.get_current() if self.indices_buffer is not None else None
+        index_buffer = self.indices.get_current_gpu() if self.indices is not None else None
         vertex_buffers = [
-            self.positions_buffer.get_current(),
+            self.positions.get_current_gpu(),
         ]
-        if self.normals_buffer is not None:
-            vertex_buffers.append(self.normals_buffer.get_current())
-        if self.tangents_buffer is not None:
-            vertex_buffers.append(self.tangents_buffer.get_current())
-        if self.uvs_buffer is not None:
-            vertex_buffers.append(self.uvs_buffer.get_current())
+        if self.normals is not None:
+            vertex_buffers.append(self.normals.get_current_gpu())
+        if self.tangents is not None:
+            vertex_buffers.append(self.tangents.get_current_gpu())
+        if self.uvs is not None:
+            vertex_buffers.append(self.uvs.get_current_gpu())
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -612,10 +568,19 @@ class GaussianSplats(Object3D):
         self.constants = np.zeros((1,), self.constants_dtype)
 
         super().__init__(name, translation, rotation, scale, enabled=enabled)
-        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions")
-        self.colors = self.add_buffer_property(colors, np.float32, (-1, 4), name="colors")
+        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
+            BufferUsageFlags.STORAGE,
+            PipelineStageFlags.COMPUTE_SHADER,
+        )
+        self.colors = self.add_buffer_property(colors, np.float32, (-1, 4), name="colors").use_gpu(
+            BufferUsageFlags.STORAGE,
+            PipelineStageFlags.COMPUTE_SHADER,
+        )
         self.spherical_harmonics = self.add_buffer_property(
             spherical_harmonics, None, (-1, -1), name="spherical-harmonics"
+        ).use_gpu(
+            BufferUsageFlags.STORAGE,
+            PipelineStageFlags.COMPUTE_SHADER,
         )
         if self.spherical_harmonics.dtype == np.uint8:
             self.sh_format = self.FORMAT_UINT8
@@ -624,8 +589,13 @@ class GaussianSplats(Object3D):
         elif self.spherical_harmonics.dtype == np.float32:
             self.sh_format = self.FORMAT_FLOAT32
         else:
-            raise TypeError(f"Spherical harmonics must be of dtype uint8, float16 or float32. Got {self.spherical_harmonics.dtype}.")
-        self.covariances = self.add_buffer_property(covariances, np.float32, (-1, 6), name="covariances")
+            raise TypeError(
+                f"Spherical harmonics must be of dtype uint8, float16 or float32. Got {self.spherical_harmonics.dtype}."
+            )
+        self.covariances = self.add_buffer_property(covariances, np.float32, (-1, 6), name="covariances").use_gpu(
+            BufferUsageFlags.STORAGE,
+            PipelineStageFlags.COMPUTE_SHADER,
+        )
         self.mip_splatting_antialiasing = mip_splatting_antialiasing
         self.flags = flags
         self.cull_at_dist = cull_at_dist
@@ -634,44 +604,13 @@ class GaussianSplats(Object3D):
         self.splat_scale = 1.0
 
     def create(self, r: Renderer) -> None:
-        if self.sh_format == self.FORMAT_UINT8:
-            if (r.ctx.device_features & DeviceFeatures.STORAGE_8BIT) == 0:
-                raise RuntimeError("Device does not support 8bit storage")
-        elif self.sh_format == self.FORMAT_FLOAT16:
-            if (r.ctx.device_features & DeviceFeatures.STORAGE_16BIT) == 0:
-                raise RuntimeError("Device does not support 16bit storage")
+        if self.sh_format == self.FORMAT_UINT8 and (r.ctx.device_features & DeviceFeatures.STORAGE_8BIT) == 0:
+            raise RuntimeError("Device does not support 8bit storage")
+        if self.sh_format == self.FORMAT_FLOAT16 and (r.ctx.device_features & DeviceFeatures.STORAGE_16BIT) == 0:
+            raise RuntimeError("Device does not support 16bit storage")
 
         self.use_barycentric = (r.ctx.device_features & DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC) != 0
         self.use_mesh_shader = (r.ctx.device_features & DeviceFeatures.MESH_SHADER) != 0
-
-        self.positions_buf = r.add_gpu_buffer_property(
-            self.positions,
-            BufferUsageFlags.STORAGE,
-            MemoryUsage.COMPUTE_SHADER,
-            PipelineStageFlags.COMPUTE_SHADER,
-            f"{self.name}-positions",
-        )
-        self.colors_buf = r.add_gpu_buffer_property(
-            self.colors,
-            BufferUsageFlags.STORAGE,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_SHADER,
-            f"{self.name}-colors",
-        )
-        self.covariances_buf = r.add_gpu_buffer_property(
-            self.covariances,
-            BufferUsageFlags.STORAGE,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_SHADER,
-            f"{self.name}-covariances",
-        )
-        self.spherical_harmonics_buf = r.add_gpu_buffer_property(
-            self.spherical_harmonics,
-            BufferUsageFlags.STORAGE,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_SHADER,
-            f"{self.name}-spherical-harmonics",
-        )
 
         max_splats = self.positions.max_size // 12
         self.dists_buf = Buffer(
@@ -866,10 +805,10 @@ class GaussianSplats(Object3D):
         self.constants["flags"] = self.flags
 
         self.descriptor_set = self.descriptor_sets.get_current_and_advance()
-        self.descriptor_set.write_buffer(self.positions_buf.get_current(), DescriptorType.STORAGE_BUFFER, 3)
-        self.descriptor_set.write_buffer(self.colors_buf.get_current(), DescriptorType.STORAGE_BUFFER, 4)
-        self.descriptor_set.write_buffer(self.covariances_buf.get_current(), DescriptorType.STORAGE_BUFFER, 5)
-        self.descriptor_set.write_buffer(self.spherical_harmonics_buf.get_current(), DescriptorType.STORAGE_BUFFER, 6)
+        self.descriptor_set.write_buffer(self.positions.get_current_gpu(), DescriptorType.STORAGE_BUFFER, 3)
+        self.descriptor_set.write_buffer(self.colors.get_current_gpu(), DescriptorType.STORAGE_BUFFER, 4)
+        self.descriptor_set.write_buffer(self.covariances.get_current_gpu(), DescriptorType.STORAGE_BUFFER, 5)
+        self.descriptor_set.write_buffer(self.spherical_harmonics.get_current_gpu(), DescriptorType.STORAGE_BUFFER, 6)
 
         # Distances
         if self.cull_at_dist:

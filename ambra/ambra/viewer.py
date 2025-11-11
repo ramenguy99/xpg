@@ -258,9 +258,6 @@ class Viewer:
             with self.gui.frame():
                 self.on_gui()
 
-        # Create new objects, if any
-        self.viewport.scene.create_if_needed(self.renderer)
-
         # Begin frame
         if render_to_window:
             assert self.window is not None
@@ -521,7 +518,7 @@ class Viewer:
         if imgui.begin("Renderer")[0]:
             imgui.text("GPU properties:")
             imgui.indent(5)
-            for p in self.renderer.gpu_properties:
+            for p in self.renderer.enabled_gpu_properties:
                 s = imgui.selectable(p.name, self.gui_selected_gpu_property == p)
                 if s:
                     if self.gui_selected_gpu_property == p:

@@ -5,7 +5,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from pyxpg import (
@@ -31,7 +31,6 @@ from pyxpg import (
     LoadOp,
     MemoryUsage,
     PhysicalDeviceType,
-    PipelineStageFlags,
     RenderingAttachment,
     ResolveMode,
     Sampler,
@@ -41,10 +40,9 @@ from pyxpg import (
     slang,
 )
 
-from . import ffx, lights
+from . import ffx, lights, scene
 from .config import RendererConfig, UploadMethod
 from .gpu_property import GpuBufferProperty, GpuImageProperty
-from .property import BufferProperty, ImageProperty
 from .renderer_frame import RendererFrame, SemaphoreInfo
 from .shaders import compile
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
@@ -169,8 +167,6 @@ class Renderer:
                 MemoryUsage.SHADER_READ_ONLY,
             )
 
-        self.gpu_properties: List[Union[GpuBufferProperty, GpuImageProperty]] = []
-
         self.shader_cache: Dict[Tuple[Union[str, Tuple[str, str], Path], ...], slang.Shader] = {}
 
         self.scene_descriptor_set_layout, self.scene_descriptor_pool, self.scene_descriptor_sets = (
@@ -240,18 +236,18 @@ class Renderer:
         self.ggx_lut_pipeline = lights.GGXLUTPipeline(self)
         self.ggx_lut = self.ggx_lut_pipeline.run(self)
 
-        for set, buf, light_bufs in zip(self.scene_descriptor_sets, self.uniform_buffers, self.light_buffers):
-            set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0)
-            set.write_sampler(self.shadow_sampler, 1)
-            set.write_sampler(self.linear_sampler, 2)
-            set.write_image(self.zero_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 3)
-            set.write_image(self.zero_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 4)
-            set.write_image(self.ggx_lut, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 5)
+        for s, buf, light_bufs in zip(self.scene_descriptor_sets, self.uniform_buffers, self.light_buffers):
+            s.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0)
+            s.write_sampler(self.shadow_sampler, 1)
+            s.write_sampler(self.linear_sampler, 2)
+            s.write_image(self.zero_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 3)
+            s.write_image(self.zero_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 4)
+            s.write_image(self.ggx_lut, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 5)
 
             for i, light_buf in enumerate(light_bufs):
-                set.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 6, i)
+                s.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 6, i)
             for i in range(self.max_shadowmaps):
-                set.write_image(
+                s.write_image(
                     self.zero_image,
                     ImageLayout.SHADER_READ_ONLY_OPTIMAL,
                     DescriptorType.SAMPLED_IMAGE,
@@ -334,6 +330,9 @@ class Renderer:
         self.bulk_uploader = BulkUploader(self.ctx, config.upload_buffer_size, config.upload_buffer_count)
         self.bulk_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]] = []
 
+        # Enabled gpu properties cache for prefetch after frame submission
+        self.enabled_gpu_properties: Set[Union[GpuBufferProperty, GpuImageProperty]] = set()
+
         # MSAA
         # TODO:
         # - proper thing to do would be to check max supported count for the color
@@ -377,58 +376,6 @@ class Renderer:
                 AllocType.DEVICE_DEDICATED,
                 samples=self.msaa_samples,
             )
-
-    def add_gpu_buffer_property(
-        self,
-        property: BufferProperty,
-        usage_flags: BufferUsageFlags,
-        memory_usage: MemoryUsage,
-        pipeline_stage_flags: PipelineStageFlags,
-        name: str,
-    ) -> GpuBufferProperty:
-        prop = GpuBufferProperty(
-            self.ctx,
-            self.num_frames_in_flight,
-            self.buffer_upload_method,
-            self.thread_pool,
-            self.bulk_upload_list,
-            property,
-            usage_flags,
-            memory_usage,
-            pipeline_stage_flags,
-            name,
-        )
-        self.gpu_properties.append(prop)
-        return prop
-
-    def add_gpu_image_property(
-        self,
-        property: ImageProperty,
-        usage_flags: ImageUsageFlags,
-        layout: ImageLayout,
-        memory_usage: MemoryUsage,
-        pipeline_stage_flags: PipelineStageFlags,
-        mips: bool,
-        srgb: bool,
-        name: str,
-    ) -> GpuImageProperty:
-        prop = GpuImageProperty(
-            self.ctx,
-            self.num_frames_in_flight,
-            self.image_upload_method,
-            self.thread_pool,
-            self.bulk_upload_list,
-            property,
-            usage_flags,
-            layout,
-            memory_usage,
-            pipeline_stage_flags,
-            mips,
-            srgb,
-            name,
-        )
-        self.gpu_properties.append(prop)
-        return prop
 
     def run_ibl_pipeline(
         self, equirectangular: Image, ibl_params: Optional["lights.IBLParams"] = None
@@ -526,6 +473,26 @@ class Renderer:
         return self.compile_shader(SHADERS_PATH.joinpath(SHADERS_PATH, path), entry, target, defines, include_paths)
 
     def render(self, viewport: Viewport, frame: FrameInputs, gui: Gui) -> None:
+        enabled_objects: List[scene.Object] = []
+        enabled_lights: List[lights.Light] = []
+        enabled_gpu_properties: Set[Union[GpuBufferProperty, GpuImageProperty]] = set()
+
+        def visit(o: scene.Object) -> None:
+            if o.enabled:
+                enabled_objects.append(o)
+                if isinstance(o, lights.Light):
+                    enabled_lights.append(o)
+                o.create_if_needed(self)
+                if o.material is not None:
+                    for mp in o.material.properties:
+                        if mp.property.gpu_property is not None:
+                            enabled_gpu_properties.add(mp.property.gpu_property)
+                for p in o.properties:
+                    if p.gpu_property is not None:
+                        enabled_gpu_properties.add(p.gpu_property)
+
+        viewport.scene.visit_objects(visit)
+
         # Flush synchronous upload buffers after creating new objects
         if len(self.bulk_upload_list) > 0:
             self.bulk_uploader.bulk_upload(self.bulk_upload_list)
@@ -545,7 +512,7 @@ class Renderer:
             viewport.rect.height,
         )
 
-        set = self.scene_descriptor_sets.get_current_and_advance()
+        descriptor_set = self.scene_descriptor_sets.get_current_and_advance()
         buf = self.uniform_buffers.get_current_and_advance()
 
         proj = viewport.camera.projection()
@@ -572,25 +539,29 @@ class Renderer:
         f = RendererFrame(
             self.total_frame_index % self.num_frames_in_flight,
             self.total_frame_index,
-            set,
+            descriptor_set,
             cmd,
             frame.additional_semaphores,
             frame.transfer_command_buffer,
             frame.transfer_semaphores,
         )
 
-        # TODO: Update properties
-        for p in self.gpu_properties:
+        for p in enabled_gpu_properties:
             p.load(f)
 
-        for p in self.gpu_properties:
+        for p in enabled_gpu_properties:
             p.upload(f)
 
-        # Upload per-object data
-        viewport.scene.upload(self, f)
+        self.enabled_gpu_properties = enabled_gpu_properties
+
+        for o in enabled_objects:
+            if o.material is not None:
+                o.material.upload(self, f)
+            o.upload(self, f)
 
         # Render shadows
-        viewport.scene.render_shadowmaps(self, f)
+        for l in enabled_lights:
+            l.render_shadowmaps(self, f, enabled_objects)
 
         # Render scene
         cmd.image_barrier(
@@ -637,7 +608,8 @@ class Renderer:
             ],
             depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
         ):
-            viewport.scene.render(self, f, set)
+            for o in enabled_objects:
+                o.render(self, f, descriptor_set)
 
         # Render GUI
         with cmd.rendering(
@@ -664,5 +636,5 @@ class Renderer:
         self.total_frame_index += 1
 
     def prefetch(self) -> None:
-        for p in self.gpu_properties:
+        for p in self.enabled_gpu_properties:
             p.prefetch()

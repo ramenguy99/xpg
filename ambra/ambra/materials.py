@@ -23,7 +23,6 @@ from pyxpg import (
 )
 
 from . import renderer
-from .gpu_property import GpuImageProperty
 from .property import BufferProperty, ImageProperty, as_buffer_property, as_image_property
 from .renderer_frame import RendererFrame
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
@@ -87,6 +86,18 @@ class Material:
         self.dtype = np.dtype(fields)  # type: ignore
 
         for p in properties:
+            if isinstance(p.property, ImageProperty):
+                p.property.use_gpu(
+                    ImageUsageFlags.TRANSFER_DST
+                    | ImageUsageFlags.SAMPLED
+                    | ImageUsageFlags.STORAGE
+                    | ImageUsageFlags.TRANSFER_SRC,
+                    ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                    # MemoryUsage.SHADER_READ_ONLY,
+                    PipelineStageFlags.FRAGMENT_SHADER,
+                    # mips=True,
+                    # srgb=bool(p.flags & MaterialPropertyFlags.SRGB),
+                )
             p.property.update_callbacks.append(lambda _: self.reupload())
         self.need_upload = True
 
@@ -130,25 +141,6 @@ class Material:
 
         self.constants = np.zeros((1,), self.dtype)
 
-        self.images: List[GpuImageProperty] = []
-        for p in self.properties:
-            if isinstance(p.property, ImageProperty):
-                self.images.append(
-                    r.add_gpu_image_property(
-                        p.property,
-                        ImageUsageFlags.TRANSFER_DST
-                        | ImageUsageFlags.SAMPLED
-                        | ImageUsageFlags.STORAGE
-                        | ImageUsageFlags.TRANSFER_SRC,
-                        ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-                        MemoryUsage.SHADER_READ_ONLY,
-                        PipelineStageFlags.FRAGMENT_SHADER,
-                        mips=True,
-                        srgb=bool(p.flags & MaterialPropertyFlags.SRGB),
-                        name=f"{type(self).__name__} - {p.property.name}",
-                    )
-                )
-
     def create_if_needed(self, r: "renderer.Renderer") -> None:
         if self.created:
             return
@@ -174,7 +166,7 @@ class Material:
                 if p.flags & MaterialPropertyFlags.HAS_VALUE:
                     self.constants[p.name] = 0.0
                 self.constants[f"has_{p.name}_texture"] = True
-                image = self.images[image_index].get_current()
+                image = p.property.get_current_gpu()
 
             if p.flags & MaterialPropertyFlags.ALLOW_IMAGE:
                 self.descriptor_set.write_image(
