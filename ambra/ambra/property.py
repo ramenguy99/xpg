@@ -285,8 +285,17 @@ class ImageProperty(Property):
         self.gpu_usage = ImageUsageFlags(0)
         self.gpu_stage = PipelineStageFlags(0)
         self.gpu_layout = ImageLayout.UNDEFINED
+        self.gpu_srgb = False
+        self.gpu_mips = False
 
-    def use_gpu(self, usage: ImageUsageFlags, layout: ImageLayout, stage: PipelineStageFlags) -> "ImageProperty":
+    def use_gpu(
+        self,
+        usage: ImageUsageFlags,
+        layout: ImageLayout,
+        stage: PipelineStageFlags,
+        srgb: bool = False,
+        mips: bool = False,
+    ) -> "ImageProperty":
         if self.gpu_layout == ImageLayout.UNDEFINED:
             self.gpu_layout = layout
         elif self.gpu_layout != layout:
@@ -294,6 +303,8 @@ class ImageProperty(Property):
             self.gpu_layout = ImageLayout.GENERAL
         self.gpu_usage |= usage
         self.gpu_stage |= stage
+        self.gpu_srgb |= srgb
+        self.gpu_mips |= mips
         return self
 
     def get_current_gpu(self) -> gpu_property.GpuImageView:
@@ -313,6 +324,8 @@ class ImageProperty(Property):
                 self.gpu_layout,
                 MemoryUsage.ALL,  # TODO: new sync API
                 self.gpu_stage,
+                self.gpu_srgb,
+                self.gpu_mips,
                 self.name,
             )
 

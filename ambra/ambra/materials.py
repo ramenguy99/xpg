@@ -95,8 +95,8 @@ class Material:
                     ImageLayout.SHADER_READ_ONLY_OPTIMAL,
                     # MemoryUsage.SHADER_READ_ONLY,
                     PipelineStageFlags.FRAGMENT_SHADER,
-                    # mips=True,
-                    # srgb=bool(p.flags & MaterialPropertyFlags.SRGB),
+                    mips=True,
+                    srgb=bool(p.flags & MaterialPropertyFlags.SRGB),
                 )
             p.property.update_callbacks.append(lambda _: self.reupload())
         self.need_upload = True

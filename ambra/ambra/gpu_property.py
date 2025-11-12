@@ -17,6 +17,7 @@ from pyxpg import (
     ImageLayout,
     ImageUsageFlags,
     ImageView,
+    ImageViewType,
     MemoryUsage,
     PipelineStageFlags,
     TimelineSemaphore,
@@ -737,6 +738,8 @@ class GpuImageProperty(GpuResourceProperty[GpuImageView]):
         layout: ImageLayout,
         memory_usage: MemoryUsage,
         pipeline_stage_flags: PipelineStageFlags,
+        srgb: bool,
+        mips: bool,
         name: str,
     ):
         if upload_method != UploadMethod.GRAPHICS_QUEUE and upload_method != UploadMethod.TRANSFER_QUEUE:
@@ -747,9 +750,13 @@ class GpuImageProperty(GpuResourceProperty[GpuImageView]):
         self.layout = layout
         self.memory_usage = memory_usage
 
+        # NOTE: we copy this here but we don't really expect this stuff to change, so we could avoid it.
+        # We have some issues with typing of self.property but maybe we should solve those.
         self.height = property.height
         self.width = property.width
         self.format = property.format
+        self.srgb = srgb
+        self.mips = mips
 
         self.pitch, self.rows, _ = get_image_pitch_rows_and_texel_size(self.width, self.height, self.format)
         super().__init__(
@@ -764,9 +771,14 @@ class GpuImageProperty(GpuResourceProperty[GpuImageView]):
         )
 
     def _create_resource_for_preupload(self, frame: "PropertyItem", alloc_type: AllocType, name: str) -> GpuImageView:
-        # TODO: create additional views (e.g. sRGB if needed)
+        # TODO: if using texture arrays, need to select layer here.
         img = Image(self.ctx, self.width, self.height, self.format, self.usage_flags, alloc_type, name=name)
-        return GpuImageView(img, None)
+        srgb_view = None
+        if self.srgb:
+            srgb_view = ImageView(
+                self.ctx, img, ImageViewType.TYPE_2D, self.format, usage_flags=ImageUsageFlags.SAMPLED, name=name
+            )
+        return GpuImageView(img, srgb_view)
 
     def _create_bulk_upload_descriptor(self, resource: GpuImageView, frame: "PropertyItem") -> ImageUploadInfo:
         # TODO: support upload to image view
@@ -782,19 +794,13 @@ class GpuImageProperty(GpuResourceProperty[GpuImageView]):
         )
 
     def _create_gpu_resource(self, name: str) -> GpuImageView:
-        # TODO: create additional views (e.g. sRGB if needed)
-        return GpuImageView(
-            Image(
-                self.ctx,
-                self.width,
-                self.height,
-                self.format,
-                self.usage_flags,
-                AllocType.DEVICE,
-                name=name,
-            ),
-            None,
-        )
+        img = Image(self.ctx, self.width, self.height, self.format, self.usage_flags, AllocType.DEVICE, name=name)
+        srgb_view = None
+        if self.srgb:
+            srgb_view = ImageView(
+                self.ctx, img, ImageViewType.TYPE_2D, self.format, usage_flags=ImageUsageFlags.SAMPLED, name=name
+            )
+        return GpuImageView(img, srgb_view)
 
     def _cmd_upload(
         self,
