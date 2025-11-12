@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Dict, Generic, List, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Dict, Generic, List, Optional, Tuple, TypeVar, Union
 
 from pyxpg import (
     AllocType,
@@ -11,9 +11,12 @@ from pyxpg import (
     BufferUsageFlags,
     CommandBuffer,
     Context,
+    DescriptorSet,
+    DescriptorType,
     Image,
     ImageLayout,
     ImageUsageFlags,
+    ImageView,
     MemoryUsage,
     PipelineStageFlags,
     TimelineSemaphore,
@@ -49,7 +52,35 @@ class GpuResourceState(Enum):
     RENDER = auto()
 
 
-R = TypeVar("R", bound=Union[Buffer, Image])
+@dataclass
+class GpuBufferView:
+    buffer: Buffer
+    offset: int
+    size: int
+
+    def destroy(self) -> None:
+        self.buffer.destroy()
+
+    def to_buffer_offset(self) -> Tuple[Buffer, int]:
+        return (self.buffer, self.offset)
+
+    def write_descriptor(
+        self, descriptor_set: DescriptorSet, type: DescriptorType, binding: int, element: int = 0
+    ) -> None:
+        descriptor_set.write_buffer(self.buffer, type, binding, element, self.offset, self.size)
+
+
+@dataclass
+class GpuImageView:
+    image: Image
+    # resource_view: ImageView
+    srgb_resource_view: Optional[ImageView]
+
+    def destroy(self) -> None:
+        self.image.destroy()
+
+
+R = TypeVar("R", bound=Union[GpuBufferView, GpuImageView])
 
 
 class GpuResource(Generic[R]):
@@ -591,7 +622,7 @@ class GpuResourceProperty(Generic[R]):
         raise NotImplementedError
 
 
-class GpuBufferProperty(GpuResourceProperty[Buffer]):
+class GpuBufferProperty(GpuResourceProperty[GpuBufferView]):
     def __init__(
         self,
         ctx: Context,
@@ -620,15 +651,17 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
             name,
         )
 
-    def _create_resource_for_preupload(self, frame: "PropertyItem", alloc_type: AllocType, name: str) -> Buffer:
-        return Buffer(self.ctx, len(view_bytes(frame)), self.usage_flags, alloc_type, name=name)
+    def _create_resource_for_preupload(self, frame: "PropertyItem", alloc_type: AllocType, name: str) -> GpuBufferView:
+        buf = Buffer(self.ctx, len(view_bytes(frame)), self.usage_flags, alloc_type, name=name)
+        return GpuBufferView(buf, 0, buf.size)
 
-    def _upload_mapped_resource(self, resource: Buffer, frame: "PropertyItem") -> None:
+    def _upload_mapped_resource(self, resource: GpuBufferView, frame: "PropertyItem") -> None:
         # NOTE: here we can assume that the buffer is always the same size as frame data.
-        resource.data[:] = view_bytes(frame)
+        resource.buffer.data[resource.offset : resource.offset + resource.size] = view_bytes(frame)
 
-    def _create_bulk_upload_descriptor(self, resource: Buffer, frame: "PropertyItem") -> BufferUploadInfo:
-        return BufferUploadInfo(view_bytes(frame), resource)
+    def _create_bulk_upload_descriptor(self, resource: GpuBufferView, frame: "PropertyItem") -> BufferUploadInfo:
+        # TODO: add support for ranged upload
+        return BufferUploadInfo(view_bytes(frame), resource.buffer)
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:
         if self.mapped:
@@ -645,41 +678,45 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
             name=name,
         )
 
-    def _create_gpu_resource(self, name: str) -> Buffer:
-        return Buffer(
-            self.ctx,
+    def _create_gpu_resource(self, name: str) -> GpuBufferView:
+        return GpuBufferView(
+            Buffer(
+                self.ctx,
+                self.size,
+                self.usage_flags,
+                AllocType.DEVICE,
+                name=name,
+            ),
+            0,
             self.size,
-            self.usage_flags,
-            AllocType.DEVICE,
-            name=name,
         )
 
     def _cmd_upload(
         self,
         cmd: CommandBuffer,
         cpu_buf: CpuBuffer,
-        resource: Buffer,
+        resource: GpuBufferView,
     ) -> None:
-        cmd.copy_buffer_range(cpu_buf.buf, resource, cpu_buf.used_size)
+        cmd.copy_buffer_range(cpu_buf.buf, resource.buffer, cpu_buf.used_size, resource.offset)
 
-    def _cmd_before_barrier(self, cmd: CommandBuffer, resource: Buffer) -> None:
+    def _cmd_before_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
         cmd.memory_barrier(MemoryUsage.ALL, MemoryUsage.TRANSFER_DST)
 
-    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: Buffer) -> None:
+    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
         cmd.memory_barrier(MemoryUsage.TRANSFER_DST, self.memory_usage)
 
-    def _cmd_acquire_barrier(self, cmd: CommandBuffer, resource: Buffer) -> None:
+    def _cmd_acquire_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
         cmd.buffer_barrier(
-            resource,
+            resource.buffer,
             MemoryUsage.NONE,
             self.memory_usage,
             self.ctx.transfer_queue_family_index,
             self.ctx.graphics_queue_family_index,
         )
 
-    def _cmd_release_barrier(self, cmd: CommandBuffer, resource: Buffer) -> None:
+    def _cmd_release_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
         cmd.buffer_barrier(
-            resource,
+            resource.buffer,
             MemoryUsage.TRANSFER_DST,
             MemoryUsage.NONE,
             self.ctx.transfer_queue_family_index,
@@ -687,7 +724,7 @@ class GpuBufferProperty(GpuResourceProperty[Buffer]):
         )
 
 
-class GpuImageProperty(GpuResourceProperty[Image]):
+class GpuImageProperty(GpuResourceProperty[GpuImageView]):
     def __init__(
         self,
         ctx: Context,
@@ -726,11 +763,14 @@ class GpuImageProperty(GpuResourceProperty[Image]):
             name,
         )
 
-    def _create_resource_for_preupload(self, frame: "PropertyItem", alloc_type: AllocType, name: str) -> Image:
-        return Image(self.ctx, self.width, self.height, self.format, self.usage_flags, alloc_type, name=name)
+    def _create_resource_for_preupload(self, frame: "PropertyItem", alloc_type: AllocType, name: str) -> GpuImageView:
+        # TODO: create additional views (e.g. sRGB if needed)
+        img = Image(self.ctx, self.width, self.height, self.format, self.usage_flags, alloc_type, name=name)
+        return GpuImageView(img, None)
 
-    def _create_bulk_upload_descriptor(self, resource: Image, frame: "PropertyItem") -> ImageUploadInfo:
-        return ImageUploadInfo(view_bytes(frame), resource, self.layout)
+    def _create_bulk_upload_descriptor(self, resource: GpuImageView, frame: "PropertyItem") -> ImageUploadInfo:
+        # TODO: support upload to image view
+        return ImageUploadInfo(view_bytes(frame), resource.image, self.layout)
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:
         return Buffer(
@@ -741,45 +781,53 @@ class GpuImageProperty(GpuResourceProperty[Image]):
             name=name,
         )
 
-    def _create_gpu_resource(self, name: str) -> Image:
-        return Image(
-            self.ctx,
-            self.width,
-            self.height,
-            self.format,
-            self.usage_flags,
-            AllocType.DEVICE,
-            name=name,
+    def _create_gpu_resource(self, name: str) -> GpuImageView:
+        # TODO: create additional views (e.g. sRGB if needed)
+        return GpuImageView(
+            Image(
+                self.ctx,
+                self.width,
+                self.height,
+                self.format,
+                self.usage_flags,
+                AllocType.DEVICE,
+                name=name,
+            ),
+            None,
         )
 
     def _cmd_upload(
         self,
         cmd: CommandBuffer,
         cpu_buf: CpuBuffer,
-        resource: Image,
+        resource: GpuImageView,
     ) -> None:
-        cmd.copy_buffer_to_image(cpu_buf.buf, resource)
+        # TODO: if using texture arrays, need to select layer here.
+        cmd.copy_buffer_to_image(cpu_buf.buf, resource.image)
 
-    def _cmd_before_barrier(self, cmd: CommandBuffer, resource: Image) -> None:
+    def _cmd_before_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
+        # TODO: if using texture arrays, need to select layer here.
         cmd.image_barrier(
-            resource,
+            resource.image,
             ImageLayout.TRANSFER_DST_OPTIMAL,
             MemoryUsage.ALL,
             MemoryUsage.TRANSFER_DST,
             undefined=True,
         )
 
-    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: Image) -> None:
+    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
+        # TODO: if using texture arrays, need to select layer here.
         cmd.image_barrier(
-            resource,
+            resource.image,
             self.layout,
             MemoryUsage.TRANSFER_DST,
             self.memory_usage,
         )
 
-    def _cmd_acquire_barrier(self, cmd: CommandBuffer, resource: Image) -> None:
+    def _cmd_acquire_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
+        # TODO: if using texture arrays, need to select layer here.
         cmd.image_barrier(
-            resource,
+            resource.image,
             self.layout,
             MemoryUsage.NONE,
             self.memory_usage,
@@ -787,9 +835,10 @@ class GpuImageProperty(GpuResourceProperty[Image]):
             self.ctx.graphics_queue_family_index,
         )
 
-    def _cmd_release_barrier(self, cmd: CommandBuffer, resource: Image) -> None:
+    def _cmd_release_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
+        # TODO: if using texture arrays, need to select layer here.
         cmd.image_barrier(
-            resource,
+            resource.image,
             self.layout,
             MemoryUsage.TRANSFER_DST,
             MemoryUsage.NONE,

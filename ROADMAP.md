@@ -115,6 +115,7 @@ Python:
             - When allocating descriptor set need to specify how much to allocate with appended VkDescriptorSetVariableDescriptorCountAllocateInfo to VkDescriptorSetAllocateInfo.
     - [x] VulkanError exception type that wraps VkResult for better error reporting over all bindings
     - [ ] Expose push descriptors and update template
+    - [ ] Make index buffer offset consistent with vertex buffer offset (by using optional tuple)
 - [ ] Clean examples
     - [x] Headless graphics and compute
     - [x] Minimal

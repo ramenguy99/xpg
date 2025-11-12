@@ -8,10 +8,8 @@ from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
 import numpy as np
 from numpy.typing import ArrayLike, DTypeLike, NDArray
 from pyxpg import (
-    Buffer,
     BufferUsageFlags,
     Format,
-    Image,
     ImageLayout,
     ImageUsageFlags,
     MemoryUsage,
@@ -248,7 +246,7 @@ class BufferProperty(Property):
         self.gpu_stage |= stage
         return self
 
-    def get_current_gpu(self) -> Buffer:
+    def get_current_gpu(self) -> gpu_property.GpuBufferView:
         assert isinstance(self.gpu_property, gpu_property.GpuBufferProperty)
         return self.gpu_property.get_current()
 
@@ -298,7 +296,7 @@ class ImageProperty(Property):
         self.gpu_stage |= stage
         return self
 
-    def get_current_gpu(self) -> Image:
+    def get_current_gpu(self) -> gpu_property.GpuImageView:
         assert isinstance(self.gpu_property, gpu_property.GpuImageProperty), self.gpu_property
         return self.gpu_property.get_current()
 

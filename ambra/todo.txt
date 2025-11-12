@@ -88,7 +88,13 @@ New property API plans:
         - [x] Add the concept of a gpu usage (to collect constraints)
         - [x] Reroute gpu property creation and load/upload stuff through properties
         - [ ] Enable mip generation and sRGB
-            - Need to find a way to include extra data in GpuResourceProperty -> e.g. offset + size for buffer, ImageViews for images
+            - [x] Include extra data in GpuResourceProperty -> e.g. offset + size for buffer, ImageViews for images
+            - [ ] We now have the concept of a default image view that covers the whole image. This is mostly useful to create descriptors from an image and to render to an image.
+                  Maybe we should again move away from this abstraction and have users create their views independently. For example this view is not useful for texture arrays
+                  used for batching where you want to view a slice at a time.
+            - [ ] sRGB does not seem to be handled properly by SPD. As far as I can see SPD always converts from linear to sRGB and does averaging in sRGB.
+                  My understanding is that we would want the opposite of this. Sample does sRGB -> linear (either automatically with sRGB view or manually when reading
+                  from storage image, this includes the mid mip) and we linear -> sRGB manually before storing.
     - [ ] Re-think GpuPropety and come up with a plan for insertion/remove/update and potential batching -> I am ok if batching is only allowed on Array* variants and those do not allow remove/insert (but do allow update).
     - [ ] Test a bunch of cases with user property creation
 - Front-end (public property / primitive / user API):

@@ -110,8 +110,8 @@ class Lines(Object2D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[
-                self.lines.get_current_gpu(),
-                self.colors.get_current_gpu(),
+                self.lines.get_current_gpu().to_buffer_offset(),
+                self.colors.get_current_gpu().to_buffer_offset(),
             ],
             descriptor_sets=[
                 scene_descriptor_set,
@@ -206,7 +206,7 @@ class Image(Object2D):
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         descriptor_set = self.descriptor_sets.get_current_and_advance()
         descriptor_set.write_image(
-            self.image.get_current_gpu(),
+            self.image.get_current_gpu().image,  # TODO: use correct view
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
             DescriptorType.SAMPLED_IMAGE,
             1,

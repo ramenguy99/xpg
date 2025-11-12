@@ -166,7 +166,7 @@ class Material:
                 if p.flags & MaterialPropertyFlags.HAS_VALUE:
                     self.constants[p.name] = 0.0
                 self.constants[f"has_{p.name}_texture"] = True
-                image = p.property.get_current_gpu()
+                image = p.property.get_current_gpu().image  # TODO: use correct view
 
             if p.flags & MaterialPropertyFlags.ALLOW_IMAGE:
                 self.descriptor_set.write_image(

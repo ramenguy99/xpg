@@ -117,8 +117,8 @@ class Lines(Object3D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[
-                self.lines.get_current_gpu(),
-                self.colors.get_current_gpu(),
+                self.lines.get_current_gpu().to_buffer_offset(),
+                self.colors.get_current_gpu().to_buffer_offset(),
             ],
             descriptor_sets=[
                 scene_descriptor_set,
@@ -289,17 +289,23 @@ class Mesh(Object3D):
         self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3(self.current_transform_matrix)))
 
     def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        index_buffer = self.indices.get_current_gpu() if self.indices is not None else None
+        index_buffer = None
+        index_buffer_offset = 0
+        if self.indices is not None:
+            index_buffer_view = self.indices.get_current_gpu()
+            index_buffer = index_buffer_view.buffer
+            index_buffer_offset = index_buffer_view.offset
 
         frame.cmd.bind_graphics_pipeline(
             self.depth_pipeline,
             vertex_buffers=[
-                self.positions.get_current_gpu(),
+                self.positions.get_current_gpu().to_buffer_offset(),
             ],
             index_buffer=index_buffer,
             descriptor_sets=[
                 scene_descriptor_set,
             ],
+            index_buffer_offset=index_buffer_offset,
             push_constants=self.constants["transform"].tobytes(),
         )
 
@@ -311,21 +317,28 @@ class Mesh(Object3D):
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         assert self.material is not None
 
-        index_buffer = self.indices.get_current_gpu() if self.indices is not None else None
+        index_buffer = None
+        index_buffer_offset = 0
+        if self.indices is not None:
+            index_buffer_view = self.indices.get_current_gpu()
+            index_buffer = index_buffer_view.buffer
+            index_buffer_offset = index_buffer_view.offset
+
         vertex_buffers = [
-            self.positions.get_current_gpu(),
+            self.positions.get_current_gpu().to_buffer_offset(),
         ]
         if self.normals is not None:
-            vertex_buffers.append(self.normals.get_current_gpu())
+            vertex_buffers.append(self.normals.get_current_gpu().to_buffer_offset())
         if self.tangents is not None:
-            vertex_buffers.append(self.tangents.get_current_gpu())
+            vertex_buffers.append(self.tangents.get_current_gpu().to_buffer_offset())
         if self.uvs is not None:
-            vertex_buffers.append(self.uvs.get_current_gpu())
+            vertex_buffers.append(self.uvs.get_current_gpu().to_buffer_offset())
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=vertex_buffers,
             index_buffer=index_buffer,
+            index_buffer_offset=index_buffer_offset,
             descriptor_sets=[
                 scene_descriptor_set,
                 self.material.descriptor_set,
@@ -805,10 +818,13 @@ class GaussianSplats(Object3D):
         self.constants["flags"] = self.flags
 
         self.descriptor_set = self.descriptor_sets.get_current_and_advance()
-        self.descriptor_set.write_buffer(self.positions.get_current_gpu(), DescriptorType.STORAGE_BUFFER, 3)
-        self.descriptor_set.write_buffer(self.colors.get_current_gpu(), DescriptorType.STORAGE_BUFFER, 4)
-        self.descriptor_set.write_buffer(self.covariances.get_current_gpu(), DescriptorType.STORAGE_BUFFER, 5)
-        self.descriptor_set.write_buffer(self.spherical_harmonics.get_current_gpu(), DescriptorType.STORAGE_BUFFER, 6)
+
+        self.positions.get_current_gpu().write_descriptor(self.descriptor_set, DescriptorType.STORAGE_BUFFER, 3)
+        self.colors.get_current_gpu().write_descriptor(self.descriptor_set, DescriptorType.STORAGE_BUFFER, 4)
+        self.covariances.get_current_gpu().write_descriptor(self.descriptor_set, DescriptorType.STORAGE_BUFFER, 5)
+        self.spherical_harmonics.get_current_gpu().write_descriptor(
+            self.descriptor_set, DescriptorType.STORAGE_BUFFER, 6
+        )
 
         # Distances
         if self.cull_at_dist:
