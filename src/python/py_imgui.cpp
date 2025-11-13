@@ -225,7 +225,6 @@ void imgui_create_bindings(nb::module_& mod_imgui)
             if (ndim != 1) { \
                 nb::raise("Invalid array shape for parameter \"values\". Expected 1 dimension, got %zu", ndim); \
             } \
-            size_t stride = values.stride(0); \
             size_t count = values.shape(0); \
             nb::dlpack::dtype dtype = values.dtype(); \
             switch (dtype.code) { \
@@ -643,20 +642,17 @@ void imgui_create_bindings(nb::module_& mod_imgui)
 
     mod_implot.def("plot_histogram",
         [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> values,
+           nb::ndarray<nb::c_contig, nb::device::cpu, nb::shape<-1>> values,
            int bins,
            double bar_scale,
            std::tuple<double, double> range,
            ImPlotHistogramFlags flags
         ) {
-            if (values.stride(0) * 8 != values.dtype().bits) {
-                nb::raise("Array \"values\" must be C-contiguos");
-            }
             ImPlotRange implot_range(std::get<0>(range), std::get<1>(range));
             ONE_ARRAY_NO_OFFSET_STRIDE(PlotHistogram, bins, bar_scale, implot_range, flags)
         },
         nb::arg("label_id"),
-        nb::arg("values"),
+        nb::arg("values").noconvert(),
         nb::arg("bins") = ImPlotBin_Sturges,
         nb::arg("bar_scale") = 1.0,
         nb::arg("range") = std::make_tuple(0, 0),
