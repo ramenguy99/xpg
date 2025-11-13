@@ -12,8 +12,10 @@ from pyxpg import (
     DescriptorSetBinding,
     DescriptorType,
     Filter,
+    Image,
     ImageLayout,
     ImageUsageFlags,
+    ImageView,
     MemoryUsage,
     PipelineStageFlags,
     Sampler,
@@ -157,6 +159,7 @@ class Material:
         self.descriptor_set = self.descriptor_sets.get_current_and_advance()
         image_index = 0
         for p in self.properties:
+            image: Union[Image, ImageView]
             if isinstance(p.property, BufferProperty):
                 if p.flags & MaterialPropertyFlags.HAS_VALUE:
                     self.constants[p.name] = p.property.get_current()
@@ -166,7 +169,7 @@ class Material:
                 if p.flags & MaterialPropertyFlags.HAS_VALUE:
                     self.constants[p.name] = 0.0
                 self.constants[f"has_{p.name}_texture"] = True
-                image = p.property.get_current_gpu().image  # TODO: use correct view
+                image = p.property.get_current_gpu().view()
 
             if p.flags & MaterialPropertyFlags.ALLOW_IMAGE:
                 self.descriptor_set.write_image(

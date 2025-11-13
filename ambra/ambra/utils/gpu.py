@@ -568,6 +568,13 @@ _format_to_channels_dtype_int_table: Dict[Format, Tuple[int, np.dtype, bool]] = 
     v: k for k, v in _channels_dtype_int_to_format_table.items()
 }
 
+_format_to_srgb_format_table: Dict[Format, Format] = {
+    Format.R8_UNORM: Format.R8_SRGB,
+    Format.R8G8_UNORM: Format.R8G8_SRGB,
+    Format.R8G8B8_UNORM: Format.R8G8B8_SRGB,
+    Format.R8G8B8A8_UNORM: Format.R8G8B8A8_SRGB,
+}
+
 
 def format_from_channels_dtype(channels: int, dtype: np.dtype, integer: bool = False) -> Format:
     try:
@@ -622,3 +629,10 @@ def readback_mips(ctx: Context, img: Image, new_layout: ImageLayout) -> List[NDA
         arrays.append(np.frombuffer(b, dtype).copy().reshape(shape))
 
     return arrays
+
+
+def to_srgb_format(format: Format) -> Format:
+    try:
+        return _format_to_srgb_format_table[format]
+    except KeyError:
+        raise RuntimeError(f"{format} does not have a corresponding sRGB format") from KeyError

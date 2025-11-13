@@ -58,6 +58,7 @@ Priority:
         - [x] PoC with PyAV
         - [x] Do pipelinening and check speedup
         - [ ] Frame / timestamp range customization with different playback and render rate
+- [ ] Colormap material with user-configurable min-max and colormap (evaluated in shader from R channel)
 
 New property API plans:
 - Deps:

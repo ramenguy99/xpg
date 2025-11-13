@@ -110,8 +110,8 @@ class Lines(Object2D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[
-                self.lines.get_current_gpu().to_buffer_offset(),
-                self.colors.get_current_gpu().to_buffer_offset(),
+                self.lines.get_current_gpu().buffer_and_offset(),
+                self.colors.get_current_gpu().buffer_and_offset(),
             ],
             descriptor_sets=[
                 scene_descriptor_set,

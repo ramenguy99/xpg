@@ -14,6 +14,7 @@ from pyxpg import (
     DescriptorSet,
     DescriptorType,
     Image,
+    ImageCreateFlags,
     ImageLayout,
     ImageUsageFlags,
     ImageView,
@@ -25,7 +26,13 @@ from pyxpg import (
 
 from .config import UploadMethod
 from .renderer_frame import RendererFrame, SemaphoreInfo
-from .utils.gpu import BufferUploadInfo, ImageUploadInfo, get_image_pitch_rows_and_texel_size, view_bytes
+from .utils.gpu import (
+    BufferUploadInfo,
+    ImageUploadInfo,
+    get_image_pitch_rows_and_texel_size,
+    to_srgb_format,
+    view_bytes,
+)
 from .utils.lru_pool import LRUPool
 from .utils.threadpool import Promise, ThreadPool
 
@@ -62,7 +69,7 @@ class GpuBufferView:
     def destroy(self) -> None:
         self.buffer.destroy()
 
-    def to_buffer_offset(self) -> Tuple[Buffer, int]:
+    def buffer_and_offset(self) -> Tuple[Buffer, int]:
         return (self.buffer, self.offset)
 
     def write_descriptor(
@@ -79,6 +86,13 @@ class GpuImageView:
 
     def destroy(self) -> None:
         self.image.destroy()
+
+    def view(self) -> Union[Image, ImageView]:
+        if self.srgb_resource_view is not None:
+            return self.srgb_resource_view
+        else:
+            # TODO: return proper view to correct layer
+            return self.image
 
 
 R = TypeVar("R", bound=Union[GpuBufferView, GpuImageView])
@@ -770,15 +784,41 @@ class GpuImageProperty(GpuResourceProperty[GpuImageView]):
             name,
         )
 
-    def _create_resource_for_preupload(self, frame: "PropertyItem", alloc_type: AllocType, name: str) -> GpuImageView:
+    def __create_image(self, alloc_type: AllocType, name: str) -> GpuImageView:
         # TODO: if using texture arrays, need to select layer here.
-        img = Image(self.ctx, self.width, self.height, self.format, self.usage_flags, alloc_type, name=name)
+        image_create_flags = ImageCreateFlags.NONE
+        if self.srgb:
+            image_create_flags |= ImageCreateFlags.MUTABLE_FORMAT
+
+        mip_levels = 1
+        if self.mips:
+            mip_levels = max(self.width.bit_length(), self.height.bit_length())
+
+        img = Image(
+            self.ctx,
+            self.width,
+            self.height,
+            self.format,
+            self.usage_flags,
+            alloc_type,
+            mip_levels=mip_levels,
+            create_flags=image_create_flags,
+            name=name,
+        )
         srgb_view = None
         if self.srgb:
             srgb_view = ImageView(
-                self.ctx, img, ImageViewType.TYPE_2D, self.format, usage_flags=ImageUsageFlags.SAMPLED, name=name
+                self.ctx,
+                img,
+                ImageViewType.TYPE_2D,
+                to_srgb_format(self.format),
+                usage_flags=ImageUsageFlags.SAMPLED,
+                name=name,
             )
         return GpuImageView(img, srgb_view)
+
+    def _create_resource_for_preupload(self, frame: "PropertyItem", alloc_type: AllocType, name: str) -> GpuImageView:
+        return self.__create_image(alloc_type, name)
 
     def _create_bulk_upload_descriptor(self, resource: GpuImageView, frame: "PropertyItem") -> ImageUploadInfo:
         # TODO: support upload to image view
@@ -794,13 +834,7 @@ class GpuImageProperty(GpuResourceProperty[GpuImageView]):
         )
 
     def _create_gpu_resource(self, name: str) -> GpuImageView:
-        img = Image(self.ctx, self.width, self.height, self.format, self.usage_flags, AllocType.DEVICE, name=name)
-        srgb_view = None
-        if self.srgb:
-            srgb_view = ImageView(
-                self.ctx, img, ImageViewType.TYPE_2D, self.format, usage_flags=ImageUsageFlags.SAMPLED, name=name
-            )
-        return GpuImageView(img, srgb_view)
+        return self.__create_image(AllocType.DEVICE, name)
 
     def _cmd_upload(
         self,

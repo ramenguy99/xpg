@@ -117,8 +117,8 @@ class Lines(Object3D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[
-                self.lines.get_current_gpu().to_buffer_offset(),
-                self.colors.get_current_gpu().to_buffer_offset(),
+                self.lines.get_current_gpu().buffer_and_offset(),
+                self.colors.get_current_gpu().buffer_and_offset(),
             ],
             descriptor_sets=[
                 scene_descriptor_set,
@@ -299,7 +299,7 @@ class Mesh(Object3D):
         frame.cmd.bind_graphics_pipeline(
             self.depth_pipeline,
             vertex_buffers=[
-                self.positions.get_current_gpu().to_buffer_offset(),
+                self.positions.get_current_gpu().buffer_and_offset(),
             ],
             index_buffer=index_buffer,
             descriptor_sets=[
@@ -325,14 +325,14 @@ class Mesh(Object3D):
             index_buffer_offset = index_buffer_view.offset
 
         vertex_buffers = [
-            self.positions.get_current_gpu().to_buffer_offset(),
+            self.positions.get_current_gpu().buffer_and_offset(),
         ]
         if self.normals is not None:
-            vertex_buffers.append(self.normals.get_current_gpu().to_buffer_offset())
+            vertex_buffers.append(self.normals.get_current_gpu().buffer_and_offset())
         if self.tangents is not None:
-            vertex_buffers.append(self.tangents.get_current_gpu().to_buffer_offset())
+            vertex_buffers.append(self.tangents.get_current_gpu().buffer_and_offset())
         if self.uvs is not None:
-            vertex_buffers.append(self.uvs.get_current_gpu().to_buffer_offset())
+            vertex_buffers.append(self.uvs.get_current_gpu().buffer_and_offset())
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
