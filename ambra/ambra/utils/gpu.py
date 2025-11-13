@@ -18,6 +18,7 @@ from pyxpg import (
     Image,
     ImageLayout,
     ImageUsageFlags,
+    ImageView,
     MemoryUsage,
     get_format_info,
 )
@@ -48,6 +49,10 @@ class ImageUploadInfo:
     data: memoryview
     image: Image
     layout: ImageLayout
+
+    generate_mips: bool
+    level_0: Optional[ImageView]
+    mip_views: List[ImageView]
 
 
 @dataclass
@@ -91,7 +96,9 @@ class BulkUploader:
                 )
             )
 
-    def bulk_upload(self, uploads: List[Union[BufferUploadInfo, ImageUploadInfo]]) -> None:
+    def bulk_upload(
+        self, uploads: List[Union[BufferUploadInfo, ImageUploadInfo]], mip_generation_requests: List[ImageUploadInfo]
+    ) -> None:
         # Compute alignment requirements
         offset_alignment = max(self.ctx.device_properties.limits.optimal_buffer_copy_offset_alignment, 16)
         pitch_alignment = max(self.ctx.device_properties.limits.optimal_buffer_copy_row_pitch_alignment, 16)
@@ -212,7 +219,14 @@ class BulkUploader:
 
                         if start_image_row + fitting_rows == total_rows:
                             # Transition to final layout if last upload
-                            cmd.image_barrier(info.image, info.layout, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE)
+                            final_layout = info.layout
+
+                            # Register for mip generation if requested and transition to GENERAL layout instead
+                            if info.generate_mips:
+                                mip_generation_requests.append(info)
+                                final_layout = ImageLayout.GENERAL
+
+                            cmd.image_barrier(info.image, final_layout, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE)
                             i += 1
                             start_image_row = 0
                             total_bytes_uploaded += total_rows * pitch

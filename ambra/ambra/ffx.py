@@ -1,11 +1,17 @@
+from typing import List, Optional, Union
+
 import numpy as np
 from pyxpg import (
     AllocType,
     Buffer,
     BufferUsageFlags,
+    CommandBuffer,
     ComputePipeline,
+    DescriptorPool,
     DescriptorPoolCreateFlags,
+    DescriptorSet,
     DescriptorSetBinding,
+    DescriptorSetLayout,
     DescriptorSetLayoutCreateFlags,
     DescriptorType,
     DeviceFeatures,
@@ -24,11 +30,56 @@ from pyxpg import (
     SubgroupFeatureFlags,
 )
 
+from ambra.utils.ring_buffer import RingBuffer
+
 from . import renderer
-from .utils.descriptors import create_descriptor_layout_pool_and_set
+from .utils.descriptors import create_descriptor_pool_and_sets_ringbuffer
 from .utils.gpu import view_bytes
 
 SPD_MAX_LEVELS = 12
+
+
+class SPDPipelineInstance:
+    def __init__(
+        self,
+        atomic_counters: Buffer,
+        descriptor_pool: DescriptorPool,
+        descriptor_sets: RingBuffer[DescriptorSet],
+        constants: np.ndarray,
+    ):
+        self.atomic_counters = atomic_counters
+        self.descriptor_pool = descriptor_pool
+        self.descriptor_sets = descriptor_sets
+        self.constants = constants
+
+        self.groups_x = 0
+        self.groups_y = 0
+
+    def set_image_extents(self, width: int, height: int, mips: int, x: int = 0, y: int = 0):
+        rect_width = width
+        rect_height = height
+
+        group_offset_x = x // 64
+        group_offset_y = y // 64
+
+        group_end_x = (x + rect_width - 1) // 64
+        group_end_y = (y + rect_height - 1) // 64
+
+        groups_x = group_end_x + 1 - group_offset_x
+        groups_y = group_end_y + 1 - group_offset_y
+
+        groups = groups_x * groups_y
+
+        # image.mip_levels includes level 0. The kernel expects just the number of levels after 0.
+        mips_after_level_0 = min(mips - 1, SPD_MAX_LEVELS)
+
+        self.constants["mips"] = mips_after_level_0
+        self.constants["numWorkGroups"] = groups
+        self.constants["workGroupOffset"] = (group_offset_x, group_offset_y)
+        self.constants["invInputSize"] = (1.0 / width, 1.0 / height)
+
+        self.groups_x = groups_x
+        self.groups_y = groups_y
 
 
 class SPDPipeline:
@@ -41,16 +92,15 @@ class SPDPipeline:
                 "invInputSize": (np.dtype((np.float32, 2)), 16),
             }
         )  # type: ignore
-        self.constants = np.zeros((1,), self.constants_dtype)
 
         # NOTE: using UPDATE_AFTER_BIND because that allows for a larger limit on total
         # number of bound storage images in MoltenVK. This is because MoltenVK switches
         # to using argument buffers when this flag is set. Not sure why it does not
-        # expose the higher limit anyways when argument buffers are avialable.
+        # expose the higher limit anyways when argument buffers are available.
         # Newer versions of MoltenVK seem to have increased this limit anyway.
         #
         # See: https://github.com/KhronosGroup/MoltenVK/issues/1610
-        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_set = create_descriptor_layout_pool_and_set(
+        self.descriptor_set_layout = DescriptorSetLayout(
             r.ctx,
             [
                 DescriptorSetBinding(1, DescriptorType.SAMPLER),
@@ -59,8 +109,7 @@ class SPDPipeline:
                 DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),
                 DescriptorSetBinding(SPD_MAX_LEVELS + 1, DescriptorType.STORAGE_IMAGE),
             ],
-            layout_flags=DescriptorSetLayoutCreateFlags.UPDATE_AFTER_BIND_POOL,
-            pool_flags=DescriptorPoolCreateFlags.UPDATE_AFTER_BIND,
+            DescriptorSetLayoutCreateFlags.UPDATE_AFTER_BIND_POOL,
         )
 
         # Check hardware support for float16 and quad operations. Otherwise fallback to LDS.
@@ -125,7 +174,12 @@ class SPDPipeline:
             w=SamplerAddressMode.CLAMP_TO_EDGE,
         )
 
-        self.atomic_counters = Buffer.from_data(
+        self.sync_instance = self.alloc_instance(r, single_set=True)
+
+    def alloc_instance(self, r: "renderer.Renderer", single_set: bool = False) -> SPDPipelineInstance:
+        constants = np.zeros((1,), self.constants_dtype)
+
+        atomic_counters = Buffer.from_data(
             r.ctx,
             view_bytes(np.zeros((6,), np.uint32)),
             BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
@@ -133,60 +187,66 @@ class SPDPipeline:
             name="ffx-spd-atomic-counters",
         )
 
-        self.descriptor_set.write_sampler(self.linear_clamp_sampler, 0)
-        self.descriptor_set.write_buffer(self.atomic_counters, DescriptorType.STORAGE_BUFFER, 1)
+        number_of_sets = r.num_frames_in_flight if not single_set else 1
+        pool, descriptor_sets = create_descriptor_pool_and_sets_ringbuffer(
+            r.ctx, self.descriptor_set_layout, number_of_sets, DescriptorPoolCreateFlags.UPDATE_AFTER_BIND, "hello"
+        )
 
-    def run(self, r: "renderer.Renderer", image: Image, new_layout: ImageLayout) -> None:
-        # TODO: potentially good place to use descriptor update templates
-        full_srgb_view = ImageView(
+        for s in descriptor_sets:
+            s.write_sampler(self.linear_clamp_sampler, 0)
+            s.write_buffer(atomic_counters, DescriptorType.STORAGE_BUFFER, 1)
+
+        return SPDPipelineInstance(atomic_counters, pool, descriptor_sets, constants)
+
+    def run(
+        self,
+        cmd: CommandBuffer,
+        image: Image,
+        new_layout: ImageLayout,
+        view_level_0: Union[Image, ImageView],
+        mip_views: List[ImageView],
+        instance: SPDPipelineInstance,
+    ) -> None:
+        s = instance.descriptor_sets.get_current_and_advance()
+
+        s.write_image(view_level_0, ImageLayout.GENERAL, DescriptorType.SAMPLED_IMAGE, 2)
+        for m in range(SPD_MAX_LEVELS + 1):
+            view = mip_views[m] if m < len(mip_views) else mip_views[0]
+            if m == 6:
+                s.write_image(view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 3, 0)
+            s.write_image(view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 4, m)
+
+        cmd.bind_compute_pipeline(self.avg_pipeline, descriptor_sets=[s], push_constants=instance.constants.tobytes())
+        # TODO: new sync. Pass in extra info for before / after stages. Potentially also use sampled layout for first layer in mip (not sure if changes much).
+        cmd.image_barrier(image, ImageLayout.GENERAL, MemoryUsage.ALL, MemoryUsage.COMPUTE_SHADER)
+        cmd.dispatch(instance.groups_x, instance.groups_y, image.depth)
+        cmd.image_barrier(image, new_layout, MemoryUsage.COMPUTE_SHADER, MemoryUsage.ALL)
+
+    def run_sync_with_views(
+        self,
+        r: "renderer.Renderer",
+        image: Image,
+        new_layout: ImageLayout,
+        view_level_0: Optional[Union[Image, ImageView]],
+        mip_views: List[ImageView],
+    ) -> None:
+        self.sync_instance.set_image_extents(image.width, image.height, image.mip_levels)
+        with r.ctx.sync_commands() as cmd:
+            self.run(cmd, image, new_layout, view_level_0, mip_views, self.sync_instance)
+
+    def run_sync(self, r: "renderer.Renderer", image: Image, new_layout: ImageLayout) -> None:
+        # TODO: srgb should likely be a parameter here anyways (fix when we we fix sRGB mip pipeline)
+        level_0_view = ImageView(
             r.ctx, image, ImageViewType.TYPE_2D_ARRAY, format=Format.R8G8B8A8_SRGB, usage_flags=ImageUsageFlags.SAMPLED
         )
-        self.descriptor_set.write_image(full_srgb_view, ImageLayout.GENERAL, DescriptorType.SAMPLED_IMAGE, 2)
-
-        views = []
-        for m in range(SPD_MAX_LEVELS + 1):
-            # Default to mip 0 if out of bounds
-            view = ImageView(
+        views = [
+            ImageView(
                 r.ctx,
                 image,
                 ImageViewType.TYPE_2D_ARRAY,
-                base_mip_level=m if m < image.mip_levels else 0,
+                base_mip_level=m,
                 mip_level_count=1,
             )
-            if m == 6:
-                self.descriptor_set.write_image(view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 3, 0)
-            self.descriptor_set.write_image(view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 4, m)
-            views.append(view)
-
-        rect_x = 0
-        rect_y = 0
-        rect_width = image.width
-        rect_height = image.height
-
-        group_offset_x = rect_x // 64
-        group_offset_y = rect_y // 64
-
-        group_end_x = (rect_x + rect_width - 1) // 64
-        group_end_y = (rect_y + rect_height - 1) // 64
-
-        groups_x = group_end_x + 1 - group_offset_x
-        groups_y = group_end_y + 1 - group_offset_y
-
-        groups = groups_x * groups_y
-
-        # image.mip_levels includes level 0. The kernel expects just
-        # the number of levels after 0.
-        mips = min(image.mip_levels - 1, SPD_MAX_LEVELS)
-
-        self.constants["mips"] = mips
-        self.constants["numWorkGroups"] = groups
-        self.constants["workGroupOffset"] = (group_offset_x, group_offset_y)
-        self.constants["invInputSize"] = (1.0 / image.width, 1.0 / image.height)
-
-        with r.ctx.sync_commands() as cmd:
-            cmd.bind_compute_pipeline(
-                self.avg_pipeline, descriptor_sets=[self.descriptor_set], push_constants=self.constants.tobytes()
-            )
-            cmd.image_barrier(image, ImageLayout.GENERAL, MemoryUsage.ALL, MemoryUsage.COMPUTE_SHADER)
-            cmd.dispatch(groups_x, groups_y, image.depth)
-            cmd.image_barrier(image, new_layout, MemoryUsage.COMPUTE_SHADER, MemoryUsage.ALL)
+            for m in min(image.mip_levels, range(SPD_MAX_LEVELS + 1))
+        ]
+        self.run_sync_with_views(r, image, new_layout, level_0_view, views)

@@ -505,8 +505,13 @@ class Renderer:
 
         # Flush synchronous upload buffers after creating new objects
         if len(self.bulk_upload_list) > 0:
-            self.bulk_uploader.bulk_upload(self.bulk_upload_list)
+            mip_generation_requests: List[ImageUploadInfo] = []
+            self.bulk_uploader.bulk_upload(self.bulk_upload_list, mip_generation_requests)
             self.bulk_upload_list.clear()
+
+            # Process mip generation requests
+            for req in mip_generation_requests:
+                self.spd_pipeline.run_sync_with_views(self, req.image, req.layout, req.level_0, req.mip_views)
 
         cmd = frame.command_buffer
         viewport_rect = (

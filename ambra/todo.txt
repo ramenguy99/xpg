@@ -27,7 +27,7 @@ Priority:
         - [x] Sampling
     - [ ] Expose sampling options in materials
     - [ ] Cache pipelines -> requires hashable pyxpg objects
-    - [ ] Try loading PBR model (e.g. helmet)
+    - [x] Try loading PBR model (e.g. helmet)
         - [x] sRGB textures -> already supported by specifying format on image property?
         - [x] normal mapping
         - [x] Mips -> Integrate FFX?
@@ -43,8 +43,8 @@ Priority:
             - [x] Fix barriers for mips, enhance or move away from from_data -> changed from_data to transition the whole resource.
                 The pyxpg way of storing the layout per image only works if all mips have the same layout. We don't yet have a use
                 case for having separate layouts so we don't expose this yet.
-        - [ ] Mip generation for materials
-            - [ ] Start simple, could potentially batch those generations at some point.
+        - [x] Mip generation for materials
+            - [x] Start simple, could potentially batch those generations at some point.
 - [ ] Stages presets in config or in helper functions (empty, origin, floor, lights, maybe more?)
 - [ ] Basic client/server example and initial set of APIs
 - [ ] Multi-viewport
@@ -90,9 +90,10 @@ New property API plans:
         - [x] Reroute gpu property creation and load/upload stuff through properties
         - [ ] Enable mip generation and sRGB
             - [x] Include extra data in GpuResourceProperty -> e.g. offset + size for buffer, ImageViews for images
-            - [ ] We now have the concept of a default image view that covers the whole image. This is mostly useful to create descriptors from an image and to render to an image.
+            - [x] We now have the concept of a default image view that covers the whole image. This is mostly useful to create descriptors from an image and to render to an image.
                   Maybe we should again move away from this abstraction and have users create their views independently. For example this view is not useful for texture arrays
-                  used for batching where you want to view a slice at a time.
+                  used for batching where you want to view a slice at a time -> now keeping this for convenience and creating additional views for mip generation when needed.
+            - [ ] Streaming mip creation and barriers -> opportunity to cleanup and unify some stuff maybe?
             - [ ] sRGB does not seem to be handled properly by SPD. As far as I can see SPD always converts from linear to sRGB and does averaging in sRGB.
                   My understanding is that we would want the opposite of this. Sample does sRGB -> linear (either automatically with sRGB view or manually when reading
                   from storage image, this includes the mid mip) and we linear -> sRGB manually before storing.

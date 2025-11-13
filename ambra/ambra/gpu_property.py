@@ -84,6 +84,9 @@ class GpuImageView:
     # resource_view: ImageView
     srgb_resource_view: Optional[ImageView]
 
+    mip_level_0_view: Optional[ImageView]
+    mip_views: List[ImageView]
+
     def destroy(self) -> None:
         self.image.destroy()
 
@@ -815,14 +818,40 @@ class GpuImageProperty(GpuResourceProperty[GpuImageView]):
                 usage_flags=ImageUsageFlags.SAMPLED,
                 name=name,
             )
-        return GpuImageView(img, srgb_view)
+
+        mip_level_0_view = None
+        mip_views = []
+        if self.mips:
+            mip_level_0_view = ImageView(
+                self.ctx,
+                img,
+                ImageViewType.TYPE_2D_ARRAY,
+                to_srgb_format(self.format),
+                usage_flags=ImageUsageFlags.SAMPLED,
+                name=name,
+            )
+            mip_views = [
+                ImageView(
+                    self.ctx,
+                    img,
+                    ImageViewType.TYPE_2D_ARRAY,
+                    base_mip_level=m if m < img.mip_levels else 0,
+                    mip_level_count=1,
+                    name=name,
+                )
+                for m in range(mip_levels)
+            ]
+
+        return GpuImageView(img, srgb_view, mip_level_0_view, mip_views)
 
     def _create_resource_for_preupload(self, frame: "PropertyItem", alloc_type: AllocType, name: str) -> GpuImageView:
         return self.__create_image(alloc_type, name)
 
     def _create_bulk_upload_descriptor(self, resource: GpuImageView, frame: "PropertyItem") -> ImageUploadInfo:
-        # TODO: support upload to image view
-        return ImageUploadInfo(view_bytes(frame), resource.image, self.layout)
+        # TODO: upload to texture array
+        return ImageUploadInfo(
+            view_bytes(frame), resource.image, self.layout, self.mips, resource.mip_level_0_view, resource.mip_views
+        )
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:
         return Buffer(
