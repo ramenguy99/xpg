@@ -244,6 +244,9 @@ class Renderer:
         )
 
         self.spd_pipeline = SPDPipeline(self)
+        self.spd_pipeline_instances = [
+            self.spd_pipeline.alloc_instance(self, True) for _ in range(config.mip_generation_batch_size)
+        ]
 
         self.ibl_default_params = IBLParams()
         self.ibl_pipeline: Optional[IBLPipeline] = None
@@ -509,9 +512,15 @@ class Renderer:
             self.bulk_uploader.bulk_upload(self.bulk_upload_list, mip_generation_requests)
             self.bulk_upload_list.clear()
 
-            # Process mip generation requests
-            for req in mip_generation_requests:
-                self.spd_pipeline.run_sync_with_views(self, req.image, req.layout, req.level_0, req.mip_views)
+            # Process mip generation requests in batches
+            batch_size = len(self.spd_pipeline_instances)
+            for i in range(0, len(mip_generation_requests), batch_size):
+                with self.ctx.sync_commands() as cmd:
+                    for j, instance in enumerate(self.spd_pipeline_instances):
+                        if i + j >= len(mip_generation_requests):
+                            break
+                        req = mip_generation_requests[i + j]
+                        self.spd_pipeline.run(cmd, req.image, req.layout, req.level_0, req.mip_views, instance)
 
         cmd = frame.command_buffer
         viewport_rect = (

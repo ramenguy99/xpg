@@ -218,6 +218,7 @@ class SPDPipeline:
 
         cmd.bind_compute_pipeline(self.avg_pipeline, descriptor_sets=[s], push_constants=instance.constants.tobytes())
         # TODO: new sync. Pass in extra info for before / after stages. Potentially also use sampled layout for first layer in mip (not sure if changes much).
+        # maybe even allow barrier batching outside somehow
         cmd.image_barrier(image, ImageLayout.GENERAL, MemoryUsage.ALL, MemoryUsage.COMPUTE_SHADER)
         cmd.dispatch(instance.groups_x, instance.groups_y, image.depth)
         cmd.image_barrier(image, new_layout, MemoryUsage.COMPUTE_SHADER, MemoryUsage.ALL)
