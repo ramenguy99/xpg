@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
+from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -44,15 +45,22 @@ class BufferUploadInfo:
     buffer: Buffer
 
 
+class MipGenerationFilter(Enum):
+    AVERAGE = auto()
+    AVERAGE_SRGB = auto()
+    MAX = auto()
+    MIN = auto()
+
+
 @dataclass
 class ImageUploadInfo:
     data: memoryview
     image: Image
     layout: ImageLayout
 
-    generate_mips: bool
-    level_0: Optional[ImageView]
+    level_0_view: Optional[ImageView]  # If None, no mip generation will happen
     mip_views: List[ImageView]
+    mip_generation_filter: MipGenerationFilter
 
 
 @dataclass
@@ -222,7 +230,7 @@ class BulkUploader:
                             final_layout = info.layout
 
                             # Register for mip generation if requested and transition to GENERAL layout instead
-                            if info.generate_mips:
+                            if info.level_0_view is not None:
                                 mip_generation_requests.append(info)
                                 final_layout = ImageLayout.GENERAL
 

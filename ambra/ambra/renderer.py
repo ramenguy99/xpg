@@ -520,7 +520,18 @@ class Renderer:
                         if i + j >= len(mip_generation_requests):
                             break
                         req = mip_generation_requests[i + j]
-                        self.spd_pipeline.run(cmd, req.image, req.layout, req.level_0, req.mip_views, instance)
+                        assert req.level_0_view is not None
+
+                        instance.set_image_extents(req.image.width, req.image.height, req.image.mip_levels)
+                        self.spd_pipeline.run(
+                            cmd,
+                            req.image,
+                            req.layout,
+                            req.level_0_view,
+                            req.mip_views,
+                            instance,
+                            req.mip_generation_filter,
+                        )
 
         cmd = frame.command_buffer
         viewport_rect = (

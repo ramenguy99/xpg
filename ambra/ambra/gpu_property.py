@@ -29,6 +29,7 @@ from .renderer_frame import RendererFrame, SemaphoreInfo
 from .utils.gpu import (
     BufferUploadInfo,
     ImageUploadInfo,
+    MipGenerationFilter,
     get_image_pitch_rows_and_texel_size,
     to_srgb_format,
     view_bytes,
@@ -826,7 +827,7 @@ class GpuImageProperty(GpuResourceProperty[GpuImageView]):
                 self.ctx,
                 img,
                 ImageViewType.TYPE_2D_ARRAY,
-                to_srgb_format(self.format),
+                to_srgb_format(self.format) if self.srgb else self.format,
                 usage_flags=ImageUsageFlags.SAMPLED,
                 name=name,
             )
@@ -850,7 +851,12 @@ class GpuImageProperty(GpuResourceProperty[GpuImageView]):
     def _create_bulk_upload_descriptor(self, resource: GpuImageView, frame: "PropertyItem") -> ImageUploadInfo:
         # TODO: upload to texture array
         return ImageUploadInfo(
-            view_bytes(frame), resource.image, self.layout, self.mips, resource.mip_level_0_view, resource.mip_views
+            view_bytes(frame),
+            resource.image,
+            self.layout,
+            resource.mip_level_0_view,
+            resource.mip_views,
+            MipGenerationFilter.AVERAGE_SRGB if self.srgb else MipGenerationFilter.AVERAGE,
         )
 
     def _create_cpu_buffer(self, name: str, alloc_type: AllocType) -> Buffer:

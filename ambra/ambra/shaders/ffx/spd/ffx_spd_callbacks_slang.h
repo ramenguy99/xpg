@@ -93,35 +93,68 @@ FfxFloat32x2 InvInputSize()
     {
         FfxFloat32x2 textureCoord = FfxFloat32x2(uv) * InvInputSize() + InvInputSize();
         FfxFloat32x4 result = r_input_downsample_src.SampleLevel(s_LinearClamp, FfxFloat32x3(textureCoord, slice), 0);
-        return FfxFloat16x4(ffxSrgbFromLinear(result.x), ffxSrgbFromLinear(result.y), ffxSrgbFromLinear(result.z), result.w);
+
+        // Assume input image view is sRGB if downsampling an sRGB image.
+        // No need for any conversion here because sRGB to linear happens in the sampler, if needed.
+        return FfxFloat16x4(result.x, result.y, result.z, result.w);
     }
     #endif // defined(FFX_SPD_BIND_SRV_INPUT_DOWNSAMPLE_SRC)
 
 #if defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MIPS)
     FfxFloat16x4 LoadSrcImageH(FfxFloat32x2 uv, FfxUInt32 slice)
     {
-        return FfxFloat16x4(rw_input_downsample_src_mips[0][FfxUInt32x3(uv, slice)]);
+        FfxFloat16x4 value = FfxFloat16x4(rw_input_downsample_src_mips[0][FfxUInt32x3(uv, slice)]);
+#if defined(FFX_SPD_SRGB)
+        return FfxFloat16x4(ffxLinearFromSrgbHalf(value.x), ffxLinearFromSrgbHalf(value.y), ffxLinearFromSrgbHalf(value.z), value.w);
+#else
+        return value;
+#endif
     }
 #endif // defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MIPS)
 
 #if defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MIPS)
     void StoreSrcMipH(FfxFloat16x4 value, FfxInt32x2 uv, FfxUInt32 slice, FfxUInt32 mip)
     {
-        rw_input_downsample_src_mips[mip][FfxUInt32x3(uv, slice)] = FfxFloat32x4(value);
+        rw_input_downsample_src_mips[mip][FfxUInt32x3(uv, slice)] =
+#if defined(FFX_SPD_SRGB)
+        FfxFloat32x4(
+            ffxSrgbFromLinearHalf(value.x),
+            ffxSrgbFromLinearHalf(value.y),
+            ffxSrgbFromLinearHalf(value.z),
+            value.w
+        );
+#else
+        FfxFloat32x4(value);
+#endif
     }
 #endif // defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MIPS)
 
 #if defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MID_MIPMAP)
     FfxFloat16x4 LoadMidMipH(FfxInt32x2 uv, FfxUInt32 slice)
     {
-        return FfxFloat16x4(rw_input_downsample_src_mid_mip[FfxUInt32x3(uv, slice)]);
+        FfxFloat16x4 value = FfxFloat16x4(rw_input_downsample_src_mid_mip[FfxUInt32x3(uv, slice)]);
+#if defined(FFX_SPD_SRGB)
+        return FfxFloat16x4(ffxLinearFromSrgbHalf(value.x), ffxLinearFromSrgbHalf(value.y), ffxLinearFromSrgbHalf(value.z), value.w);
+#else
+        return value;
+#endif
     }
 #endif // defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MID_MIPMAP)
 
 #if defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MID_MIPMAP)
     void StoreMidMipH(FfxFloat16x4 value, FfxInt32x2 uv, FfxUInt32 slice)
     {
-        rw_input_downsample_src_mid_mip[FfxUInt32x3(uv, slice)] = FfxFloat32x4(value);
+        rw_input_downsample_src_mid_mip[FfxUInt32x3(uv, slice)] =
+#if defined(FFX_SPD_SRGB)
+        FfxFloat32x4(
+            ffxSrgbFromLinearHalf(value.x),
+            ffxSrgbFromLinearHalf(value.y),
+            ffxSrgbFromLinearHalf(value.z),
+            value.w
+        );
+#else
+        FfxFloat32x4(value);
+#endif
     }
 #endif // defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MID_MIPMAP)
 
@@ -132,35 +165,68 @@ FfxFloat32x2 InvInputSize()
     {
         FfxFloat32x2 textureCoord = FfxFloat32x2(uv) * InvInputSize() + InvInputSize();
         FfxFloat32x4 result = r_input_downsample_src.SampleLevel(s_LinearClamp, FfxFloat32x3(textureCoord, slice), 0);
-        return FfxFloat32x4(ffxSrgbFromLinear(result.x), ffxSrgbFromLinear(result.y), ffxSrgbFromLinear(result.z), result.w);
+
+        // Assume input image view is sRGB if downsampling an sRGB image.
+        // No need for any conversion here because sRGB to linear happens in the sampler, if needed.
+        return FfxFloat32x4(result.x, result.y, result.z, result.w);
     }
 #endif // defined(FFX_SPD_BIND_SRV_INPUT_DOWNSAMPLE_SRC)
 
 #if defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MIPS)
     FfxFloat32x4 LoadSrcImage(FfxInt32x2 uv, FfxUInt32 slice)
     {
-        return rw_input_downsample_src_mips[0][FfxUInt32x3(uv, slice)];
+        FfxFloat32x4 value = rw_input_downsample_src_mips[0][FfxUInt32x3(uv, slice)];
+#if defined(FFX_SPD_SRGB)
+        return FfxFloat32x4(ffxLinearFromSrgb(value.x), ffxLinearFromSrgb(value.y), ffxLinearFromSrgb(value.z), value.w);
+#else
+        return value;
+#endif
     }
 #endif // defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MIPS)
 
 #if defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MIPS)
     void StoreSrcMip(FfxFloat32x4 value, FfxInt32x2 uv, FfxUInt32 slice, FfxUInt32 mip)
     {
-        rw_input_downsample_src_mips[mip][FfxUInt32x3(uv, slice)] = value;
+        rw_input_downsample_src_mips[mip][FfxUInt32x3(uv, slice)] =
+#if defined(FFX_SPD_SRGB)
+            FfxFloat32x4(
+                ffxSrgbFromLinear(value.x),
+                ffxSrgbFromLinear(value.y),
+                ffxSrgbFromLinear(value.z),
+                value.w
+            );
+#else
+            value;
+#endif
     }
 #endif // defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MIPS)
 
 #if defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MID_MIPMAP)
     FfxFloat32x4 LoadMidMip(FfxInt32x2 uv, FfxUInt32 slice)
     {
-        return rw_input_downsample_src_mid_mip[FfxUInt32x3(uv, slice)];
+        FfxFloat32x4 value = rw_input_downsample_src_mid_mip[FfxUInt32x3(uv, slice)];
+#if defined(FFX_SPD_SRGB)
+        return FfxFloat32x4(ffxLinearFromSrgb(value.x), ffxLinearFromSrgb(value.y), ffxLinearFromSrgb(value.z), value.w);
+#else
+        return value;
+#endif
     }
 #endif // defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MID_MIPMAP)
 
 #if defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MID_MIPMAP)
     void StoreMidMip(FfxFloat32x4 value, FfxInt32x2 uv, FfxUInt32 slice)
     {
-        rw_input_downsample_src_mid_mip[FfxUInt32x3(uv, slice)] = value;
+        rw_input_downsample_src_mid_mip[FfxUInt32x3(uv, slice)] =
+#if defined(FFX_SPD_SRGB)
+            FfxFloat32x4(
+                ffxSrgbFromLinear(value.x),
+                ffxSrgbFromLinear(value.y),
+                ffxSrgbFromLinear(value.z),
+                value.w
+            );
+#else
+            value;
+#endif
     }
 #endif // defined(FFX_SPD_BIND_UAV_INPUT_DOWNSAMPLE_SRC_MID_MIPMAP)
 

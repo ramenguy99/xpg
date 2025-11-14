@@ -1,6 +1,7 @@
-from typing import List, Optional, Union
+from typing import TYPE_CHECKING, Any, List, Union
 
 import numpy as np
+from numpy.typing import NDArray
 from pyxpg import (
     AllocType,
     Buffer,
@@ -32,9 +33,11 @@ from pyxpg import (
 
 from ambra.utils.ring_buffer import RingBuffer
 
-from . import renderer
 from .utils.descriptors import create_descriptor_pool_and_sets_ringbuffer
-from .utils.gpu import view_bytes
+from .utils.gpu import MipGenerationFilter, view_bytes
+
+if TYPE_CHECKING:
+    from .renderer import Renderer
 
 SPD_MAX_LEVELS = 12
 
@@ -45,7 +48,7 @@ class SPDPipelineInstance:
         atomic_counters: Buffer,
         descriptor_pool: DescriptorPool,
         descriptor_sets: RingBuffer[DescriptorSet],
-        constants: np.ndarray,
+        constants: NDArray[Any],
     ):
         self.atomic_counters = atomic_counters
         self.descriptor_pool = descriptor_pool
@@ -55,7 +58,7 @@ class SPDPipelineInstance:
         self.groups_x = 0
         self.groups_y = 0
 
-    def set_image_extents(self, width: int, height: int, mips: int, x: int = 0, y: int = 0):
+    def set_image_extents(self, width: int, height: int, mips: int, x: int = 0, y: int = 0) -> None:
         rect_width = width
         rect_height = height
 
@@ -83,7 +86,9 @@ class SPDPipelineInstance:
 
 
 class SPDPipeline:
-    def __init__(self, r: "renderer.Renderer"):
+    def __init__(self, r: "Renderer"):
+        from .renderer import SHADERS_PATH
+
         self.constants_dtype = np.dtype(
             {
                 "mips": (np.uint32, 0),
@@ -131,24 +136,36 @@ class SPDPipeline:
             "ffx/ffx_spd_downsample_pass.slang",
             entry="CS",
             defines=[*defines, ("FFX_SPD_OPTION_DOWNSAMPLE_FILTER", "0")],
-            include_paths=[renderer.SHADERS_PATH.joinpath("ffx")],
+            include_paths=[SHADERS_PATH.joinpath("ffx")],
+        )
+        self.avg_srgb_shader = r.compile_builtin_shader(
+            "ffx/ffx_spd_downsample_pass.slang",
+            entry="CS",
+            defines=[*defines, ("FFX_SPD_OPTION_DOWNSAMPLE_FILTER", "0"), ("FFX_SPD_SRGB", "1")],
+            include_paths=[SHADERS_PATH.joinpath("ffx")],
         )
         self.min_shader = r.compile_builtin_shader(
             "ffx/ffx_spd_downsample_pass.slang",
             entry="CS",
             defines=[*defines, ("FFX_SPD_OPTION_DOWNSAMPLE_FILTER", "1")],
-            include_paths=[renderer.SHADERS_PATH.joinpath("ffx")],
+            include_paths=[SHADERS_PATH.joinpath("ffx")],
         )
         self.max_shader = r.compile_builtin_shader(
             "ffx/ffx_spd_downsample_pass.slang",
             entry="CS",
             defines=[*defines, ("FFX_SPD_OPTION_DOWNSAMPLE_FILTER", "2")],
-            include_paths=[renderer.SHADERS_PATH.joinpath("ffx")],
+            include_paths=[SHADERS_PATH.joinpath("ffx")],
         )
 
         self.avg_pipeline = ComputePipeline(
             r.ctx,
             Shader(r.ctx, self.avg_shader.code),
+            descriptor_set_layouts=[self.descriptor_set_layout],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
+        )
+        self.avg_srgb_pipeline = ComputePipeline(
+            r.ctx,
+            Shader(r.ctx, self.avg_srgb_shader.code),
             descriptor_set_layouts=[self.descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
@@ -176,7 +193,7 @@ class SPDPipeline:
 
         self.sync_instance = self.alloc_instance(r, single_set=True)
 
-    def alloc_instance(self, r: "renderer.Renderer", single_set: bool = False) -> SPDPipelineInstance:
+    def alloc_instance(self, r: "Renderer", single_set: bool = False) -> SPDPipelineInstance:
         constants = np.zeros((1,), self.constants_dtype)
 
         atomic_counters = Buffer.from_data(
@@ -206,6 +223,7 @@ class SPDPipeline:
         view_level_0: Union[Image, ImageView],
         mip_views: List[ImageView],
         instance: SPDPipelineInstance,
+        filter: MipGenerationFilter,
     ) -> None:
         s = instance.descriptor_sets.get_current_and_advance()
 
@@ -216,7 +234,19 @@ class SPDPipeline:
                 s.write_image(view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 3, 0)
             s.write_image(view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 4, m)
 
-        cmd.bind_compute_pipeline(self.avg_pipeline, descriptor_sets=[s], push_constants=instance.constants.tobytes())
+        if filter == MipGenerationFilter.AVERAGE:
+            pipeline = self.avg_pipeline
+        elif filter == MipGenerationFilter.AVERAGE_SRGB:
+            pipeline = self.avg_srgb_pipeline
+        elif filter == MipGenerationFilter.MIN:
+            pipeline = self.min_pipeline
+        elif filter == MipGenerationFilter.MAX:
+            pipeline = self.max_pipeline
+        else:
+            raise RuntimeError(f"Unhandled mipmap generation filter: {filter}")
+
+        cmd.bind_compute_pipeline(pipeline, descriptor_sets=[s], push_constants=instance.constants.tobytes())
+
         # TODO: new sync. Pass in extra info for before / after stages. Potentially also use sampled layout for first layer in mip (not sure if changes much).
         # maybe even allow barrier batching outside somehow
         cmd.image_barrier(image, ImageLayout.GENERAL, MemoryUsage.ALL, MemoryUsage.COMPUTE_SHADER)
@@ -225,20 +255,24 @@ class SPDPipeline:
 
     def run_sync_with_views(
         self,
-        r: "renderer.Renderer",
+        r: "Renderer",
         image: Image,
         new_layout: ImageLayout,
-        view_level_0: Optional[Union[Image, ImageView]],
+        view_level_0: Union[Image, ImageView],
         mip_views: List[ImageView],
+        filter: MipGenerationFilter,
     ) -> None:
         self.sync_instance.set_image_extents(image.width, image.height, image.mip_levels)
         with r.ctx.sync_commands() as cmd:
-            self.run(cmd, image, new_layout, view_level_0, mip_views, self.sync_instance)
+            self.run(cmd, image, new_layout, view_level_0, mip_views, self.sync_instance, filter)
 
-    def run_sync(self, r: "renderer.Renderer", image: Image, new_layout: ImageLayout) -> None:
-        # TODO: srgb should likely be a parameter here anyways (fix when we we fix sRGB mip pipeline)
+    def run_sync(self, r: "Renderer", image: Image, new_layout: ImageLayout, filter: MipGenerationFilter) -> None:
         level_0_view = ImageView(
-            r.ctx, image, ImageViewType.TYPE_2D_ARRAY, format=Format.R8G8B8A8_SRGB, usage_flags=ImageUsageFlags.SAMPLED
+            r.ctx,
+            image,
+            ImageViewType.TYPE_2D_ARRAY,
+            format=Format.R8G8B8A8_SRGB if filter == MipGenerationFilter.AVERAGE_SRGB else Format.R8G8B8A8_UNORM,
+            usage_flags=ImageUsageFlags.SAMPLED,
         )
         views = [
             ImageView(
@@ -248,6 +282,6 @@ class SPDPipeline:
                 base_mip_level=m,
                 mip_level_count=1,
             )
-            for m in min(image.mip_levels, range(SPD_MAX_LEVELS + 1))
+            for m in range(min(image.mip_levels, SPD_MAX_LEVELS + 1))
         ]
-        self.run_sync_with_views(r, image, new_layout, level_0_view, views)
+        self.run_sync_with_views(r, image, new_layout, level_0_view, views, filter)
