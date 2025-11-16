@@ -1,23 +1,4 @@
 Priority:
-- [ ] Finalize Property API:
-    - [ ] update, append, insert, remove frames
-    - [ ] customize property options (maybe just as_buffer_property, but calling DataBufferProperty directly)
-    - [ ] Free / release GPU properties
-        - [ ] Move ownership of GPU property to Property?
-              - Helps with sharing data and freeing
-              - Not sure how to handle things like usage flags, image layout and synchronization
-    - [ ] Buffer suballocation / texture array for huge number of frames:
-        -> can't afford one buffer per-frame when uploading lots of frames
-        -> currently can work around this with streaming API
-    - [ ] How do we want to handle properties that can have multiple dtypes?
-        - Use cases:
-            - vertex attribute formats for meshes
-            - spherical harmonics formats for gs
-        - [ ] Ideally want to infer from dtype of data passed in, but right now BufferProperty could have
-              a None dtype, or we could get a tuple of scalars, or some list of heterogeneous frames.
-              We might want to force a BufferProperty to always have a concrete dtype, kind of like a numpy array does
-              I don't think we have a usecase yet for frames with different dtypes, this anyways makes certain things
-              very hard because different dtype choices likely require different pipelines and shaders.
 - [ ] Lights, materials and shader permutations
     - [x] Cache shader compilations also in memory
     - [x] Ambient light
@@ -25,8 +6,6 @@ Priority:
     - [x] IBL
         - [x] Cubemaps
         - [x] Sampling
-    - [ ] Expose sampling options in materials
-    - [ ] Cache pipelines -> requires hashable pyxpg objects
     - [x] Try loading PBR model (e.g. helmet)
         - [x] sRGB textures -> already supported by specifying format on image property?
         - [x] normal mapping
@@ -45,6 +24,8 @@ Priority:
                 case for having separate layouts so we don't expose this yet.
         - [x] Mip generation for materials
             - [x] Start simple, could potentially batch those generations at some point.
+    - [ ] Expose sampling options in materials
+- [ ] Cache pipelines -> requires hashable pyxpg objects
 - [ ] Stages presets in config or in helper functions (empty, origin, floor, lights, maybe more?)
 - [ ] Basic client/server example and initial set of APIs
 - [ ] Multi-viewport
@@ -85,22 +66,74 @@ New property API plans:
                         - Call create_if_needed on each unique enabled property
                         - Call load on each enabled property
                         - Call upload on each enabled property
-    - [ ] Move GPU property inside property -> maybe also take advantage of split between List and Array for is_jagged stuff in GpuBufferProperty (or add new API with default that exposes this info)
+    - [x] Move GPU property inside property -> maybe also take advantage of split between List and Array for is_jagged stuff in GpuBufferProperty (or add new API with default that exposes this info)
         - [x] Add the concept of a gpu usage (to collect constraints)
         - [x] Reroute gpu property creation and load/upload stuff through properties
-        - [ ] Enable mip generation and sRGB
+        - [x] Enable mip generation and sRGB
             - [x] Include extra data in GpuResourceProperty -> e.g. offset + size for buffer, ImageViews for images
             - [x] We now have the concept of a default image view that covers the whole image. This is mostly useful to create descriptors from an image and to render to an image.
                   Maybe we should again move away from this abstraction and have users create their views independently. For example this view is not useful for texture arrays
                   used for batching where you want to view a slice at a time -> now keeping this for convenience and creating additional views for mip generation when needed.
-            - [ ] Streaming mip creation and barriers -> opportunity to cleanup and unify some stuff maybe?
-            - [ ] sRGB does not seem to be handled properly by SPD. As far as I can see SPD always converts from linear to sRGB and does averaging in sRGB.
+            - [x] sRGB does not seem to be handled properly by SPD. As far as I can see SPD always converts from linear to sRGB and does averaging in sRGB.
                   My understanding is that we would want the opposite of this. Sample does sRGB -> linear (either automatically with sRGB view or manually when reading
                   from storage image, this includes the mid mip) and we linear -> sRGB manually before storing.
-    - [ ] Re-think GpuPropety and come up with a plan for insertion/remove/update and potential batching -> I am ok if batching is only allowed on Array* variants and those do not allow remove/insert (but do allow update).
-    - [ ] Test a bunch of cases with user property creation
+    - [ ] New sync API
+        - [ ] Combine pipeline stage and access flags
+        - [ ] Batch upload and mip generation barriers
+                -> Need to store/exec all image barriers that require layout transitions
+                -> Need to store/exec all queue ownership barriers
+                -> Need to store/exec all memory barriers (could potentially remove duplicates / combine)
+        - [ ] Image layout breaks down when you start having texture arrays or mips with different elements in differents layouts
+                -> for batching images into single texture array we likely want to lift this constraint (not so important at creation, but for e.g. updating a single frame)
+    - [ ] Streaming mip creation and barriers
+    - [ ] update, append, insert, remove frames -> I am ok if batching is only allowed on Array* variants and those do not allow remove/insert (but do allow update).
+        - [ ] Both API objects and underlying data needs to be updated
+            - [ ] API objects are likely in list and can be cheap to move / realloc
+        - [ ] Texture arrays and batched buffers are implicitly incompatible with append / insert / remove
+              - Default to recreate gpu property if this happens.
+    - [ ] Buffer suballocation / texture array for huge number of frames:
+        -> can't afford one buffer per-frame when uploading lots of frames
+        -> currently can work around this with streaming API
+    - [ ] ideally remove or integrate generation index, I'd like it if we
+          did not have stuff that scales in cost or memory with number
+          of frames for the streaming case, it's also one more thing to keep in
+          sync when updating / removing frames, but maybe unavoidable?
+        - [ ] LRU Pool is very overloaded right now, I am not sure if we actually need it
+              or if we can simplify stuff (maybe take out in flight stuff and generation index)
+              -> weird that we use in flight of size 1 for the GpuPool
+              -> weird to give all generation index stuff to LRUPool, but in some way makes sense because the LRU
+                 pool can evict based on generation information
+              -> maybe instead of removing the whole generation concept make it completely internal instead and
+                 keep track of generation indices only for elements in the LRU pool (instead of everything)
+                 (maybe even switch around and keep 0 for latest and increment for eviction)
+    - Resource usecases:
+        Preuploaded:
+        - Uniform / varying preallocated array (Array*Property for uniform, ListProperty for varying, GpuProperty with batched alloc, invalidate for reupload)
+        Async with accumulation:
+        - Sensor / streaming data, accumulated but untouched -> data generated on a separate thread at variable rate (List*Property + GpuProperty with streaming alloc)
+        Async with replacement (same as preuploaded dynamic content, even though data comes from a different thread):
+        - Sensor / streaming data always replacing previous element (ArrayProperty + Gpu property with batched alloc, invalidate for reupload)
+        Async with ring-buffer style accumulation:
+        - Sensor / streaming data, accumulated in ring-buffer but untouched (not supported by default but can be implemented on top of ArrayProperty + Gpu property with batched alloc, invalidate for reupload -> kinda complicated how this interact with playback, because we don't have a concept of ringbuffer playback)
+        Sequence browsing (with optional prefetch / buffering):
+        - Static data from disk (potentially variable size frames but can figure out a max size) (StreamingProperty + GpuProperty with streaming alloc)
+        Spatial browsing (with optional prefetch / buffering):
+        - Single frame of data (uncovered by our current system -> can be built as a custom renderable though. The property system is really only about time, not space)
+
+    - Updates on Gpu Property variants:
+        - Preuploaded:
+            - update -> dynamic property with invalidate_frame() (uniform and mapped uses full LRU), (jagged or unmapped uses small LRU + gpu timeline copies)
+            - append -> batched needs full recreate (and wait for idle or keep around until unused before destroying), non-batched can create and append a new buffer to list (requires renderer for bulk upload)
+            - insert -> similar to above
+            - remove -> similar to above but also need to keep in use buffer around until unused before destroying. (I prefer the idea of keeping around and manually calling destroy just to know when that will actually happen)
+        - Streaming:
+            - update -> invalidate_frame()  (just removes from LRU and increments generation index)
+            - append -> works out of the box, frame index will not be found and will be uploaded next
+            - insert -> requires invalidating all frame indices at and above insertion point (using new frame count) (can also just flush everything if faster)
+            - remove -> requires invalidating all frame_index at and above remove point (using new frame count) (can also just flush everything if faster)
+
 - Front-end (public property / primitive / user API):
-    - [o] reuse Property and GpuProperty across different objects
+    - [x] reuse Property and GpuProperty across different objects
         -> primitive (or user directly) specifies list of constraints when adding property and will aggregate (likely can do live aggregation don't need to store the actual list)
             - Buffer or Image flags -> just OR
             - Memory usage / pipeline stage -> ideally just pipeline stage and access and this will be used with lower level barrier API -> take earliest stage and or of accesses
@@ -120,12 +153,12 @@ New property API plans:
            implement incrementally by adding constraint and checking if something
            changed), if needed users are expected to specify all constraints
            upfront and handle that (same rationale as above).
-    - [o] free GpuProperty when dropped (do not hold references in renderer)
+    - [x] free GpuProperty when dropped (do not hold references in renderer)
         -> hold gpu properties in property
         -> expose manual destroy to ensure instant destruction
-    - [o] mip generation in materials
+    - [x] mip generation in materials
         -> set as a boolean on material, forwarded to ImageProperty
-    - [ ] material creation currently requires creating DataImageProperty manually,
+    - [x] material creation currently requires creating DataImageProperty manually,
           it makes sense from an implementation perspective because you need a way
           to distinguish between textures and arrays of scalars.
           Normal engines have a split at a higher level where you need to create
@@ -133,12 +166,7 @@ New property API plans:
           maybe creates more problems than solutions.
           We have this tradeoff between userspace Buffer and Texture in normal engines
           vs userspace Property. Still not 100% sold on this.
-    - [ ] updating, inserting and removing frames
-        - [ ] Both API objects and underlying data needs to be updated
-            - [ ] API objects are likely in list and can be cheap to move / realloc
-        - [ ] Texture arrays and batched buffers are implicitly incompatible with append / insert / remove
-              But we could use them for static data and fallback for dynamic to different strat
-    - [ ] allow different dtypes for a property
+    - [x] allow different dtypes for a property
         - Better definition of what you need to implement a property:
             All:
             - number of frames -> len()
@@ -183,20 +211,13 @@ New property API plans:
             - Anyway we could at least enforce a BufferProperty to have a concrete dtype (similar to how an image needs a format)
               and leave special shape constraints to options on the primitive.
 - Backend (non-public property and renderer API):
-    - [ ] batching of buffer properties in a single buffer, and images in a texture array
-    - [ ] ideally remove or integrate generation index, I'd like it if we
-          did not have stuff that scales in cost or memory with number
-          of frames for the streaming case, it's also one more thing to keep in
-          sync when updating / removing frames, but maybe unavoidable?
-    - [o] multiple GpuProperties backed up by the same property?
+    - [x] multiple GpuProperties backed up by the same property?
         -> does not make sense, main use case would be to save CPU memory
            but you can create multiple properties over the same data without copying.
         -> somehow connected to multiple dtypes for a property, current behaviour is
            to astype() properties, but if you really care about memory you want to either
            create a view or error out if type is not ok. Maybe this should anyways be
            the default behavior (or opt in with some flag just for when you care).
-- [ ] think about minimizing scene traversals (ideally only one per-frame)
-      and quickly filtering properties that do not need updates
 
 TODO:
 - [ ] Primitives

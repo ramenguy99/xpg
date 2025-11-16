@@ -5,12 +5,71 @@ import PIL.Image
 from pyxpg import *
 
 from ambra.config import Config
-from ambra.utils.gpu import readback_mips
+from ambra.utils.gpu import MipGenerationFilter, readback_mips
 from ambra.viewer import Viewer
 
-data = np.asarray(PIL.Image.open(sys.argv[1]))
-if data.shape[2] == 3:
-    data = np.dstack((data, np.full(data.shape[:2], 255, data.dtype)))
+if False:
+    data = np.array(
+        [
+            [
+                [127, 127, 127, 255],
+                [127, 127, 127, 255],
+                [127, 127, 127, 255],
+                [127, 127, 127, 255],
+            ],
+            [
+                [127, 127, 127, 255],
+                [127, 127, 127, 255],
+                [127, 127, 127, 255],
+                [127, 127, 127, 255],
+            ],
+        ],
+        np.uint8,
+    )
+elif False:
+    data = np.array(
+        [
+            [
+                [255, 255, 255, 255],
+                [0, 0, 0, 255],
+            ],
+            [
+                [0, 0, 0, 255],
+                [255, 255, 255, 255],
+            ],
+        ],
+        np.uint8,
+    )
+else:
+    data = np.array(
+        [
+            [
+                [255, 255, 255, 255],
+                [255, 255, 255, 255],
+                [0, 0, 0, 255],
+                [0, 0, 0, 255],
+            ],
+            [
+                [255, 255, 255, 255],
+                [255, 255, 255, 255],
+                [0, 0, 0, 255],
+                [0, 0, 0, 255],
+            ],
+            [
+                [0, 0, 0, 255],
+                [0, 0, 0, 255],
+                [255, 255, 255, 255],
+                [255, 255, 255, 255],
+            ],
+            [
+                [0, 0, 0, 255],
+                [0, 0, 0, 255],
+                [255, 255, 255, 255],
+                [255, 255, 255, 255],
+            ],
+        ],
+        np.uint8,
+    )
 
 height, width = data.shape[:2]
 num_mips = max(width.bit_length(), height.bit_length())
@@ -30,9 +89,9 @@ img = Image.from_data(
     mip_levels=num_mips,
 )
 
-v.renderer.spd_pipeline.run_sync(v.renderer, img, ImageLayout.TRANSFER_SRC_OPTIMAL)
+v.renderer.spd_pipeline.run_sync(v.renderer, img, ImageLayout.TRANSFER_SRC_OPTIMAL, MipGenerationFilter.AVERAGE)
 
 mips = readback_mips(v.ctx, img, ImageLayout.SHADER_READ_ONLY_OPTIMAL)
 for m in mips:
-    h, w = m.shape[:2]
-    PIL.Image.fromarray(m).save(f"mip_{w}x{h}.png")
+    print(m.shape)
+    print(m)
