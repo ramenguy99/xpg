@@ -12,7 +12,6 @@ from pyxpg import (
     Format,
     ImageLayout,
     ImageUsageFlags,
-    MemoryUsage,
     PipelineStageFlags,
 )
 
@@ -184,7 +183,7 @@ class Property:
         self.upload = upload if upload is not None else UploadSettings(preupload=True)
 
         self.current_frame_index = 0
-        self.gpu_property: Union[None, gpu_property.GpuBufferProperty, gpu_property.GpuImageProperty] = None
+        self.gpu_property: Optional[gpu_property.GpuProperty] = None
 
         self.update_callbacks: List[Callable[[Property], None]] = []
 
@@ -278,23 +277,31 @@ class BufferProperty(Property):
         return self
 
     def get_current_gpu(self) -> gpu_property.GpuBufferView:
-        assert isinstance(self.gpu_property, gpu_property.GpuBufferProperty)
+        assert self.gpu_property
         return self.gpu_property.get_current()
 
     def create(self, r: "Renderer") -> None:
         if self.gpu_usage and self.gpu_property is None:
-            self.gpu_property = gpu_property.GpuBufferProperty(
-                r.ctx,
-                r.num_frames_in_flight,
-                r.buffer_upload_method,
-                r.thread_pool,
-                r.bulk_upload_list,
-                self,
-                self.gpu_usage,
-                MemoryUsage.ALL,  # TODO: new sync API
-                self.gpu_stage,
-                self.name,
-            )
+            if self.upload.preupload:
+                self.gpu_property = gpu_property.GpuBufferPreuploadedProperty(
+                    r.ctx,
+                    r.num_frames_in_flight,
+                    r.buffer_upload_method,
+                    r.thread_pool,
+                    r.bulk_upload_list,
+                    self,
+                    self.name,
+                )
+            else:
+                self.gpu_property = gpu_property.GpuBufferStreamingProperty(
+                    r.ctx,
+                    r.num_frames_in_flight,
+                    r.buffer_upload_method,
+                    r.thread_pool,
+                    r.bulk_upload_list,
+                    self,
+                    self.name,
+                )
 
 
 class ImageProperty(Property):
@@ -344,21 +351,23 @@ class ImageProperty(Property):
 
     def create(self, r: "Renderer") -> None:
         if self.gpu_usage and self.gpu_property is None:
-            self.gpu_property = gpu_property.GpuImageProperty(
-                r.ctx,
-                r.num_frames_in_flight,
-                r.image_upload_method,
-                r.thread_pool,
-                r.bulk_upload_list,
-                self,
-                self.gpu_usage,
-                self.gpu_layout,
-                MemoryUsage.ALL,  # TODO: new sync API
-                self.gpu_stage,
-                self.gpu_srgb,
-                self.gpu_mips,
-                self.name,
-            )
+            raise NotImplementedError
+
+            # self.gpu_property = gpu_property.GpuImageProperty(
+            #     r.ctx,
+            #     r.num_frames_in_flight,
+            #     r.image_upload_method,
+            #     r.thread_pool,
+            #     r.bulk_upload_list,
+            #     self,
+            #     self.gpu_usage,
+            #     self.gpu_layout,
+            #     MemoryUsage.ALL,  # TODO: new sync API
+            #     self.gpu_stage,
+            #     self.gpu_srgb,
+            #     self.gpu_mips,
+            #     self.name,
+            # )
 
 
 class ShapeError(Exception):
@@ -409,6 +418,29 @@ class ArrayBufferProperty(BufferProperty):
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         return self.data[frame_index]  # type: ignore
 
+    def create(self, r: "Renderer") -> None:
+        if self.gpu_usage and self.gpu_property is None:
+            if self.upload.preupload:
+                self.gpu_property = gpu_property.GpuBufferPreuploadedArrayProperty(
+                    self.data,
+                    r.ctx,
+                    r.num_frames_in_flight,
+                    r.buffer_upload_method,
+                    r.bulk_upload_list,
+                    self,
+                    self.name,
+                )
+            else:
+                self.gpu_property = gpu_property.GpuBufferStreamingProperty(
+                    r.ctx,
+                    r.num_frames_in_flight,
+                    r.buffer_upload_method,
+                    r.thread_pool,
+                    r.bulk_upload_list,
+                    self,
+                    self.name,
+                )
+
     def update_frame(self, frame_index: int, frame: ArrayLike) -> None:
         self.data[frame_index] = frame
         if self.gpu_property is not None:
@@ -444,7 +476,6 @@ class ArrayBufferProperty(BufferProperty):
 
     def remove_frame_range(self, start: int, stop: int) -> None:
         self.data = np.delete(self.data, slice(start, stop), axis=0)
-
 
 
 class ListBufferProperty(BufferProperty):

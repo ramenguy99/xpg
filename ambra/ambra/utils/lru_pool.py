@@ -39,35 +39,52 @@ class LRUPool(Generic[K, O]):
         num_frames: int,
         max_prefetch: int = 0,
     ):
-        self.lru: OrderedDict[O, Optional[Tuple[K, int]]] = OrderedDict()
+        # (Key, Generation) -> Entry: holds all entries in use
         self.lookup: OrderedDict[Tuple[K, int], _Entry[O]] = OrderedDict()
+
+        # Object -> (Key, Generation): holds all free objects. If the object
+        # is not yet associated with any key (if it was never used before)
+        # the value for that item will be None.
+        self.lru: OrderedDict[O, Optional[Tuple[K, int]]] = OrderedDict()
+
+        # ((Key, Generation), Entry): list of entries in flight with their key and generation
         self.in_flight: List[Optional[Tuple[Tuple[K, int], _Entry[O]]]] = [None] * num_frames
+
+        # Key -> Generation: current generation of in use keys. If a key is not
+        # in use, it will not be in this map and its generation will be implicitly 0.
+        #
+        # The generation index is increased when requested by the user.
+        # It will also be reset when there is no entry associated with that
+        # key in the lookup anymore (this implies no reference also in the lru,
+        # in_flight list, and prefetch_store).
+        self.current_generation: Dict[K, int] = {}
+
+        # Maximum number of prefetched items at a time
         self.max_prefetch: int = max_prefetch
+
+        # Object -> (Key, Generation): stores state for each prefetching item
         self.prefetch_store: Dict[O, Tuple[K, int]] = {}
 
+        # Initialize LRU to empty objects
         for o in objs:
             self.lru[o] = None
 
     def get(
         self,
-        key: K,
+        k: K,
         load: Callable[[K, O], None],
         ensure_fetched: Optional[Callable[[K, O], None]] = None,
     ) -> O:
+        key = (k, self.current_generation.get(k, 0))
         cached = self.lookup.get(key)
 
         # Check if already loaded
         if cached is None:
-            # Grab a free buffer
-            obj, old_key = self.lru.popitem(last=False)
-
-            # Check if the buffer was ever used before
-            if old_key is not None:
-                # Remove the bufer from the lookup
-                self.lookup.pop(old_key)
+            # Grab a free object from the lru
+            obj = self._lru_pop_free()
 
             # Load
-            load(key, obj)
+            load(key[0], obj)
 
             # Register buffer as loaded for future use
             self.lookup[key] = _Entry(obj, _RefCount(), prefetching=False)
@@ -77,7 +94,7 @@ class LRUPool(Generic[K, O]):
             if cached.prefetching:
                 # Realize prefetch
                 if ensure_fetched:
-                    ensure_fetched(key, obj)
+                    ensure_fetched(key[0], obj)
 
                 # Item is still in the prefetching list here.
                 # It will be removed by the next prefetch cleanup
@@ -91,55 +108,69 @@ class LRUPool(Generic[K, O]):
         return obj
 
     def is_available(self, k: K) -> bool:
-        cached = self.lookup.get(k)
+        cached = self.lookup.get((k, self.current_generation.get(k, 0)))
         return cached is not None and not cached.prefetching
 
     def is_available_or_prefetching(self, k: K) -> bool:
-        cached = self.lookup.get(k)
+        cached = self.lookup.get((k, self.current_generation.get(k, 0)))
         return cached is not None
 
-    def evict_next(self, k: K) -> None:
-        if (o := self.lookup.get(k)) is not None:
+    def increment_generation(self, k: K) -> None:
+        gen = self.current_generation.get(k, 0)
+        if (o := self.lookup.get((k, gen))) is not None:
+            self.current_generation[k] = gen + 1
             try:
                 self.lru.move_to_end(o.obj, last=False)
             except KeyError:
                 pass
 
-    # def use_frame(self, frame_index: int, key: K) -> None:
-    #     entry = self.lookup[key]
-    #     entry.refcount.inc()
-    #     self.in_flight[frame_index] = (key, entry)
+    def use_frame(self, frame_index: int, k: K) -> None:
+        key = (k, self.current_generation.get(k, 0))
 
-    # def use_manual(self, key: K) -> None:
-    #     entry = self.lookup[key]
-    #     entry.refcount.inc()
+        entry = self.lookup[key]
+        entry.refcount.inc()
+        self.in_flight[frame_index] = (key, entry)
 
-    # def release_manual(self, key: K) -> None:
-    #     entry = self.lookup[key]
+    def use_manual(self, k: K) -> None:
+        key = (k, self.current_generation.get(k, 0))
 
-    #     # Decrement refcount
-    #     if entry.refcount.dec():
-    #         # If refcount is 0 add buffer back to LRU
-    #         self.lru[entry.obj] = key
-    #         # if key[1] < self.frame_generation_indices[key[0]]:
-    #         #     self.lru.move_to_end(entry.obj, last=False)
+        entry = self.lookup[key]
+        entry.refcount.inc()
 
-    # def release_frame(self, frame_index: int) -> None:
-    #     if old := self.in_flight[frame_index]:
-    #         key, entry = old
+    def release_manual(self, k: K) -> None:
+        key = (k, self.current_generation.get(k, 0))
 
-    #         # Decrement refcount
-    #         if entry.refcount.dec():
-    #             # If refcount is 0 add buffer back to LRU
-    #             self.lru[entry.obj] = key
-    #             # if key[1] < self.frame_generation_indices[key[0]]:
-    #             #     self.lru.move_to_end(entry.obj, last=False)
+        entry = self.lookup[key]
 
-    #         # Mark nothing in flight yet for this frame.
-    #         self.in_flight[frame_index] = None
+        # Decrement refcount
+        if entry.refcount.dec():
+            # If refcount is 0 add buffer back to LRU
+            self.lru[entry.obj] = key
 
-    # def give_back(self, key: K, obj: O) -> None:
-    #     self.lru[obj] = key
+            # If this is an old generation of this buffer move it
+            # to the end of the LRU to make sure it will be evicted soon.
+            if key[1] < self.current_generation.get(key[0], 0):
+                self.lru.move_to_end(entry.obj, last=False)
+
+    def release_frame(self, frame_index: int) -> None:
+        if old := self.in_flight[frame_index]:
+            key, entry = old
+
+            # Decrement refcount
+            if entry.refcount.dec():
+                # If refcount is 0 add buffer back to LRU
+                self.lru[entry.obj] = key
+
+                # If this is an old generation of this buffer move it
+                # to the end of the LRU to make sure it will be evicted soon.
+                if key[1] < self.current_generation.get(key[0], 0):
+                    self.lru.move_to_end(entry.obj, last=False)
+
+            # Mark nothing in flight yet for this frame.
+            self.in_flight[frame_index] = None
+
+    def give_back(self, k: K, obj: O) -> None:
+        self.lru[obj] = (k, self.current_generation.get(k, 0))
 
     def prefetch(
         self,
@@ -156,8 +187,8 @@ class LRUPool(Generic[K, O]):
                 if self.lookup[key].prefetching:
                     self.lru[obj] = key
 
-                    # Check if the buffer is out of date or it's not in the window
-                    if key[1] > self.frame_generation_indices[key[0]] or key[0] not in useful_range:
+                    # Check if the buffer is old or it's not in the window
+                    if key[1] < self.current_generation.get(key[0], 0) or key[0] not in useful_range:
                         # Move to end of LRU to ensure this buffer is reused soon
                         self.lru.move_to_end(obj, last=False)
 
@@ -171,15 +202,14 @@ class LRUPool(Generic[K, O]):
 
         bump = []
         prefetch_count = self.max_prefetch - len(self.prefetch_store)
+
+        # Submit prefetch requests and allocate buffers in ascending distance.
         for k in useful_range[:prefetch_count]:
-            key = (k, self.frame_generation_indices[k])
+            key = (k, self.current_generation.get(k, 0))
             cached = self.lookup.get(key)
             if cached is None:
-                # Grab a free buffer
-                obj, old_key = self.lru.popitem(last=False)
-                if old_key is not None:
-                    # Remove the bufer from the lookup
-                    self.lookup.pop(old_key)
+                # Grab a free object from the lru
+                obj = self._lru_pop_free()
 
                 # Submit for load
                 submit_load(key[0], obj)
@@ -190,6 +220,9 @@ class LRUPool(Generic[K, O]):
             else:
                 # If already loaded just bump in front of LRU
                 bump.append(cached.obj)
+
+        # Bump to front in reverse order to ensure the closest element
+        # will be evicted as late as possible.
         for o in reversed(bump):
             try:
                 # Refresh entry in LRU cache
@@ -202,3 +235,16 @@ class LRUPool(Generic[K, O]):
         self.lookup.clear()
         self.in_flight.clear()
         self.prefetch_store.clear()
+        self.current_generation.clear()
+
+    def _lru_pop_free(self) -> O:
+        obj, old_key = self.lru.popitem(last=False)
+        if old_key is not None:
+            # Remove the bufer from the lookup
+            self.lookup.pop(old_key)
+
+            # If we are removing the buffer with the current generation,
+            # reset its generation number to 0 by removing it.
+            if self.current_generation.get(old_key[0]) == old_key[1]:
+                del old_key[0]
+        return obj
