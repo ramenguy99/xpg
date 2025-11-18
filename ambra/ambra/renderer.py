@@ -5,7 +5,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from pyxpg import (
@@ -44,7 +44,6 @@ from .config import RendererConfig, UploadMethod
 
 # from . import ffx, lights, scene
 from .ffx import SPDPipeline
-from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .lights import (
     LIGHT_TYPES_INFO,
     EnvironmentLight,
@@ -70,6 +69,9 @@ from .utils.gpu import (
 from .utils.ring_buffer import RingBuffer
 from .utils.threadpool import ThreadPool
 from .viewport import Viewport
+
+if TYPE_CHECKING:
+    from .gpu_property import GpuProperty
 
 SHADERS_PATH = Path(__file__).parent.joinpath("shaders")
 
@@ -348,7 +350,7 @@ class Renderer:
         self.bulk_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]] = []
 
         # Enabled gpu properties cache for prefetch after frame submission
-        self.enabled_gpu_properties: Set[Union[GpuBufferProperty, GpuImageProperty]] = set()
+        self.enabled_gpu_properties: Set[GpuProperty[Any]] = set()
 
         # MSAA
         # TODO:
@@ -488,7 +490,7 @@ class Renderer:
     def render(self, viewport: Viewport, frame: FrameInputs, gui: Gui) -> None:
         enabled_objects: List[Object] = []
         enabled_lights: List[Light] = []
-        enabled_gpu_properties: Set[Union[GpuBufferProperty, GpuImageProperty]] = set()
+        enabled_gpu_properties: Set[GpuProperty[Any]] = set()
 
         def visit(o: Object) -> None:
             if o.enabled:

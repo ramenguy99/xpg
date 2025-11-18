@@ -31,7 +31,6 @@ from pyxpg import (
 )
 
 from .config import Config
-from .gpu_property import GpuBufferProperty, GpuImageProperty
 from .headless import HeadlessSwapchain, HeadlessSwapchainFrame
 from .keybindings import KeyMap
 from .renderer import FrameInputs, Renderer
@@ -39,6 +38,7 @@ from .scene import Object, Scene
 from .server import Client, Message, RawMessage, Server, parse_builtin_messages
 from .utils.lru_pool import LRUPool
 from .viewport import Playback, Rect, Viewport
+from .gpu_property import GpuProperty, GpuStreamingProperty
 
 _log_levels = {
     LogLevel.TRACE: logging.DEBUG,
@@ -153,7 +153,7 @@ class Viewer:
         self.gui_show_playback = config.gui.playback
         self.gui_show_renderer = config.gui.renderer
         self.gui_selected_obj: Optional[Object] = None
-        self.gui_selected_gpu_property: Optional[Union[GpuBufferProperty, GpuImageProperty]] = None
+        self.gui_selected_gpu_property: Optional[GpuProperty[Any]] = None
 
         # Disable ImGui asserts
         imgui.get_io().config_error_recovery_enable_assert = False
@@ -528,8 +528,7 @@ class Viewer:
             imgui.indent(-5)
 
             imgui.separator()
-            if self.gui_selected_gpu_property is not None:
-
+            if self.gui_selected_gpu_property is not None and isinstance(self.gui_selected_gpu_property, GpuStreamingProperty):
                 def drawpool(name: str, pool: Optional[LRUPool[int, Any]], count: int) -> None:
                     if pool is None:
                         return

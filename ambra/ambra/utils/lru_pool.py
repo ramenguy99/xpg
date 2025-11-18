@@ -246,5 +246,5 @@ class LRUPool(Generic[K, O]):
             # If we are removing the buffer with the current generation,
             # reset its generation number to 0 by removing it.
             if self.current_generation.get(old_key[0]) == old_key[1]:
-                del old_key[0]
+                del self.current_generation[old_key[0]]
         return obj

@@ -170,6 +170,8 @@ class UploadSettings:
 
 
 class Property:
+    gpu_property: Optional[gpu_property.GpuProperty[Any]]
+
     def __init__(
         self,
         num_frames: int,
@@ -183,7 +185,6 @@ class Property:
         self.upload = upload if upload is not None else UploadSettings(preupload=True)
 
         self.current_frame_index = 0
-        self.gpu_property: Optional[gpu_property.GpuProperty] = None
 
         self.update_callbacks: List[Callable[[Property], None]] = []
 
@@ -220,36 +221,44 @@ class Property:
         raise NotImplementedError
 
     def update_frame(self, frame_index: int, frame: Any) -> None:
-        raise NotImplementedError
+        if self.gpu_property is not None:
+            self.gpu_property.invalidate_frame(frame_index)
 
     def append_frame(self, frame: Any) -> None:
-        raise NotImplementedError
+        if self.gpu_property is not None:
+            self.gpu_property.append_frame()
 
     def insert_frame(self, frame_index: int, frame: Any) -> None:
-        raise NotImplementedError
+        if self.gpu_property is not None:
+            self.gpu_property.insert_frame(frame_index)
 
     def remove_frame(self, frame_index: int) -> None:
-        raise NotImplementedError
+        if self.gpu_property is not None:
+            self.gpu_property.remove_frame(frame_index)
 
     def update_frames(self, frame_indices: List[int], frames: Any) -> None:
-        for i, f in zip(frame_indices, frames):
-            self.update_frame(i, f)
+        if self.gpu_property is not None:
+            self.gpu_property.invalidate_frames(frame_indices)
 
     def append_frames(self, frames: Any) -> None:
-        for f in frames:
-            self.append_frame(f)
+        if self.gpu_property is not None:
+            self.gpu_property.append_frames() # TODO: figure out what information we need here (likely just number of new frames, or new num_frames)
 
-    def insert_frames(self, start_index: int, frames: Any) -> None:
-        raise NotImplementedError
+    def insert_frames(self, index: int, frames: Any) -> None:
+        if self.gpu_property is not None:
+            self.gpu_property.insert_frames(index) # TODO: figure out what information we need here
 
     def remove_frames(self, frame_indices: List[int]) -> None:
-        raise NotImplementedError
+        if self.gpu_property is not None:
+            self.gpu_property.remove_frames(frame_indices) # TODO: figure out what information we need here
 
     def update_frame_range(self, start: int, data: Any) -> None:
-        self.update_frames(list(range(start, start + len(data))), data)
+        if self.gpu_property is not None:
+            self.gpu_property.update_frame_range(start) # TODO: figure out what information we need here
 
     def remove_frame_range(self, start: int, stop: int) -> None:
-        self.remove_frames(list(range(start, stop)))
+        if self.gpu_property is not None:
+            self.gpu_property.remove_frame_range(start, stop) # TODO: figure out what information we need here
 
 
 class BufferProperty(Property):
@@ -268,6 +277,7 @@ class BufferProperty(Property):
         self.dtype = dtype
         self.shape = shape
 
+        self.gpu_property: Optional[gpu_property.GpuProperty[gpu_property.GpuBufferView]] = None
         self.gpu_usage = BufferUsageFlags(0)
         self.gpu_stage = PipelineStageFlags(0)
 
@@ -277,7 +287,7 @@ class BufferProperty(Property):
         return self
 
     def get_current_gpu(self) -> gpu_property.GpuBufferView:
-        assert self.gpu_property
+        assert self.gpu_property is not None
         return self.gpu_property.get_current()
 
     def create(self, r: "Renderer") -> None:
@@ -298,7 +308,6 @@ class BufferProperty(Property):
                     r.num_frames_in_flight,
                     r.buffer_upload_method,
                     r.thread_pool,
-                    r.bulk_upload_list,
                     self,
                     self.name,
                 )
@@ -320,6 +329,7 @@ class ImageProperty(Property):
         self.height = height
         self.format = format
 
+        self.gpu_property: Optional[gpu_property.GpuProperty[gpu_property.GpuImageView]] = None
         self.gpu_usage = ImageUsageFlags(0)
         self.gpu_stage = PipelineStageFlags(0)
         self.gpu_layout = ImageLayout.UNDEFINED
@@ -346,7 +356,7 @@ class ImageProperty(Property):
         return self
 
     def get_current_gpu(self) -> gpu_property.GpuImageView:
-        assert isinstance(self.gpu_property, gpu_property.GpuImageProperty), self.gpu_property
+        assert self.gpu_property is not None
         return self.gpu_property.get_current()
 
     def create(self, r: "Renderer") -> None:
@@ -436,46 +446,49 @@ class ArrayBufferProperty(BufferProperty):
                     r.num_frames_in_flight,
                     r.buffer_upload_method,
                     r.thread_pool,
-                    r.bulk_upload_list,
                     self,
                     self.name,
                 )
 
     def update_frame(self, frame_index: int, frame: ArrayLike) -> None:
         self.data[frame_index] = frame
-        if self.gpu_property is not None:
-            self.gpu_property.invalidate_frame(frame_index)
+        super().update_frame(frame_index, frame)
 
     def append_frame(self, frame: ArrayLike) -> None:
         self.data = np.append(self.data, np.asarray(frame)[np.newaxis], axis=0)
-        if self.gpu_property is not None:
-            self.gpu_property.append_frame()
+        super().append_frame(frame)
 
     def insert_frame(self, frame_index: int, frame: ArrayLike) -> None:
         self.data = np.insert(self.data, frame_index, frame, axis=0)
-        self.gpu_property.insert_frame(frame_index)
+        super().insert_frame(frame_index, frame)
 
     def remove_frame(self, frame_index: int) -> None:
-        self.data = np.delete(self, frame_index, axis=0)
-        self.gpu_property.remove_frame(frame_index)
+        self.data = np.delete(self.data, frame_index, axis=0)
+        super().remove_frame(frame_index)
 
     def update_frames(self, frame_indices: List[int], frames: ArrayLike) -> None:
         self.data[frame_indices] = frames
+        super().update_frames(frame_indices, frames)
 
     def append_frames(self, frames: ArrayLike) -> None:
         self.data = np.append(self.data, frames, axis=0)
+        super().append_frames(frames)
 
-    def insert_frames(self, index: int, data: ArrayLike) -> None:
-        self.data = np.insert(self.data, index, data, axis=0)
+    def insert_frames(self, index: int, frames: ArrayLike) -> None:
+        self.data = np.insert(self.data, index, frames, axis=0)
+        super().insert_frames(index, frames)
 
     def remove_frames(self, frame_indices: List[int]) -> None:
-        self.data = np.delete(self, frame_indices, axis=0)
+        self.data = np.delete(self.data, frame_indices, axis=0)
+        super().remove_frames(frame_indices)
 
-    def update_frame_range(self, start: int, stop: int, data: ArrayLike) -> None:
-        self.data[slice(start, stop)] = data
+    def update_frame_range(self, start: int, frames: NDArray[Any]) -> None:
+        self.data[start:start+len(frames)] = frames
+        super().update_frame_range(start, frames)
 
     def remove_frame_range(self, start: int, stop: int) -> None:
         self.data = np.delete(self.data, slice(start, stop), axis=0)
+        super().remove_frame_range(start, stop)
 
 
 class ListBufferProperty(BufferProperty):
@@ -510,37 +523,48 @@ class ListBufferProperty(BufferProperty):
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         return self.data[frame_index]
 
-    def update_frame(self, frame_index: int, data: ArrayLike) -> None:
-        self.data[frame_index] = data
+    def update_frame(self, frame_index: int, frame: NDArray[Any]) -> None:
+        self.data[frame_index] = frame
+        super().update_frame(frame_index, frame)
 
-    def append_frame(self, data: ArrayLike) -> None:
-        self.data.append(np.asarray(data))
+    def append_frame(self, frame: NDArray[Any]) -> None:
+        self.data.append(frame)
+        super().append_frame(frame)
 
-    def insert_frame(self, frame_index: int, data: ArrayLike) -> None:
+    def insert_frame(self, frame_index: int, frame: NDArray[Any]) -> None:
         # TODO: handle max size (update or error out when inserting bigger)
-        self.data.insert(frame_index, data)
+        self.data.insert(frame_index, frame)
+        super().insert_frame(frame_index, frame)
 
     def remove_frame(self, frame_index: int) -> None:
         self.data.pop(frame_index)
+        super().remove_frame(frame_index)
 
-    # Use default implementation
-    # def update_frames(self, frame_indices: List[int], data: ArrayLike) -> None:
+    def update_frames(self, frame_indices: List[int], frames: List[NDArray[Any]]) -> None:
+        for i, f in zip(frame_indices, frames):
+            self.data[i] = f
+        super().update_frames(frame_indices, frames)
 
-    def append_frames(self, data: List[ArrayLike]) -> None:
-        self.data.extend(data)
+    def append_frames(self, frames: List[NDArray[Any]]) -> None:
+        self.data.extend(frames)
+        super().append_frames(frames)
 
-    def insert_frames(self, start_index: int, data: List[ArrayLike]) -> None:
-        self.data = self.data[:start_index] + data + self.data[start_index:]
+    def insert_frames(self, index: int, frames: List[NDArray[Any]]) -> None:
+        self.data = self.data[:index] + frames + self.data[index:]
+        super().insert_frames(index, frames)
 
     def remove_frames(self, frame_indices: List[int]) -> None:
         frame_indices_set = set(frame_indices)
-        self.data = [d for d in self.data if d not in frame_indices_set]
+        self.data = [d for i, d in enumerate(self.data) if i not in frame_indices_set]
+        super().remove_frames(frame_indices)
 
-    def update_frame_range(self, start: int, stop: int, data: List[ArrayLike]) -> None:
-        self.data[start:stop] = data
+    def update_frame_range(self, start: int, frames: List[NDArray[Any]]) -> None:
+        self.data[start:len(frames)] = frames
+        super().update_frame_range(start, frames)
 
     def remove_frame_range(self, start: int, stop: int) -> None:
         self.data = self.data[:start] + self.data[stop:]
+        super().remove_frame_range(start, stop)
 
 
 class ArrayImageProperty(ImageProperty):
