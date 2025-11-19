@@ -1,6 +1,5 @@
 import sys
 
-from ambra.utils import profile
 import numpy as np
 import PIL.Image
 from pyxpg import PrimitiveTopology
@@ -10,6 +9,7 @@ from ambra.lights import UniformEnvironmentLight
 from ambra.materials import ColorMaterial, DiffuseMaterial
 from ambra.primitives3d import Mesh
 from ambra.property import ArrayImageProperty
+from ambra.utils import profile
 from ambra.viewer import Viewer
 
 data = np.asarray(PIL.Image.open(sys.argv[1]))

@@ -4,7 +4,7 @@
 import logging
 from queue import Empty, Queue
 from time import perf_counter_ns
-from typing import Any, Callable, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -31,6 +31,7 @@ from pyxpg import (
 )
 
 from .config import Config
+from .gpu_property import GpuBufferView, GpuImageView, GpuPreuploadedArrayProperty, GpuProperty, GpuStreamingProperty
 from .headless import HeadlessSwapchain, HeadlessSwapchainFrame
 from .keybindings import KeyMap
 from .renderer import FrameInputs, Renderer
@@ -38,7 +39,6 @@ from .scene import Object, Scene
 from .server import Client, Message, RawMessage, Server, parse_builtin_messages
 from .utils.lru_pool import LRUPool
 from .viewport import Playback, Rect, Viewport
-from .gpu_property import GpuProperty, GpuStreamingProperty
 
 _log_levels = {
     LogLevel.TRACE: logging.DEBUG,
@@ -528,64 +528,100 @@ class Viewer:
             imgui.indent(-5)
 
             imgui.separator()
-            if self.gui_selected_gpu_property is not None and isinstance(self.gui_selected_gpu_property, GpuStreamingProperty):
-                def drawpool(name: str, pool: Optional[LRUPool[int, Any]], count: int) -> None:
-                    if pool is None:
-                        return
-                    imgui.separator_text(name)
-                    imgui.text("Map")
+            if self.gui_selected_gpu_property is not None:
+                imgui.separator_text(type(self.gui_selected_gpu_property).__name__)
+                if isinstance(self.gui_selected_gpu_property, GpuPreuploadedArrayProperty):
+                    imgui.text(f"Frame size: {self.gui_selected_gpu_property.frame_size}")
+                    imgui.text(f"Upload method: {self.gui_selected_gpu_property.upload_method}")
+                    inv = ", ".join(self.gui_selected_gpu_property.invalid_frames)
+                    imgui.text(f"Invalid frames: {{{inv}}}")
+                    imgui.text("Resource:")
                     imgui.indent()
-                    for lu_k, lu_v in pool.lookup.items():
-                        imgui.text(f"{lu_k} {lu_v}")
+                    imgui.text(f"{self.gui_selected_gpu_property.resource}")
+                    imgui.text(f"{self.gui_selected_gpu_property.resource.alloc}")
                     imgui.unindent()
-
-                    imgui.text("LRU")
+                elif isinstance(self.gui_selected_gpu_property, GpuStreamingProperty):
+                    imgui.text(f"Max frame size: {self.gui_selected_gpu_property.max_frame_size}")
+                    imgui.text(f"Upload method: {self.gui_selected_gpu_property.upload_method}")
+                    imgui.text("CPU Resource:")
                     imgui.indent()
-                    i = 0
-                    for lru_k, lru_v in pool.lru.items():
-                        imgui.text(f"{lru_k} {lru_v}")
-                        i += 1
-                    for _ in range(i, count):
-                        imgui.text("<EMPTY>")
+                    imgui.text(f"{self.gui_selected_gpu_property.cpu_buffers[0].buf}")
+                    imgui.text(f"{self.gui_selected_gpu_property.cpu_buffers[0].buf.alloc}")
                     imgui.unindent()
+                    imgui.text("GPU Resource:")
+                    if self.gui_selected_gpu_property.gpu_resources:
+                        imgui.indent()
+                        v = self.gui_selected_gpu_property.gpu_resources[0].resource
+                        imgui.text(f"{v}")
+                        if isinstance(v, GpuBufferView):
+                            imgui.text(f"{v.buffer.alloc}")
+                        elif isinstance(v, GpuImageView):
+                            imgui.text(f"{v.image.alloc}")
+                        imgui.unindent()
 
-                    imgui.text("In Flight")
-                    imgui.indent()
-                    for if_v in pool.in_flight:
-                        imgui.text(f"{if_v}")
-                    imgui.unindent()
+                    def drawpool(name: str, pool: Optional[LRUPool[int, Any]], count: int) -> None:
+                        if pool is None:
+                            return
+                        imgui.separator_text(name)
+                        imgui.text("Map")
+                        imgui.indent()
+                        for lu_k, lu_v in pool.lookup.items():
+                            imgui.text(f"{lu_k} {lu_v}")
+                        imgui.unindent()
 
-                    imgui.text("Prefetching")
-                    imgui.indent()
-                    i = 0
-                    for pre_k, pre_v in pool.prefetch_store.items():
-                        imgui.text(f"{pre_k} {pre_v}")
-                        i += 1
-                    for _ in range(i, pool.max_prefetch):
-                        imgui.text("<EMPTY>")
-                    imgui.unindent()
+                        imgui.text("LRU")
+                        imgui.indent()
+                        i = 0
+                        for lru_k, lru_v in pool.lru.items():
+                            imgui.text(f"{lru_k} {lru_v}")
+                            i += 1
+                        for _ in range(i, count):
+                            imgui.text("<EMPTY>")
+                        imgui.unindent()
 
-                drawpool(
-                    "CPU",
-                    self.gui_selected_gpu_property.cpu_pool,
-                    len(self.gui_selected_gpu_property.cpu_buffers),
-                )
-                drawpool(
-                    "GPU",
-                    self.gui_selected_gpu_property.gpu_pool,
-                    len(self.gui_selected_gpu_property.gpu_resources),
-                )
+                        imgui.text("In Flight")
+                        imgui.indent()
+                        for if_v in pool.in_flight:
+                            imgui.text(f"{if_v}")
+                        imgui.unindent()
 
-                if self.gui_selected_gpu_property.cpu_pool or self.gui_selected_gpu_property.gpu_pool:
-                    imgui.separator()
+                        imgui.text("Prefetching")
+                        imgui.indent()
+                        i = 0
+                        for pre_k, pre_v in pool.prefetch_store.items():
+                            imgui.text(f"{pre_k} {pre_v}")
+                            i += 1
+                        for _ in range(i, pool.max_prefetch):
+                            imgui.text("<EMPTY>")
+                        imgui.unindent()
 
-                    start = imgui.get_cursor_screen_pos()
-                    dl = imgui.get_window_draw_list()
+                        imgui.text("Generation indices")
+                        imgui.indent()
+                        for gen_k, gen_index in pool.current_generation.items():
+                            imgui.text(f"{gen_k}: {gen_index}")
+                        imgui.unindent()
 
-                    num_frames = self.gui_selected_gpu_property.property.num_frames
-                    current_frame = self.gui_selected_gpu_property.property.current_frame_index
+                    drawpool(
+                        "CPU",
+                        self.gui_selected_gpu_property.cpu_pool,
+                        len(self.gui_selected_gpu_property.cpu_buffers),
+                    )
+                    drawpool(
+                        "GPU",
+                        self.gui_selected_gpu_property.gpu_pool,
+                        len(self.gui_selected_gpu_property.gpu_resources),
+                    )
 
-                    if self.gui_selected_gpu_property.cpu_pool:
+                    if self.gui_selected_gpu_property.cpu_pool or self.gui_selected_gpu_property.gpu_pool:
+                        imgui.separator_text("Frame states")
+                        imgui.spacing()
+
+                        start = imgui.get_cursor_screen_pos()
+                        dl = imgui.get_window_draw_list()
+
+                        num_frames = self.gui_selected_gpu_property.property.num_frames
+                        current_frame = self.gui_selected_gpu_property.property.current_frame_index
+
                         p_min = np.empty((num_frames, 2), np.float32)
                         p_max = np.empty((num_frames, 2), np.float32)
                         delta_x = 5 * np.arange(num_frames, dtype=np.float32)
@@ -619,34 +655,34 @@ class Viewer:
                         imgui.spacing()
                         imgui.spacing()
 
-                    if self.gui_selected_gpu_property.gpu_pool:
-                        p_min[:, 1] = start.y + 22
-                        p_max[:, 1] = start.y + 42
-                        dl.add_rect_batch(
-                            p_min,
-                            p_max,
-                            np.array((0xFFFFFFFF,), np.uint32),
-                            np.array((0.0,), np.float32),
-                            np.array((1.0,), np.float32),
-                        )
-
-                        for (
-                            (g_k, _),
-                            g_v,
-                        ) in self.gui_selected_gpu_property.gpu_pool.lookup.items():
-                            cursor = imgui.Vec2(start.x + 5 * g_k, start.y)
-                            color = 0xFF00FF00 if g_k >= current_frame else 0xFF0000FF
-                            color = color if not g_v.prefetching else 0xFF00FFFF
-                            dl.add_rect_filled(
-                                imgui.Vec2(cursor.x + 1, cursor.y + 23),
-                                imgui.Vec2(cursor.x + 5, cursor.y + 41),
-                                color,
+                        if self.gui_selected_gpu_property.gpu_pool:
+                            p_min[:, 1] = start.y + 22
+                            p_max[:, 1] = start.y + 42
+                            dl.add_rect_batch(
+                                p_min,
+                                p_max,
+                                np.array((0xFFFFFFFF,), np.uint32),
+                                np.array((0.0,), np.float32),
+                                np.array((1.0,), np.float32),
                             )
-                        imgui.spacing()
-                        imgui.spacing()
-                        imgui.spacing()
-                        imgui.spacing()
-                        imgui.spacing()
+
+                            for (
+                                (g_k, _),
+                                g_v,
+                            ) in self.gui_selected_gpu_property.gpu_pool.lookup.items():
+                                cursor = imgui.Vec2(start.x + 5 * g_k, start.y)
+                                color = 0xFF00FF00 if g_k >= current_frame else 0xFF0000FF
+                                color = color if not g_v.prefetching else 0xFF00FFFF
+                                dl.add_rect_filled(
+                                    imgui.Vec2(cursor.x + 1, cursor.y + 23),
+                                    imgui.Vec2(cursor.x + 5, cursor.y + 41),
+                                    color,
+                                )
+                            imgui.spacing()
+                            imgui.spacing()
+                            imgui.spacing()
+                            imgui.spacing()
+                            imgui.spacing()
         imgui.end()
 
     def on_gui(self) -> None:

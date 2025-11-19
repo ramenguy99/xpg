@@ -91,6 +91,25 @@ New property API plans:
             - [ ] API objects are likely in list and can be cheap to move / realloc
         - [ ] Texture arrays and batched buffers are implicitly incompatible with append / insert / remove
               - Default to recreate gpu property if this happens.
+        - Notes:
+            - [x] It makes sense to me that some operations just cause the
+                  GpuProperty to be destroyed and recreated next frame.
+                  We could mark with flags on the property what operations
+                  are supported and recreate for the others, this means we need
+                  to check for all properties if they should create their gpu
+                  property every frame though, now they assume the have been
+                  created already.
+                  -> now objects are created in renderer (potentially bad)
+            - [ ] Not clear what is the best way to destroy existing properties
+                  considering that they might be in use in the current frame and
+                  we currently do not have a reference to the renderer to allow
+                  edits to happen anywhere.
+                  We also probably don't want to do any GPU operations here
+                  because we might actually be on a different thread when this
+                  happens. Need to think about race conditions here really,
+                  maybe this is just not supported and that's it.
+                  But anyways we might not have access to the renderer in every
+                  case (unless we store it in the property).
     - [ ] Buffer suballocation / texture array for huge number of frames:
         -> can't afford one buffer per-frame when uploading lots of frames
         -> currently can work around this with streaming API

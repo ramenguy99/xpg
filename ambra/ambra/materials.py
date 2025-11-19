@@ -144,10 +144,9 @@ class Material:
         self.constants = np.zeros((1,), self.dtype)
 
     def create_if_needed(self, r: "renderer.Renderer") -> None:
-        if self.created:
-            return
-        self.create(r)
-        self.created = True
+        if not self.created:
+            self.create(r)
+            self.created = True
 
     def reupload(self) -> None:
         self.need_upload = True

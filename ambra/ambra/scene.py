@@ -76,19 +76,9 @@ class Object:
     def create_if_needed(self, renderer: "Renderer") -> None:
         if self.material is not None:
             self.material.create_if_needed(renderer)
-            for mp in self.material.properties:
-                mp.property.create(renderer)
 
         if not self.created:
             self.create(renderer)
-
-            # NOTE: if you were to switch a property with a new one that has not
-            # been created yet, this will not create it here because the created
-            # flag is already True for this primitive. Not sure if this is a supported
-            # use case yet.
-            for p in self.properties:
-                p.create(renderer)
-
             self.created = True
 
     def create(self, renderer: "Renderer") -> None:

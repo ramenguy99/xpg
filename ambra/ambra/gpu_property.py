@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
-from enum import Enum, auto
+from enum import Enum, Flag, auto
 from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, Set, Tuple, TypeVar, Union
 
 from numpy.typing import NDArray
@@ -131,7 +131,16 @@ class PrefetchState:
     prefetch_done_value: int
 
 
+class GpuPropertySupportedOperations(Flag):
+    UPDATE = auto()
+    APPEND = auto()
+    POP = auto()
+    INSERT = auto()
+    REMOVE = auto()
+
+
 class GpuProperty(Generic[V]):
+    supported_operations: GpuPropertySupportedOperations
     name: str
 
     # Public API
@@ -147,11 +156,14 @@ class GpuProperty(Generic[V]):
     def prefetch(self) -> None:
         pass
 
-    def invalidate_frame(self, invalidated_property_frame_index: int) -> None:
+    def update_frame(self, index: int) -> None:
+        pass
+
+    def append_frame(self) -> None:
         pass
 
 
-class GpuPreuploadedArrayProperty(Generic[R, V], GpuProperty[V]):
+class GpuPreuploadedArrayProperty(GpuProperty[V], Generic[R, V]):
     def __init__(
         self,
         data: NDArray[Any],
@@ -168,6 +180,7 @@ class GpuPreuploadedArrayProperty(Generic[R, V], GpuProperty[V]):
         self.num_frames_in_flight = num_frames_in_flight
         self.upload_method = upload_method
         self.property = property
+        self.supported_operations = GpuPropertySupportedOperations.UPDATE
         self.name = name
 
         self.resource = self._create_preuploaded_array_resource(data, out_upload_list)
@@ -202,8 +215,8 @@ class GpuPreuploadedArrayProperty(Generic[R, V], GpuProperty[V]):
         assert self.current is not None
         return self.current
 
-    def invalidate_frame(self, invalidated_property_frame_index: int) -> None:
-        self.invalid_frames.add(invalidated_property_frame_index)
+    def update_frame(self, index: int) -> None:
+        self.invalid_frames.add(index)
 
         # Allocate staging buffers for this property
         if self.staging_buffers is None:
@@ -301,7 +314,7 @@ class GpuBufferPreuploadedArrayProperty(GpuPreuploadedArrayProperty[Buffer, GpuB
         cmd.memory_barrier(MemoryUsage.TRANSFER_DST, self.memory_usage)
 
 
-class GpuPreuploadedProperty(Generic[R, V], GpuProperty[V]):
+class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
     def __init__(
         self,
         max_frame_size: int,
@@ -314,11 +327,17 @@ class GpuPreuploadedProperty(Generic[R, V], GpuProperty[V]):
         name: str,
     ):
         self.max_frame_size = max_frame_size
+        self.batched = self.property.upload.batched
         self.ctx = ctx
         self.num_frames_in_flight = num_frames_in_flight
         self.upload_method = upload_method
         self.thread_pool = thread_pool
         self.property = property
+        self.supported_operations = GpuPropertySupportedOperations.UPDATE | (
+            GpuPropertySupportedOperations.APPEND | GpuPropertySupportedOperations.POP
+            if not self.batched
+            else GpuPropertySupportedOperations()
+        )
         self.name = name
 
         self.async_load = self.property.upload.async_load
@@ -381,8 +400,8 @@ class GpuPreuploadedProperty(Generic[R, V], GpuProperty[V]):
         assert self.current is not None
         return self.current
 
-    def invalidate_frame(self, invalidated_property_frame_index: int) -> None:
-        self.invalid_frames.add(invalidated_property_frame_index)
+    def update_frame(self, index: int) -> None:
+        self.invalid_frames.add(index)
 
         # Allocate staging buffers for this property
         if self.staging_buffers is None:
@@ -498,7 +517,7 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
         cmd.memory_barrier(MemoryUsage.TRANSFER_DST, self.memory_usage)
 
 
-class GpuStreamingProperty(Generic[R, V], GpuProperty[V]):
+class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
     def __init__(
         self,
         max_frame_size: int,
@@ -517,6 +536,13 @@ class GpuStreamingProperty(Generic[R, V], GpuProperty[V]):
         self.thread_pool = thread_pool
         self.property = property
         self.pipeline_stage_flags = pipeline_stage_flags
+        self.supported_operations = (
+            GpuPropertySupportedOperations.UPDATE
+            | GpuPropertySupportedOperations.APPEND
+            | GpuPropertySupportedOperations.POP
+            | GpuPropertySupportedOperations.INSERT
+            | GpuPropertySupportedOperations.REMOVE
+        )
         self.name = name
 
         # Variants
@@ -594,7 +620,7 @@ class GpuStreamingProperty(Generic[R, V], GpuProperty[V]):
                 buf.used_size = self.property.get_frame_by_index_into(k, buf.buf.data)
 
         property_frame_index = self.property.current_frame_index
-        if self.mapped or not self.gpu_pool.is_available_or_prefetching(property_frame_index): # type: ignore
+        if self.mapped or not self.gpu_pool.is_available_or_prefetching(property_frame_index):  # type: ignore
             self.current_cpu_buf = self.cpu_pool.get(property_frame_index, cpu_load)
 
     def upload(self, frame: RendererFrame) -> None:
@@ -767,10 +793,10 @@ class GpuStreamingProperty(Generic[R, V], GpuProperty[V]):
         assert self.current is not None
         return self.current
 
-    def invalidate_frame(self, invalidated_property_frame_index: int) -> None:
-        self.cpu_pool.increment_generation(invalidated_property_frame_index)
+    def update_frame(self, index: int) -> None:
+        self.cpu_pool.increment_generation(index)
         if self.gpu_pool is not None:
-            self.gpu_pool.increment_generation(invalidated_property_frame_index)
+            self.gpu_pool.increment_generation(index)
 
     # Private API
     def _load_async(self, i: int, thread_index: int) -> "PropertyItem":

@@ -152,7 +152,9 @@ class BulkUploader:
                             start_buffer_offset : start_buffer_offset + fitting_size
                         ]
 
-                        cmd.copy_buffer_range(state.buffer, info.buffer, fitting_size, offset, info.offset + start_buffer_offset)
+                        cmd.copy_buffer_range(
+                            state.buffer, info.buffer, fitting_size, offset, info.offset + start_buffer_offset
+                        )
 
                         if start_buffer_offset + fitting_size == total_size:
                             start_buffer_offset = 0
