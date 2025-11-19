@@ -110,7 +110,8 @@ class Object:
         pass
 
     def destroy(self) -> None:
-        pass
+        for p in self.properties:
+            p.destroy()
 
     def gui(self) -> None:
         imgui.text("Properties:")

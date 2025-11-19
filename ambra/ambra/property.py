@@ -171,7 +171,7 @@ class UploadSettings:
 
 
 class Property:
-    gpu_property: gpu_property_mod.GpuProperty[Any]
+    gpu_property: Optional[gpu_property_mod.GpuProperty[Any]]
 
     def __init__(
         self,
@@ -191,6 +191,9 @@ class Property:
 
     def create(self, r: "Renderer") -> None:
         pass
+
+    def destroy(self) -> None:
+        self.clear_gpu_property()
 
     def update(self, time: float, playback_frame: int) -> None:
         old_frame = self.current_frame_index
@@ -291,9 +294,10 @@ class Property:
             else:
                 self.clear_gpu_property()
 
-    def clear_gpu_property(self):
-        self.gpu_property.enqueue_for_destruction()
-        self.gpu_property = None
+    def clear_gpu_property(self) -> None:
+        if self.gpu_property is not None:
+            self.gpu_property.enqueue_for_destruction()
+            self.gpu_property = None
 
 
 class BufferProperty(Property):
@@ -329,20 +333,13 @@ class BufferProperty(Property):
         if self.gpu_usage and self.gpu_property is None:
             if self.upload.preupload:
                 self.gpu_property = gpu_property_mod.GpuBufferPreuploadedProperty(
-                    r.ctx,
-                    r.num_frames_in_flight,
-                    r.buffer_upload_method,
-                    r.thread_pool,
-                    r.bulk_upload_list,
+                    r,
                     self,
                     self.name,
                 )
             else:
                 self.gpu_property = gpu_property_mod.GpuBufferStreamingProperty(
-                    r.ctx,
-                    r.num_frames_in_flight,
-                    r.buffer_upload_method,
-                    r.thread_pool,
+                    r,
                     self,
                     self.name,
                 )
@@ -468,19 +465,13 @@ class ArrayBufferProperty(BufferProperty):
             if self.upload.preupload:
                 self.gpu_property = gpu_property_mod.GpuBufferPreuploadedArrayProperty(
                     self.data,
-                    r.ctx,
-                    r.num_frames_in_flight,
-                    r.buffer_upload_method,
-                    r.bulk_upload_list,
+                    r,
                     self,
                     self.name,
                 )
             else:
                 self.gpu_property = gpu_property_mod.GpuBufferStreamingProperty(
-                    r.ctx,
-                    r.num_frames_in_flight,
-                    r.buffer_upload_method,
-                    r.thread_pool,
+                    r,
                     self,
                     self.name,
                 )

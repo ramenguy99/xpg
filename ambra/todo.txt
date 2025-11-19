@@ -89,7 +89,7 @@ New property API plans:
     - [ ] update, append, insert, remove frames -> I am ok if batching is only allowed on Array* variants and those do not allow remove/insert (but do allow update).
         - [ ] Both API objects and underlying data needs to be updated
             - [ ] API objects are likely in list and can be cheap to move / realloc
-        - [ ] Texture arrays and batched buffers are implicitly incompatible with append / insert / remove
+        - [x] Texture arrays and batched buffers are implicitly incompatible with append / insert / remove
               - Default to recreate gpu property if this happens.
         - Notes:
             - [x] It makes sense to me that some operations just cause the
@@ -100,7 +100,7 @@ New property API plans:
                   property every frame though, now they assume the have been
                   created already.
                   -> now objects are created in renderer (potentially bad)
-            - [ ] Not clear what is the best way to destroy existing properties
+            - [x] Not clear what is the best way to destroy existing properties
                   considering that they might be in use in the current frame and
                   we currently do not have a reference to the renderer to allow
                   edits to happen anywhere.
@@ -110,14 +110,14 @@ New property API plans:
                   maybe this is just not supported and that's it.
                   But anyways we might not have access to the renderer in every
                   case (unless we store it in the property).
-    - [ ] Buffer suballocation / texture array for huge number of frames:
+    - [x] Buffer suballocation / texture array for huge number of frames:
         -> can't afford one buffer per-frame when uploading lots of frames
         -> currently can work around this with streaming API
-    - [ ] ideally remove or integrate generation index, I'd like it if we
+    - [x] ideally remove or integrate generation index, I'd like it if we
           did not have stuff that scales in cost or memory with number
           of frames for the streaming case, it's also one more thing to keep in
           sync when updating / removing frames, but maybe unavoidable?
-        - [ ] LRU Pool is very overloaded right now, I am not sure if we actually need it
+        - [x] LRU Pool is very overloaded right now, I am not sure if we actually need it
               or if we can simplify stuff (maybe take out in flight stuff and generation index)
               -> weird that we use in flight of size 1 for the GpuPool
               -> weird to give all generation index stuff to LRUPool, but in some way makes sense because the LRU
@@ -125,6 +125,10 @@ New property API plans:
               -> maybe instead of removing the whole generation concept make it completely internal instead and
                  keep track of generation indices only for elements in the LRU pool (instead of everything)
                  (maybe even switch around and keep 0 for latest and increment for eviction)
+              -> Finally decided to keep it and integrate the generation concept in it but without allocating
+                 more than the number of buffers in the pool.  Still needs some testing.
+              -> While it's true that it's become big we need all of this functionality for the streaming property,
+                 we could split it in more parts later if needed, but now the only user really uses all of it.
     - Resource usecases:
         Preuploaded:
         - Uniform / varying preallocated array (Array*Property for uniform, ListProperty for varying, GpuProperty with batched alloc, invalidate for reupload)

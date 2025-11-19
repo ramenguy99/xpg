@@ -11,7 +11,6 @@ from pyxpg import (
     Buffer,
     BufferUsageFlags,
     CommandBuffer,
-    Context,
     DescriptorSet,
     DescriptorType,
     Image,
@@ -30,10 +29,11 @@ from .utils.gpu import (
 )
 from .utils.lru_pool import LRUPool
 from .utils.ring_buffer import RingBuffer
-from .utils.threadpool import Promise, ThreadPool
+from .utils.threadpool import Promise
 
 if TYPE_CHECKING:
     from .property import BufferProperty, Property, PropertyItem
+    from .renderer import Renderer
 
 
 class CpuBuffer:
@@ -157,9 +157,12 @@ class GpuProperty(Generic[V]):
         pass
 
     def update_frame(self, index: int) -> None:
-        pass
+        raise NotImplementedError
 
     def append_frame(self) -> None:
+        raise NotImplementedError
+
+    def enqueue_for_destruction(self) -> None:
         pass
 
 
@@ -168,22 +171,19 @@ class GpuPreuploadedArrayProperty(GpuProperty[V], Generic[R, V]):
         self,
         data: NDArray[Any],
         frame_size: int,
-        ctx: Context,
-        num_frames_in_flight: int,
+        renderer: "Renderer",
         upload_method: UploadMethod,
-        out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
         property: "Property",
         name: str,
     ):
         self.frame_size = frame_size
-        self.ctx = ctx
-        self.num_frames_in_flight = num_frames_in_flight
+        self.renderer = renderer
         self.upload_method = upload_method
         self.property = property
         self.supported_operations = GpuPropertySupportedOperations.UPDATE
         self.name = name
 
-        self.resource = self._create_preuploaded_array_resource(data, out_upload_list)
+        self.resource = self._create_preuploaded_array_resource(data, renderer.bulk_upload_list)
         self.staging_buffers: Optional[RingBuffer[Buffer]] = None
         self.invalid_frames: Set[int] = set()
         self.current: Optional[V] = None
@@ -218,18 +218,18 @@ class GpuPreuploadedArrayProperty(GpuProperty[V], Generic[R, V]):
     def update_frame(self, index: int) -> None:
         self.invalid_frames.add(index)
 
-        # Allocate staging buffers for this property
+        # Allocate staging buffers
         if self.staging_buffers is None:
             self.staging_buffers = RingBuffer(
                 [
                     Buffer(
-                        self.ctx,
+                        self.renderer.ctx,
                         self.frame_size,
                         BufferUsageFlags.TRANSFER_SRC,
                         AllocType.HOST,
                         f"{self.name}-staging-{i}",
                     )
-                    for i in range(self.num_frames_in_flight)
+                    for i in range(self.renderer.num_frames_in_flight)
                 ]
             )
 
@@ -256,10 +256,7 @@ class GpuBufferPreuploadedArrayProperty(GpuPreuploadedArrayProperty[Buffer, GpuB
     def __init__(
         self,
         data: NDArray[Any],
-        ctx: Context,
-        num_frames_in_flight: int,
-        upload_method: UploadMethod,
-        out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
+        renderer: "Renderer",
         property: "BufferProperty",
         name: str,
     ):
@@ -270,13 +267,17 @@ class GpuBufferPreuploadedArrayProperty(GpuPreuploadedArrayProperty[Buffer, GpuB
         super().__init__(
             data,
             property.max_size,
-            ctx,
-            num_frames_in_flight,
-            upload_method,
-            out_upload_list,
+            renderer,
+            renderer.buffer_upload_method,
             property,
             name,
         )
+
+    def enqueue_for_destruction(self) -> None:
+        resources = [self.resource]
+        if self.staging_buffers is not None:
+            resources.extend(self.staging_buffers.items)
+            self.staging_buffers = None
 
     # Private API
     def _get_view(self, index: int) -> GpuBufferView:
@@ -294,7 +295,7 @@ class GpuBufferPreuploadedArrayProperty(GpuPreuploadedArrayProperty[Buffer, GpuB
             alloc_type = AllocType.DEVICE
 
         # TODO: handle alignment here (need to pad the data)
-        buffer = Buffer(self.ctx, data.nbytes, self.usage_flags, alloc_type, self.name)
+        buffer = Buffer(self.renderer.ctx, data.nbytes, self.usage_flags, alloc_type, self.name)
 
         if buffer.is_mapped:
             buffer.data[:] = view_bytes(data)
@@ -318,30 +319,28 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
     def __init__(
         self,
         max_frame_size: int,
-        ctx: Context,
-        num_frames_in_flight: int,
+        renderer: "Renderer",
         upload_method: UploadMethod,
-        thread_pool: ThreadPool,
-        out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
         property: "Property",
         name: str,
     ):
         self.max_frame_size = max_frame_size
-        self.batched = self.property.upload.batched
-        self.ctx = ctx
-        self.num_frames_in_flight = num_frames_in_flight
+        self.batched = property.upload.batched
+        self.renderer = renderer
         self.upload_method = upload_method
-        self.thread_pool = thread_pool
         self.property = property
-        self.supported_operations = GpuPropertySupportedOperations.UPDATE | (
-            GpuPropertySupportedOperations.APPEND | GpuPropertySupportedOperations.POP
+        # TODO: we can likely also support remove / insert in the non-batched case, by
+        # rearranging buffers and creating missing ones if needed.
+        self.supported_operations = (
+            GpuPropertySupportedOperations.UPDATE
+            | GpuPropertySupportedOperations.APPEND
+            | GpuPropertySupportedOperations.POP
             if not self.batched
-            else GpuPropertySupportedOperations()
+            else GpuPropertySupportedOperations.UPDATE
         )
         self.name = name
 
         self.async_load = self.property.upload.async_load
-        self.resource_views: List[V] = []
         self.staging_buffers: Optional[RingBuffer[CpuBuffer]] = None
         self.current_staging_buf: Optional[CpuBuffer] = None
         self.invalid_frames: Set[int] = set()
@@ -357,7 +356,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
             promises: List[Promise[PropertyItem]] = []
             for i in range(property.num_frames):
                 promise: Promise[PropertyItem] = Promise()
-                self.thread_pool.submit(promise, self._load_async, i)  # type: ignore
+                self.renderer.thread_pool.submit(promise, self._load_async, i)  # type: ignore
                 promises.append(promise)
 
         # Collect frames
@@ -370,9 +369,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
             frames.append(frame)
 
         # Create resource and views
-        self.resource, self.resource_views = self._create_preuploaded_resource_and_views(
-            frames, out_upload_list, f"{name}-{i}"
-        )
+        self.resources, self.resource_views = self._create_preuploaded_resource_and_views(frames, f"{name}-{i}")
 
     def load(self, frame: RendererFrame) -> None:
         index = self.property.current_frame_index
@@ -383,7 +380,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
 
             buf = self.staging_buffers.get_current_and_advance()
             if self.async_load:
-                self.thread_pool.submit(buf.promise, self._load_async_into, index, buf)  # type: ignore
+                self.renderer.thread_pool.submit(buf.promise, self._load_async_into, index, buf)  # type: ignore
             else:
                 buf.used_size = self.property.get_frame_by_index_into(index, buf.buf.data)
             self.current_staging_buf = buf
@@ -403,20 +400,20 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
     def update_frame(self, index: int) -> None:
         self.invalid_frames.add(index)
 
-        # Allocate staging buffers for this property
+        # Allocate staging buffers
         if self.staging_buffers is None:
             self.staging_buffers = RingBuffer(
                 [
                     CpuBuffer(
                         Buffer(
-                            self.ctx,
+                            self.renderer.ctx,
                             self.max_frame_size,
                             BufferUsageFlags.TRANSFER_SRC,
                             AllocType.HOST,
                             f"{self.name}-staging-{i}",
                         )
                     )
-                    for i in range(self.num_frames_in_flight)
+                    for i in range(self.renderer.num_frames_in_flight)
                 ]
             )
 
@@ -427,9 +424,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
     def _load_async_into(self, i: int, buf: CpuBuffer, thread_index: int) -> None:
         buf.used_size = self.property.get_frame_by_index_into(i, buf.buf.data, thread_index)
 
-    def _create_preuploaded_resource_and_views(
-        self, frames: List[NDArray[Any]], out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]], name: str
-    ) -> Tuple[R, List[V]]:
+    def _create_preuploaded_resource_and_views(self, frames: List[NDArray[Any]], name: str) -> Tuple[List[R], List[V]]:
         raise NotImplementedError
 
     def _cmd_upload(self, cmd: CommandBuffer, staging_buffer: Buffer, view: V) -> None:
@@ -445,11 +440,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
 class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]):
     def __init__(
         self,
-        ctx: Context,
-        num_frames_in_flight: int,
-        upload_method: UploadMethod,
-        thread_pool: ThreadPool,
-        out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]],
+        renderer: "Renderer",
         property: "BufferProperty",
         name: str,
     ):
@@ -459,21 +450,20 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
 
         super().__init__(
             property.max_size,
-            ctx,
-            num_frames_in_flight,
-            upload_method,
-            thread_pool,
-            out_upload_list,
+            renderer,
+            renderer.buffer_upload_method,
             property,
             name,
         )
 
+    def enqueue_for_destruction(self) -> None:
+        self.renderer.enqueue_for_destruction(self.resources)
+        # No need to free views for buffer property
+
     # Private API
     def _create_preuploaded_resource_and_views(
-        self, frames: List[NDArray[Any]], out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]], name: str
-    ) -> Tuple[Buffer, List[GpuBufferView]]:
-        # TODO: optionally decide not to batch here to allow append/insert/remove and uploads of bigger size
-
+        self, frames: List[NDArray[Any]], name: str
+    ) -> Tuple[List[Buffer], List[GpuBufferView]]:
         if self.upload_method == UploadMethod.MAPPED_PREFER_HOST:
             alloc_type = AllocType.HOST
         elif self.upload_method == UploadMethod.MAPPED_PREFER_DEVICE:
@@ -481,37 +471,50 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
         else:
             alloc_type = AllocType.DEVICE
 
-        total_size_in_bytes = 0
-        for frame in frames:
-            total_size_in_bytes += len(view_bytes(frame))
-
-        buffer = Buffer(self.ctx, total_size_in_bytes, self.usage_flags, alloc_type, name)
-
-        # Create views and upload
+        resources: List[Buffer] = []
         views: List[GpuBufferView] = []
-        offset = 0
-        for frame in frames:
-            frame_bytes = view_bytes(frame)
-            size = len(frame_bytes)
+        if self.batched:
+            # If batched allocate a single buffer for all the frames
+            total_size_in_bytes = 0
+            for frame in frames:
+                total_size_in_bytes += len(view_bytes(frame))
 
-            if buffer.is_mapped:
-                buffer.data[offset : offset + size] = frame_bytes
-            else:
-                out_upload_list.append(BufferUploadInfo(frame_bytes, buffer, offset))
-            views.append(GpuBufferView(buffer, offset, size))
+            buffer = Buffer(self.renderer.ctx, total_size_in_bytes, self.usage_flags, alloc_type, name)
+            resources.append(buffer)
 
-            # TODO: handle alignment here depending on usage flags (vbo, ubo, ssbo alignement constraints)
-            offset += size
+            # Create views and upload
+            offset = 0
+            for frame in frames:
+                frame_bytes = view_bytes(frame)
+                size = len(frame_bytes)
 
-        return buffer, views
+                if buffer.is_mapped:
+                    buffer.data[offset : offset + size] = frame_bytes
+                else:
+                    self.renderer.bulk_upload_list.append(BufferUploadInfo(frame_bytes, buffer, offset))
+                views.append(GpuBufferView(buffer, offset, size))
+
+                # TODO: handle alignment here depending on usage flags (vbo, ubo, ssbo alignement constraints)
+                offset += size
+        else:
+            # If not batched allocate a separate buffer each frame
+            for frame in frames:
+                frame_bytes = view_bytes(frame)
+                buffer = Buffer(self.renderer.ctx, len(frame_bytes), self.usage_flags, alloc_type, name)
+                if buffer.is_mapped:
+                    buffer.data[:] = frame_bytes
+                else:
+                    self.renderer.bulk_upload_list.append(BufferUploadInfo(frame_bytes, buffer, 0))
+                resources.append(buffer)
+                views.append(GpuBufferView(buffer, 0, len(frame_bytes)))
+
+        return resources, views
 
     def _cmd_upload(self, cmd: CommandBuffer, staging_buffer: Buffer, view: GpuBufferView) -> None:
         cmd.copy_buffer_range(staging_buffer, view.buffer, view.size, 0, view.offset)
 
     def _cmd_before_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
-        # TODO: Currently needs to be all because it could be run on the transfer queue. I am
-        # not even sure we need any barrier for that case since it's a separate submit.
-        cmd.memory_barrier(MemoryUsage.ALL, MemoryUsage.TRANSFER_DST)
+        cmd.memory_barrier(self.memory_usage, MemoryUsage.TRANSFER_DST)
 
     def _cmd_after_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
         cmd.memory_barrier(MemoryUsage.TRANSFER_DST, self.memory_usage)
@@ -521,19 +524,15 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
     def __init__(
         self,
         max_frame_size: int,
-        ctx: Context,
-        num_frames_in_flight: int,
+        renderer: "Renderer",
         upload_method: UploadMethod,
-        thread_pool: ThreadPool,
         property: "Property",
         pipeline_stage_flags: PipelineStageFlags,
         name: str,
     ):
         self.max_frame_size = max_frame_size
-        self.ctx = ctx
-        self.num_frames_in_flight = num_frames_in_flight
+        self.renderer = renderer
         self.upload_method = upload_method
-        self.thread_pool = thread_pool
         self.property = property
         self.pipeline_stage_flags = pipeline_stage_flags
         self.supported_operations = (
@@ -568,7 +567,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
         )
         gpu_resources_count = 1 + gpu_prefetch_count
         cpu_prefetch_count = self.property.upload.cpu_prefetch_count
-        cpu_buffers_count = num_frames_in_flight + cpu_prefetch_count + gpu_prefetch_count
+        cpu_buffers_count = self.renderer.num_frames_in_flight + cpu_prefetch_count + gpu_prefetch_count
 
         # Allocate CPU buffers
         self.current_cpu_buf: Optional[CpuBuffer] = None
@@ -578,7 +577,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
 
         self.cpu_pool: LRUPool[int, CpuBuffer] = LRUPool(
             self.cpu_buffers,
-            num_frames_in_flight,
+            self.renderer.num_frames_in_flight,
             cpu_prefetch_count,
         )
 
@@ -586,7 +585,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
             for i in range(gpu_resources_count):
                 res = self._create_gpu_resource(f"{name}-gpu-{i}")
                 if upload_method == UploadMethod.TRANSFER_QUEUE:
-                    semaphore = TimelineSemaphore(ctx, name=f"{name}-sem-{i}")
+                    semaphore = TimelineSemaphore(self.renderer.ctx, name=f"{name}-sem-{i}")
                 else:
                     semaphore = None
                 self.gpu_resources.append(GpuResource(res, semaphore))
@@ -601,8 +600,8 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
                 self.prefetch_states = [
                     PrefetchState(
                         commands=CommandBuffer(
-                            ctx,
-                            queue_family_index=ctx.transfer_queue_family_index,
+                            self.renderer.ctx,
+                            queue_family_index=self.renderer.ctx.transfer_queue_family_index,
                             name=f"{name}-prefetch-{i}",
                         ),
                         prefetch_done_value=0,
@@ -615,7 +614,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
 
         def cpu_load(k: int, buf: CpuBuffer) -> None:
             if self.async_load:
-                self.thread_pool.submit(buf.promise, self._load_async_into, k, buf)  # type: ignore
+                self.renderer.thread_pool.submit(buf.promise, self._load_async_into, k, buf)  # type: ignore
             else:
                 buf.used_size = self.property.get_frame_by_index_into(k, buf.buf.data)
 
@@ -712,7 +711,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
                 return buf.promise.is_set()
 
             def cpu_prefetch(k: int, buf: CpuBuffer) -> None:
-                self.thread_pool.submit(buf.promise, self._load_async_into, k, buf)  # type: ignore
+                self.renderer.thread_pool.submit(buf.promise, self._load_async_into, k, buf)  # type: ignore
 
             # TODO: can likely improve prefetch logic, and should probably allow
             # this to be hooked / configured somehow
@@ -764,7 +763,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
                     self._cmd_upload(state.commands, cpu_next, gpu_res.resource)
 
                 info = gpu_res.use(PipelineStageFlags.TRANSFER)
-                self.ctx.transfer_queue.submit(
+                self.renderer.ctx.transfer_queue.submit(
                     state.commands,
                     wait_semaphores=[(info.sem, info.wait_stage)],
                     wait_timeline_values=[info.wait_value],
@@ -830,10 +829,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
 class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
     def __init__(
         self,
-        ctx: Context,
-        num_frames_in_flight: int,
-        upload_method: UploadMethod,
-        thread_pool: ThreadPool,
+        renderer: "Renderer",
         property: "BufferProperty",
         name: str,
     ):
@@ -842,13 +838,16 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
 
         super().__init__(
             property.max_size,
-            ctx,
-            num_frames_in_flight,
-            upload_method,
-            thread_pool,
+            renderer,
+            renderer.buffer_upload_method,
             property,
             property.gpu_stage,
             name,
+        )
+
+    def enqueue_for_destruction(self) -> None:
+        self.renderer.enqueue_for_destruction(
+            [cpu_buf.buf for cpu_buf in self.cpu_buffers] + [view.resource.buffer for view in self.gpu_resources]
         )
 
     def _create_cpu_buffer(self, name: str) -> Buffer:
@@ -859,12 +858,12 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
             cpu_buffer_usage_flags = self.usage_flags
         else:
             cpu_buffer_usage_flags = BufferUsageFlags.TRANSFER_SRC
-        return Buffer(self.ctx, self.max_frame_size, cpu_buffer_usage_flags, cpu_alloc_type, name)
+        return Buffer(self.renderer.ctx, self.max_frame_size, cpu_buffer_usage_flags, cpu_alloc_type, name)
 
     def _create_gpu_resource(self, name: str) -> GpuBufferView:
         return GpuBufferView(
             Buffer(
-                self.ctx,
+                self.renderer.ctx,
                 self.max_frame_size,
                 self.usage_flags,
                 AllocType.DEVICE,
@@ -895,8 +894,8 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
             resource.buffer,
             MemoryUsage.NONE,
             self.memory_usage,
-            self.ctx.transfer_queue_family_index,
-            self.ctx.graphics_queue_family_index,
+            self.renderer.ctx.transfer_queue_family_index,
+            self.renderer.ctx.graphics_queue_family_index,
         )
 
     def _cmd_release_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
@@ -904,8 +903,8 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
             resource.buffer,
             MemoryUsage.TRANSFER_DST,
             MemoryUsage.NONE,
-            self.ctx.transfer_queue_family_index,
-            self.ctx.graphics_queue_family_index,
+            self.renderer.ctx.transfer_queue_family_index,
+            self.renderer.ctx.graphics_queue_family_index,
         )
 
 

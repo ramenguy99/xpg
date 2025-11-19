@@ -533,7 +533,7 @@ class Viewer:
                 if isinstance(self.gui_selected_gpu_property, GpuPreuploadedArrayProperty):
                     imgui.text(f"Frame size: {self.gui_selected_gpu_property.frame_size}")
                     imgui.text(f"Upload method: {self.gui_selected_gpu_property.upload_method}")
-                    inv = ", ".join(self.gui_selected_gpu_property.invalid_frames)
+                    inv = ", ".join([str(i) for i in self.gui_selected_gpu_property.invalid_frames])
                     imgui.text(f"Invalid frames: {{{inv}}}")
                     imgui.text("Resource:")
                     imgui.indent()

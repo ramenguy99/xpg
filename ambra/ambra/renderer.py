@@ -5,7 +5,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from pyxpg import (
@@ -28,6 +28,7 @@ from pyxpg import (
     ImageAspectFlags,
     ImageLayout,
     ImageUsageFlags,
+    ImageView,
     LoadOp,
     MemoryUsage,
     PhysicalDeviceType,
@@ -183,6 +184,8 @@ class Renderer:
                 MemoryUsage.SHADER_READ_ONLY,
             )
 
+        # Maps from the index of the frame starting from which it's safe to destroy objects to the list of objets to destroy.
+        self.destruction_queue: Dict[int, List[Union[Buffer, Image, ImageView]]] = {}
         self.shader_cache: Dict[Tuple[Union[str, Tuple[str, str], Path], ...], slang.Shader] = {}
 
         self.scene_descriptor_set_layout, self.scene_descriptor_pool, self.scene_descriptor_sets = (
@@ -488,6 +491,15 @@ class Renderer:
         return self.compile_shader(SHADERS_PATH.joinpath(SHADERS_PATH, path), entry, target, defines, include_paths)
 
     def render(self, viewport: Viewport, frame: FrameInputs, gui: Gui) -> None:
+        # Destroy resources enqueued for destruction at this or an earlier frame
+        if self.destruction_queue:
+            for index, resources in list(self.destruction_queue.items()):
+                if index <= self.total_frame_index:
+                    for resource in resources:
+                        resource.destroy()
+                del self.destruction_queue[index]
+
+        # Create new objects
         enabled_objects: List[Object] = []
         enabled_lights: List[Light] = []
         enabled_gpu_properties: Set[GpuProperty[Any]] = set()
@@ -677,3 +689,13 @@ class Renderer:
     def prefetch(self) -> None:
         for p in self.enabled_gpu_properties:
             p.prefetch()
+
+    def enqueue_for_destruction(self, resources: Iterable[Union[Buffer, Image, ImageView]]) -> None:
+        self.destruction_queue.setdefault(self.total_frame_index + self.num_frames_in_flight, []).extend(resources)
+
+    def wait_and_destroy(self) -> None:
+        self.ctx.wait_idle()
+        for resources in self.destruction_queue.values():
+            for resource in resources:
+                resource.destroy()
+        self.destruction_queue.clear()
