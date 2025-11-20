@@ -407,23 +407,10 @@ class ImageProperty(Property):
     # Renderer API
     def create(self, r: "Renderer") -> None:
         if self.gpu_usage and self.gpu_property is None:
-            raise NotImplementedError
-
-            # self.gpu_property = gpu_property_mod.GpuImageProperty(
-            #     r.ctx,
-            #     r.num_frames_in_flight,
-            #     r.image_upload_method,
-            #     r.thread_pool,
-            #     r.bulk_upload_list,
-            #     self,
-            #     self.gpu_usage,
-            #     self.gpu_layout,
-            #     MemoryUsage.ALL,  # TODO: new sync API
-            #     self.gpu_stage,
-            #     self.gpu_srgb,
-            #     self.gpu_mips,
-            #     self.name,
-            # )
+            if self.upload.preupload:
+                self.gpu_property = gpu_property_mod.GpuImagePreuploadedProperty(r, self, self.name)
+            else:
+                self.gpu_property = gpu_property_mod.GpuImageStreamingProperty(r, self, self.name)
 
 
 class ShapeError(Exception):
@@ -572,9 +559,11 @@ class ListBufferProperty(BufferProperty):
         super().__init__(max_size, len(property_data), dtype, shape, animation, upload, name)
         self.data = property_data
 
+    # Public API
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         return self.data[frame_index]
 
+    # Edit API
     def update_frame(self, frame_index: int, frame: NDArray[Any]) -> None:
         self.data[frame_index] = frame
         super().update_frame(frame_index, frame)
@@ -658,8 +647,63 @@ class ArrayImageProperty(ImageProperty):
         super().__init__(width, height, format, len(data), animation, upload, name)
         self.data = data
 
+    # Public API
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         return self.data[frame_index]  # type: ignore
+
+    # Edit API
+    def update_frame(self, frame_index: int, frame: ArrayLike) -> None:
+        self.data[frame_index] = frame
+        super().update_frame(frame_index, frame)
+
+    def update_frames(self, frame_indices: List[int], frames: ArrayLike) -> None:
+        self.data[frame_indices] = frames
+        super().update_frames(frame_indices, frames)
+
+    def update_frame_range(self, start: int, frames: NDArray[Any]) -> None:
+        self.data[start : start + len(frames)] = frames
+        super().update_frame_range(start, frames)
+
+    def append_frame(self, frame: ArrayLike) -> None:
+        self.data = np.append(self.data, np.asarray(frame)[np.newaxis], axis=0)
+        self.num_frames = self.data.shape[0]
+        super().append_frame(frame)
+
+    def append_frames(self, frames: ArrayLike) -> None:
+        self.data = np.append(self.data, frames, axis=0)
+        self.num_frames = self.data.shape[0]
+        super().append_frames(frames)
+
+    def pop_frame(self) -> None:
+        self.remove_frame(self.num_frames - 1)
+
+    def pop_frames(self, count: int) -> None:
+        self.remove_frame_range(self.num_frames - count, self.num_frames)
+
+    def insert_frame(self, frame_index: int, frame: ArrayLike) -> None:
+        self.data = np.insert(self.data, frame_index, frame, axis=0)
+        self.num_frames = self.data.shape[0]
+        super().insert_frame(frame_index, frame)
+
+    def insert_frames(self, index: int, frames: ArrayLike) -> None:
+        self.data = np.insert(self.data, index, frames, axis=0)
+        self.num_frames = self.data.shape[0]
+        super().insert_frames(index, frames)
+
+    def remove_frame(self, frame_index: int) -> None:
+        self.data = np.delete(self.data, frame_index, axis=0)
+        self.num_frames = self.data.shape[0]
+        super().remove_frame(frame_index)
+
+    def remove_frames(self, frame_indices: List[int]) -> None:
+        self.data = np.delete(self.data, frame_indices, axis=0)
+        self.num_frames = self.data.shape[0]
+        super().remove_frames(frame_indices)
+
+    def remove_frame_range(self, start: int, stop: int) -> None:
+        self.data = np.delete(self.data, slice(start, stop), axis=0)
+        self.num_frames = self.data.shape[0]
+        super().remove_frame_range(start, stop)
 
 
 class ListImageProperty(ImageProperty):
@@ -699,8 +743,69 @@ class ListImageProperty(ImageProperty):
         super().__init__(width, height, format, len(property_data), animation, upload, name)
         self.data = property_data
 
+    # Public API
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         return self.data[frame_index]
+
+    # Edit API
+    def update_frame(self, frame_index: int, frame: NDArray[Any]) -> None:
+        self.data[frame_index] = frame
+        super().update_frame(frame_index, frame)
+
+    def update_frames(self, frame_indices: List[int], frames: List[NDArray[Any]]) -> None:
+        for i, f in zip(frame_indices, frames):
+            self.data[i] = f
+        super().update_frames(frame_indices, frames)
+
+    def update_frame_range(self, start: int, frames: List[NDArray[Any]]) -> None:
+        self.data[start : len(frames)] = frames
+        super().update_frame_range(start, frames)
+
+    def append_frame(self, frame: NDArray[Any]) -> None:
+        self.data.append(frame)
+        super().append_frame(frame)
+
+    def append_frames(self, frames: List[NDArray[Any]]) -> None:
+        self.data.extend(frames)
+        self.num_frames = len(self.data)
+        super().append_frames(frames)
+
+    def pop_frame(self) -> None:
+        self.data.pop()
+        self.num_frames = len(self.data)
+        super().pop_frame()
+
+    def pop_frames(self, count: int) -> None:
+        if count > 0:
+            del self.data[-count:]
+        self.num_frames = len(self.data)
+        super().pop_frames(count)
+
+    def insert_frame(self, frame_index: int, frame: NDArray[Any]) -> None:
+        self.data.insert(frame_index, frame)
+        self.num_frames = len(self.data)
+        super().insert_frame(frame_index, frame)
+
+    def insert_frames(self, index: int, frames: List[NDArray[Any]]) -> None:
+        self.data = self.data[:index] + frames + self.data[index:]
+        self.num_frames = len(self.data)
+        super().insert_frames(index, frames)
+
+    def remove_frame(self, frame_index: int) -> None:
+        self.data.pop(frame_index)
+        self.num_frames = len(self.data)
+        super().remove_frame(frame_index)
+
+    def remove_frames(self, frame_indices: List[int]) -> None:
+        frame_indices_set = set(frame_indices)
+        self.data = [d for i, d in enumerate(self.data) if i not in frame_indices_set]
+        self.num_frames = len(self.data)
+        super().remove_frames(frame_indices)
+
+    def remove_frame_range(self, start: int, stop: int) -> None:
+        self.data = self.data[:start] + self.data[stop:]
+        self.num_frames = len(self.data)
+        super().remove_frame_range(start, stop)
 
 
 def as_buffer_property(
