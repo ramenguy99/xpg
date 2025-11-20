@@ -124,6 +124,16 @@ class LRUPool(Generic[K, O]):
             except KeyError:
                 pass
 
+    def increment_all_generations(self) -> None:
+        for k, o in self.lookup.items():
+            current_gen = self.current_generation.get(k[0], 0)
+            if current_gen == k[1]:
+                self.current_generation[k[0]] = k[1] + 1
+            try:
+                self.lru.move_to_end(o.obj, last=False)
+            except KeyError:
+                pass
+
     def use_frame(self, frame_index: int, k: K) -> None:
         key = (k, self.current_generation.get(k, 0))
 

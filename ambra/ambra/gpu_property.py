@@ -73,6 +73,11 @@ class GpuBufferView:
     ) -> None:
         descriptor_set.write_buffer(self.buffer, type, binding, element, self.offset, self.size)
 
+    def append_view_to_destroy_list(self, destroy_list: List[Union[Buffer, Image, ImageView]]) -> None:
+        pass
+
+    def resource(self) -> Buffer:
+        return self.buffer
 
 @dataclass
 class GpuImageView:
@@ -92,6 +97,16 @@ class GpuImageView:
         else:
             # TODO: return proper view to correct layer
             return self.image
+
+    def append_view_to_destroy_list(self, destroy_list: List[Union[Buffer, Image, ImageView]]) -> None:
+        if self.srgb_resource_view is not None:
+            destroy_list.append(self.srgb_resource_view)
+        if self.mip_level_0_view is not None:
+            destroy_list.append(self.mip_level_0_view)
+        destroy_list.extend(self.mip_views)
+
+    def resource(self) -> Image:
+        return self.image
 
 
 R = TypeVar("R", bound=Union[Buffer, Image])
@@ -147,6 +162,10 @@ class GpuProperty(Generic[V]):
     def get_current(self) -> V:
         raise NotImplementedError
 
+    def enqueue_for_destruction(self) -> None:
+        pass
+
+    # Renderer API
     def load(self, frame: RendererFrame) -> None:
         pass
 
@@ -156,14 +175,42 @@ class GpuProperty(Generic[V]):
     def prefetch(self) -> None:
         pass
 
+    # Edit API
     def update_frame(self, index: int) -> None:
+        raise NotImplementedError
+
+    def update_frames(self, indices: List[int]) -> None:
+        raise NotImplementedError
+
+    def update_frame_range(self, start: int, stop: int) -> None:
         raise NotImplementedError
 
     def append_frame(self) -> None:
         raise NotImplementedError
 
-    def enqueue_for_destruction(self) -> None:
-        pass
+    def append_frames(self, count: int) -> None:
+        raise NotImplementedError
+
+    def pop_frame(self) -> None:
+        raise NotImplementedError
+
+    def pop_frames(self, count: int) -> None:
+        raise NotImplementedError
+
+    def insert_frame(self, index: int) -> None:
+        raise NotImplementedError
+
+    def insert_frames(self, index: int, count: int) -> None:
+        raise NotImplementedError
+
+    def remove_frame(self, index: int) -> None:
+        raise NotImplementedError
+
+    def remove_frames(self, indices: List[int]) -> None:
+        raise NotImplementedError
+
+    def remove_frame_range(self, start: int, stop: int) -> None:
+        raise NotImplementedError
 
 
 class GpuPreuploadedArrayProperty(GpuProperty[V], Generic[R, V]):
@@ -188,6 +235,18 @@ class GpuPreuploadedArrayProperty(GpuProperty[V], Generic[R, V]):
         self.invalid_frames: Set[int] = set()
         self.current: Optional[V] = None
 
+    # Public API
+    def get_current(self) -> V:
+        assert self.current is not None
+        return self.current
+
+    def enqueue_for_destruction(self) -> None:
+        resources: List[Union[Buffer, Image, ImageView]] = [self.resource]
+        if self.staging_buffers is not None:
+            resources.extend(self.staging_buffers.items)
+            self.staging_buffers = None
+
+    # Renderer API
     def upload(self, frame: RendererFrame) -> None:
         index = self.property.current_frame_index
 
@@ -211,14 +270,23 @@ class GpuPreuploadedArrayProperty(GpuProperty[V], Generic[R, V]):
 
         self.current = view
 
-    def get_current(self) -> V:
-        assert self.current is not None
-        return self.current
-
+    # Edit API
     def update_frame(self, index: int) -> None:
         self.invalid_frames.add(index)
+        self._ensure_staging_buffers()
 
-        # Allocate staging buffers
+    def update_frames(self, indices: List[int]) -> None:
+        for i in indices:
+            self.invalid_frames.add(i)
+        self._ensure_staging_buffers()
+
+    def update_frame_range(self, start: int, stop: int) -> None:
+        for i in range(start, stop):
+            self.invalid_frames.add(i)
+        self._ensure_staging_buffers()
+
+    # Private API
+    def _ensure_staging_buffers(self) -> None:
         if self.staging_buffers is None:
             self.staging_buffers = RingBuffer(
                 [
@@ -233,7 +301,6 @@ class GpuPreuploadedArrayProperty(GpuProperty[V], Generic[R, V]):
                 ]
             )
 
-    # Private API
     def _get_view(self, index: int) -> V:
         raise NotImplementedError
 
@@ -272,12 +339,6 @@ class GpuBufferPreuploadedArrayProperty(GpuPreuploadedArrayProperty[Buffer, GpuB
             property,
             name,
         )
-
-    def enqueue_for_destruction(self) -> None:
-        resources = [self.resource]
-        if self.staging_buffers is not None:
-            resources.extend(self.staging_buffers.items)
-            self.staging_buffers = None
 
     # Private API
     def _get_view(self, index: int) -> GpuBufferView:
@@ -369,8 +430,20 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
             frames.append(frame)
 
         # Create resource and views
-        self.resources, self.resource_views = self._create_preuploaded_resource_and_views(frames, f"{name}-{i}")
+        self.resources, self.resource_views = self._create_preuploaded_resources_and_views(frames)
 
+    # Public API
+    def get_current(self) -> V:
+        assert self.current is not None
+        return self.current
+
+    def enqueue_for_destruction(self) -> None:
+        destroy_list: List[Union[Buffer, Image, ImageView]] = self.resources.copy() # type: ignore
+        for v in self.resource_views:
+            v.append_view_to_destroy_list(destroy_list)
+        self.renderer.enqueue_for_destruction(destroy_list)
+
+    # Renderer API
     def load(self, frame: RendererFrame) -> None:
         index = self.property.current_frame_index
         if index in self.invalid_frames:
@@ -393,14 +466,151 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
             self._cmd_after_barrier(frame.cmd, view)
         self.current = view
 
-    def get_current(self) -> V:
-        assert self.current is not None
-        return self.current
-
+    # Edit API
     def update_frame(self, index: int) -> None:
         self.invalid_frames.add(index)
+        self._ensure_staging_buffers()
 
-        # Allocate staging buffers
+    def update_frames(self, indices: List[int]) -> None:
+        for i in indices:
+            self.invalid_frames.add(i)
+        self._ensure_staging_buffers()
+
+    def update_frame_range(self, start: int, stop: int) -> None:
+        for i in range(start, stop):
+            self.invalid_frames.add(i)
+        self._ensure_staging_buffers()
+
+    def append_frame(self) -> None:
+        if self.batched:
+            raise RuntimeError("Appending to a preuploaded and batched GPU property is not supported.")
+        self.append_frames(1)
+
+    def append_frames(self, count: int) -> None:
+        if self.batched:
+            raise RuntimeError("Appending to a preuploaded and batched GPU property is not supported.")
+
+        current_count = len(self.resource_views)
+        new_max_frame_size = 0
+        for i in range(count):
+            new_frame = self.property.get_frame_by_index(current_count + i)
+            new_max_frame_size = max(new_max_frame_size, len(view_bytes(new_frame)))
+
+            # Create and append a new resource and views
+            resource, view = self._create_preuploaded_resource_and_view_for_frame(new_frame)
+            self.resources.append(resource)
+            self.resource_views.append(view)
+
+        self._update_max_frame_size(new_max_frame_size)
+
+    def pop_frame(self) -> None:
+        if self.batched:
+            raise RuntimeError("Popping from a preuploaded and batched GPU property is not supported.")
+
+        res = self.resources.pop()
+        view = self.resource_views.pop()
+
+        destroy_list: List[Union[Buffer, Image, ImageView]] = [res]
+        view.append_view_to_destroy_list(destroy_list)
+
+        self.renderer.enqueue_for_destruction(destroy_list)
+
+    def pop_frames(self, count: int) -> None:
+        if self.batched:
+            raise RuntimeError("Popping from a preuploaded and batched GPU property is not supported.")
+
+        if count > 0:
+            destroy_list: List[Union[Buffer, Image, ImageView]] = self.resources[-count:] # type: ignore
+            for v in self.resource_views[-count:]:
+                v.append_view_to_destroy_list(destroy_list)
+            self.renderer.enqueue_for_destruction(destroy_list)
+
+            del self.resources[-count:]
+            del self.resource_views[-count:]
+
+    def insert_frame(self, index: int) -> None:
+        if self.batched:
+            raise RuntimeError("Inserting into a preuploaded and batched GPU property is not supported.")
+
+        new_frame = self.property.get_frame_by_index(index)
+        self._update_max_frame_size(len(view_bytes(new_frame)))
+
+        # Create and append a new resource and views
+        resource, view = self._create_preuploaded_resource_and_view_for_frame(new_frame)
+        self.resources.insert(index, resource)
+        self.resource_views.insert(index, view)
+
+    def insert_frames(self, index: int, count: int) -> None:
+        if self.batched:
+            raise RuntimeError("Inserting in preuploaded and batched GPU property is not supported.")
+
+        current_count = len(self.resource_views)
+
+        new_resources = []
+        new_resource_views = []
+        new_max_frame_size = 0
+        for i in range(count):
+            new_frame = self.property.get_frame_by_index(current_count + i)
+            new_max_frame_size = max(new_max_frame_size, len(view_bytes(new_frame)))
+
+            # Create and append a new resource and views
+            resource, view = self._create_preuploaded_resource_and_view_for_frame(new_frame)
+            new_resources.append(resource)
+            new_resource_views.append(view)
+
+        self.resources = self.resources[:index] + new_resources + self.resources[index:]
+        self.resource_views = self.resource_views[:index] + new_resource_views + self.resource_views[index:]
+
+        self._update_max_frame_size(new_max_frame_size)
+
+    def remove_frame(self, index: int) -> None:
+        if self.batched:
+            raise RuntimeError("Removing from a preuploaded and batched GPU property is not supported.")
+
+        res = self.resources.pop(index)
+        view = self.resource_views.pop(index)
+
+        destroy_list: List[Union[Buffer, Image, ImageView]] = [res]
+        view.append_view_to_destroy_list(destroy_list)
+        self.renderer.enqueue_for_destruction([res])
+
+    def remove_frames(self, indices: List[int]) -> None:
+        if self.batched:
+            raise RuntimeError("Removing from a preuploaded and batched GPU property is not supported.")
+
+        indices_set = set(indices)
+
+        keep_resources: List[R] = []
+        keep_resource_views: List[V] = []
+        destroy_list: List[Union[Buffer, Image, ImageView]] = []
+        for i, (r, v) in enumerate(zip(self.resources, self.resource_views)):
+            if i in indices_set:
+                destroy_list.append(r)
+                v.append_view_to_destroy_list(destroy_list)
+            else:
+                keep_resources.append(r)
+                keep_resource_views.append(v)
+
+        self.resources = keep_resources
+        self.resource_views = keep_resource_views
+        self.renderer.enqueue_for_destruction(destroy_list)
+
+    def remove_frame_range(self, start: int, stop: int) -> None:
+        if self.batched:
+            raise RuntimeError("Removing from a preuploaded and batched GPU property is not supported.")
+
+        # Collect resources to destroy and enqueue for destruction
+        destroy_list: List[Union[Buffer, Image, ImageView]] = self.resources[start:stop] # type: ignore
+        for v in self.resource_views[start:stop]:
+            v.append_view_to_destroy_list(destroy_list)
+        self.renderer.enqueue_for_destruction(destroy_list)
+
+        # Remove resources from lists
+        self.resources = self.resources[:start] + self.resources[stop:]
+        self.resource_views = self.resource_views[:start] + self.resource_views[stop:]
+
+    # Private API
+    def _ensure_staging_buffers(self) -> None:
         if self.staging_buffers is None:
             self.staging_buffers = RingBuffer(
                 [
@@ -417,14 +627,24 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
                 ]
             )
 
-    # Private API
+    def _update_max_frame_size(self, new_max_frame_size: int) -> None:
+        # Update maximum frame size and clear current staging buffers if they can't fit the new frame.
+        if new_max_frame_size > self.max_frame_size:
+            self.max_frame_size = new_max_frame_size
+            if self.staging_buffers is not None:
+                self.renderer.enqueue_for_destruction([b.buf for b in self.staging_buffers])
+            self.staging_buffers = None
+
     def _load_async(self, i: int, thread_index: int) -> "PropertyItem":
         return self.property.get_frame_by_index(i, thread_index)
 
     def _load_async_into(self, i: int, buf: CpuBuffer, thread_index: int) -> None:
         buf.used_size = self.property.get_frame_by_index_into(i, buf.buf.data, thread_index)
 
-    def _create_preuploaded_resource_and_views(self, frames: List[NDArray[Any]], name: str) -> Tuple[List[R], List[V]]:
+    def _create_preuploaded_resources_and_views(self, frames: List[NDArray[Any]]) -> Tuple[List[R], List[V]]:
+        raise NotImplementedError
+
+    def _create_preuploaded_resource_and_view_for_frame(self, frame: NDArray[Any]) -> Tuple[R, V]:
         raise NotImplementedError
 
     def _cmd_upload(self, cmd: CommandBuffer, staging_buffer: Buffer, view: V) -> None:
@@ -448,6 +668,13 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
         self.pipeline_stage_flags = property.gpu_stage
         self.memory_usage = MemoryUsage.ALL  # TODO: new sync API
 
+        if self.upload_method == UploadMethod.MAPPED_PREFER_HOST:
+            self.alloc_type = AllocType.HOST
+        elif self.upload_method == UploadMethod.MAPPED_PREFER_DEVICE:
+            self.alloc_type = AllocType.DEVICE_MAPPED
+        else:
+            self.alloc_type = AllocType.DEVICE
+
         super().__init__(
             property.max_size,
             renderer,
@@ -456,21 +683,10 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
             name,
         )
 
-    def enqueue_for_destruction(self) -> None:
-        self.renderer.enqueue_for_destruction(self.resources)
-        # No need to free views for buffer property
-
     # Private API
-    def _create_preuploaded_resource_and_views(
-        self, frames: List[NDArray[Any]], name: str
+    def _create_preuploaded_resources_and_views(
+        self, frames: List[NDArray[Any]]
     ) -> Tuple[List[Buffer], List[GpuBufferView]]:
-        if self.upload_method == UploadMethod.MAPPED_PREFER_HOST:
-            alloc_type = AllocType.HOST
-        elif self.upload_method == UploadMethod.MAPPED_PREFER_DEVICE:
-            alloc_type = AllocType.DEVICE_MAPPED
-        else:
-            alloc_type = AllocType.DEVICE
-
         resources: List[Buffer] = []
         views: List[GpuBufferView] = []
         if self.batched:
@@ -479,7 +695,7 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
             for frame in frames:
                 total_size_in_bytes += len(view_bytes(frame))
 
-            buffer = Buffer(self.renderer.ctx, total_size_in_bytes, self.usage_flags, alloc_type, name)
+            buffer = Buffer(self.renderer.ctx, total_size_in_bytes, self.usage_flags, self.alloc_type, self.name)
             resources.append(buffer)
 
             # Create views and upload
@@ -499,16 +715,20 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
         else:
             # If not batched allocate a separate buffer each frame
             for frame in frames:
-                frame_bytes = view_bytes(frame)
-                buffer = Buffer(self.renderer.ctx, len(frame_bytes), self.usage_flags, alloc_type, name)
-                if buffer.is_mapped:
-                    buffer.data[:] = frame_bytes
-                else:
-                    self.renderer.bulk_upload_list.append(BufferUploadInfo(frame_bytes, buffer, 0))
-                resources.append(buffer)
-                views.append(GpuBufferView(buffer, 0, len(frame_bytes)))
+                resource, view = self._create_preuploaded_resource_and_view_for_frame(frame)
+                resources.append(resource)
+                views.append(view)
 
         return resources, views
+
+    def _create_preuploaded_resource_and_view_for_frame(self, frame: NDArray[Any]) -> Tuple[Buffer, GpuBufferView]:
+        frame_bytes = view_bytes(frame)
+        buffer = Buffer(self.renderer.ctx, len(frame_bytes), self.usage_flags, self.alloc_type, self.name)
+        if buffer.is_mapped:
+            buffer.data[:] = frame_bytes
+        else:
+            self.renderer.bulk_upload_list.append(BufferUploadInfo(frame_bytes, buffer, 0))
+        return (buffer, GpuBufferView(buffer, 0, len(frame_bytes)))
 
     def _cmd_upload(self, cmd: CommandBuffer, staging_buffer: Buffer, view: GpuBufferView) -> None:
         cmd.copy_buffer_range(staging_buffer, view.buffer, view.size, 0, view.offset)
@@ -523,14 +743,12 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
 class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
     def __init__(
         self,
-        max_frame_size: int,
         renderer: "Renderer",
         upload_method: UploadMethod,
         property: "Property",
         pipeline_stage_flags: PipelineStageFlags,
         name: str,
     ):
-        self.max_frame_size = max_frame_size
         self.renderer = renderer
         self.upload_method = upload_method
         self.property = property
@@ -609,6 +827,17 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
                     for i in range(gpu_prefetch_count)
                 ]
 
+    # Public API
+    def get_current(self) -> V:
+        assert self.current is not None
+        return self.current
+
+    def enqueue_for_destruction(self) -> None:
+        self.renderer.enqueue_for_destruction(
+            [cpu_buf.buf for cpu_buf in self.cpu_buffers] + [view.resource.resource() for view in self.gpu_resources]
+        )
+
+    # Renderer API
     def load(self, frame: RendererFrame) -> None:
         self.cpu_pool.release_frame(frame.index)
 
@@ -788,14 +1017,44 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
                 gpu_prefetch,
             )
 
-    def get_current(self) -> V:
-        assert self.current is not None
-        return self.current
-
+    # Edit API
     def update_frame(self, index: int) -> None:
-        self.cpu_pool.increment_generation(index)
-        if self.gpu_pool is not None:
-            self.gpu_pool.increment_generation(index)
+        self._invalidate_frame(index)
+
+    def update_frames(self, indices: List[int]) -> None:
+        self._invalidate_all_frames()
+
+    def update_frame_range(self, start: int, stop: int) -> None:
+        self._invalidate_all_frames()
+
+    def append_frame(self) -> None:
+        # Nothing to do here
+        pass
+
+    def append_frames(self, count: int) -> None:
+        # Nothing to do here
+        pass
+
+    def pop_frame(self) -> None:
+        self._invalidate_frame(self.property.num_frames - 1)
+
+    def pop_frames(self, count: int) -> None:
+        self._invalidate_all_frames()
+
+    def insert_frame(self, index: int) -> None:
+        self._invalidate_all_frames()
+
+    def insert_frames(self, index: int, count: int) -> None:
+        self._invalidate_all_frames()
+
+    def remove_frame(self, index: int) -> None:
+        self._invalidate_all_frames()
+
+    def remove_frames(self, indices: List[int]) -> None:
+        self._invalidate_all_frames()
+
+    def remove_frame_range(self, start: int, stop: int) -> None:
+        self._invalidate_all_frames()
 
     # Private API
     def _load_async(self, i: int, thread_index: int) -> "PropertyItem":
@@ -803,6 +1062,16 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
 
     def _load_async_into(self, i: int, buf: CpuBuffer, thread_index: int) -> None:
         buf.used_size = self.property.get_frame_by_index_into(i, buf.buf.data, thread_index)
+
+    def _invalidate_frame(self, index: int) -> None:
+        self.cpu_pool.increment_generation(index)
+        if self.gpu_pool is not None:
+            self.gpu_pool.increment_generation(index)
+
+    def _invalidate_all_frames(self) -> None:
+        self.cpu_pool.increment_all_generations()
+        if self.gpu_pool is not None:
+            self.gpu_pool.increment_all_generations()
 
     def _create_cpu_buffer(self, name: str) -> Buffer:
         raise NotImplementedError
@@ -835,9 +1104,9 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
     ):
         self.usage_flags = property.gpu_usage | BufferUsageFlags.TRANSFER_DST
         self.memory_usage = MemoryUsage.ALL  # TODO: new sync API
+        self.max_frame_size = property.max_size
 
         super().__init__(
-            property.max_size,
             renderer,
             renderer.buffer_upload_method,
             property,
@@ -845,11 +1114,7 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
             name,
         )
 
-    def enqueue_for_destruction(self) -> None:
-        self.renderer.enqueue_for_destruction(
-            [cpu_buf.buf for cpu_buf in self.cpu_buffers] + [view.resource.buffer for view in self.gpu_resources]
-        )
-
+    # Private API
     def _create_cpu_buffer(self, name: str) -> Buffer:
         cpu_alloc_type = (
             AllocType.DEVICE_MAPPED if self.upload_method == UploadMethod.MAPPED_PREFER_DEVICE else AllocType.HOST

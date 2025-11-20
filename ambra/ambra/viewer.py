@@ -541,7 +541,6 @@ class Viewer:
                     imgui.text(f"{self.gui_selected_gpu_property.resource.alloc}")
                     imgui.unindent()
                 elif isinstance(self.gui_selected_gpu_property, GpuStreamingProperty):
-                    imgui.text(f"Max frame size: {self.gui_selected_gpu_property.max_frame_size}")
                     imgui.text(f"Upload method: {self.gui_selected_gpu_property.upload_method}")
                     imgui.text("CPU Resource:")
                     imgui.indent()
