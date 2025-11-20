@@ -11,20 +11,31 @@ from pyxpg import (
     Buffer,
     BufferUsageFlags,
     CommandBuffer,
+    Context,
     DescriptorSet,
     DescriptorType,
+    Format,
     Image,
+    ImageCreateFlags,
+    ImageLayout,
+    ImageUsageFlags,
     ImageView,
+    ImageViewType,
     MemoryUsage,
     PipelineStageFlags,
     TimelineSemaphore,
 )
+
+from ambra.property import ImageProperty
 
 from .config import UploadMethod
 from .renderer_frame import RendererFrame, SemaphoreInfo
 from .utils.gpu import (
     BufferUploadInfo,
     ImageUploadInfo,
+    MipGenerationFilter,
+    get_image_pitch_rows_and_texel_size,
+    to_srgb_format,
     view_bytes,
 )
 from .utils.lru_pool import LRUPool
@@ -79,12 +90,11 @@ class GpuBufferView:
     def resource(self) -> Buffer:
         return self.buffer
 
+
 @dataclass
 class GpuImageView:
     image: Image
-    # resource_view: ImageView
     srgb_resource_view: Optional[ImageView]
-
     mip_level_0_view: Optional[ImageView]
     mip_views: List[ImageView]
 
@@ -95,7 +105,6 @@ class GpuImageView:
         if self.srgb_resource_view is not None:
             return self.srgb_resource_view
         else:
-            # TODO: return proper view to correct layer
             return self.image
 
     def append_view_to_destroy_list(self, destroy_list: List[Union[Buffer, Image, ImageView]]) -> None:
@@ -107,6 +116,72 @@ class GpuImageView:
 
     def resource(self) -> Image:
         return self.image
+
+
+def _create_image_view(
+    ctx: Context,
+    width: int,
+    height: int,
+    format: Format,
+    usage_flags: ImageUsageFlags,
+    srgb: bool,
+    mips: bool,
+    name: str,
+) -> GpuImageView:
+    image_create_flags = ImageCreateFlags.NONE
+    if srgb:
+        image_create_flags |= ImageCreateFlags.MUTABLE_FORMAT
+
+    mip_levels = 1
+    if mips:
+        mip_levels = max(width.bit_length(), height.bit_length())
+
+    img = Image(
+        ctx,
+        width,
+        height,
+        format,
+        usage_flags,
+        AllocType.DEVICE,
+        mip_levels=mip_levels,
+        create_flags=image_create_flags,
+        name=name,
+    )
+    srgb_view = None
+    if srgb:
+        srgb_view = ImageView(
+            ctx,
+            img,
+            ImageViewType.TYPE_2D,
+            to_srgb_format(format),
+            usage_flags=ImageUsageFlags.SAMPLED,
+            name=f"{name}-srgb",
+        )
+
+    mip_level_0_view = None
+    mip_views = []
+    if mips:
+        mip_level_0_view = ImageView(
+            ctx,
+            img,
+            ImageViewType.TYPE_2D_ARRAY,
+            to_srgb_format(format) if srgb else format,
+            usage_flags=ImageUsageFlags.SAMPLED,
+            name=f"{name}-mip-0",
+        )
+        mip_views = [
+            ImageView(
+                ctx,
+                img,
+                ImageViewType.TYPE_2D_ARRAY,
+                base_mip_level=m if m < img.mip_levels else 0,
+                mip_level_count=1,
+                name=f"{name}-mip-{m + 1}",
+            )
+            for m in range(mip_levels)
+        ]
+
+    return GpuImageView(img, srgb_view, mip_level_0_view, mip_views)
 
 
 R = TypeVar("R", bound=Union[Buffer, Image])
@@ -380,13 +455,14 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
     def __init__(
         self,
         max_frame_size: int,
+        batched: bool,
         renderer: "Renderer",
         upload_method: UploadMethod,
         property: "Property",
         name: str,
     ):
         self.max_frame_size = max_frame_size
-        self.batched = property.upload.batched
+        self.batched = batched
         self.renderer = renderer
         self.upload_method = upload_method
         self.property = property
@@ -438,7 +514,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
         return self.current
 
     def enqueue_for_destruction(self) -> None:
-        destroy_list: List[Union[Buffer, Image, ImageView]] = self.resources.copy() # type: ignore
+        destroy_list: List[Union[Buffer, Image, ImageView]] = self.resources.copy()  # type: ignore
         for v in self.resource_views:
             v.append_view_to_destroy_list(destroy_list)
         self.renderer.enqueue_for_destruction(destroy_list)
@@ -520,7 +596,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
             raise RuntimeError("Popping from a preuploaded and batched GPU property is not supported.")
 
         if count > 0:
-            destroy_list: List[Union[Buffer, Image, ImageView]] = self.resources[-count:] # type: ignore
+            destroy_list: List[Union[Buffer, Image, ImageView]] = self.resources[-count:]  # type: ignore
             for v in self.resource_views[-count:]:
                 v.append_view_to_destroy_list(destroy_list)
             self.renderer.enqueue_for_destruction(destroy_list)
@@ -600,7 +676,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
             raise RuntimeError("Removing from a preuploaded and batched GPU property is not supported.")
 
         # Collect resources to destroy and enqueue for destruction
-        destroy_list: List[Union[Buffer, Image, ImageView]] = self.resources[start:stop] # type: ignore
+        destroy_list: List[Union[Buffer, Image, ImageView]] = self.resources[start:stop]  # type: ignore
         for v in self.resource_views[start:stop]:
             v.append_view_to_destroy_list(destroy_list)
         self.renderer.enqueue_for_destruction(destroy_list)
@@ -677,6 +753,7 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
 
         super().__init__(
             property.max_size,
+            property.upload.batched,
             renderer,
             renderer.buffer_upload_method,
             property,
@@ -738,6 +815,89 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
 
     def _cmd_after_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
         cmd.memory_barrier(MemoryUsage.TRANSFER_DST, self.memory_usage)
+
+
+class GpuImagePreuploadedProperty(GpuPreuploadedProperty[Image, GpuImageView]):
+    def __init__(
+        self,
+        renderer: "Renderer",
+        property: "ImageProperty",
+        name: str,
+    ):
+        self.usage_flags = property.gpu_usage | ImageUsageFlags.TRANSFER_DST
+        self.memory_usage = MemoryUsage.ALL  # TODO: new sync API
+
+        self.width = property.width
+        self.height = property.height
+        self.format = property.format
+        self.layout = property.gpu_layout
+        self.pipeline_stage_flags = property.gpu_stage
+        self.srgb = property.gpu_srgb
+        self.mips = property.gpu_mips
+
+        self.pitch, self.rows, _ = get_image_pitch_rows_and_texel_size(self.width, self.height, self.format)
+
+        super().__init__(
+            self.pitch * self.rows,
+            False,  # batching is not supported for images
+            renderer,
+            renderer.image_upload_method,
+            property,
+            name,
+        )
+
+    # Private API
+    def _create_preuploaded_resources_and_views(
+        self, frames: List[NDArray[Any]]
+    ) -> Tuple[List[Image], List[GpuImageView]]:
+        resources: List[Image] = []
+        views: List[GpuImageView] = []
+
+        for frame in frames:
+            resource, view = self._create_preuploaded_resource_and_view_for_frame(frame)
+            resources.append(resource)
+            views.append(view)
+
+        return resources, views
+
+    def _create_preuploaded_resource_and_view_for_frame(self, frame: NDArray[Any]) -> Tuple[Image, GpuImageView]:
+        view = _create_image_view(
+            self.renderer.ctx, self.width, self.height, self.format, self.usage_flags, self.srgb, self.mips, self.name
+        )
+        img = view.image
+
+        self.renderer.bulk_upload_list.append(
+            ImageUploadInfo(
+                view_bytes(frame),
+                img,
+                self.layout,
+                view.mip_level_0_view,
+                view.mip_views,
+                MipGenerationFilter.AVERAGE_SRGB if self.srgb else MipGenerationFilter.AVERAGE,
+            )
+        )
+
+        return img, view
+
+    def _cmd_upload(self, cmd: CommandBuffer, staging_buffer: Buffer, view: GpuImageView) -> None:
+        cmd.copy_buffer_to_image(staging_buffer, view.image)
+
+    def _cmd_before_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
+        cmd.image_barrier(
+            resource.image,
+            ImageLayout.TRANSFER_DST_OPTIMAL,
+            self.memory_usage,
+            MemoryUsage.TRANSFER_DST,
+            undefined=True,
+        )
+
+    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
+        cmd.image_barrier(
+            resource.image,
+            self.layout,
+            MemoryUsage.TRANSFER_DST,
+            self.memory_usage,
+        )
 
 
 class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
@@ -1166,6 +1326,85 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
     def _cmd_release_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
         cmd.buffer_barrier(
             resource.buffer,
+            MemoryUsage.TRANSFER_DST,
+            MemoryUsage.NONE,
+            self.renderer.ctx.transfer_queue_family_index,
+            self.renderer.ctx.graphics_queue_family_index,
+        )
+
+
+class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
+    def __init__(
+        self,
+        renderer: "Renderer",
+        property: "ImageProperty",
+        name: str,
+    ):
+        self.usage_flags = property.gpu_usage | ImageUsageFlags.TRANSFER_DST
+        self.memory_usage = MemoryUsage.ALL  # TODO: new sync API
+
+        self.width = property.width
+        self.height = property.height
+        self.format = property.format
+        self.layout = property.gpu_layout
+        self.srgb = property.gpu_srgb
+        self.mips = property.gpu_mips
+
+        self.pitch, self.rows, _ = get_image_pitch_rows_and_texel_size(self.width, self.height, self.format)
+
+        super().__init__(
+            renderer,
+            renderer.image_upload_method,
+            property,
+            property.gpu_stage,
+            name,
+        )
+
+    # Private API
+    def _create_cpu_buffer(self, name: str) -> Buffer:
+        return Buffer(self.renderer.ctx, self.pitch * self.rows, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST, name)
+
+    def _create_gpu_resource(self, name: str) -> GpuImageView:
+        return _create_image_view(
+            self.renderer.ctx, self.width, self.height, self.format, self.usage_flags, self.srgb, self.mips, name
+        )
+
+    def _cmd_upload(self, cmd: CommandBuffer, buffer: CpuBuffer, view: GpuImageView) -> None:
+        cmd.copy_buffer_to_image(buffer.buf, view.image)
+
+    def _cmd_before_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
+        # TODO: Currently needs to be all because it could be run on the transfer queue. I am
+        # not even sure we need any barrier for that case since it's a separate submit.
+        cmd.image_barrier(
+            resource.image,
+            ImageLayout.TRANSFER_DST_OPTIMAL,
+            MemoryUsage.ALL,
+            MemoryUsage.TRANSFER_DST,
+            undefined=True,
+        )
+
+    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
+        cmd.image_barrier(
+            resource.image,
+            self.layout,
+            MemoryUsage.TRANSFER_DST,
+            self.memory_usage,
+        )
+
+    def _cmd_acquire_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
+        cmd.image_barrier(
+            resource.image,
+            self.layout,
+            MemoryUsage.NONE,
+            self.memory_usage,
+            self.renderer.ctx.transfer_queue_family_index,
+            self.renderer.ctx.graphics_queue_family_index,
+        )
+
+    def _cmd_release_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
+        cmd.image_barrier(
+            resource.image,
+            self.layout,
             MemoryUsage.TRANSFER_DST,
             MemoryUsage.NONE,
             self.renderer.ctx.transfer_queue_family_index,

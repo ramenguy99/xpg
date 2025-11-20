@@ -317,6 +317,7 @@ class Property:
             else:
                 self.destroy_gpu_property()
 
+
 class BufferProperty(Property):
     def __init__(
         self,

@@ -113,6 +113,8 @@ New property API plans:
     - [x] Buffer suballocation / texture array for huge number of frames:
         -> can't afford one buffer per-frame when uploading lots of frames
         -> currently can work around this with streaming API
+        -> texture arrays have actually a max 2048 frame max, I don't like this limitation
+           so I think we can give up on the idea and just have batching for buffers.
     - [x] ideally remove or integrate generation index, I'd like it if we
           did not have stuff that scales in cost or memory with number
           of frames for the streaming case, it's also one more thing to keep in
