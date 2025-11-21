@@ -51,7 +51,7 @@ class HeadlessSwapchainFrame:
 
         channels, dtype, _ = _format_to_channels_dtype_int_table[self.image.format]
         shape = (self.image.height, self.image.width, channels)
-        return np.frombuffer(self.readback_buffer, dtype).copy().reshape(shape)
+        return np.frombuffer(self.readback_buffer.data, dtype).copy().reshape(shape)
 
 
 class HeadlessSwapchain:
@@ -122,10 +122,8 @@ class HeadlessSwapchain:
         frame = self.frames.get_current()
         self.ctx.queue.submit(
             frame.command_buffer,
-            wait_semaphores=[(s.sem, s.wait_stage) for s in frame_inputs.additional_semaphores],
-            wait_timeline_values=[s.wait_value for s in frame_inputs.additional_semaphores],
-            signal_semaphores=[s.sem for s in frame_inputs.additional_semaphores],
-            signal_timeline_values=[s.signal_value for s in frame_inputs.additional_semaphores],
+            wait_semaphores=[(s.sem, s.wait_value, s.wait_stage) for s in frame_inputs.additional_semaphores],
+            signal_semaphores=[(s.sem, s.signal_value, s.signal_stage) for s in frame_inputs.additional_semaphores],
             fence=frame.fence,
         )
 

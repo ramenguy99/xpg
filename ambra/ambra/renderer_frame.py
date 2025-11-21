@@ -17,6 +17,7 @@ class SemaphoreInfo:
     sem: TimelineSemaphore
     wait_stage: PipelineStageFlags
     wait_value: int
+    signal_stage: PipelineStageFlags
     signal_value: int
 
 

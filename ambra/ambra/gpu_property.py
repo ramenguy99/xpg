@@ -199,6 +199,7 @@ class GpuResource(Generic[V]):
             self.semaphore,
             stage,
             self.semaphore_value,
+            stage,
             self.semaphore_value + 1,
         )
         self.semaphore_value += 1
@@ -1172,10 +1173,8 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
                 # there are only one or a few.
                 self.renderer.ctx.transfer_queue.submit(
                     state.commands,
-                    wait_semaphores=[(info.sem, info.wait_stage)],
-                    wait_timeline_values=[info.wait_value],
-                    signal_semaphores=[info.sem],
-                    signal_timeline_values=[info.signal_value],
+                    wait_semaphores=[(info.sem, info.wait_value, info.wait_stage)],
+                    signal_semaphores=[(info.sem, info.signal_value, info.signal_stage)],
                 )
                 state.prefetch_done_value = info.signal_value
                 gpu_res.state = GpuResourceState.PREFETCH

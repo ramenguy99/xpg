@@ -289,23 +289,15 @@ class Mesh(Object3D):
         self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3(self.current_transform_matrix)))
 
     def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        index_buffer = None
-        index_buffer_offset = 0
-        if self.indices is not None:
-            index_buffer_view = self.indices.get_current_gpu()
-            index_buffer = index_buffer_view.buffer
-            index_buffer_offset = index_buffer_view.offset
-
         frame.cmd.bind_graphics_pipeline(
             self.depth_pipeline,
             vertex_buffers=[
                 self.positions.get_current_gpu().buffer_and_offset(),
             ],
-            index_buffer=index_buffer,
+            index_buffer=self.indices.get_current_gpu().buffer_and_offset() if self.indices is not None else None,
             descriptor_sets=[
                 scene_descriptor_set,
             ],
-            index_buffer_offset=index_buffer_offset,
             push_constants=self.constants["transform"].tobytes(),
         )
 
@@ -316,13 +308,6 @@ class Mesh(Object3D):
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         assert self.material is not None
-
-        index_buffer = None
-        index_buffer_offset = 0
-        if self.indices is not None:
-            index_buffer_view = self.indices.get_current_gpu()
-            index_buffer = index_buffer_view.buffer
-            index_buffer_offset = index_buffer_view.offset
 
         vertex_buffers = [
             self.positions.get_current_gpu().buffer_and_offset(),
@@ -337,8 +322,7 @@ class Mesh(Object3D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=vertex_buffers,
-            index_buffer=index_buffer,
-            index_buffer_offset=index_buffer_offset,
+            index_buffer=self.indices.get_current_gpu().buffer_and_offset() if self.indices is not None else None,
             descriptor_sets=[
                 scene_descriptor_set,
                 self.material.descriptor_set,

@@ -88,12 +88,6 @@ class DebugCube(Object3D):
         )
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        index_buffer = None
-        index_buffer_offset = 0
-        if self.indices is not None:
-            index_buffer_view = self.indices.get_current_gpu()
-            index_buffer = index_buffer_view.buffer
-            index_buffer_offset = index_buffer_view.offset
         vertex_buffers = [
             self.positions.get_current_gpu().buffer_and_offset(),
         ]
@@ -108,8 +102,7 @@ class DebugCube(Object3D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=vertex_buffers,
-            index_buffer=index_buffer,
-            index_buffer_offset=index_buffer_offset,
+            index_buffer=self.indices.get_current_gpu().buffer_and_offset() if self.indices is not None else None,
             descriptor_sets=[
                 scene_descriptor_set,
                 descriptor_set,
