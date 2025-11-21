@@ -538,6 +538,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
             self._cmd_before_barrier(frame.cmd, view)
             self._cmd_upload(frame.cmd, self.current_staging_buf.buf, view)
             self._cmd_after_barrier(frame.cmd, view)
+            self.current_staging_buf = None
         self.current = view
 
     # Edit API
@@ -742,9 +743,10 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
         self.pipeline_stage_flags = property.gpu_stage
         self.memory_usage = MemoryUsage.ALL  # TODO: new sync API
 
-        if self.upload_method == UploadMethod.MAPPED_PREFER_HOST:
+        upload_method = renderer.buffer_upload_method
+        if upload_method == UploadMethod.MAPPED_PREFER_HOST:
             self.alloc_type = AllocType.HOST
-        elif self.upload_method == UploadMethod.MAPPED_PREFER_DEVICE:
+        elif upload_method == UploadMethod.MAPPED_PREFER_DEVICE:
             self.alloc_type = AllocType.DEVICE_MAPPED
         else:
             self.alloc_type = AllocType.DEVICE
@@ -753,7 +755,7 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
             property.max_size,
             property.upload.batched,
             renderer,
-            renderer.buffer_upload_method,
+            upload_method,
             property,
             name,
         )
@@ -1073,14 +1075,23 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
 
             if gpu_res.state == GpuResourceState.LOAD or gpu_res.state == GpuResourceState.PREFETCH:
                 if gpu_res.state == GpuResourceState.PREFETCH:
+                    # Sync: the resource was loaded by a prefetch operation on the transfer queue.
+                    # Submit a release barrier on this frame to transfer ownership to this resource.
+                    # The reason why this barrier needs to happen here instead of at the time of submission
+                    # to the transfer queue, is because at that time we cannot guarantee that this resource
+                    # will be used next on the graphics queue, the prefetch might be discarded and the resource
+                    # used again later on the transfer queue. Since release-acquire barriers must be matched
+                    # we issue the release only once we are sure that the acquire will happen.
                     assert frame.transfer_cmd is not None
                     frame.transfer_semaphores.append(gpu_res.use(PipelineStageFlags.TOP_OF_PIPE))
                     self._cmd_release_barrier(frame.transfer_cmd, gpu_res.resource)
 
+                # Sync: LOAD and PREFETCH imply that the upload happened on the transfer queue.
+                # This barrier matches the release_barrier form the normal or prefetch load.
                 self._cmd_acquire_barrier(frame.cmd, gpu_res.resource)
                 gpu_res.state = GpuResourceState.RENDER
 
-            # If we are using the transfer queue to upload we have to guard the gpu resource
+            # Sync: If we are using the transfer queue to upload we have to guard the gpu resource
             # with a semaphore because we might need to reuse this buffer for pre-fetching
             # while this frame is still in flight. Using the use_frame/release_frame mechanism
             # with a single frame is not enough because we might try to start pre-fetching on
@@ -1146,10 +1157,19 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
                 self.prefetch_states_lookup[gpu_res] = state
 
                 with state.commands:
+                    # Sync: Flush previous upload on gfx queue and transition images.
                     self._cmd_before_barrier(state.commands, gpu_res.resource)
                     self._cmd_upload(state.commands, cpu_next, gpu_res.resource)
 
                 info = gpu_res.use(PipelineStageFlags.TRANSFER)
+
+                # Prefetch commands are submitted one at a time because we have no
+                # knowledge or how far in the future they will be used. If they were
+                # batched you would need to wait for all of them to complete before
+                # you can use any of the resources. These submissions are potentially
+                # expensive, but we assume that applications will make very sparse
+                # use of prefetching, only for really large resources of which hopeufully
+                # there are only one or a few.
                 self.renderer.ctx.transfer_queue.submit(
                     state.commands,
                     wait_semaphores=[(info.sem, info.wait_stage)],

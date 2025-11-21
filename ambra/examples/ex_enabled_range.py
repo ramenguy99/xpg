@@ -13,7 +13,6 @@ from ambra.property import (
 from ambra.viewer import Viewer
 
 viewer = Viewer(
-    "enabled",
     config=Config(
         playback=PlaybackConfig(
             playing=True,

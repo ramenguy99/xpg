@@ -72,7 +72,6 @@ class CustomViewer(Viewer):
 
 
 viewer = CustomViewer(
-    "primitives",
     config=Config(
         gui=GuiConfig(
             stats=True,

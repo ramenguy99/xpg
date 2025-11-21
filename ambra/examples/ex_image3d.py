@@ -7,7 +7,6 @@ from ambra.utils.gpu import Format
 from ambra.viewer import Viewer
 
 viewer = Viewer(
-    "primitives",
     config=Config(
         playback=PlaybackConfig(
             playing=True,

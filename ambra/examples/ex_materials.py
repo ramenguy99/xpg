@@ -19,7 +19,6 @@ os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
 def main():
     viewer = Viewer(
-        "materials",
         config=Config(
             window_width=1600,
             window_height=900,

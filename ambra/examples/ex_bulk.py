@@ -62,7 +62,6 @@ from ambra.primitives2d import Lines
 from ambra.viewer import Viewer
 
 viewer = Viewer(
-    "Hello World",
     config=Config(
         preferred_frames_in_flight=2,
         gui=GuiConfig(

@@ -40,32 +40,13 @@ class DebugCube(Object3D):
 
         super().__init__(name)
 
-        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions")
+        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT)
         self.indices = (
-            self.add_buffer_property(indices, np.uint32, (-1,), name="indices") if indices is not None else None
+            self.add_buffer_property(indices, np.uint32, (-1,), name="indices").use_gpu(BufferUsageFlags.INDEX, PipelineStageFlags.VERTEX_INPUT) if indices is not None else None
         )
         self.cubemap = cubemap
 
     def create(self, r: Renderer) -> None:
-        self.positions_buffer = r.add_gpu_buffer_property(
-            self.positions,
-            BufferUsageFlags.VERTEX,
-            MemoryUsage.VERTEX_INPUT,
-            PipelineStageFlags.VERTEX_INPUT,
-            name=f"{self.name}-positions",
-        )
-        self.indices_buffer = (
-            r.add_gpu_buffer_property(
-                self.indices,
-                BufferUsageFlags.INDEX,
-                MemoryUsage.VERTEX_INPUT,
-                PipelineStageFlags.VERTEX_INPUT,
-                name=f"{self.name}-indices",
-            )
-            if self.indices is not None
-            else None
-        )
-
         vertex_bindings = [
             VertexBinding(0, 12, VertexInputRate.VERTEX),
         ]
@@ -107,9 +88,14 @@ class DebugCube(Object3D):
         )
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        index_buffer = self.indices_buffer.get_current() if self.indices_buffer is not None else None
+        index_buffer = None
+        index_buffer_offset = 0
+        if self.indices is not None:
+            index_buffer_view = self.indices.get_current_gpu()
+            index_buffer = index_buffer_view.buffer
+            index_buffer_offset = index_buffer_view.offset
         vertex_buffers = [
-            self.positions_buffer.get_current(),
+            self.positions.get_current_gpu().buffer_and_offset(),
         ]
 
         self.constants["level"] = level
@@ -123,6 +109,7 @@ class DebugCube(Object3D):
             self.pipeline,
             vertex_buffers=vertex_buffers,
             index_buffer=index_buffer,
+            index_buffer_offset=index_buffer_offset,
             descriptor_sets=[
                 scene_descriptor_set,
                 descriptor_set,
@@ -155,7 +142,6 @@ def main():
             return super().on_key(key, action, modifiers)
 
     viewer = CustomViewer(
-        "primitives",
         config=Config(
             playback=PlaybackConfig(
                 playing=True,

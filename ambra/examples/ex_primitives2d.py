@@ -8,7 +8,6 @@ from ambra.transform3d import RigidTransform3D
 from ambra.viewer import Viewer
 
 viewer = Viewer(
-    "primitives",
     config=Config(
         playback=PlaybackConfig(
             playing=True,

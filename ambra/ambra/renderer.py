@@ -505,7 +505,7 @@ class Renderer:
         enabled_gpu_properties: Set[GpuProperty[Any]] = set()
 
         def visit(o: Object) -> None:
-            if o.enabled:
+            if o.enabled.get_current():
                 enabled_objects.append(o)
                 if isinstance(o, Light):
                     enabled_lights.append(o)
@@ -519,7 +519,6 @@ class Renderer:
                     p.create(self)
                     if p.gpu_property is not None:
                         enabled_gpu_properties.add(p.gpu_property)
-
         viewport.scene.visit_objects(visit)
 
         # Flush synchronous upload buffers after creating new objects
@@ -528,7 +527,11 @@ class Renderer:
             self.bulk_uploader.bulk_upload(self.bulk_upload_list, mip_generation_requests)
             self.bulk_upload_list.clear()
 
-            # Process mip generation requests in batches
+            # Process mip generation requests in batches.
+            # The reason why this happens with sync command batches is that we
+            # don't know upfront how many mips we have to create and we are
+            # not allocating a pipeline instance (buffers and descriptors) to
+            # run each of these generations independently.
             batch_size = len(self.spd_pipeline_instances)
             for i in range(0, len(mip_generation_requests), batch_size):
                 with self.ctx.sync_commands() as cmd:
@@ -581,12 +584,6 @@ class Renderer:
         self.constants["inverse_viewport_size"] = (1.0 / viewport.rect.width, 1.0 / viewport.rect.height)
         self.constants["focal"] = (proj[0][0] * 0.5 * viewport.rect.width, proj[1][1] * 0.5 * viewport.rect.height)
 
-        buf.upload(
-            cmd,
-            MemoryUsage.SHADER_UNIFORM,
-            self.constants.view(np.uint8),
-        )
-
         f = RendererFrame(
             self.total_frame_index % self.num_frames_in_flight,
             self.total_frame_index,
@@ -600,8 +597,16 @@ class Renderer:
         for p in enabled_gpu_properties:
             p.load(f)
 
+        # Sync: preupload barriers
+
         for p in enabled_gpu_properties:
             p.upload(f)
+
+        buf.upload(
+            cmd,
+            MemoryUsage.SHADER_UNIFORM,
+            self.constants.view(np.uint8),
+        )
 
         self.enabled_gpu_properties = enabled_gpu_properties
 
@@ -610,11 +615,24 @@ class Renderer:
                 o.material.upload(self, f)
             o.upload(self, f)
 
+        # Sync: post-upload barriers
+
+        # TODO: mip creation. Assume that every streaming mip object has a spd pipeline
+        # instance preallocated, so that we can run all of them in the same submit.
+        # This is the path that streaming and dynamic properties will take when they need on
+        # the fly mip generation that does not stall.
+        # Streaming properties will preallocate an spd pipeline instance while
+        # preuploaded properties will allocate one when promoted to dynamic.
+
+        # Sync: post-mip barriers + shadowmap + render barriers
+
         # Render shadows
+        # TODO: also split this into upload / barriers / render steps and combine
         for l in enabled_lights:
             l.render_shadowmaps(self, f, enabled_objects)
 
         # Render scene
+        # TODO: shift above
         cmd.image_barrier(
             frame.image,
             ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
@@ -675,6 +693,8 @@ class Renderer:
             ],
         ):
             gui.render(cmd)
+
+        # Sync: post-render barriers
         cmd.image_barrier(
             frame.image,
             ImageLayout.PRESENT_SRC,

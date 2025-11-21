@@ -20,6 +20,9 @@ from ambra.viewer import Viewer
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
 equirectangular = cv2.imread(sys.argv[2], cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH | cv2.IMREAD_COLOR_RGB)
+if equirectangular is None:
+    print(f"Equirectangular image load failed: {sys.argv[2]}")
+    exit(1)
 lights = [EnvironmentLight.from_equirectangular(equirectangular)]
 
 model = gltf.load(Path(sys.argv[1]))
@@ -88,6 +91,7 @@ v = Viewer(
         camera=CameraConfig(
             position=(4, -4, 3),
             target=(0, 0, 1.5),
+            z_near=0.1,
         ),
     )
 )

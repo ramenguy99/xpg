@@ -82,7 +82,7 @@ class CustomViewer(Viewer):
         if imgui.begin("Control"):
             u, scale = imgui.slider_float("SCALE", scale, 0.1, 10.0)
             if u:
-                mesh.positions_buffer.invalidate_frame(mesh.positions.current_frame_index)
+                mesh.positions.update_frame(self.playback.current_frame, None)
         imgui.end()
         if imgui.begin("Image"):
             if hasattr(light, "shadow_map"):
@@ -122,15 +122,14 @@ class CustomViewer(Viewer):
 
     def on_key(self, key: Key, action: Action, modifiers: Modifiers):
         handled = False
-        if action == Action.PRESS:
+        if action == Action.PRESS or action == Action.REPEAT:
             if key == Key.A:
-                mesh.positions_buffer.invalidate_frame(mesh.positions.current_frame_index)
+                mesh.positions.update_frame(self.playback.current_frame, None)
         if not handled:
             return super().on_key(key, action, modifiers)
 
 
 viewer = CustomViewer(
-    "primitives",
     config=Config(
         window_x=10,
         window_y=50,

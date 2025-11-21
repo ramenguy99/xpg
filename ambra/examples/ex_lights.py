@@ -57,7 +57,6 @@ class CustomViewer(Viewer):
 
 
 viewer = CustomViewer(
-    "primitives",
     config=Config(
         window_width=1920,
         window_height=1080,

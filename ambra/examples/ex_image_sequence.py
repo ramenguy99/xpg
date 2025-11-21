@@ -14,7 +14,6 @@ from ambra.utils.gpu import Format
 from ambra.viewer import Viewer
 
 viewer = Viewer(
-    "primitives",
     config=Config(
         # vsync = False,
         # preferred_frames_in_flight=3,

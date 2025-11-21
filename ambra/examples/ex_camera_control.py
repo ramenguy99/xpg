@@ -7,7 +7,6 @@ from ambra.primitives3d import Lines
 from ambra.viewer import Viewer
 
 viewer = Viewer(
-    "primitives",
     config=Config(
         wait_events=True,
         playback=PlaybackConfig(

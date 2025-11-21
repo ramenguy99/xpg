@@ -49,6 +49,8 @@ New property API plans:
         - [ ] Expose combined barriers API (list of memory, buffer and image barriers)
         - [ ] Also expose image barriers with prev layout
         - [-] Only limitation left is that we cannot do different levels with different layouts (which vulkan would support) -> don't fix now
+        - [ ] Make sure we use HOST_READ bit for readbacks (flushes GPU caches after writes to host memory). We don't
+              need this for uploads because queue submission also implicitly does that.
 - Plan:
     - [x] Split DataBufferProperty into ArrayBufferProperty and ListBufferProperty
         - [x] Remove usages of as_buffer_property from examples

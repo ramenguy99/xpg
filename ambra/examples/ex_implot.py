@@ -27,7 +27,6 @@ class CustomViewer(Viewer):
 
 
 viewer = CustomViewer(
-    "Hello World",
     config=Config(
         preferred_frames_in_flight=3,
         gui=GuiConfig(

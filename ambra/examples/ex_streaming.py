@@ -5,18 +5,20 @@ from ambra.config import (
     CameraConfig,
     CameraProjection,
     Config,
+    GuiConfig,
     PlaybackConfig,
     RendererConfig,
     UploadMethod,
 )
 from ambra.primitives2d import Lines
-from ambra.property import ArrayBufferProperty, UploadSettings
+from ambra.property import ArrayBufferProperty, ListBufferProperty, UploadSettings
 from ambra.transform3d import RigidTransform3D
 from ambra.viewer import Viewer
 
 viewer = Viewer(
-    "primitives",
     config=Config(
+        window_width=1920,
+        window_height=1080,
         playback=PlaybackConfig(
             playing=True,
         ),
@@ -30,6 +32,10 @@ viewer = Viewer(
         renderer=RendererConfig(
             force_buffer_upload_method=UploadMethod.GRAPHICS_QUEUE,
         ),
+        gui=GuiConfig(
+            stats=True,
+            renderer=True,
+        )
     ),
 )
 
@@ -70,6 +76,8 @@ colors = [
             0xFF0000FF,
             0xFF00FF00,
             0xFF00FF00,
+            0xFFFF0000,
+            0xFFFF0000,
         ],
         np.uint32,
     ),
@@ -79,8 +87,8 @@ colors = [
             0xFF0000FF,
             0xFF00FF00,
             0xFF00FF00,
-            0xFF000000,
-            0xFF000000,
+            0xFFFF0000,
+            0xFFFF0000,
         ],
         np.uint32,
     ),
@@ -88,8 +96,8 @@ colors = [
 
 line_width = 4
 
-positions = ArrayBufferProperty(positions, np.float32, upload=UploadSettings(preupload=False))
-# positions = ArrayBufferProperty(positions, np.float32, upload=UploadSettings(preupload=False, async_load=True))
+positions = ArrayBufferProperty(positions, np.float32, upload=UploadSettings(preupload=True, batched=True))
+colors = ListBufferProperty(colors, shape=(-1,), upload=UploadSettings(preupload=True, batched=False))
 
 line = Lines(positions, colors, line_width)
 viewer.viewport.scene.objects.extend([line])
