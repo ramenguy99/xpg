@@ -1875,8 +1875,7 @@ struct CommandBuffer: GfxObject {
     );
 
     void bind_index_buffer(
-        std::optional<nb::ref<Buffer>> index_buffer,
-        VkDeviceSize index_buffer_offset,
+        std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>> index_buffer,
         VkIndexType index_type
     );
 
@@ -1889,8 +1888,7 @@ struct CommandBuffer: GfxObject {
         u32 push_constants_offset,
         const std::vector<std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>>> vertex_buffers,
         u32 first_vertex_buffer_binding,
-        std::optional<nb::ref<Buffer>> index_buffer,
-        VkDeviceSize index_buffer_offset,
+        std::optional<std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>>> index_buffer,
         VkIndexType index_type
     );
 
@@ -3595,11 +3593,18 @@ void CommandBuffer::bind_vertex_buffers(
 }
 
 void CommandBuffer::bind_index_buffer(
-    std::optional<nb::ref<Buffer>> index_buffer,
-    VkDeviceSize index_buffer_offset,
+    std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>> index_buffer,
     VkIndexType index_type)
 {
-    vkCmdBindIndexBuffer(buffer, index_buffer.value()->buffer.buffer, index_buffer_offset, index_type);
+    if (std::holds_alternative<nb::ref<Buffer>>(index_buffer)) {
+        nb::ref<Buffer> ref = std::get<nb::ref<Buffer>>(index_buffer);
+        vkCmdBindIndexBuffer(buffer, ref->buffer.buffer, 0, index_type);
+    } else {
+        std::tuple<nb::ref<Buffer>, VkDeviceSize> tuple = std::get<std::tuple<nb::ref<Buffer>, VkDeviceSize>>(index_buffer);
+        nb::ref<Buffer> ref = std::get<0>(tuple);
+        VkDeviceSize offset = std::get<1>(tuple);
+        vkCmdBindIndexBuffer(buffer, ref->buffer.buffer, offset, index_type);
+    }
 }
 
 void CommandBuffer::bind_graphics_pipeline(
@@ -3611,8 +3616,7 @@ void CommandBuffer::bind_graphics_pipeline(
     u32 push_constants_offset,
     const std::vector<std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>>> vertex_buffers,
     u32 first_vertex_buffer_binding,
-    std::optional<nb::ref<Buffer>> index_buffer,
-    VkDeviceSize index_buffer_offset,
+    std::optional<std::variant<nb::ref<Buffer>, std::tuple<nb::ref<Buffer>, VkDeviceSize>>> index_buffer,
     VkIndexType index_type)
 {
     check_vector_of_ref_for_null(descriptor_sets, "elements of \"descriptor_sets\" must not be None");
@@ -3621,7 +3625,15 @@ void CommandBuffer::bind_graphics_pipeline(
 
     // Index buffers
     if(index_buffer.has_value()) {
-        vkCmdBindIndexBuffer(buffer, index_buffer.value()->buffer.buffer, index_buffer_offset, index_type);
+        if (std::holds_alternative<nb::ref<Buffer>>(index_buffer.value())) {
+            nb::ref<Buffer> ref = std::get<nb::ref<Buffer>>(index_buffer.value());
+            vkCmdBindIndexBuffer(buffer, ref->buffer.buffer, 0, index_type);
+        } else {
+            std::tuple<nb::ref<Buffer>, VkDeviceSize> tuple = std::get<std::tuple<nb::ref<Buffer>, VkDeviceSize>>(index_buffer.value());
+            nb::ref<Buffer> ref = std::get<0>(tuple);
+            VkDeviceSize offset = std::get<1>(tuple);
+            vkCmdBindIndexBuffer(buffer, ref->buffer.buffer, offset, index_type);
+        }
     }
 }
 
@@ -5088,7 +5100,6 @@ void gfx_create_bindings(nb::module_& m)
         )
         .def("bind_index_buffers", &CommandBuffer::bind_index_buffer,
             nb::arg("index_buffer"),
-            nb::arg("index_buffer_offset") = 0,
             nb::arg("index_type") = VK_INDEX_TYPE_UINT32
         )
         .def("bind_graphics_pipeline", &CommandBuffer::bind_graphics_pipeline,
@@ -5101,7 +5112,6 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("vertex_buffers") = std::vector<nb::ref<Buffer>>(),
             nb::arg("first_vertex_buffer_binding") = 0,
             nb::arg("index_buffer") = std::optional<nb::ref<Buffer>>(),
-            nb::arg("index_buffer_offset") = 0,
             nb::arg("index_type") = VK_INDEX_TYPE_UINT32
         )
         .def("dispatch", &CommandBuffer::dispatch,

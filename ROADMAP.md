@@ -114,8 +114,8 @@ Python:
             - When creating layout need to give upper bound (leave to application to specify large number, potentially looking at device limits for that descriptor type)
             - When allocating descriptor set need to specify how much to allocate with appended VkDescriptorSetVariableDescriptorCountAllocateInfo to VkDescriptorSetAllocateInfo.
     - [x] VulkanError exception type that wraps VkResult for better error reporting over all bindings
+    - [x] Make index buffer offset consistent with vertex buffer offset (by using optional tuple)
     - [ ] Expose push descriptors and update template
-    - [ ] Make index buffer offset consistent with vertex buffer offset (by using optional tuple)
 - [ ] Clean examples
     - [x] Headless graphics and compute
     - [x] Minimal
@@ -362,10 +362,10 @@ Python:
     - [x] timeline semaphores should be avilable everywhere. Ideally subclass / parameter of Semaphore and transparent to queue waits but with extra APIs on the object.
     - [ ] expose ctx.wait_timeline_semaphores() for waiting on multiple semaphores (all sems or first). Easy to add but currently do not have a usecase for this.
     - [ ] Host image copy can be used automatically for Image.with_data() to or manually with exposed host operations. Not available on AMD
-- [ ] Barriers:
+- [x] Barriers:
     - [x] Unify memory buffer and image API?
     - [x] Fully automatic resource tracking? No, likely bad idea
-    - [ ] Low level combined barrier API?
+    - [x] Low level combined barrier API?
 - [ ] Imgui
     - [ ] Expose all draw APIs with batched bindings -> have some but not all yet
 
