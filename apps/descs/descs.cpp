@@ -180,7 +180,7 @@ void Draw(App* app) {
     vkr = vkEndCommandBuffer(frame.command_buffer);
     assert(vkr == VK_SUCCESS);
 
-    vkr = gfx::Submit(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+    vkr = gfx::Submit1(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     assert(vkr == VK_SUCCESS);
 
     vkr = gfx::PresentFrame(&window, &frame, vk);

@@ -132,7 +132,7 @@ int main(int argc, char** argv) {
         gfx::EndCommands(frame.command_buffer);
 
         VkResult vkr;
-        vkr = gfx::Submit(frame, vk,
+        vkr = gfx::Submit1(frame, vk,
             // VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
         );

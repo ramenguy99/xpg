@@ -509,7 +509,7 @@ VkResult CreateQueryPool(VkQueryPool* pool, const Context& context, const QueryP
 void DestroyQueryPool(VkQueryPool* pool, const Context& vk);
 
 //- Queue
-struct SubmitDesc {
+struct SubmitDesc1 {
     Span<VkCommandBuffer> cmd;
     Span<VkSemaphore> wait_semaphores;
     Span<VkPipelineStageFlags> wait_stages;
@@ -535,10 +535,40 @@ struct SubmitDesc {
     VkFence fence;
 };
 
+VkResult SubmitQueue1(VkQueue queue, const SubmitDesc1&& desc);
+VkResult Submit1(const Frame& frame, const Context& vk, VkPipelineStageFlags wait_stage_mask);
+VkResult SubmitSync1(const Context& vk);
+
+struct SemaphoreSubmitInfo {
+    VkStructureType          type = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    const void*              next = nullptr;
+    VkSemaphore              semaphore;
+    uint64_t                 value = 0;
+    VkPipelineStageFlags2    stage_mask;
+    uint32_t                 device_index = 0;
+};
+static_assert(sizeof(SemaphoreSubmitInfo) == sizeof(VkSemaphoreSubmitInfo));
+
+struct CommandBufferSubmitInfo {
+    VkStructureType    type = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    const void*        next = nullptr;
+    VkCommandBuffer    command_buffer;
+    uint32_t           device_mask = 0;
+};
+static_assert(sizeof(CommandBufferSubmitInfo) == sizeof(CommandBufferSubmitInfo));
+
+struct SubmitDesc {
+    VkSubmitFlags flags = 0;
+    Span<SemaphoreSubmitInfo> wait_semaphore_infos;
+    Span<CommandBufferSubmitInfo> command_buffer_infos;
+    Span<SemaphoreSubmitInfo> signal_semaphore_infos;
+    VkFence fence;
+};
+
 VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc);
-// VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags2 submit_stage_mask);
-VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags submit_stage_mask);
+VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags2 wait_stage_mask, VkPipelineStageFlags2 signal_stage_mask);
 VkResult SubmitSync(const Context& vk);
+
 VkResult PresentFrame(Window* w, Frame* frame, const Context& vk);
 
 //- Commands

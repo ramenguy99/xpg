@@ -707,10 +707,10 @@ int main(int argc, char** argv) {
 
         VkResult vkr;
 #if DIRECT_UPLOAD
-        vkr = gfx::Submit(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        vkr = gfx::Submit1(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 #else
         if(vk.copy_queue == VK_NULL_HANDLE) {
-            vkr = gfx::Submit(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+            vkr = gfx::Submit1(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         } else {
             VkSemaphore wait_semaphores[] = {
                 frame.acquire_semaphore,

@@ -1594,7 +1594,7 @@ void DestroyQueryPool(VkQueryPool* pool, const Context& vk) {
     *pool = VK_NULL_HANDLE;
 }
 
-VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc) {
+VkResult SubmitQueue1(VkQueue queue, const SubmitDesc1&& desc) {
     assert(desc.wait_semaphores.length == desc.wait_stages.length);
 
     VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
@@ -1619,46 +1619,18 @@ VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc) {
     return vkQueueSubmit(queue, 1, &submit_info, desc.fence);
 }
 
-VkResult Submit(const Frame& frame, const Context& vk,
-#if 0
-VkPipelineStageFlags2 stage_mask) {
-#else
-VkPipelineStageFlags stage_mask) {
-#endif
-#if 0
-    VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-    wait_info.semaphore = frame.acquire_semaphore;
-    wait_info.stageMask = stage_mask;
-
-    VkSemaphoreSubmitInfo signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-    signal_info.semaphore = frame.current_present_semaphore;
-    signal_info.stageMask = stage_mask;
-
-    VkCommandBufferSubmitInfo command_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
-    command_info.commandBuffer = frame.command_buffer;
-
-    VkSubmitInfo2 submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
-    submit_info.pCommandBufferInfos = &command_info;
-    submit_info.commandBufferInfoCount = 1;
-    submit_info.pWaitSemaphoreInfos = &wait_info;
-    submit_info.waitSemaphoreInfoCount = 1;
-    submit_info.pSignalSemaphoreInfos = &signal_info;
-    submit_info.signalSemaphoreInfoCount = 1;
-
-    return vkQueueSubmit2KHR(vk.queue, 1, &submit_info, frame.fence);
-#else
-    return SubmitQueue(vk.queue, {
+VkResult Submit1(const Frame& frame, const Context& vk, VkPipelineStageFlags wait_stage_mask) {
+    return SubmitQueue1(vk.queue, {
         .cmd = { frame.command_buffer },
         .wait_semaphores = { frame.acquire_semaphore },
-        .wait_stages = { stage_mask },
+        .wait_stages = { wait_stage_mask },
         .signal_semaphores = { frame.current_present_semaphore },
         .fence = frame.fence,
     });
-#endif
 }
 
-VkResult SubmitSync(const Context& vk) {
-    VkResult vkr = SubmitQueue(vk.queue, {
+VkResult SubmitSync1(const Context& vk) {
+    VkResult vkr = SubmitQueue1(vk.queue, {
         .cmd = { vk.sync_command_buffer},
         .fence = vk.sync_fence,
     });
@@ -1670,6 +1642,60 @@ VkResult SubmitSync(const Context& vk) {
     vkResetFences(vk.device, 1, &vk.sync_fence);
     return VK_SUCCESS;
 }
+
+VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc) {
+    VkSubmitInfo2 submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    submit_info.flags = desc.flags;
+    submit_info.pWaitSemaphoreInfos = (VkSemaphoreSubmitInfo*)desc.wait_semaphore_infos.data;
+    submit_info.waitSemaphoreInfoCount = desc.wait_semaphore_infos.length;
+    submit_info.pCommandBufferInfos = (VkCommandBufferSubmitInfo*)desc.command_buffer_infos.data;
+    submit_info.commandBufferInfoCount = desc.command_buffer_infos.length;
+    submit_info.pSignalSemaphoreInfos = (VkSemaphoreSubmitInfo*)desc.signal_semaphore_infos.data;
+    submit_info.signalSemaphoreInfoCount = desc.signal_semaphore_infos.length;
+    return vkQueueSubmit2KHR(queue, 1, &submit_info, desc.fence);
+}
+
+VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags2 wait_stage_mask, VkPipelineStageFlags2 signal_stage_mask) {
+    return SubmitQueue(vk.queue, {
+        .wait_semaphore_infos = {
+            {
+                .semaphore = frame.acquire_semaphore,
+                .stage_mask = wait_stage_mask,
+            },
+        },
+        .command_buffer_infos = {
+            {
+                .command_buffer = frame.command_buffer,
+            }
+        },
+        .signal_semaphore_infos = {
+            {
+                .semaphore = frame.current_present_semaphore,
+                .stage_mask = signal_stage_mask,
+            },
+        },
+        .fence = frame.fence,
+    });
+}
+
+VkResult SubmitSync(const Context& vk) {
+    VkResult vkr = SubmitQueue(vk.queue, {
+        .command_buffer_infos = {
+            {
+                .command_buffer = vk.sync_command_buffer,
+            }
+        },
+        .fence = vk.sync_fence,
+    });
+    if (vkr != VK_SUCCESS) {
+        return vkr;
+    }
+
+    vkWaitForFences(vk.device, 1, &vk.sync_fence, VK_TRUE, ~0);
+    vkResetFences(vk.device, 1, &vk.sync_fence);
+    return VK_SUCCESS;
+}
+
 
 
 VkResult PresentFrame(Window* w, Frame* frame, const Context& vk) {
