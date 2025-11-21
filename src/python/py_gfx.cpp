@@ -47,7 +47,7 @@ using namespace xpg;
 struct VulkanError: std::exception {
     nb::str message;
 
-    VulkanError(const char* msg, VkResult vkr): message(nb::str("{}: {}").format(msg, string_VkResult(vkr))) {}
+    VulkanError(const char* msg, VkResult vkr): message(nb::str("{}: {} ({})").format(msg, string_VkResult(vkr), (s32)vkr)) {}
 
     const char* what() const noexcept override
     {
@@ -789,6 +789,275 @@ namespace MemoryUsagePresets {
     };
     static_assert(ArrayCount(Types) == (size_t)MemoryUsage::Count, "MemoryUsage count does not match length of Types array");
 };
+#ifdef MemoryBarrier
+#undef MemoryBarrier
+#endif
+
+struct Buffer;
+struct Image;
+
+enum VkPipelineStageFlagBits2Enum: u64 {
+    enum_VK_PIPELINE_STAGE_2_NONE                                     = VK_PIPELINE_STAGE_2_NONE,
+    enum_VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT                          = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+    enum_VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT                        = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+    enum_VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT                         = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT,
+    enum_VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT                        = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+    enum_VK_PIPELINE_STAGE_2_TESSELLATION_CONTROL_SHADER_BIT          = VK_PIPELINE_STAGE_2_TESSELLATION_CONTROL_SHADER_BIT,
+    enum_VK_PIPELINE_STAGE_2_TESSELLATION_EVALUATION_SHADER_BIT       = VK_PIPELINE_STAGE_2_TESSELLATION_EVALUATION_SHADER_BIT,
+    enum_VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT                      = VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
+    enum_VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT                      = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+    enum_VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT                 = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+    enum_VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT                  = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+    enum_VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT              = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+    enum_VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT                       = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+    enum_VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT                         = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+    enum_VK_PIPELINE_STAGE_2_TRANSFER_BIT                             = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+    enum_VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT                       = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+    enum_VK_PIPELINE_STAGE_2_HOST_BIT                                 = VK_PIPELINE_STAGE_2_HOST_BIT,
+    enum_VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT                         = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+    enum_VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT                         = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+    enum_VK_PIPELINE_STAGE_2_COPY_BIT                                 = VK_PIPELINE_STAGE_2_COPY_BIT,
+    enum_VK_PIPELINE_STAGE_2_RESOLVE_BIT                              = VK_PIPELINE_STAGE_2_RESOLVE_BIT,
+    enum_VK_PIPELINE_STAGE_2_BLIT_BIT                                 = VK_PIPELINE_STAGE_2_BLIT_BIT,
+    enum_VK_PIPELINE_STAGE_2_CLEAR_BIT                                = VK_PIPELINE_STAGE_2_CLEAR_BIT,
+    enum_VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT                          = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT,
+    enum_VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT               = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
+    enum_VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT            = VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT,
+    enum_VK_PIPELINE_STAGE_2_VIDEO_DECODE_BIT_KHR                     = VK_PIPELINE_STAGE_2_VIDEO_DECODE_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_VIDEO_ENCODE_BIT_KHR                     = VK_PIPELINE_STAGE_2_VIDEO_ENCODE_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_NONE_KHR                                 = VK_PIPELINE_STAGE_2_NONE_KHR,
+    enum_VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR                      = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT_KHR                    = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT_KHR                     = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT_KHR                    = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_TESSELLATION_CONTROL_SHADER_BIT_KHR      = VK_PIPELINE_STAGE_2_TESSELLATION_CONTROL_SHADER_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_TESSELLATION_EVALUATION_SHADER_BIT_KHR   = VK_PIPELINE_STAGE_2_TESSELLATION_EVALUATION_SHADER_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT_KHR                  = VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR                  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR             = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR              = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR          = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR                   = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT_KHR                     = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR                         = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT_KHR                   = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_HOST_BIT_KHR                             = VK_PIPELINE_STAGE_2_HOST_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT_KHR                     = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR                     = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_COPY_BIT_KHR                             = VK_PIPELINE_STAGE_2_COPY_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_RESOLVE_BIT_KHR                          = VK_PIPELINE_STAGE_2_RESOLVE_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_BLIT_BIT_KHR                             = VK_PIPELINE_STAGE_2_BLIT_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_CLEAR_BIT_KHR                            = VK_PIPELINE_STAGE_2_CLEAR_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT_KHR                      = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT_KHR           = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT_KHR        = VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_TRANSFORM_FEEDBACK_BIT_EXT               = VK_PIPELINE_STAGE_2_TRANSFORM_FEEDBACK_BIT_EXT,
+    enum_VK_PIPELINE_STAGE_2_CONDITIONAL_RENDERING_BIT_EXT            = VK_PIPELINE_STAGE_2_CONDITIONAL_RENDERING_BIT_EXT,
+    enum_VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_NV                = VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_NV,
+    enum_VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_EXT               = VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_EXT,
+    enum_VK_PIPELINE_STAGE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR = VK_PIPELINE_STAGE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_SHADING_RATE_IMAGE_BIT_NV                = VK_PIPELINE_STAGE_2_SHADING_RATE_IMAGE_BIT_NV,
+    enum_VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR     = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR               = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_NV                = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_NV,
+    enum_VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_NV      = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_NV,
+    enum_VK_PIPELINE_STAGE_2_FRAGMENT_DENSITY_PROCESS_BIT_EXT         = VK_PIPELINE_STAGE_2_FRAGMENT_DENSITY_PROCESS_BIT_EXT,
+    enum_VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_NV                       = VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_NV,
+    enum_VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_NV                       = VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_NV,
+    enum_VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT                      = VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT,
+    enum_VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT                      = VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
+    enum_VK_PIPELINE_STAGE_2_SUBPASS_SHADER_BIT_HUAWEI                = VK_PIPELINE_STAGE_2_SUBPASS_SHADER_BIT_HUAWEI,
+    enum_VK_PIPELINE_STAGE_2_SUBPASS_SHADING_BIT_HUAWEI               = VK_PIPELINE_STAGE_2_SUBPASS_SHADING_BIT_HUAWEI,
+    enum_VK_PIPELINE_STAGE_2_INVOCATION_MASK_BIT_HUAWEI               = VK_PIPELINE_STAGE_2_INVOCATION_MASK_BIT_HUAWEI,
+    enum_VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR      = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR,
+    enum_VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT                   = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT,
+    enum_VK_PIPELINE_STAGE_2_CLUSTER_CULLING_SHADER_BIT_HUAWEI        = VK_PIPELINE_STAGE_2_CLUSTER_CULLING_SHADER_BIT_HUAWEI,
+    enum_VK_PIPELINE_STAGE_2_OPTICAL_FLOW_BIT_NV                      = VK_PIPELINE_STAGE_2_OPTICAL_FLOW_BIT_NV,
+    enum_VK_PIPELINE_STAGE_2_CONVERT_COOPERATIVE_VECTOR_MATRIX_BIT_NV = VK_PIPELINE_STAGE_2_CONVERT_COOPERATIVE_VECTOR_MATRIX_BIT_NV,
+    enum_VK_PIPELINE_STAGE_2_DATA_GRAPH_BIT_ARM                       = VK_PIPELINE_STAGE_2_DATA_GRAPH_BIT_ARM,
+    enum_VK_PIPELINE_STAGE_2_COPY_INDIRECT_BIT_KHR                    = VK_PIPELINE_STAGE_2_COPY_INDIRECT_BIT_KHR,
+};
+
+enum VkAccessFlagBits2Enum: u64 {
+    enum_VK_ACCESS_2_NONE                                          = VK_ACCESS_2_NONE,
+    enum_VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT                     = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+    enum_VK_ACCESS_2_INDEX_READ_BIT                                = VK_ACCESS_2_INDEX_READ_BIT,
+    enum_VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT                     = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,
+    enum_VK_ACCESS_2_UNIFORM_READ_BIT                              = VK_ACCESS_2_UNIFORM_READ_BIT,
+    enum_VK_ACCESS_2_INPUT_ATTACHMENT_READ_BIT                     = VK_ACCESS_2_INPUT_ATTACHMENT_READ_BIT,
+    enum_VK_ACCESS_2_SHADER_READ_BIT                               = VK_ACCESS_2_SHADER_READ_BIT,
+    enum_VK_ACCESS_2_SHADER_WRITE_BIT                              = VK_ACCESS_2_SHADER_WRITE_BIT,
+    enum_VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT                     = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+    enum_VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT                    = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+    enum_VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT             = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+    enum_VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT            = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+    enum_VK_ACCESS_2_TRANSFER_READ_BIT                             = VK_ACCESS_2_TRANSFER_READ_BIT,
+    enum_VK_ACCESS_2_TRANSFER_WRITE_BIT                            = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+    enum_VK_ACCESS_2_HOST_READ_BIT                                 = VK_ACCESS_2_HOST_READ_BIT,
+    enum_VK_ACCESS_2_HOST_WRITE_BIT                                = VK_ACCESS_2_HOST_WRITE_BIT,
+    enum_VK_ACCESS_2_MEMORY_READ_BIT                               = VK_ACCESS_2_MEMORY_READ_BIT,
+    enum_VK_ACCESS_2_MEMORY_WRITE_BIT                              = VK_ACCESS_2_MEMORY_WRITE_BIT,
+    enum_VK_ACCESS_2_SHADER_SAMPLED_READ_BIT                       = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+    enum_VK_ACCESS_2_SHADER_STORAGE_READ_BIT                       = VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
+    enum_VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT                      = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+    enum_VK_ACCESS_2_VIDEO_DECODE_READ_BIT_KHR                     = VK_ACCESS_2_VIDEO_DECODE_READ_BIT_KHR,
+    enum_VK_ACCESS_2_VIDEO_DECODE_WRITE_BIT_KHR                    = VK_ACCESS_2_VIDEO_DECODE_WRITE_BIT_KHR,
+    enum_VK_ACCESS_2_VIDEO_ENCODE_READ_BIT_KHR                     = VK_ACCESS_2_VIDEO_ENCODE_READ_BIT_KHR,
+    enum_VK_ACCESS_2_VIDEO_ENCODE_WRITE_BIT_KHR                    = VK_ACCESS_2_VIDEO_ENCODE_WRITE_BIT_KHR,
+    enum_VK_ACCESS_2_SHADER_TILE_ATTACHMENT_READ_BIT_QCOM          = VK_ACCESS_2_SHADER_TILE_ATTACHMENT_READ_BIT_QCOM,
+    enum_VK_ACCESS_2_SHADER_TILE_ATTACHMENT_WRITE_BIT_QCOM         = VK_ACCESS_2_SHADER_TILE_ATTACHMENT_WRITE_BIT_QCOM,
+    enum_VK_ACCESS_2_NONE_KHR                                      = VK_ACCESS_2_NONE_KHR,
+    enum_VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT_KHR                 = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT_KHR,
+    enum_VK_ACCESS_2_INDEX_READ_BIT_KHR                            = VK_ACCESS_2_INDEX_READ_BIT_KHR,
+    enum_VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT_KHR                 = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT_KHR,
+    enum_VK_ACCESS_2_UNIFORM_READ_BIT_KHR                          = VK_ACCESS_2_UNIFORM_READ_BIT_KHR,
+    enum_VK_ACCESS_2_INPUT_ATTACHMENT_READ_BIT_KHR                 = VK_ACCESS_2_INPUT_ATTACHMENT_READ_BIT_KHR,
+    enum_VK_ACCESS_2_SHADER_READ_BIT_KHR                           = VK_ACCESS_2_SHADER_READ_BIT_KHR,
+    enum_VK_ACCESS_2_SHADER_WRITE_BIT_KHR                          = VK_ACCESS_2_SHADER_WRITE_BIT_KHR,
+    enum_VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT_KHR                 = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT_KHR,
+    enum_VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR                = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR,
+    enum_VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR         = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR,
+    enum_VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR        = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR,
+    enum_VK_ACCESS_2_TRANSFER_READ_BIT_KHR                         = VK_ACCESS_2_TRANSFER_READ_BIT_KHR,
+    enum_VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR                        = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
+    enum_VK_ACCESS_2_HOST_READ_BIT_KHR                             = VK_ACCESS_2_HOST_READ_BIT_KHR,
+    enum_VK_ACCESS_2_HOST_WRITE_BIT_KHR                            = VK_ACCESS_2_HOST_WRITE_BIT_KHR,
+    enum_VK_ACCESS_2_MEMORY_READ_BIT_KHR                           = VK_ACCESS_2_MEMORY_READ_BIT_KHR,
+    enum_VK_ACCESS_2_MEMORY_WRITE_BIT_KHR                          = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR,
+    enum_VK_ACCESS_2_SHADER_SAMPLED_READ_BIT_KHR                   = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT_KHR,
+    enum_VK_ACCESS_2_SHADER_STORAGE_READ_BIT_KHR                   = VK_ACCESS_2_SHADER_STORAGE_READ_BIT_KHR,
+    enum_VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT_KHR                  = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT_KHR,
+    enum_VK_ACCESS_2_TRANSFORM_FEEDBACK_WRITE_BIT_EXT              = VK_ACCESS_2_TRANSFORM_FEEDBACK_WRITE_BIT_EXT,
+    enum_VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT       = VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT,
+    enum_VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT      = VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT,
+    enum_VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT            = VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT,
+    enum_VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_NV                = VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_NV,
+    enum_VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_NV               = VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_NV,
+    enum_VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_EXT               = VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_EXT,
+    enum_VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_EXT              = VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_EXT,
+    enum_VK_ACCESS_2_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR = VK_ACCESS_2_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR,
+    enum_VK_ACCESS_2_SHADING_RATE_IMAGE_READ_BIT_NV                = VK_ACCESS_2_SHADING_RATE_IMAGE_READ_BIT_NV,
+    enum_VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR           = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+    enum_VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR          = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+    enum_VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_NV            = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_NV,
+    enum_VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_NV           = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_NV,
+    enum_VK_ACCESS_2_FRAGMENT_DENSITY_MAP_READ_BIT_EXT             = VK_ACCESS_2_FRAGMENT_DENSITY_MAP_READ_BIT_EXT,
+    enum_VK_ACCESS_2_COLOR_ATTACHMENT_READ_NONCOHERENT_BIT_EXT     = VK_ACCESS_2_COLOR_ATTACHMENT_READ_NONCOHERENT_BIT_EXT,
+    enum_VK_ACCESS_2_DESCRIPTOR_BUFFER_READ_BIT_EXT                = VK_ACCESS_2_DESCRIPTOR_BUFFER_READ_BIT_EXT,
+    enum_VK_ACCESS_2_INVOCATION_MASK_READ_BIT_HUAWEI               = VK_ACCESS_2_INVOCATION_MASK_READ_BIT_HUAWEI,
+    enum_VK_ACCESS_2_SHADER_BINDING_TABLE_READ_BIT_KHR             = VK_ACCESS_2_SHADER_BINDING_TABLE_READ_BIT_KHR,
+    enum_VK_ACCESS_2_MICROMAP_READ_BIT_EXT                         = VK_ACCESS_2_MICROMAP_READ_BIT_EXT,
+    enum_VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT                        = VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT,
+    enum_VK_ACCESS_2_OPTICAL_FLOW_READ_BIT_NV                      = VK_ACCESS_2_OPTICAL_FLOW_READ_BIT_NV,
+    enum_VK_ACCESS_2_OPTICAL_FLOW_WRITE_BIT_NV                     = VK_ACCESS_2_OPTICAL_FLOW_WRITE_BIT_NV,
+    enum_VK_ACCESS_2_DATA_GRAPH_READ_BIT_ARM                       = VK_ACCESS_2_DATA_GRAPH_READ_BIT_ARM,
+    enum_VK_ACCESS_2_DATA_GRAPH_WRITE_BIT_ARM                      = VK_ACCESS_2_DATA_GRAPH_WRITE_BIT_ARM,
+};
+
+struct MemoryBarrier: nanobind::intrusive_base {
+    MemoryBarrier(
+        VkPipelineStageFlagBits2Enum src_stage,
+        VkAccessFlagBits2Enum        src_access,
+        VkPipelineStageFlagBits2Enum dst_stage,
+        VkAccessFlagBits2Enum        dst_access
+    )
+        : src_stage(src_stage)
+        , src_access(src_access)
+        , dst_stage(dst_stage)
+        , dst_access(dst_access)
+    {
+    }
+
+    VkPipelineStageFlagBits2Enum    src_stage;
+    VkAccessFlagBits2Enum           src_access;
+    VkPipelineStageFlagBits2Enum    dst_stage;
+    VkAccessFlagBits2Enum           dst_access;
+};
+
+struct BufferBarrier: nanobind::intrusive_base {
+    BufferBarrier(
+        nb::ref<Buffer>              buffer,
+        VkPipelineStageFlagBits2Enum src_stage,
+        VkAccessFlagBits2Enum        src_access,
+        VkPipelineStageFlagBits2Enum dst_stage,
+        VkAccessFlagBits2Enum        dst_access,
+        uint32_t                     src_queue,
+        uint32_t                     dst_queue,
+        VkDeviceSize                 offset,
+        VkDeviceSize                 size
+    )
+        : src_stage(src_stage)
+        , src_access(src_access)
+        , dst_stage(dst_stage)
+        , dst_access(dst_access)
+        , src_queue(src_queue)
+        , dst_queue(dst_queue)
+        , buffer(buffer)
+        , offset(offset)
+        , size(size)
+    {
+    }
+
+    VkPipelineStageFlagBits2Enum src_stage;
+    VkAccessFlagBits2Enum        src_access;
+    VkPipelineStageFlagBits2Enum dst_stage;
+    VkAccessFlagBits2Enum        dst_access;
+    uint32_t                     src_queue;
+    uint32_t                     dst_queue;
+    nb::ref<Buffer>              buffer;
+    VkDeviceSize                 offset;
+    VkDeviceSize                 size;
+};
+
+struct ImageBarrier: nanobind::intrusive_base {
+    ImageBarrier(
+        nb::ref<Image>               image,
+        VkImageLayout                old_layout,
+        VkImageLayout                new_layout,
+        VkPipelineStageFlagBits2Enum src_stage,
+        VkAccessFlagBits2Enum        src_access,
+        VkPipelineStageFlagBits2Enum dst_stage,
+        VkAccessFlagBits2Enum        dst_access,
+        uint32_t                     src_queue,
+        uint32_t                     dst_queue,
+        VkImageAspectFlagBits        aspect_mask,
+        uint32_t                     base_mip_level,
+        uint32_t                     mip_level_count,
+        uint32_t                     base_array_layer,
+        uint32_t                     array_layer_count
+    )
+        : src_stage(src_stage)
+        , src_access(src_access)
+        , dst_stage(dst_stage)
+        , dst_access(dst_access)
+        , old_layout(old_layout)
+        , new_layout(new_layout)
+        , src_queue(src_queue)
+        , dst_queue(dst_queue)
+        , image(image)
+        , aspect_mask(aspect_mask)
+        , base_mip_level(base_mip_level)
+        , mip_level_count(mip_level_count)
+        , base_array_layer(base_array_layer)
+        , array_layer_count(array_layer_count)
+    {
+    }
+
+    VkPipelineStageFlagBits2Enum src_stage;
+    VkAccessFlagBits2Enum        src_access;
+    VkPipelineStageFlagBits2Enum dst_stage;
+    VkAccessFlagBits2Enum        dst_access;
+    VkImageLayout                old_layout;
+    VkImageLayout                new_layout;
+    uint32_t                     src_queue;
+    uint32_t                     dst_queue;
+    nb::ref<Image>               image;
+    VkImageAspectFlagBits        aspect_mask;
+    uint32_t                     base_mip_level;
+    uint32_t                     mip_level_count;
+    uint32_t                     base_array_layer;
+    uint32_t                     array_layer_count;
+};
 
 struct Image: GfxObject {
     Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags,
@@ -1309,6 +1578,136 @@ struct CommandBuffer: GfxObject {
                 .dst_access = dst_state.access,
             });
         }
+    }
+
+    void memory_barrier_full(nb::ref<MemoryBarrier> memory_barrier) {
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+            throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
+        }
+
+        const MemoryBarrier& barrier = *memory_barrier;
+        gfx::CmdMemoryBarrier(buffer, {
+            .src_stage = barrier.src_stage,
+            .src_access = barrier.src_access,
+            .dst_stage = barrier.dst_stage,
+            .dst_access = barrier.dst_access,
+        });
+    }
+
+    void buffer_barrier_full(nb::ref<BufferBarrier> buffer_barrier) {
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+            throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
+        }
+
+        const BufferBarrier& barrier = *buffer_barrier;
+        gfx::CmdBufferBarrier(buffer, {
+            .src_stage = barrier.src_stage,
+            .src_access = barrier.src_access,
+            .dst_stage = barrier.dst_stage,
+            .dst_access = barrier.dst_access,
+            .src_queue = barrier.src_queue,
+            .dst_queue = barrier.dst_queue,
+            .buffer = barrier.buffer->buffer.buffer,
+            .offset = barrier.offset,
+            .size = barrier.size,
+        });
+    }
+
+    void image_barrier_full(nb::ref<ImageBarrier> image_barrier) {
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+            throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
+        }
+
+        ImageBarrier& barrier = *image_barrier;
+        barrier.image->current_layout = barrier.old_layout;
+
+        gfx::CmdImageBarrier(buffer, {
+            .src_stage = barrier.src_stage,
+            .src_access = barrier.src_access,
+            .dst_stage = barrier.dst_stage,
+            .dst_access = barrier.dst_access,
+            .old_layout = barrier.old_layout,
+            .new_layout = barrier.new_layout,
+            .src_queue = barrier.src_queue,
+            .dst_queue = barrier.dst_queue,
+            .image = barrier.image->image.image,
+            .aspect_mask = (VkImageAspectFlags)barrier.aspect_mask,
+            .base_mip_level = barrier.base_mip_level,
+            .mip_level_count = barrier.mip_level_count,
+            .base_array_layer = barrier.base_array_layer,
+            .array_layer_count = barrier.array_layer_count,
+        });
+    }
+
+    void barriers(
+        const std::vector<nb::ref<MemoryBarrier>> memory_barriers,
+        const std::vector<nb::ref<BufferBarrier>> buffer_barriers,
+        std::vector<nb::ref<ImageBarrier>> image_barriers
+    ) {
+        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+            throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
+        }
+
+        check_vector_of_ref_for_null(memory_barriers, "elements of \"memory_barriers\" must not be None");
+        check_vector_of_ref_for_null(buffer_barriers, "elements of \"buffer_barriers\" must not be None");
+        check_vector_of_ref_for_null(image_barriers, "elements of \"image_barriers\" must not be None");
+
+        std::vector<gfx::MemoryBarrierDesc> vk_memory_barriers(memory_barriers.size());
+        for (usize i = 0; i < memory_barriers.size(); i++) {
+            const MemoryBarrier& barrier = *memory_barriers[i];
+            vk_memory_barriers[i] = {
+                .src_stage = barrier.src_stage,
+                .src_access = barrier.src_access,
+                .dst_stage = barrier.dst_stage,
+                .dst_access = barrier.dst_access,
+            };
+        }
+
+        std::vector<gfx::BufferBarrierDesc> vk_buffer_barriers(buffer_barriers.size());
+        for (usize i = 0; i < buffer_barriers.size(); i++) {
+            const BufferBarrier& barrier = *buffer_barriers[i];
+            vk_buffer_barriers[i] = {
+                .src_stage = barrier.src_stage,
+                .src_access = barrier.src_access,
+                .dst_stage = barrier.dst_stage,
+                .dst_access = barrier.dst_access,
+                .src_queue = barrier.src_queue,
+                .dst_queue = barrier.dst_queue,
+                .buffer = barrier.buffer->buffer.buffer,
+                .offset = barrier.offset,
+                .size = barrier.size,
+            };
+        }
+
+        std::vector<gfx::ImageBarrierDesc> vk_image_barriers(image_barriers.size());
+        for (usize i = 0; i < image_barriers.size(); i++) {
+            ImageBarrier& barrier = *image_barriers[i];
+
+            barrier.image->current_layout = barrier.old_layout;
+
+            vk_image_barriers[i] = {
+                .src_stage = barrier.src_stage,
+                .src_access = barrier.src_access,
+                .dst_stage = barrier.dst_stage,
+                .dst_access = barrier.dst_access,
+                .old_layout = barrier.old_layout,
+                .new_layout = barrier.new_layout,
+                .src_queue = barrier.src_queue,
+                .dst_queue = barrier.dst_queue,
+                .image = barrier.image->image.image,
+                .aspect_mask = (VkImageAspectFlags)barrier.aspect_mask,
+                .base_mip_level = barrier.base_mip_level,
+                .mip_level_count = barrier.mip_level_count,
+                .base_array_layer = barrier.base_array_layer,
+                .array_layer_count = barrier.array_layer_count,
+            };
+        }
+
+        gfx::CmdBarriers(buffer, {
+            .memory = Span(ArrayView(vk_memory_barriers.data(), vk_memory_barriers.size())),
+            .buffer = Span(ArrayView(vk_buffer_barriers.data(), vk_buffer_barriers.size())),
+            .image = Span(ArrayView(vk_image_barriers.data(), vk_image_barriers.size())),
+        });
     }
 
     void begin() {
@@ -1906,8 +2305,8 @@ struct CommandBuffer: GfxObject {
         vkCmdResetQueryPool(buffer, pool.pool, 0, pool.count);
     }
 
-    void write_timestamp(const QueryPool& pool, u32 index, VkPipelineStageFlags2 stage) {
-        vkCmdWriteTimestamp2KHR(buffer, stage, pool.pool, index);
+    void write_timestamp(const QueryPool& pool, u32 index, VkPipelineStageFlagBits2Enum stage) {
+        vkCmdWriteTimestamp2KHR(buffer, (VkPipelineStageFlags2)stage, pool.pool, index);
     }
 
     void begin_label(nb::str name, std::optional<std::tuple<float, float, float, float>> color) {
@@ -2004,28 +2403,36 @@ struct Queue: GfxObject {
     }
 
     void submit(nb::ref<CommandBuffer> cmd,
-        std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores,
-        std::vector<u64> wait_timeline_values,
-        std::vector<nb::ref<Semaphore>> signal_semaphores,
-        std::vector<u64> signal_timeline_values,
+        std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> wait_semaphores,
+        std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> signal_semaphores,
         std::optional<nb::ref<Fence>> fence) {
 
-        check_vector_of_ref_for_null(signal_semaphores, "elements of \"signal_semaphores\" must not be None");
         for (size_t i = 0; i < wait_semaphores.size(); i++) {
             if (!std::get<0>(wait_semaphores[i])) {
                 nb::raise("semaphores of \"wait_semaphores\" must not be None");
             }
         }
-
-        Array<VkSemaphore> vk_wait_semaphores(wait_semaphores.size());
-        Array<VkPipelineStageFlags> vk_wait_stages(wait_semaphores.size());
-        for(usize i = 0; i < wait_semaphores.size(); i++) {
-            vk_wait_semaphores[i] = std::get<0>(wait_semaphores[i])->semaphore;
-            vk_wait_stages[i] = std::get<1>(wait_semaphores[i]);
+        for (size_t i = 0; i < signal_semaphores.size(); i++) {
+            if (!std::get<0>(signal_semaphores[i])) {
+                nb::raise("semaphores of \"signal_semaphores\" must not be None");
+            }
         }
-        Array<VkSemaphore> vk_signal_semaphores(signal_semaphores.size());
+
+        Array<gfx::SemaphoreSubmitInfo> vk_wait_semaphores(wait_semaphores.size());
+        for(usize i = 0; i < wait_semaphores.size(); i++) {
+            vk_wait_semaphores[i] = {
+                .semaphore = std::get<0>(wait_semaphores[i])->semaphore,
+                .value = (VkPipelineStageFlags2)std::get<1>(wait_semaphores[i]),
+                .stage_mask = (VkPipelineStageFlags2)std::get<2>(wait_semaphores[i]),
+            };
+        }
+        Array<gfx::SemaphoreSubmitInfo> vk_signal_semaphores(signal_semaphores.size());
         for(usize i = 0; i < signal_semaphores.size(); i++) {
-            vk_signal_semaphores[i] = signal_semaphores[i]->semaphore;
+            vk_signal_semaphores[i] = {
+                .semaphore = std::get<0>(signal_semaphores[i])->semaphore,
+                .value = (VkPipelineStageFlags2)std::get<1>(signal_semaphores[i]),
+                .stage_mask = (VkPipelineStageFlags2)std::get<2>(signal_semaphores[i]),
+            };
         }
 
         VkFence vk_fence = VK_NULL_HANDLE;
@@ -2034,12 +2441,13 @@ struct Queue: GfxObject {
             vkResetFences(ctx->vk.device, 1, &vk_fence);
         }
         VkResult vkr = gfx::SubmitQueue(queue, {
-            .cmd = { cmd->buffer },
-            .wait_semaphores = Span(vk_wait_semaphores),
-            .wait_stages = Span(vk_wait_stages),
-            .wait_timeline_values = Span(ArrayView(wait_timeline_values.data(), wait_timeline_values.size())),
-            .signal_semaphores = Span(vk_signal_semaphores),
-            .signal_timeline_values = Span(ArrayView(signal_timeline_values.data(), signal_timeline_values.size())),
+            .wait_semaphore_infos = Span(vk_wait_semaphores),
+            .command_buffer_infos = {
+                {
+                    .command_buffer = cmd->buffer,
+                },
+            },
+            .signal_semaphore_infos = Span(vk_signal_semaphores),
             .fence = vk_fence,
         });
 
@@ -2067,15 +2475,11 @@ struct SwapchainOutOfDateError: std::exception {};
 struct Window: nb::intrusive_base {
     struct FrameManager: nb::intrusive_base {
         FrameManager(nb::ref<Window> window,
-                     std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores,
-                     std::vector<u64> additional_wait_timeline_values,
-                     std::vector<nb::ref<Semaphore>> additional_signal_semaphores,
-                     std::vector<u64> additional_signal_timeline_values)
+                     std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> additional_wait_semaphores,
+                     std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> additional_signal_semaphores)
             : window(window)
             , additional_wait_semaphores(std::move(additional_wait_semaphores))
-            , additional_wait_timeline_values(std::move(additional_wait_timeline_values))
             , additional_signal_semaphores(std::move(additional_signal_semaphores))
-            , additional_signal_timeline_values(std::move(additional_signal_timeline_values))
         {
         }
 
@@ -2085,24 +2489,20 @@ struct Window: nb::intrusive_base {
         }
 
         void exit(nb::object, nb::object, nb::object) {
-            window->end_frame(*frame, additional_wait_semaphores, additional_wait_timeline_values, additional_signal_semaphores, additional_signal_timeline_values);
+            window->end_frame(*frame, additional_wait_semaphores, additional_signal_semaphores);
         }
 
         nb::ref<Frame> frame;
         nb::ref<Window> window;
-        std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores;
-        std::vector<u64> additional_wait_timeline_values;
-        std::vector<nb::ref<Semaphore>> additional_signal_semaphores;
-        std::vector<u64> additional_signal_timeline_values;
+        std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> additional_wait_semaphores;
+        std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> additional_signal_semaphores;
     };
 
     nb::ref<FrameManager> frame(
-        std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> additional_wait_semaphores,
-        std::vector<u64> additional_wait_timeline_values,
-        std::vector<nb::ref<Semaphore>> additional_signal_semaphores,
-        std::vector<u64> additional_signal_timeline_values)
+        std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> additional_wait_semaphores,
+        std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> additional_signal_semaphores)
     {
-        return new FrameManager(this, std::move(additional_wait_semaphores), std::move(additional_wait_timeline_values), std::move(additional_signal_semaphores), std::move(additional_signal_timeline_values));
+        return new FrameManager(this, std::move(additional_wait_semaphores), std::move(additional_signal_semaphores));
     }
 
     Window(nb::ref<Context> ctx, const std::string& name, u32 width, u32 height, std::optional<u32> x, std::optional<u32> y)
@@ -2211,49 +2611,68 @@ struct Window: nb::intrusive_base {
     }
 
     void end_frame(Frame& frame,
-        const std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>>& additional_wait_semaphores,
-        std::vector<u64>& additional_wait_timeline_values,
-        const std::vector<nb::ref<Semaphore>>& additional_signal_semaphores,
-        std::vector<u64>& additional_signal_timeline_values)
+                   std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> additional_wait_semaphores,
+                   std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> additional_signal_semaphores)
     {
-        check_vector_of_ref_for_null(additional_signal_semaphores, "elements of \"additional_signal_semaphores\" must not be None");
         for (size_t i = 0; i < additional_wait_semaphores.size(); i++) {
             if (!std::get<0>(additional_wait_semaphores[i])) {
                 nb::raise("semaphores of \"additional_wait_semaphores\" must not be None");
+            }
+        }
+        for (size_t i = 0; i < additional_signal_semaphores.size(); i++) {
+            if (!std::get<0>(additional_signal_semaphores[i])) {
+                nb::raise("semaphores of \"additional_signal_semaphores\" must not be None");
             }
         }
 
         // TODO: make this throw if not called after begin in the same frame
         VkResult vkr;
         if(additional_wait_semaphores.empty() && additional_signal_semaphores.empty()) {
-            vkr = gfx::Submit(frame.frame, ctx->vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-            // vkr = gfx::Submit(frame.frame, ctx->vk, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
-            // vkr = gfx::Submit(frame.frame, ctx->vk, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
-        } else {
-            Array<VkSemaphore> wait_semaphores(additional_wait_semaphores.size() + 1);
-            Array<VkPipelineStageFlags> wait_stages(additional_wait_semaphores.size() + 1);
-            for(usize i = 0; i < additional_wait_semaphores.size(); i++) {
-                wait_semaphores[i] = std::get<0>(additional_wait_semaphores[i])->semaphore;
-                wait_stages[i] = std::get<1>(additional_wait_semaphores[i]);
-            }
-            wait_semaphores[additional_wait_semaphores.size()] = frame.frame.acquire_semaphore;
-            wait_stages[additional_wait_semaphores.size()] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-            additional_wait_timeline_values.push_back(0);
+            // TODO: expose the wait stage? Also below
 
-            Array<VkSemaphore> signal_semaphores(additional_signal_semaphores.size() + 1);
-            for(usize i = 0; i < additional_signal_semaphores.size(); i++) {
-                signal_semaphores[i] = additional_signal_semaphores[i]->semaphore;
+            // The signal stage is needed because we need the layout transition to present to finish before
+            // presentation starts. This is implicit with VkQueueSubmit but not with VkQueueSubmit2.
+            // Here we assume that the transition starts at the color_attachment_output stage and needs
+            // to finish also at the color_attachment_output.
+            // See: https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/6177
+            vkr = gfx::Submit(frame.frame, ctx->vk, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
+        } else {
+            Array<gfx::SemaphoreSubmitInfo> wait_semaphores(additional_wait_semaphores.size() + 1);
+            for(usize i = 0; i < additional_wait_semaphores.size(); i++) {
+                wait_semaphores[i] = {
+                    .semaphore = std::get<0>(additional_wait_semaphores[i])->semaphore,
+                    .value = (VkPipelineStageFlags2)std::get<1>(additional_wait_semaphores[i]),
+                    .stage_mask = (VkPipelineStageFlags2)std::get<2>(additional_wait_semaphores[i]),
+                };
             }
-            signal_semaphores[additional_signal_semaphores.size()] = frame.frame.current_present_semaphore;
-            additional_signal_timeline_values.push_back(0);
+            wait_semaphores[additional_wait_semaphores.size()] = {
+                .semaphore = frame.frame.acquire_semaphore,
+                .value = 0,
+                .stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            };
+
+            Array<gfx::SemaphoreSubmitInfo> signal_semaphores(additional_signal_semaphores.size() + 1);
+            for(usize i = 0; i < additional_signal_semaphores.size(); i++) {
+                signal_semaphores[i] = {
+                    .semaphore = std::get<0>(additional_signal_semaphores[i])->semaphore,
+                    .value = (VkPipelineStageFlags2)std::get<1>(additional_signal_semaphores[i]),
+                    .stage_mask = (VkPipelineStageFlags2)std::get<2>(additional_signal_semaphores[i]),
+                };
+            }
+            signal_semaphores[additional_signal_semaphores.size()] = {
+                .semaphore = frame.frame.current_present_semaphore,
+                .value = 0,
+                .stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            };
 
             vkr = gfx::SubmitQueue(ctx->vk.queue, {
-                .cmd = { frame.frame.command_buffer },
-                .wait_semaphores = Span(wait_semaphores),
-                .wait_stages = Span(wait_stages),
-                .wait_timeline_values = Span(ArrayView(additional_wait_timeline_values.data(), additional_wait_timeline_values.size())),
-                .signal_semaphores = Span(signal_semaphores),
-                .signal_timeline_values = Span(ArrayView(additional_signal_timeline_values.data(), additional_signal_timeline_values.size())),
+                .wait_semaphore_infos = Span(wait_semaphores),
+                .command_buffer_infos = {
+                    {
+                        .command_buffer = frame.frame.command_buffer,
+                    },
+                },
+                .signal_semaphore_infos = Span(signal_semaphores),
                 .fence = frame.frame.fence,
             });
         }
@@ -2353,25 +2772,25 @@ static PyType_Slot window_tp_slots[] = {
 struct CommandsManager: nb::intrusive_base {
     CommandsManager(nb::ref<CommandBuffer> cmd,
                     VkQueue queue,
-                    std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores,
-                    std::vector<u64> wait_timeline_values,
-                    std::vector<nb::ref<Semaphore>> signal_semaphores,
-                    std::vector<u64> signal_timeline_values,
+                    std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> wait_semaphores,
+                    std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> signal_semaphores,
                     VkFence fence,
                     bool wait_and_reset_fence)
         : cmd(cmd)
         , queue(queue)
         , wait_semaphores(std::move(wait_semaphores))
-        , wait_timeline_values(std::move(wait_timeline_values))
         , signal_semaphores(std::move(signal_semaphores))
-        , signal_timeline_values(std::move(signal_timeline_values))
         , fence(fence)
         , wait_and_reset_fence(wait_and_reset_fence)
     {
-        check_vector_of_ref_for_null(signal_semaphores, "elements of \"signal_semaphores\" must not be None");
         for (size_t i = 0; i < wait_semaphores.size(); i++) {
             if (!std::get<0>(wait_semaphores[i])) {
                 nb::raise("semaphores of \"wait_semaphores\" must not be None");
+            }
+        }
+        for (size_t i = 0; i < signal_semaphores.size(); i++) {
+            if (!std::get<0>(signal_semaphores[i])) {
+                nb::raise("semaphores of \"signal_semaphores\" must not be None");
             }
         }
     }
@@ -2384,27 +2803,33 @@ struct CommandsManager: nb::intrusive_base {
     void exit(nb::object, nb::object, nb::object) {
         cmd->end();
 
-        Array<VkSemaphore> vk_wait_semaphores(wait_semaphores.size());
-        Array<VkPipelineStageFlags> vk_wait_stages(wait_semaphores.size());
+        Array<gfx::SemaphoreSubmitInfo> vk_wait_semaphores(wait_semaphores.size());
         for(usize i = 0; i < wait_semaphores.size(); i++) {
-            vk_wait_semaphores[i] = std::get<0>(wait_semaphores[i])->semaphore;
-            vk_wait_stages[i] = std::get<1>(wait_semaphores[i]);
+            vk_wait_semaphores[i] = {
+                .semaphore = std::get<0>(wait_semaphores[i])->semaphore,
+                .value = (VkPipelineStageFlags2)std::get<1>(wait_semaphores[i]),
+                .stage_mask = (VkPipelineStageFlags2)std::get<2>(wait_semaphores[i]),
+            };
         }
-        Array<VkSemaphore> vk_signal_semaphores(signal_semaphores.size());
+        Array<gfx::SemaphoreSubmitInfo> vk_signal_semaphores(signal_semaphores.size());
         for(usize i = 0; i < signal_semaphores.size(); i++) {
-            vk_signal_semaphores[i] = signal_semaphores[i]->semaphore;
+            vk_signal_semaphores[i] = {
+                .semaphore = std::get<0>(signal_semaphores[i])->semaphore,
+                .value = (VkPipelineStageFlags2)std::get<1>(signal_semaphores[i]),
+                .stage_mask = (VkPipelineStageFlags2)std::get<2>(signal_semaphores[i]),
+            };
         }
 
         VkResult vkr = gfx::SubmitQueue(queue, {
-            .cmd = { cmd->buffer },
-            .wait_semaphores = Span(vk_wait_semaphores),
-            .wait_stages = Span(vk_wait_stages),
-            .wait_timeline_values = Span(ArrayView(wait_timeline_values.data(), wait_timeline_values.size())),
-            .signal_semaphores = Span(vk_signal_semaphores),
-            .signal_timeline_values = Span(ArrayView(signal_timeline_values.data(), signal_timeline_values.size())),
+            .wait_semaphore_infos = Span(vk_wait_semaphores),
+            .command_buffer_infos = {
+                {
+                    .command_buffer = cmd->buffer,
+                },
+            },
+            .signal_semaphore_infos = Span(vk_signal_semaphores),
             .fence = fence,
         });
-
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to submit transfer queue commands", vkr);
         }
@@ -2424,10 +2849,8 @@ struct CommandsManager: nb::intrusive_base {
 
     nb::ref<CommandBuffer> cmd;
     VkQueue queue;
-    std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores;
-    std::vector<u64> wait_timeline_values;
-    std::vector<nb::ref<Semaphore>> signal_semaphores;
-    std::vector<u64> signal_timeline_values;
+    std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> wait_semaphores;
+    std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> signal_semaphores;
     VkFence fence;
     bool wait_and_reset_fence;
 };
@@ -3552,7 +3975,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("enable_synchronization_validation") = false
         )
         .def("sync_commands", [] (nb::ref<Context> ctx) {
-            return new CommandsManager(new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer), ctx->vk.queue, {}, {}, {}, {}, ctx->vk.sync_fence, true);
+            return new CommandsManager(new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer), ctx->vk.queue, {}, {}, ctx->vk.sync_fence, true);
         })
         .def_prop_ro("sync_command_buffer", [] (nb::ref<Context> ctx) {
             return new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer);
@@ -3674,19 +4097,19 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<Frame>([](Frame *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def_ro("command_buffer", &Frame::command_buffer)
         .def_ro("image", &Frame::image)
-        .def("compute_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<u64> wait_timeline_values, std::vector<nb::ref<Semaphore>> signal_semaphores, std::vector<u64> signal_timeline_values) {
+        .def("compute_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> wait_semaphores, std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> signal_semaphores) {
             if (!frame.compute_command_buffer.has_value()) {
                 nb::raise("Device does not support compute queue. Check Context.has_compute_queue to know if it's supported.");
             }
-            return new CommandsManager(frame.compute_command_buffer.value(), frame.window->ctx->vk.compute_queue, std::move(wait_semaphores), std::move(wait_timeline_values), std::move(signal_semaphores), std::move(signal_timeline_values), VK_NULL_HANDLE, false);
-        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("wait_timeline_values") = nb::list(), nb::arg("signal_semaphores") = nb::list(), nb::arg("signal_timeline_values") = nb::list())
+            return new CommandsManager(frame.compute_command_buffer.value(), frame.window->ctx->vk.compute_queue, std::move(wait_semaphores), std::move(signal_semaphores), VK_NULL_HANDLE, false);
+        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("signal_semaphores") = nb::list())
         .def_ro("compute_command_buffer", &Frame::compute_command_buffer)
-        .def("transfer_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, VkPipelineStageFlagBits>> wait_semaphores, std::vector<u64> wait_timeline_values, std::vector<nb::ref<Semaphore>> signal_semaphores, std::vector<u64> signal_timeline_values) {
+        .def("transfer_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> wait_semaphores, std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> signal_semaphores) {
             if (!frame.transfer_command_buffer.has_value()) {
                 nb::raise("Device does not support transfer queue. Check Context.has_transfer_queue to know if it's supported.");
             }
-            return new CommandsManager(frame.transfer_command_buffer.value(), frame.window->ctx->vk.copy_queue, std::move(wait_semaphores), std::move(wait_timeline_values), std::move(signal_semaphores), std::move(signal_timeline_values), VK_NULL_HANDLE, false);
-        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("wait_timeline_values") = nb::list(), nb::arg("signal_semaphores") = nb::list(), nb::arg("signal_timeline_values") = nb::list())
+            return new CommandsManager(frame.transfer_command_buffer.value(), frame.window->ctx->vk.copy_queue, std::move(wait_semaphores), std::move(signal_semaphores), VK_NULL_HANDLE, false);
+        }, nb::arg("wait_semaphores") = nb::list(), nb::arg("signal_semaphores") = nb::list())
         .def_ro("transfer_command_buffer", &Frame::transfer_command_buffer)
     ;
 
@@ -3714,15 +4137,11 @@ void gfx_create_bindings(nb::module_& m)
         .def("end_frame", &Window::end_frame,
             nb::arg("frame"),
             nb::arg("additional_wait_semaphores") = nb::list(),
-            nb::arg("additional_wait_timeline_values") = nb::list(),
-            nb::arg("additional_signal_semaphores") = nb::list(),
-            nb::arg("additional_signal_timeline_values") = nb::list()
+            nb::arg("additional_signal_semaphores") = nb::list()
         )
         .def("frame", &Window::frame,
             nb::arg("additional_wait_semaphores") = nb::list(),
-            nb::arg("additional_wait_timeline_values") = nb::list(),
-            nb::arg("additional_signal_semaphores") = nb::list(),
-            nb::arg("additional_signal_timeline_values") = nb::list()
+            nb::arg("additional_signal_semaphores") = nb::list()
         )
         .def("post_empty_event", &Window::post_empty_event)
         .def_prop_ro("swapchain_format", [](Window& w) -> VkFormat { return w.window.swapchain_format; })
@@ -3982,9 +4401,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("submit", &Queue::submit,
             nb::arg("command_buffer"),
             nb::arg("wait_semaphores") = nb::list(),
-            nb::arg("wait_timeline_values") = nb::list(),
             nb::arg("signal_semaphores") = nb::list(),
-            nb::arg("signal_timeline_values") = nb::list(),
             nb::arg("fence") = nb::none()
         )
         .def("begin_label", &Queue::begin_label, nb::arg("name"), nb::arg("color") = nb::none())
@@ -4360,32 +4777,106 @@ void gfx_create_bindings(nb::module_& m)
         .value("MAX",         VK_RESOLVE_MODE_MAX_BIT)
     ;
 
-    nb::enum_<VkPipelineStageFlagBits>(m, "PipelineStageFlags", nb::is_flag(), nb::is_arithmetic())
-        .value("TOP_OF_PIPE"                          , VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT)
-        .value("DRAW_INDIRECT"                        , VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT)
-        .value("VERTEX_INPUT"                         , VK_PIPELINE_STAGE_VERTEX_INPUT_BIT)
-        .value("VERTEX_SHADER"                        , VK_PIPELINE_STAGE_VERTEX_SHADER_BIT)
-        .value("TESSELLATION_CONTROL_SHADER"          , VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT)
-        .value("TESSELLATION_EVALUATION_SHADER"       , VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT)
-        .value("GEOMETRY_SHADER"                      , VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT)
-        .value("FRAGMENT_SHADER"                      , VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
-        .value("EARLY_FRAGMENT_TESTS"                 , VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT)
-        .value("LATE_FRAGMENT_TESTS"                  , VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT)
-        .value("COLOR_ATTACHMENT_OUTPUT"              , VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
-        .value("COMPUTE_SHADER"                       , VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
-        .value("TRANSFER"                             , VK_PIPELINE_STAGE_TRANSFER_BIT)
-        .value("BOTTOM_OF_PIPE"                       , VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT)
-        .value("HOST"                                 , VK_PIPELINE_STAGE_HOST_BIT)
-        .value("ALL_GRAPHICS"                         , VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT)
-        .value("ALL_COMMANDS"                         , VK_PIPELINE_STAGE_ALL_COMMANDS_BIT)
-        .value("TRANSFORM_FEEDBACK"                   , VK_PIPELINE_STAGE_TRANSFORM_FEEDBACK_BIT_EXT)
-        .value("CONDITIONAL_RENDERING"                , VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT)
-        .value("ACCELERATION_STRUCTURE_BUILD"         , VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR)
-        .value("RAY_TRACING_SHADER"                   , VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR)
-        .value("FRAGMENT_DENSITY_PROCESS"             , VK_PIPELINE_STAGE_FRAGMENT_DENSITY_PROCESS_BIT_EXT)
-        .value("FRAGMENT_SHADING_RATE_ATTACHMENT"     , VK_PIPELINE_STAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
-        .value("TASK_SHADER"                          , VK_PIPELINE_STAGE_TASK_SHADER_BIT_EXT)
-        .value("MESH_SHADER"                          , VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT)
+    nb::enum_<VkPipelineStageFlagBits2Enum>(m, "PipelineStageFlags", nb::is_flag(), nb::is_arithmetic())
+        .value("NONE"                             , enum_VK_PIPELINE_STAGE_2_NONE)
+        .value("TOP_OF_PIPE"                      , enum_VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT)
+        .value("DRAW_INDIRECT"                    , enum_VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT)
+        .value("VERTEX_INPUT"                     , enum_VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT)
+        .value("VERTEX_SHADER"                    , enum_VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT)
+        .value("TESSELLATION_CONTROL_SHADER"      , enum_VK_PIPELINE_STAGE_2_TESSELLATION_CONTROL_SHADER_BIT)
+        .value("TESSELLATION_EVALUATION_SHADER"   , enum_VK_PIPELINE_STAGE_2_TESSELLATION_EVALUATION_SHADER_BIT)
+        .value("GEOMETRY_SHADER"                  , enum_VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT)
+        .value("FRAGMENT_SHADER"                  , enum_VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+        .value("EARLY_FRAGMENT_TESTS"             , enum_VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT)
+        .value("LATE_FRAGMENT_TESTS"              , enum_VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT)
+        .value("COLOR_ATTACHMENT_OUTPUT"          , enum_VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT)
+        .value("COMPUTE_SHADER"                   , enum_VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+        .value("ALL_TRANSFER"                     , enum_VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT)
+        .value("TRANSFER"                         , enum_VK_PIPELINE_STAGE_2_TRANSFER_BIT)
+        .value("BOTTOM_OF_PIPE"                   , enum_VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT)
+        .value("HOST"                             , enum_VK_PIPELINE_STAGE_2_HOST_BIT)
+        .value("ALL_GRAPHICS"                     , enum_VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
+        .value("ALL_COMMANDS"                     , enum_VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
+        .value("COPY"                             , enum_VK_PIPELINE_STAGE_2_COPY_BIT)
+        .value("RESOLVE"                          , enum_VK_PIPELINE_STAGE_2_RESOLVE_BIT)
+        .value("BLIT"                             , enum_VK_PIPELINE_STAGE_2_BLIT_BIT)
+        .value("CLEAR"                            , enum_VK_PIPELINE_STAGE_2_CLEAR_BIT)
+        .value("INDEX_INPUT"                      , enum_VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT)
+        .value("PRE_RASTERIZATION_SHADERS"        , enum_VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT)
+        .value("VIDEO_DECODE"                     , enum_VK_PIPELINE_STAGE_2_VIDEO_DECODE_BIT_KHR)
+        .value("VIDEO_ENCODE"                     , enum_VK_PIPELINE_STAGE_2_VIDEO_ENCODE_BIT_KHR)
+        .value("VERTEX_ATTRIBUTE_INPUT"           , enum_VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT_KHR)
+        .value("TRANSFORM_FEEDBACK"               , enum_VK_PIPELINE_STAGE_2_TRANSFORM_FEEDBACK_BIT_EXT)
+        .value("CONDITIONAL_RENDERING"            , enum_VK_PIPELINE_STAGE_2_CONDITIONAL_RENDERING_BIT_EXT)
+        .value("COMMAND_PREPROCESS"               , enum_VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_NV)
+        .value("FRAGMENT_SHADING_RATE_ATTACHMENT" , enum_VK_PIPELINE_STAGE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
+        .value("SHADING_RATE_IMAGE"               , enum_VK_PIPELINE_STAGE_2_SHADING_RATE_IMAGE_BIT_NV)
+        .value("ACCELERATION_STRUCTURE_BUILD"     , enum_VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR)
+        .value("RAY_TRACING_SHADER"               , enum_VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR)
+        .value("FRAGMENT_DENSITY_PROCESS"         , enum_VK_PIPELINE_STAGE_2_FRAGMENT_DENSITY_PROCESS_BIT_EXT)
+        .value("TASK_SHADER"                      , enum_VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT)
+        .value("MESH_SHADER"                      , enum_VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT)
+        .value("SUBPASS_SHADER"                   , enum_VK_PIPELINE_STAGE_2_SUBPASS_SHADER_BIT_HUAWEI)
+        .value("SUBPASS_SHADING"                  , enum_VK_PIPELINE_STAGE_2_SUBPASS_SHADING_BIT_HUAWEI)
+        .value("INVOCATION_MASK"                  , enum_VK_PIPELINE_STAGE_2_INVOCATION_MASK_BIT_HUAWEI)
+        .value("ACCELERATION_STRUCTURE_COPY"      , enum_VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR)
+        .value("MICROMAP_BUILD"                   , enum_VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT)
+        .value("CLUSTER_CULLING_SHADER"           , enum_VK_PIPELINE_STAGE_2_CLUSTER_CULLING_SHADER_BIT_HUAWEI)
+        .value("OPTICAL_FLOW"                     , enum_VK_PIPELINE_STAGE_2_OPTICAL_FLOW_BIT_NV)
+        .value("CONVERT_COOPERATIVE_VECTOR_MATRIX", enum_VK_PIPELINE_STAGE_2_CONVERT_COOPERATIVE_VECTOR_MATRIX_BIT_NV)
+        .value("DATA_GRAPH"                       , enum_VK_PIPELINE_STAGE_2_DATA_GRAPH_BIT_ARM)
+        .value("COPY_INDIRECT"                    , enum_VK_PIPELINE_STAGE_2_COPY_INDIRECT_BIT_KHR)
+    ;
+
+    nb::enum_<VkAccessFlagBits2Enum>(m, "AccessFlags", nb::is_flag(), nb::is_arithmetic())
+        .value("NONE"                                 , enum_VK_ACCESS_2_NONE)
+        .value("INDIRECT_COMMAND_READ"                , enum_VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT)
+        .value("INDEX_READ"                           , enum_VK_ACCESS_2_INDEX_READ_BIT)
+        .value("VERTEX_ATTRIBUTE_READ"                , enum_VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT)
+        .value("UNIFORM_READ"                         , enum_VK_ACCESS_2_UNIFORM_READ_BIT)
+        .value("INPUT_ATTACHMENT_READ"                , enum_VK_ACCESS_2_INPUT_ATTACHMENT_READ_BIT)
+        .value("SHADER_READ"                          , enum_VK_ACCESS_2_SHADER_READ_BIT)
+        .value("SHADER_WRITE"                         , enum_VK_ACCESS_2_SHADER_WRITE_BIT)
+        .value("COLOR_ATTACHMENT_READ"                , enum_VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT)
+        .value("COLOR_ATTACHMENT_WRITE"               , enum_VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT)
+        .value("DEPTH_STENCIL_ATTACHMENT_READ"        , enum_VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT)
+        .value("DEPTH_STENCIL_ATTACHMENT_WRITE"       , enum_VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
+        .value("TRANSFER_READ"                        , enum_VK_ACCESS_2_TRANSFER_READ_BIT)
+        .value("TRANSFER_WRITE"                       , enum_VK_ACCESS_2_TRANSFER_WRITE_BIT)
+        .value("HOST_READ"                            , enum_VK_ACCESS_2_HOST_READ_BIT)
+        .value("HOST_WRITE"                           , enum_VK_ACCESS_2_HOST_WRITE_BIT)
+        .value("MEMORY_READ"                          , enum_VK_ACCESS_2_MEMORY_READ_BIT)
+        .value("MEMORY_WRITE"                         , enum_VK_ACCESS_2_MEMORY_WRITE_BIT)
+        .value("SHADER_SAMPLED_READ"                  , enum_VK_ACCESS_2_SHADER_SAMPLED_READ_BIT)
+        .value("SHADER_STORAGE_READ"                  , enum_VK_ACCESS_2_SHADER_STORAGE_READ_BIT)
+        .value("SHADER_STORAGE_WRITE"                 , enum_VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)
+        .value("VIDEO_DECODE_READ"                    , enum_VK_ACCESS_2_VIDEO_DECODE_READ_BIT_KHR)
+        .value("VIDEO_DECODE_WRITE"                   , enum_VK_ACCESS_2_VIDEO_DECODE_WRITE_BIT_KHR)
+        .value("VIDEO_ENCODE_READ"                    , enum_VK_ACCESS_2_VIDEO_ENCODE_READ_BIT_KHR)
+        .value("VIDEO_ENCODE_WRITE"                   , enum_VK_ACCESS_2_VIDEO_ENCODE_WRITE_BIT_KHR)
+        .value("SHADER_TILE_ATTACHMENT_READ"          , enum_VK_ACCESS_2_SHADER_TILE_ATTACHMENT_READ_BIT_QCOM)
+        .value("SHADER_TILE_ATTACHMENT_WRITE"         , enum_VK_ACCESS_2_SHADER_TILE_ATTACHMENT_WRITE_BIT_QCOM)
+        .value("TRANSFORM_FEEDBACK_WRITE"             , enum_VK_ACCESS_2_TRANSFORM_FEEDBACK_WRITE_BIT_EXT)
+        .value("TRANSFORM_FEEDBACK_COUNTER_READ"      , enum_VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT)
+        .value("TRANSFORM_FEEDBACK_COUNTER_WRITE"     , enum_VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT)
+        .value("CONDITIONAL_RENDERING_READ"           , enum_VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT)
+        .value("COMMAND_PREPROCESS_READ"              , enum_VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_NV)
+        .value("COMMAND_PREPROCESS_WRITE"             , enum_VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_NV)
+        .value("FRAGMENT_SHADING_RATE_ATTACHMENT_READ", enum_VK_ACCESS_2_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR)
+        .value("SHADING_RATE_IMAGE_READ"              , enum_VK_ACCESS_2_SHADING_RATE_IMAGE_READ_BIT_NV)
+        .value("ACCELERATION_STRUCTURE_READ"          , enum_VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR)
+        .value("ACCELERATION_STRUCTURE_WRITE"         , enum_VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR)
+        .value("FRAGMENT_DENSITY_MAP_READ"            , enum_VK_ACCESS_2_FRAGMENT_DENSITY_MAP_READ_BIT_EXT)
+        .value("COLOR_ATTACHMENT_READ_NONCOHERENT"    , enum_VK_ACCESS_2_COLOR_ATTACHMENT_READ_NONCOHERENT_BIT_EXT)
+        .value("DESCRIPTOR_BUFFER_READ"               , enum_VK_ACCESS_2_DESCRIPTOR_BUFFER_READ_BIT_EXT)
+        .value("INVOCATION_MASK_READ_HUAWEI"          , enum_VK_ACCESS_2_INVOCATION_MASK_READ_BIT_HUAWEI)
+        .value("SHADER_BINDING_TABLE_READ"            , enum_VK_ACCESS_2_SHADER_BINDING_TABLE_READ_BIT_KHR)
+        .value("MICROMAP_READ"                        , enum_VK_ACCESS_2_MICROMAP_READ_BIT_EXT)
+        .value("MICROMAP_WRITE"                       , enum_VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT)
+        .value("OPTICAL_FLOW_READ"                    , enum_VK_ACCESS_2_OPTICAL_FLOW_READ_BIT_NV)
+        .value("OPTICAL_FLOW_WRITE"                   , enum_VK_ACCESS_2_OPTICAL_FLOW_WRITE_BIT_NV)
+        .value("DATA_GRAPH_READ"                      , enum_VK_ACCESS_2_DATA_GRAPH_READ_BIT_ARM)
+        .value("DATA_GRAPH_WRITE"                     , enum_VK_ACCESS_2_DATA_GRAPH_WRITE_BIT_ARM)
     ;
 
     nb::enum_<VkAttachmentLoadOp>(m, "LoadOp")
@@ -4425,6 +4916,111 @@ void gfx_create_bindings(nb::module_& m)
         .value("UINT8_KHR", VK_INDEX_TYPE_UINT8_KHR)
     ;
 
+    nb::class_<MemoryBarrier>(m, "MemoryBarrier",
+        nb::intrusive_ptr<MemoryBarrier>([](MemoryBarrier *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def(
+            nb::init<
+                VkPipelineStageFlagBits2Enum,
+                VkAccessFlagBits2Enum,
+                VkPipelineStageFlagBits2Enum,
+                VkAccessFlagBits2Enum
+            >(),
+            nb::arg("src_stage") = enum_VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            nb::arg("src_access") = enum_VK_ACCESS_2_MEMORY_READ_BIT | enum_VK_ACCESS_2_MEMORY_WRITE_BIT,
+            nb::arg("dst_stage") = enum_VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            nb::arg("dst_access") = enum_VK_ACCESS_2_MEMORY_READ_BIT | enum_VK_ACCESS_2_MEMORY_WRITE_BIT
+        )
+        .def_rw("src_stage", &MemoryBarrier::src_stage)
+        .def_rw("src_access", &MemoryBarrier::src_access)
+        .def_rw("dst_stage", &MemoryBarrier::dst_stage)
+        .def_rw("dst_access", &MemoryBarrier::dst_access)
+    ;
+
+    nb::class_<BufferBarrier>(m, "BufferBarrier",
+        nb::intrusive_ptr<BufferBarrier>([](BufferBarrier *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def(
+            nb::init<
+                nb::ref<Buffer>,
+                VkPipelineStageFlagBits2Enum,
+                VkAccessFlagBits2Enum,
+                VkPipelineStageFlagBits2Enum,
+                VkAccessFlagBits2Enum,
+                uint32_t,
+                uint32_t,
+                VkDeviceSize,
+                VkDeviceSize
+            >(),
+            nb::arg("buffer"),
+            nb::arg("src_stage") = enum_VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            nb::arg("src_access") = enum_VK_ACCESS_2_MEMORY_READ_BIT | enum_VK_ACCESS_2_MEMORY_WRITE_BIT,
+            nb::arg("dst_stage") = enum_VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            nb::arg("dst_access") = enum_VK_ACCESS_2_MEMORY_READ_BIT | enum_VK_ACCESS_2_MEMORY_WRITE_BIT,
+            nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED,
+            nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED,
+            nb::arg("offset") = 0,
+            nb::arg("size") = VK_WHOLE_SIZE
+        )
+        .def_rw("buffer", &BufferBarrier::buffer)
+        .def_rw("src_stage", &BufferBarrier::src_stage)
+        .def_rw("src_access", &BufferBarrier::src_access)
+        .def_rw("dst_stage", &BufferBarrier::dst_stage)
+        .def_rw("dst_access", &BufferBarrier::dst_access)
+        .def_rw("src_queue_family_index", &BufferBarrier::src_queue)
+        .def_rw("dst_queue_family_index", &BufferBarrier::dst_queue)
+        .def_rw("offset", &BufferBarrier::offset)
+        .def_rw("size", &BufferBarrier::size)
+    ;
+
+    nb::class_<ImageBarrier>(m, "ImageBarrier",
+        nb::intrusive_ptr<ImageBarrier>([](ImageBarrier *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def(
+            nb::init<
+                nb::ref<Image>,
+                VkImageLayout,
+                VkImageLayout,
+                VkPipelineStageFlagBits2Enum,
+                VkAccessFlagBits2Enum,
+                VkPipelineStageFlagBits2Enum,
+                VkAccessFlagBits2Enum,
+                uint32_t,
+                uint32_t,
+                VkImageAspectFlagBits,
+                uint32_t,
+                uint32_t,
+                uint32_t,
+                uint32_t
+            >(),
+            nb::arg("image"),
+            nb::arg("old_layout"),
+            nb::arg("new_layout"),
+            nb::arg("src_stage") = enum_VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            nb::arg("src_access") = enum_VK_ACCESS_2_MEMORY_READ_BIT | enum_VK_ACCESS_2_MEMORY_WRITE_BIT,
+            nb::arg("dst_stage") = enum_VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            nb::arg("dst_access") = enum_VK_ACCESS_2_MEMORY_READ_BIT | enum_VK_ACCESS_2_MEMORY_WRITE_BIT,
+            nb::arg("src_queue_family_index") = VK_QUEUE_FAMILY_IGNORED,
+            nb::arg("dst_queue_family_index") = VK_QUEUE_FAMILY_IGNORED,
+            nb::arg("aspect_mask") = VK_IMAGE_ASPECT_COLOR_BIT,
+            nb::arg("base_mip_level") = 0,
+            nb::arg("mip_level_count") = VK_REMAINING_MIP_LEVELS,
+            nb::arg("base_array_layer") = 0,
+            nb::arg("array_layer_count") = VK_REMAINING_ARRAY_LAYERS
+        )
+        .def_rw("image", &ImageBarrier::image)
+        .def_rw("old_layout", &ImageBarrier::old_layout)
+        .def_rw("new_layout", &ImageBarrier::new_layout)
+        .def_rw("src_stage", &ImageBarrier::src_stage)
+        .def_rw("src_access", &ImageBarrier::src_access)
+        .def_rw("dst_stage", &ImageBarrier::dst_stage)
+        .def_rw("dst_access", &ImageBarrier::dst_access)
+        .def_rw("src_queue_family_index", &ImageBarrier::src_queue)
+        .def_rw("dst_queue_family_index", &ImageBarrier::dst_queue)
+        .def_rw("aspect_mask", &ImageBarrier::aspect_mask)
+        .def_rw("base_mip_level", &ImageBarrier::base_mip_level)
+        .def_rw("mip_level_count", &ImageBarrier::mip_level_count)
+        .def_rw("base_array_layer", &ImageBarrier::base_array_layer)
+        .def_rw("array_layer_count", &ImageBarrier::array_layer_count)
+    ;
+
     nb::class_<CommandBuffer, GfxObject>(m, "CommandBuffer")
         .def(nb::init<nb::ref<Context>, std::optional<u32>, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("queue_family_index") = nb::none(), nb::arg("name") = nb::none())
         .def("__enter__", &CommandBuffer::enter)
@@ -4450,6 +5046,14 @@ void gfx_create_bindings(nb::module_& m)
                 nb::arg("base_array_layer") = 0,
                 nb::arg("array_layer_count") = VK_REMAINING_ARRAY_LAYERS,
                 nb::arg("undefined") = false
+        )
+        .def("memory_barrier_full", &CommandBuffer::memory_barrier_full, nb::arg("memory_barrier"))
+        .def("buffer_barrier_full", &CommandBuffer::buffer_barrier_full, nb::arg("buffer_barrier"))
+        .def("image_barrier_full", &CommandBuffer::image_barrier_full, nb::arg("image_barrier"))
+        .def("barriers", &CommandBuffer::barriers,
+            nb::arg("memory_barriers") = nb::list(),
+            nb::arg("buffer_barriers") = nb::list(),
+            nb::arg("image_barriers") = nb::list()
         )
         .def("begin_rendering", &CommandBuffer::begin_rendering, nb::arg("render_area"), nb::arg("color_attachments"), nb::arg("depth") = nb::none())
         .def("end_rendering", &CommandBuffer::end_rendering)

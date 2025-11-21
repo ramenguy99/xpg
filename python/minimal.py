@@ -24,6 +24,19 @@ def draw():
     with window.frame() as frame:
         with frame.command_buffer as cmd:
             cmd.image_barrier(frame.image, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.COLOR_ATTACHMENT)
+            # cmd.image_barrier_full(
+            #     ImageBarrier(
+            #         frame.image,
+            #         ImageLayout.UNDEFINED,
+            #         ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+            #         PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+            #         AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+            #         PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+            #         AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+            #         PipelineStageFlags.NONE,
+            #         AccessFlags.NONE,
+            #     )
+            # )
 
             viewport = [0, 0, window.fb_width, window.fb_height]
             with cmd.rendering(viewport,
@@ -39,6 +52,17 @@ def draw():
                 gui.render(cmd)
 
             cmd.image_barrier(frame.image, ImageLayout.PRESENT_SRC, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.PRESENT)
+            # cmd.image_barrier_full(
+            #     ImageBarrier(
+            #         frame.image,
+            #         ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+            #         ImageLayout.PRESENT_SRC,
+            #         PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+            #         AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+            #         PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+            #         AccessFlags.NONE,
+            #     )
+            # )
 
 # Input event
 def mouse_button_event(p: Tuple[int, int], button: MouseButton, action: Action, mods: Modifiers):

@@ -155,8 +155,8 @@ def draw():
 
     # Render
     with window.frame(
-        additional_wait_semaphores=[(cuda_done, PipelineStageFlags.VERTEX_INPUT)],
-        additional_signal_semaphores=[vulkan_done],
+        additional_wait_semaphores=[(cuda_done, 0, PipelineStageFlags.VERTEX_INPUT)],
+        additional_signal_semaphores=[(vulkan_done, 0, PipelineStageFlags.VERTEX_INPUT)],
     ) as frame:
         with frame.command_buffer as cmd:
             cmd.image_barrier(frame.image, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.COLOR_ATTACHMENT)

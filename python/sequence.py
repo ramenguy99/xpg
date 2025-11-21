@@ -136,6 +136,7 @@ class SemaphoreInfo:
     sem: TimelineSemaphore
     wait_stage: PipelineStageFlags
     wait_value: int
+    signal_stage: PipelineStageFlags
     signal_value: int
 
 class GpuBuffer:
@@ -150,7 +151,7 @@ class GpuBuffer:
             self.semaphore = None
 
     def use(self, stage: PipelineStageFlags) -> SemaphoreInfo:
-        info = SemaphoreInfo(self.semaphore, stage, self.semaphore_value, self.semaphore_value + 1)
+        info = SemaphoreInfo(self.semaphore, stage, self.semaphore_value, stage, self.semaphore_value + 1)
         self.semaphore_value += 1
         return info
 
@@ -329,10 +330,8 @@ class Sequence:
                 info = gpu_buf.use(PipelineStageFlags.TRANSFER)
                 self.ctx.transfer_queue.submit(
                     state.commands,
-                    wait_semaphores = [ (info.sem, info.wait_stage) ],
-                    wait_timeline_values = [ info.wait_value ],
-                    signal_semaphores = [ info.sem ],
-                    signal_timeline_values = [ info.signal_value ],
+                    wait_semaphores = [ (info.sem, info.wait_value, info.wait_stage) ],
+                    signal_semaphores = [ (info.sem, info.signal_value, info.signal_stage) ],
                 )
                 state.prefetch_done_value = info.signal_value
                 gpu_buf.state = GpuBufferState.PREFETCH
@@ -544,10 +543,8 @@ def draw():
                 if copy_semaphores:
                     ctx.transfer_queue.submit(
                         copy_cmd,
-                        wait_semaphores=[(s.sem, s.wait_stage) for s in copy_semaphores],
-                        wait_timeline_values=[s.wait_value for s in copy_semaphores],
-                        signal_semaphores=[s.sem for s in copy_semaphores],
-                        signal_timeline_values=[s.signal_value for s in copy_semaphores],
+                        wait_semaphores=[(s.sem, s.wait_value, s.wait_stage) for s in copy_semaphores],
+                        signal_semaphores=[(s.sem, s.signal_value, s.signal_stage) for s in copy_semaphores],
                     )
 
                 ####################################################################
@@ -601,10 +598,8 @@ def draw():
                 cmd.image_barrier(frame.image, ImageLayout.PRESENT_SRC, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.PRESENT)
     window.end_frame(
         frame,
-        additional_wait_semaphores=[(s.sem, s.wait_stage) for s in additional_semaphores],
-        additional_wait_timeline_values=[s.wait_value for s in additional_semaphores],
-        additional_signal_semaphores=[s.sem for s in additional_semaphores],
-        additional_signal_timeline_values=[s.signal_value for s in additional_semaphores]
+        additional_wait_semaphores=[(s.sem, s.wait_value, s.wait_stage) for s in additional_semaphores],
+        additional_signal_semaphores=[(s.sem, s.signal_value, s.signal_stage) for s in additional_semaphores],
     )
 
     frame_index = (frame_index + 1) % window.num_frames
