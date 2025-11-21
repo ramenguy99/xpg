@@ -628,6 +628,7 @@ bool has_any_write_access(VkAccessFlags2 flags) {
 
 enum class MemoryUsage {
     None,
+    HostRead,
     HostWrite,
     TransferSrc,
     TransferDst,
@@ -662,6 +663,11 @@ namespace MemoryUsagePresets {
         .first_stage = VK_PIPELINE_STAGE_2_NONE,
         .last_stage = VK_PIPELINE_STAGE_2_NONE,
         .access = 0,
+    };
+    constexpr MemoryUsageState HostRead {
+        .first_stage = VK_PIPELINE_STAGE_2_HOST_BIT,
+        .last_stage = VK_PIPELINE_STAGE_2_HOST_BIT,
+        .access = VK_ACCESS_2_HOST_READ_BIT,
     };
     constexpr MemoryUsageState HostWrite {
         .first_stage = VK_PIPELINE_STAGE_2_HOST_BIT,
@@ -766,6 +772,7 @@ namespace MemoryUsagePresets {
 
     MemoryUsageState Types[] = {
         None,
+        HostRead,
         HostWrite,
         TransferSrc,
         TransferDst,
@@ -4725,6 +4732,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::enum_<MemoryUsage>(m, "MemoryUsage")
         .value("NONE", MemoryUsage::None)
+        .value("HOST_READ", MemoryUsage::HostRead)
         .value("HOST_WRITE", MemoryUsage::HostWrite)
         .value("TRANSFER_SRC", MemoryUsage::TransferSrc)
         .value("TRANSFER_DST", MemoryUsage::TransferDst)

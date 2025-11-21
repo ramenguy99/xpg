@@ -628,6 +628,7 @@ def readback(ctx: Context, img: Image, new_layout: ImageLayout) -> NDArray[Any]:
         cmd.image_barrier(img, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC)
         cmd.copy_image_to_buffer(img, buffer)
         cmd.image_barrier(img, new_layout, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY)
+        cmd.memory_barrier(MemoryUsage.TRANSFER_SRC, MemoryUsage.HOST_READ)
 
     return np.frombuffer(buffer, dtype).copy().reshape(shape)
 
@@ -646,6 +647,7 @@ def readback_mips(ctx: Context, img: Image, new_layout: ImageLayout) -> List[NDA
             w, h = max(img.width >> m, 1), max(img.height >> m, 1)
             cmd.copy_image_to_buffer_range(img, buffer, w, h, image_mip=m)
         cmd.image_barrier(img, new_layout, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY)
+        cmd.memory_barrier(MemoryUsage.TRANSFER_SRC, MemoryUsage.HOST_READ)
 
     arrays: List[NDArray[Any]] = []
     for m, b in zip(range(img.mip_levels), buffers):

@@ -84,6 +84,7 @@ else:
         cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.TRANSFER_SRC)
         cmd.copy_buffer(keys, readback_keys)
         cmd.copy_buffer(payload, readback_payload)
+        cmd.memory_barrier(MemoryUsage.TRANSFER_SRC, MemoryUsage.HOST_READ)
 
     # Check results
     readback_keys_array = np.frombuffer(readback_keys.data, np.uint32)

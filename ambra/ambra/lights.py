@@ -440,9 +440,10 @@ class GpuEnvironmentCubemaps:
                 MemoryUsage.TRANSFER_SRC,
                 MemoryUsage.SHADER_READ_ONLY,
             )
+            cmd.memory_barrier(MemoryUsage.TRANSFER_SRC, MemoryUsage.HOST_READ)
 
         # Copy into numpy arrays
-        irradiance_array = np.frombuffer(irradiance_buffer, np.float16).copy().reshape(irradiance_shape)
+        irradiance_array = np.frombuffer(irradiance_buffer.data, np.float16).copy().reshape(irradiance_shape)
         specular_arrays: List[NDArray[np.float16]] = []
         for m, b in enumerate(specular_buffers):
             specular_mip_size = specular_size >> m

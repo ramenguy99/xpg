@@ -43,13 +43,13 @@ Priority:
 
 New property API plans:
 - Deps:
-    - [ ] New synchronization API:
-        - [ ] Remove memory usage concept and add back stages and access -> also removes API surface and allows more combining
-        - [ ] Make access default to READ | WRITE
-        - [ ] Expose combined barriers API (list of memory, buffer and image barriers)
-        - [ ] Also expose image barriers with prev layout
-        - [-] Only limitation left is that we cannot do different levels with different layouts (which vulkan would support) -> don't fix now
-        - [ ] Make sure we use HOST_READ bit for readbacks (flushes GPU caches after writes to host memory). We don't
+    - [x] New synchronization API:
+        - [x] Remove memory usage concept and add back stages and access -> also removes API surface and allows more combining -> in the end decided to keep other API because tremendously less verbose and still useful
+        - [x] Make access default to READ | WRITE
+        - [x] Expose combined barriers API (list of memory, buffer and image barriers)
+        - [x] Also expose image barriers with prev layout
+        - [x] Only limitation left is that we cannot do different levels with different layouts (which vulkan would support) -> we can the tracked layout just goes stale, but you can fix it manually if you know what you are doing
+        - [x] Make sure we use HOST_READ bit for readbacks (flushes GPU caches after writes to host memory). We don't
               need this for uploads because queue submission also implicitly does that.
 - Plan:
     - [x] Split DataBufferProperty into ArrayBufferProperty and ListBufferProperty
