@@ -7,6 +7,7 @@ from ambra.config import (
     GuiConfig,
     PlaybackConfig,
     RendererConfig,
+    UploadMethod,
 )
 from ambra.primitives2d import Image
 from ambra.property import ImageProperty, UploadSettings
@@ -22,6 +23,8 @@ viewer = Viewer(
         ),
         renderer=RendererConfig(
             background_color=(0, 0, 0, 1),
+            # force_image_upload_method=UploadMethod.GRAPHICS_QUEUE,
+            # force_image_upload_method=UploadMethod.TRANSFER_QUEUE,
         ),
         gui=GuiConfig(
             stats=True,

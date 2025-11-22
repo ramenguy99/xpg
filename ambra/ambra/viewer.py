@@ -291,7 +291,9 @@ class Viewer:
                 self.ctx.transfer_queue.submit(
                     frame_inputs.transfer_command_buffer,
                     wait_semaphores=[(s.sem, s.wait_value, s.wait_stage) for s in frame_inputs.transfer_semaphores],
-                    signal_semaphores=[(s.sem, s.signal_value, s.signal_stage) for s in frame_inputs.transfer_semaphores],
+                    signal_semaphores=[
+                        (s.sem, s.signal_value, s.signal_stage) for s in frame_inputs.transfer_semaphores
+                    ],
                 )
 
         # Close recording on the graphics commands
@@ -302,8 +304,12 @@ class Viewer:
             assert self.window is not None
             self.window.end_frame(
                 frame,
-                additional_wait_semaphores=[(s.sem, s.wait_value, s.wait_stage) for s in frame_inputs.additional_semaphores],
-                additional_signal_semaphores=[(s.sem, s.signal_value, s.signal_stage) for s in frame_inputs.additional_semaphores],
+                additional_wait_semaphores=[
+                    (s.sem, s.wait_value, s.wait_stage) for s in frame_inputs.additional_semaphores
+                ],
+                additional_signal_semaphores=[
+                    (s.sem, s.signal_value, s.signal_stage) for s in frame_inputs.additional_semaphores
+                ],
             )
         else:
             self.headless_swapchain.end_frame(frame_inputs)

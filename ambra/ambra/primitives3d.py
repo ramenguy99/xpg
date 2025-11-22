@@ -793,6 +793,10 @@ class GaussianSplats(Object3D):
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
         self.constants["inverse_transform"] = mat4x3(inverse(self.current_transform_matrix))
 
+    # TODO: this is a misuse of ths method, because this relies on properties
+    # being already uploaded. On the CPU properties are uploaded before objects,
+    # but on the GPU, if resources have just been uploaded, the barrier that
+    # synchronizes them has not yet been dispatched.
     def upload(self, r: Renderer, frame: RendererFrame) -> None:
         num_splats = self.positions.get_current().shape[0]
         self.constants["splat_count"] = num_splats
@@ -810,6 +814,9 @@ class GaussianSplats(Object3D):
             self.descriptor_set, DescriptorType.STORAGE_BUFFER, 6
         )
 
+        # TODO: Sync: remove these barriers and just do the upload here, relying on the
+        # renderer synchronization between upload and pre-render.
+
         # Distances
         if self.cull_at_dist:
             frame.cmd.memory_barrier(MemoryUsage.ALL, MemoryUsage.ALL)
@@ -819,6 +826,7 @@ class GaussianSplats(Object3D):
                 frame.cmd.fill_buffer(self.draw_parameters_buf, 0, 4, 4)
             frame.cmd.memory_barrier(MemoryUsage.TRANSFER_DST, MemoryUsage.COMPUTE_SHADER)
 
+        # TODO: add and move this to a before-render step
         frame.cmd.bind_compute_pipeline(
             self.dist_pipeline,
             descriptor_sets=[frame.scene_descriptor_set, self.descriptor_set],

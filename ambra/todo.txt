@@ -283,7 +283,7 @@ TODO:
               of shader permutations.
         - [ ] also not sure if we need to always render this or if we can only render it on-demand, depending on UI
 - [ ] Descriptors
-    - [ ] See what patterns we can find in primitives and if we can reduce amount of scene / material / object bindings by using compatible pipeline layouts.
+    - [x] See what patterns we can find in primitives and if we can reduce amount of scene / material / object bindings by using compatible pipeline layouts.
           Custom renderables might still want to have full control of bindings, but we can't interleave draws that want to reuse existing bound sets,
           in that case we would need to render those at the end? Can be somehow similar to material based sorting, if it becomes a thing.
     - [ ] Check if use of descriptor update templates can be useful to unify and speed up descriptor writes
@@ -305,8 +305,8 @@ TODO:
             - For GPU resources (non-mappable buffers or images)
             - For buffers we should check if BAR memory is available and if we want to use and alloc per-frame mappable buffers, otherwise alloc per-frame staging and 1 device resource.
     - [ ] Prefetching is currently assuming linearly increasing frame indices
-    - [ ] Together with server, figure out API to append frames (and potentially insert / remove too)
-    - [ ] Support buffer suballocation in gpu property for preuplaod and image array to reduce number of resources that we need for a sequence -> could require changes at usage side that will also get an offset
+    - [x] Together with server, figure out API to append frames (and potentially insert / remove too)
+    - [x] Support buffer suballocation in gpu property for preuplaod and image array to reduce number of resources that we need for a sequence -> could require changes at usage side that will also get an offset
     - [x] Implement invalidation of preuploaded properties. If using mapped buffers (CPU or BAR) we can just alloc the remaining frames_in_flight - 1 buffers and switch to ring buffer.
     - [x] Implement smarter logic to pick which upload mode to use. For smaller properties we want bar if available I guess.
 - [ ] Server
@@ -339,11 +339,11 @@ TODO:
             -> likely make a simple mesh class and recreate sequence
             -> this means also porting some GUI, likey making some helpers, ideally also adding the profiler
     - [x] unify GpuBufferProperty and GpuImageProperty
+    - [x] Think about getter/setters to update properties and explicit redraw to update properties
     - [ ] More viewer playback controls (e.g. timeline view, property inspectors)
         - Look at imguizmo sequencer, but likely re-implement with custom use-case in mind
         - Likely want to do most of the ui work in C++ and just offer callbacks for input like click/over/tooltip etc..
         - Look at rerun timeline for feature ideas
-    - [ ] Think about getter/setters to update properties and explicit redraw to update properties
 - [x] Camera movement
     - [x] Define interface / config / keybindings
     - [x] Initialize camera controls with up / distance from config
@@ -386,12 +386,13 @@ TODO:
     - [x] Improve camera initialization (especially ortho for 2D case)
     - [x] vulkan validation options
     - [x] add a way to set viewer position in addition to size? (expose glfw for this)
-    - [ ] load from disk / yaml + default locations (e.g. home? cwd?)
     - [x] Think about clean way to handle handedness / zy up conventions.
         - [x] wrap things that care in a separate module, make different default symbols base on config ?
         - [x] maybe math and camera utils should expose both, and viewer use config to pick
         - [ ] currently configurable but not used everywhere, double check that it is propagated where needed
+    - [ ] load from disk / yaml + default locations (e.g. home? cwd?)
 - [x] Hook pyxpg logging into python logging
+- [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
 - [ ] Cleanup before release:
     - [ ] Public vs private API (hide / protect internal stuff)
     - [ ] Unit tests on all python versions (likely with lavapipe on CI)
@@ -407,7 +408,6 @@ TODO:
     - [ ] Marching cubes
     - [ ] Pointclouds
     - [ ] Framegraph
-- [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
 - [ ] Customization workflow
     - [x] Completely new shader
     - [x] Shader that reuses common scene stuff or utils

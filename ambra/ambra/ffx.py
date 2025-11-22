@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Any, List, Union
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -19,6 +20,7 @@ from pyxpg import (
     Filter,
     Format,
     Image,
+    ImageBarrier,
     ImageLayout,
     ImageUsageFlags,
     ImageView,
@@ -84,10 +86,33 @@ class SPDPipelineInstance:
         self.groups_x = groups_x
         self.groups_y = groups_y
 
+    def get_and_write_current_and_advance(
+        self, level_0_view: Union[Image, ImageView], mip_views: List[ImageView]
+    ) -> DescriptorSet:
+        s = self.descriptor_sets.get_current_and_advance()
+        s.write_image(level_0_view, ImageLayout.GENERAL, DescriptorType.SAMPLED_IMAGE, 2)
+        for m in range(SPD_MAX_LEVELS + 1):
+            view = mip_views[m] if m < len(mip_views) else mip_views[0]
+            if m == 6:
+                s.write_image(view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 3, 0)
+            s.write_image(view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 4, m)
+        return s
+
+
+@dataclass
+class MipGenerationRequest:
+    image: Image
+    push_constants: bytes
+    descriptor_set: DescriptorSet
+    groups_x: int
+    groups_y: int
+    groups_z: int
+    after_barrier: ImageBarrier
+
 
 class SPDPipeline:
     def __init__(self, r: "Renderer"):
-        from .renderer import SHADERS_PATH  # noqa: PLC0415
+        from .renderer import SHADERS_PATH
 
         self.constants_dtype = np.dtype(
             {
@@ -215,6 +240,18 @@ class SPDPipeline:
 
         return SPDPipelineInstance(atomic_counters, pool, descriptor_sets, constants)
 
+    def _filter_to_pipeline(self, filter: MipGenerationFilter) -> ComputePipeline:
+        if filter == MipGenerationFilter.AVERAGE:
+            return self.avg_pipeline
+        elif filter == MipGenerationFilter.AVERAGE_SRGB:
+            return self.avg_srgb_pipeline
+        elif filter == MipGenerationFilter.MIN:
+            return self.min_pipeline
+        elif filter == MipGenerationFilter.MAX:
+            return self.max_pipeline
+        else:
+            raise RuntimeError(f"Unhandled mipmap generation filter: {filter}")
+
     def run(
         self,
         cmd: CommandBuffer,
@@ -234,17 +271,7 @@ class SPDPipeline:
                 s.write_image(view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 3, 0)
             s.write_image(view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 4, m)
 
-        if filter == MipGenerationFilter.AVERAGE:
-            pipeline = self.avg_pipeline
-        elif filter == MipGenerationFilter.AVERAGE_SRGB:
-            pipeline = self.avg_srgb_pipeline
-        elif filter == MipGenerationFilter.MIN:
-            pipeline = self.min_pipeline
-        elif filter == MipGenerationFilter.MAX:
-            pipeline = self.max_pipeline
-        else:
-            raise RuntimeError(f"Unhandled mipmap generation filter: {filter}")
-
+        pipeline = self._filter_to_pipeline(filter)
         cmd.bind_compute_pipeline(pipeline, descriptor_sets=[s], push_constants=instance.constants.tobytes())
 
         # TODO: new sync. Pass in extra info for before / after stages. Potentially also use sampled layout for first layer in mip (not sure if changes much).
@@ -285,3 +312,17 @@ class SPDPipeline:
             for m in range(min(image.mip_levels, SPD_MAX_LEVELS + 1))
         ]
         self.run_sync_with_views(r, image, new_layout, level_0_view, views, filter)
+
+    def run_batched(
+        self, cmd: CommandBuffer, mip_generation_requests: Dict[MipGenerationFilter, List[MipGenerationRequest]]
+    ) -> List[ImageBarrier]:
+        barriers = []
+        for filter, requests in mip_generation_requests.items():
+            pipeline = self._filter_to_pipeline(filter)
+            cmd.bind_pipeline(pipeline)
+            for req in requests:
+                cmd.bind_descriptor_sets(pipeline, descriptor_sets=[req.descriptor_set])
+                cmd.push_constants(pipeline, req.push_constants)
+                cmd.dispatch(req.groups_x, req.groups_y, req.groups_z)
+                barriers.append(req.after_barrier)
+        return barriers

@@ -35,7 +35,7 @@ viewer = Viewer(
         gui=GuiConfig(
             stats=True,
             renderer=True,
-        )
+        ),
     ),
 )
 
@@ -96,7 +96,7 @@ colors = [
 
 line_width = 4
 
-positions = ArrayBufferProperty(positions, np.float32, upload=UploadSettings(preupload=True, batched=True))
+positions = ArrayBufferProperty(positions, np.float32, upload=UploadSettings(preupload=False, batched=True))
 colors = ListBufferProperty(colors, shape=(-1,), upload=UploadSettings(preupload=True, batched=False))
 
 line = Lines(positions, colors, line_width)

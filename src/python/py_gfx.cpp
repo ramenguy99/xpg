@@ -1626,7 +1626,7 @@ struct CommandBuffer: GfxObject {
         }
 
         ImageBarrier& barrier = *image_barrier;
-        barrier.image->current_layout = barrier.old_layout;
+        barrier.image->current_layout = barrier.new_layout;
 
         gfx::CmdImageBarrier(buffer, {
             .src_stage = barrier.src_stage,
@@ -1690,7 +1690,7 @@ struct CommandBuffer: GfxObject {
         for (usize i = 0; i < image_barriers.size(); i++) {
             ImageBarrier& barrier = *image_barriers[i];
 
-            barrier.image->current_layout = barrier.old_layout;
+            barrier.image->current_layout = barrier.new_layout;
 
             vk_image_barriers[i] = {
                 .src_stage = barrier.src_stage,

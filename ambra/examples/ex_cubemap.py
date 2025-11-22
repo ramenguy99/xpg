@@ -40,9 +40,15 @@ class DebugCube(Object3D):
 
         super().__init__(name)
 
-        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT)
+        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
+            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+        )
         self.indices = (
-            self.add_buffer_property(indices, np.uint32, (-1,), name="indices").use_gpu(BufferUsageFlags.INDEX, PipelineStageFlags.VERTEX_INPUT) if indices is not None else None
+            self.add_buffer_property(indices, np.uint32, (-1,), name="indices").use_gpu(
+                BufferUsageFlags.INDEX, PipelineStageFlags.VERTEX_INPUT
+            )
+            if indices is not None
+            else None
         )
         self.cubemap = cubemap
 

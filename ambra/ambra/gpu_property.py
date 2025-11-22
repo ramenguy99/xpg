@@ -7,8 +7,10 @@ from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, Set, Tuple
 
 from numpy.typing import NDArray
 from pyxpg import (
+    AccessFlags,
     AllocType,
     Buffer,
+    BufferBarrier,
     BufferUsageFlags,
     CommandBuffer,
     Context,
@@ -16,6 +18,7 @@ from pyxpg import (
     DescriptorType,
     Format,
     Image,
+    ImageBarrier,
     ImageCreateFlags,
     ImageLayout,
     ImageUsageFlags,
@@ -27,6 +30,7 @@ from pyxpg import (
 )
 
 from .config import UploadMethod
+from .ffx import MipGenerationRequest, SPDPipelineInstance
 from .renderer_frame import RendererFrame, SemaphoreInfo
 from .utils.gpu import (
     BufferUploadInfo,
@@ -133,6 +137,7 @@ def _create_image_view(
     mip_levels = 1
     if mips:
         mip_levels = max(width.bit_length(), height.bit_length())
+        usage_flags |= ImageUsageFlags.STORAGE
 
     img = Image(
         ctx,
@@ -304,8 +309,11 @@ class GpuPreuploadedArrayProperty(GpuProperty[V], Generic[R, V]):
         self.supported_operations = GpuPropertySupportedOperations.UPDATE
         self.name = name
 
-        self.resource = self._create_preuploaded_array_resource(data, renderer.bulk_upload_list)
+        self.resource, self.resource_views = self._create_preuploaded_array_resource_and_views(
+            data, renderer.bulk_upload_list
+        )
         self.staging_buffers: Optional[RingBuffer[Buffer]] = None
+        self.current_staging_buf: Optional[Buffer] = None
         self.invalid_frames: Set[int] = set()
         self.current: Optional[V] = None
 
@@ -320,47 +328,43 @@ class GpuPreuploadedArrayProperty(GpuProperty[V], Generic[R, V]):
             resources.extend(self.staging_buffers.items)
             self.staging_buffers = None
 
-    # Renderer API
-    def upload(self, frame: RendererFrame) -> None:
+    def load(self, frame: RendererFrame) -> None:
         index = self.property.current_frame_index
-
-        view = self._get_view(index)
-
         if index in self.invalid_frames:
             self.invalid_frames.remove(index)
 
             assert self.staging_buffers is not None
 
-            # Get a free staging buffer
-            staging = self.staging_buffers.get_current_and_advance()
+            buf = self.staging_buffers.get_current_and_advance()
+            self.property.get_frame_by_index_into(index, buf.data)
+            self.current_staging_buf = buf
 
-            # Copy data into staging buffer
-            self.property.get_frame_by_index_into(index, staging.data)
+            self._append_barriers_and_mip_requests_for_upload(frame, self.resource_views[index])
 
-            # Record command to upload staging buffer into view
-            self._cmd_before_barrier(frame.cmd, view)
-            self._cmd_upload(frame.cmd, staging, view)
-            self._cmd_after_barrier(frame.cmd, view)
-
+    # Renderer API
+    def upload(self, frame: RendererFrame) -> None:
+        view = self.resource_views[self.property.current_frame_index]
+        if self.current_staging_buf is not None:
+            self._cmd_upload(frame.cmd, self.current_staging_buf, view)
         self.current = view
 
     # Edit API
     def update_frame(self, index: int) -> None:
         self.invalid_frames.add(index)
-        self._ensure_staging_buffers()
+        self._promote_to_dynamic()
 
     def update_frames(self, indices: List[int]) -> None:
         for i in indices:
             self.invalid_frames.add(i)
-        self._ensure_staging_buffers()
+        self._promote_to_dynamic()
 
     def update_frame_range(self, start: int, stop: int) -> None:
         for i in range(start, stop):
             self.invalid_frames.add(i)
-        self._ensure_staging_buffers()
+        self._promote_to_dynamic()
 
     # Private API
-    def _ensure_staging_buffers(self) -> None:
+    def _promote_to_dynamic(self) -> None:
         if self.staging_buffers is None:
             self.staging_buffers = RingBuffer(
                 [
@@ -375,21 +379,15 @@ class GpuPreuploadedArrayProperty(GpuProperty[V], Generic[R, V]):
                 ]
             )
 
-    def _get_view(self, index: int) -> V:
-        raise NotImplementedError
-
-    def _create_preuploaded_array_resource(
+    def _create_preuploaded_array_resource_and_views(
         self, data: NDArray[Any], out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]]
-    ) -> R:
+    ) -> Tuple[R, List[V]]:
         raise NotImplementedError
 
     def _cmd_upload(self, cmd: CommandBuffer, staging_buffer: Buffer, view: V) -> None:
         raise NotImplementedError
 
-    def _cmd_before_barrier(self, cmd: CommandBuffer, resource: V) -> None:
-        raise NotImplementedError
-
-    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: V) -> None:
+    def _append_barriers_and_mip_requests_for_upload(self, frame: RendererFrame, resource: V) -> None:
         raise NotImplementedError
 
 
@@ -403,7 +401,6 @@ class GpuBufferPreuploadedArrayProperty(GpuPreuploadedArrayProperty[Buffer, GpuB
     ):
         self.usage_flags = property.gpu_usage | BufferUsageFlags.TRANSFER_DST
         self.pipeline_stage_flags = property.gpu_stage
-        self.memory_usage = MemoryUsage.ALL  # TODO: new sync API
 
         super().__init__(
             data,
@@ -415,13 +412,9 @@ class GpuBufferPreuploadedArrayProperty(GpuPreuploadedArrayProperty[Buffer, GpuB
         )
 
     # Private API
-    def _get_view(self, index: int) -> GpuBufferView:
-        # TODO: handle alignment here (if data is padded use the padded size)
-        return GpuBufferView(self.resource, self.frame_size * index, self.frame_size)
-
-    def _create_preuploaded_array_resource(
+    def _create_preuploaded_array_resource_and_views(
         self, data: NDArray[Any], out_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]]
-    ) -> Buffer:
+    ) -> Tuple[Buffer, List[GpuBufferView]]:
         if self.upload_method == UploadMethod.MAPPED_PREFER_HOST:
             alloc_type = AllocType.HOST
         elif self.upload_method == UploadMethod.MAPPED_PREFER_DEVICE:
@@ -436,18 +429,16 @@ class GpuBufferPreuploadedArrayProperty(GpuPreuploadedArrayProperty[Buffer, GpuB
             buffer.data[:] = view_bytes(data)
         else:
             out_upload_list.append(BufferUploadInfo(view_bytes(data), buffer, 0))
-        return buffer
+
+        views = [GpuBufferView(buffer, self.frame_size * i, self.frame_size) for i in range(self.property.num_frames)]
+
+        return buffer, views
 
     def _cmd_upload(self, cmd: CommandBuffer, staging_buffer: Buffer, view: GpuBufferView) -> None:
         cmd.copy_buffer_range(staging_buffer, view.buffer, self.frame_size, 0, view.offset)
 
-    def _cmd_before_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
-        # TODO: Currently needs to be all because it could be run on the transfer queue. I am
-        # not even sure we need any barrier for that case since it's a separate submit.
-        cmd.memory_barrier(MemoryUsage.ALL, MemoryUsage.TRANSFER_DST)
-
-    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
-        cmd.memory_barrier(MemoryUsage.TRANSFER_DST, self.memory_usage)
+    def _append_barriers_and_mip_requests_for_upload(self, frame: RendererFrame, resource: V) -> None:
+        frame.upload_property_pipeline_stages |= self.pipeline_stage_flags
 
 
 class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
@@ -465,12 +456,12 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
         self.renderer = renderer
         self.upload_method = upload_method
         self.property = property
-        # TODO: we can likely also support remove / insert in the non-batched case, by
-        # rearranging buffers and creating missing ones if needed.
         self.supported_operations = (
             GpuPropertySupportedOperations.UPDATE
             | GpuPropertySupportedOperations.APPEND
             | GpuPropertySupportedOperations.POP
+            | GpuPropertySupportedOperations.INSERT
+            | GpuPropertySupportedOperations.REMOVE
             if not self.batched
             else GpuPropertySupportedOperations.UPDATE
         )
@@ -533,29 +524,33 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
                 buf.used_size = self.property.get_frame_by_index_into(index, buf.buf.data)
             self.current_staging_buf = buf
 
+            self._append_barriers_and_mip_requests_for_upload(frame, self.resource_views[index])
+
     def upload(self, frame: RendererFrame) -> None:
         view = self.resource_views[self.property.current_frame_index]
         if self.current_staging_buf is not None:
-            self._cmd_before_barrier(frame.cmd, view)
+            # Wait for buffer to be ready
+            if self.async_load:
+                self.current_staging_buf.promise.get()
+
             self._cmd_upload(frame.cmd, self.current_staging_buf.buf, view)
-            self._cmd_after_barrier(frame.cmd, view)
             self.current_staging_buf = None
         self.current = view
 
     # Edit API
     def update_frame(self, index: int) -> None:
         self.invalid_frames.add(index)
-        self._ensure_staging_buffers()
+        self._promote_to_dynamic()
 
     def update_frames(self, indices: List[int]) -> None:
         for i in indices:
             self.invalid_frames.add(i)
-        self._ensure_staging_buffers()
+        self._promote_to_dynamic()
 
     def update_frame_range(self, start: int, stop: int) -> None:
         for i in range(start, stop):
             self.invalid_frames.add(i)
-        self._ensure_staging_buffers()
+        self._promote_to_dynamic()
 
     def append_frame(self) -> None:
         if self.batched:
@@ -686,7 +681,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
         self.resource_views = self.resource_views[:start] + self.resource_views[stop:]
 
     # Private API
-    def _ensure_staging_buffers(self) -> None:
+    def _promote_to_dynamic(self) -> None:
         if self.staging_buffers is None:
             self.staging_buffers = RingBuffer(
                 [
@@ -726,10 +721,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
     def _cmd_upload(self, cmd: CommandBuffer, staging_buffer: Buffer, view: V) -> None:
         raise NotImplementedError
 
-    def _cmd_before_barrier(self, cmd: CommandBuffer, resource: V) -> None:
-        raise NotImplementedError
-
-    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: V) -> None:
+    def _append_barriers_and_mip_requests_for_upload(self, frame: RendererFrame, resource: V) -> None:
         raise NotImplementedError
 
 
@@ -742,7 +734,6 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
     ):
         self.usage_flags = property.gpu_usage | BufferUsageFlags.TRANSFER_DST
         self.pipeline_stage_flags = property.gpu_stage
-        self.memory_usage = MemoryUsage.ALL  # TODO: new sync API
 
         upload_method = renderer.buffer_upload_method
         if upload_method == UploadMethod.MAPPED_PREFER_HOST:
@@ -811,11 +802,8 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
     def _cmd_upload(self, cmd: CommandBuffer, staging_buffer: Buffer, view: GpuBufferView) -> None:
         cmd.copy_buffer_range(staging_buffer, view.buffer, view.size, 0, view.offset)
 
-    def _cmd_before_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
-        cmd.memory_barrier(self.memory_usage, MemoryUsage.TRANSFER_DST)
-
-    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
-        cmd.memory_barrier(MemoryUsage.TRANSFER_DST, self.memory_usage)
+    def _append_barriers_and_mip_requests_for_upload(self, frame: RendererFrame, resource: V) -> None:
+        frame.upload_property_pipeline_stages |= self.pipeline_stage_flags
 
 
 class GpuImagePreuploadedProperty(GpuPreuploadedProperty[Image, GpuImageView]):
@@ -826,7 +814,6 @@ class GpuImagePreuploadedProperty(GpuPreuploadedProperty[Image, GpuImageView]):
         name: str,
     ):
         self.usage_flags = property.gpu_usage | ImageUsageFlags.TRANSFER_DST
-        self.memory_usage = MemoryUsage.ALL  # TODO: new sync API
 
         self.width = property.width
         self.height = property.height
@@ -835,6 +822,9 @@ class GpuImagePreuploadedProperty(GpuPreuploadedProperty[Image, GpuImageView]):
         self.pipeline_stage_flags = property.gpu_stage
         self.srgb = property.gpu_srgb
         self.mips = property.gpu_mips
+
+        # Created on promotion to dynamic, if needed
+        self.spd_pipeline_instance: Optional[SPDPipelineInstance] = None
 
         self.pitch, self.rows, _ = get_image_pitch_rows_and_texel_size(self.width, self.height, self.format)
 
@@ -848,6 +838,15 @@ class GpuImagePreuploadedProperty(GpuPreuploadedProperty[Image, GpuImageView]):
         )
 
     # Private API
+    def _promote_to_dynamic(self) -> None:
+        if self.mips and self.spd_pipeline_instance is not None:
+            self.spd_pipeline_instance = self.renderer.spd_pipeline.alloc_instance(self.renderer, False)
+
+            mip_levels = max(self.width.bit_length(), self.height.bit_length())
+            self.spd_pipeline_instance.set_image_extents(self.width, self.height, mip_levels)
+
+        return super()._promote_to_dynamic()
+
     def _create_preuploaded_resources_and_views(
         self, frames: List[NDArray[Any]]
     ) -> Tuple[List[Image], List[GpuImageView]]:
@@ -883,22 +882,74 @@ class GpuImagePreuploadedProperty(GpuPreuploadedProperty[Image, GpuImageView]):
     def _cmd_upload(self, cmd: CommandBuffer, staging_buffer: Buffer, view: GpuImageView) -> None:
         cmd.copy_buffer_to_image(staging_buffer, view.image)
 
-    def _cmd_before_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
-        cmd.image_barrier(
-            resource.image,
-            ImageLayout.TRANSFER_DST_OPTIMAL,
-            self.memory_usage,
-            MemoryUsage.TRANSFER_DST,
-            undefined=True,
+    def _append_barriers_and_mip_requests_for_upload(self, frame: RendererFrame, resource: GpuImageView) -> None:
+        frame.upload_before_image_barriers.append(
+            ImageBarrier(
+                resource.image,
+                ImageLayout.UNDEFINED,
+                ImageLayout.TRANSFER_DST_OPTIMAL,
+                self.pipeline_stage_flags,
+                AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                PipelineStageFlags.COPY,
+                AccessFlags.TRANSFER_WRITE,
+            )
         )
 
-    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
-        cmd.image_barrier(
-            resource.image,
-            self.layout,
-            MemoryUsage.TRANSFER_DST,
-            self.memory_usage,
-        )
+        if self.mips:
+            frame.upload_after_image_barriers.append(
+                ImageBarrier(
+                    resource.image,
+                    ImageLayout.TRANSFER_DST_OPTIMAL,
+                    ImageLayout.GENERAL,
+                    PipelineStageFlags.COPY,
+                    AccessFlags.TRANSFER_WRITE,
+                    PipelineStageFlags.COMPUTE_SHADER,
+                    AccessFlags.SHADER_SAMPLED_READ
+                    | AccessFlags.SHADER_STORAGE_READ
+                    | AccessFlags.SHADER_STORAGE_WRITE,
+                )
+            )
+            mip_generation_filter = MipGenerationFilter.AVERAGE_SRGB if self.srgb else MipGenerationFilter.AVERAGE
+
+            assert self.spd_pipeline_instance is not None
+            assert resource.mip_level_0_view is not None
+
+            descriptor_set = self.spd_pipeline_instance.get_and_write_current_and_advance(
+                resource.mip_level_0_view, resource.mip_views
+            )
+            frame.mip_generation_requests.setdefault(mip_generation_filter, []).append(
+                MipGenerationRequest(
+                    resource.image,
+                    self.spd_pipeline_instance.constants.tobytes(),
+                    descriptor_set,
+                    self.spd_pipeline_instance.groups_x,
+                    self.spd_pipeline_instance.groups_y,
+                    1,
+                    ImageBarrier(
+                        resource.image,
+                        ImageLayout.GENERAL,
+                        self.layout,
+                        PipelineStageFlags.COMPUTE_SHADER,
+                        AccessFlags.SHADER_SAMPLED_READ
+                        | AccessFlags.SHADER_STORAGE_READ
+                        | AccessFlags.SHADER_STORAGE_WRITE,
+                        self.pipeline_stage_flags,
+                        AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                    ),
+                )
+            )
+        else:
+            frame.upload_after_image_barriers.append(
+                ImageBarrier(
+                    resource.image,
+                    ImageLayout.TRANSFER_DST_OPTIMAL,
+                    self.layout,
+                    PipelineStageFlags.COPY,
+                    AccessFlags.TRANSFER_WRITE,
+                    self.pipeline_stage_flags,
+                    AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                )
+            )
 
 
 class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
@@ -933,6 +984,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
         self.current: Optional[V] = None
 
         # If not mapped
+        self.current_gpu_res: Optional[GpuResource[V]] = None
         self.gpu_resources: List[GpuResource[V]] = []
         self.gpu_pool: Optional[LRUPool[int, GpuResource[V]]] = None
 
@@ -1009,46 +1061,23 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
                 buf.used_size = self.property.get_frame_by_index_into(k, buf.buf.data)
 
         property_frame_index = self.property.current_frame_index
-        if self.mapped or not self.gpu_pool.is_available_or_prefetching(property_frame_index):  # type: ignore
-            self.current_cpu_buf = self.cpu_pool.get(property_frame_index, cpu_load)
-
-    def upload(self, frame: RendererFrame) -> None:
-        property_frame_index = self.property.current_frame_index
-
-        # Wait for buffer to be ready
         if self.mapped:
-            assert self.current_cpu_buf is not None
-            cpu_buf = self.current_cpu_buf
-            self.current_cpu_buf = None
-
-            if self.async_load:
-                cpu_buf.promise.get()
-
-            self.cpu_pool.use_frame(frame.index, property_frame_index)
-
-            # NOTE: only works for buffers for now, which is why we get a type error here.
-            self.current = GpuBufferView(cpu_buf.buf, 0, cpu_buf.used_size)  # type: ignore
+            self.current_cpu_buf = self.cpu_pool.get(property_frame_index, cpu_load)
         else:
             assert self.gpu_pool is not None
 
             def gpu_load(k: int, gpu_res: GpuResource[V]) -> None:
-                assert self.cpu_pool is not None
-                assert self.current_cpu_buf is not None
+                assert self.current_cpu_buf is None
 
-                cpu_buf = self.current_cpu_buf
-                self.current_cpu_buf = None
-
-                # Wait for buffer to be ready
-                if self.async_load:
-                    cpu_buf.promise.get()
-
+                cpu_buf = self.cpu_pool.get(property_frame_index, cpu_load)
                 self.cpu_pool.use_frame(frame.index, k)
-                if self.upload_method == UploadMethod.GRAPHICS_QUEUE:
-                    # Upload on gfx queue
-                    self._cmd_before_barrier(frame.cmd, gpu_res.resource)
-                    self._cmd_upload(frame.cmd, cpu_buf, gpu_res.resource)
-                    self._cmd_after_barrier(frame.cmd, gpu_res.resource)
 
+                self.current_cpu_buf = cpu_buf
+
+                if self.upload_method == UploadMethod.GRAPHICS_QUEUE:
+                    # Prepare for upload on graphics queue
+                    self._append_barriers_for_upload_on_graphics_queue(frame, gpu_res.resource)
+                    self._append_mip_generation_request(frame, gpu_res.resource)
                     gpu_res.state = GpuResourceState.RENDER
                 else:
                     assert self.upload_method == UploadMethod.TRANSFER_QUEUE
@@ -1061,10 +1090,9 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
 
                     frame.transfer_semaphores.append(gpu_res.use(PipelineStageFlags.TRANSFER))
 
-                    # Upload on copy queue
-                    self._cmd_before_barrier(frame.transfer_cmd, gpu_res.resource)
-                    self._cmd_upload(frame.transfer_cmd, cpu_buf, gpu_res.resource)
-                    self._cmd_release_barrier(frame.transfer_cmd, gpu_res.resource)
+                    # Prepare for upload on transfer queue
+                    self._append_barriers_for_upload_on_transfer_queue(frame, gpu_res.resource)
+                    self._append_release_barrier_on_transfer_queue(frame, gpu_res.resource)
 
                     gpu_res.state = GpuResourceState.LOAD
 
@@ -1076,6 +1104,9 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
 
             if gpu_res.state == GpuResourceState.LOAD or gpu_res.state == GpuResourceState.PREFETCH:
                 if gpu_res.state == GpuResourceState.PREFETCH:
+                    assert frame.transfer_cmd is not None
+                    frame.transfer_semaphores.append(gpu_res.use(PipelineStageFlags.ALL_COMMANDS))
+
                     # Sync: the resource was loaded by a prefetch operation on the transfer queue.
                     # Submit a release barrier on this frame to transfer ownership to this resource.
                     # The reason why this barrier needs to happen here instead of at the time of submission
@@ -1083,14 +1114,13 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
                     # will be used next on the graphics queue, the prefetch might be discarded and the resource
                     # used again later on the transfer queue. Since release-acquire barriers must be matched
                     # we issue the release only once we are sure that the acquire will happen.
-                    assert frame.transfer_cmd is not None
-                    frame.transfer_semaphores.append(gpu_res.use(PipelineStageFlags.TOP_OF_PIPE))
-                    self._cmd_release_barrier(frame.transfer_cmd, gpu_res.resource)
+                    self._append_release_barrier_on_transfer_queue(frame, gpu_res.resource)
 
-                # Sync: LOAD and PREFETCH imply that the upload happened on the transfer queue.
-                # This barrier matches the release_barrier form the normal or prefetch load.
-                self._cmd_acquire_barrier(frame.cmd, gpu_res.resource)
+                self._append_acquire_barrier_on_graphics_queue(frame, gpu_res.resource)
+                self._append_mip_generation_request(frame, gpu_res.resource)
                 gpu_res.state = GpuResourceState.RENDER
+
+            assert gpu_res.state == GpuResourceState.RENDER, gpu_res.state
 
             # Sync: If we are using the transfer queue to upload we have to guard the gpu resource
             # with a semaphore because we might need to reuse this buffer for pre-fetching
@@ -1100,7 +1130,40 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
             if self.upload_method == UploadMethod.TRANSFER_QUEUE:
                 frame.additional_semaphores.append(gpu_res.use(self.pipeline_stage_flags))
 
-            assert gpu_res.state == GpuResourceState.RENDER, gpu_res.state
+            self.current_gpu_res = gpu_res
+
+    def upload(self, frame: RendererFrame) -> None:
+        property_frame_index = self.property.current_frame_index
+
+        # Wait for buffer to be ready if needed
+        if self.async_load and self.current_cpu_buf is not None:
+            self.current_cpu_buf.promise.get()
+
+        # Wait for buffer to be ready. If this was already waited .get() is a no-op.
+        if self.mapped:
+            assert self.current_cpu_buf is not None
+            cpu_buf = self.current_cpu_buf
+            self.current_cpu_buf = None
+
+            self.cpu_pool.use_frame(frame.index, property_frame_index)
+            # NOTE: only works for buffers for now, which is why we get a type error here.
+            self.current = GpuBufferView(cpu_buf.buf, 0, cpu_buf.used_size)  # type: ignore
+        else:
+            assert self.current_gpu_res is not None
+            gpu_res = self.current_gpu_res
+            self.current_gpu_res = None
+
+            if self.current_cpu_buf is not None:
+                cpu_buf = self.current_cpu_buf
+                self.current_cpu_buf = None
+
+                if self.upload_method == UploadMethod.GRAPHICS_QUEUE:
+                    self._cmd_upload(frame.cmd, cpu_buf, gpu_res.resource)
+                else:
+                    assert self.upload_method == UploadMethod.TRANSFER_QUEUE
+                    assert frame.transfer_cmd is not None
+                    self._cmd_upload(frame.transfer_cmd, cpu_buf, gpu_res.resource)
+
             self.current = gpu_res.resource
 
     def prefetch(self) -> None:
@@ -1256,20 +1319,26 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
     def _create_gpu_resource(self, name: str) -> V:
         raise NotImplementedError
 
+    def _append_mip_generation_request(self, frame: RendererFrame, resource: V) -> None:
+        pass
+
+    def _append_barriers_for_upload_on_graphics_queue(self, frame: RendererFrame, resource: V) -> None:
+        raise NotImplementedError
+
+    def _append_barriers_for_upload_on_transfer_queue(self, frame: RendererFrame, resource: V) -> None:
+        raise NotImplementedError
+
+    def _append_acquire_barrier_on_graphics_queue(self, frame: RendererFrame, resource: V) -> None:
+        raise NotImplementedError
+
+    def _append_release_barrier_on_transfer_queue(self, frame: RendererFrame, resource: V) -> None:
+        raise NotImplementedError
+
     def _cmd_upload(self, cmd: CommandBuffer, cpu_buf: CpuBuffer, resource: V) -> None:
         raise NotImplementedError
 
     def _cmd_before_barrier(self, cmd: CommandBuffer, resource: V) -> None:
-        raise NotImplementedError
-
-    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: V) -> None:
-        raise NotImplementedError
-
-    def _cmd_acquire_barrier(self, cmd: CommandBuffer, resource: V) -> None:
-        raise NotImplementedError
-
-    def _cmd_release_barrier(self, cmd: CommandBuffer, resource: V) -> None:
-        raise NotImplementedError
+        pass
 
 
 class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
@@ -1280,7 +1349,6 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
         name: str,
     ):
         self.usage_flags = property.gpu_usage | BufferUsageFlags.TRANSFER_DST
-        self.memory_usage = MemoryUsage.ALL  # TODO: new sync API
         self.max_frame_size = property.max_size
 
         super().__init__(
@@ -1315,6 +1383,38 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
             self.max_frame_size,
         )
 
+    def _append_barriers_for_upload_on_graphics_queue(self, frame: RendererFrame, resource: GpuBufferView) -> None:
+        frame.upload_property_pipeline_stages |= self.pipeline_stage_flags
+
+    def _append_barriers_for_upload_on_transfer_queue(self, frame: RendererFrame, resource: GpuBufferView) -> None:
+        pass
+
+    def _append_acquire_barrier_on_graphics_queue(self, frame: RendererFrame, resource: GpuBufferView) -> None:
+        frame.upload_after_buffer_barriers.append(
+            BufferBarrier(
+                resource.buffer,
+                PipelineStageFlags.NONE,
+                AccessFlags.NONE,
+                self.pipeline_stage_flags,
+                AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                self.renderer.ctx.transfer_queue_family_index,
+                self.renderer.ctx.graphics_queue_family_index,
+            )
+        )
+
+    def _append_release_barrier_on_transfer_queue(self, frame: RendererFrame, resource: GpuBufferView) -> None:
+        frame.transfer_upload_after_buffer_barriers.append(
+            BufferBarrier(
+                resource.buffer,
+                PipelineStageFlags.COPY,
+                AccessFlags.TRANSFER_WRITE,
+                PipelineStageFlags.NONE,
+                AccessFlags.NONE,
+                self.renderer.ctx.transfer_queue_family_index,
+                self.renderer.ctx.graphics_queue_family_index,
+            )
+        )
+
     def _cmd_upload(
         self,
         cmd: CommandBuffer,
@@ -1324,30 +1424,8 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
         cmd.copy_buffer_range(cpu_buf.buf, resource.buffer, cpu_buf.used_size, resource.offset)
 
     def _cmd_before_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
-        # TODO: Currently needs to be all because it could be run on the transfer queue. I am
-        # not even sure we need any barrier for that case since it's a separate submit.
+        # Needs to be all when going from application usage on graphics queue to copy on transfer queue for prefetching
         cmd.memory_barrier(MemoryUsage.ALL, MemoryUsage.TRANSFER_DST)
-
-    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
-        cmd.memory_barrier(MemoryUsage.TRANSFER_DST, self.memory_usage)
-
-    def _cmd_acquire_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
-        cmd.buffer_barrier(
-            resource.buffer,
-            MemoryUsage.NONE,
-            self.memory_usage,
-            self.renderer.ctx.transfer_queue_family_index,
-            self.renderer.ctx.graphics_queue_family_index,
-        )
-
-    def _cmd_release_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
-        cmd.buffer_barrier(
-            resource.buffer,
-            MemoryUsage.TRANSFER_DST,
-            MemoryUsage.NONE,
-            self.renderer.ctx.transfer_queue_family_index,
-            self.renderer.ctx.graphics_queue_family_index,
-        )
 
 
 class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
@@ -1366,6 +1444,14 @@ class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
         self.layout = property.gpu_layout
         self.srgb = property.gpu_srgb
         self.mips = property.gpu_mips
+
+        self.spd_pipeline_instance = None
+        if self.mips:
+            mip_levels = max(self.width.bit_length(), self.height.bit_length())
+            self.spd_pipeline_instance = (
+                renderer.spd_pipeline.alloc_instance(renderer, False) if self.mips else None
+            )
+            self.spd_pipeline_instance.set_image_extents(self.width, self.height, mip_levels)
 
         self.pitch, self.rows, _ = get_image_pitch_rows_and_texel_size(self.width, self.height, self.format)
 
@@ -1386,44 +1472,158 @@ class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
             self.renderer.ctx, self.width, self.height, self.format, self.usage_flags, self.srgb, self.mips, name
         )
 
+    def _append_mip_generation_request(self, frame: RendererFrame, resource: GpuImageView) -> None:
+        if not self.mips:
+            return
+
+        mip_generation_filter = MipGenerationFilter.AVERAGE_SRGB if self.srgb else MipGenerationFilter.AVERAGE
+
+        assert self.spd_pipeline_instance is not None
+        assert resource.mip_level_0_view is not None
+
+        descriptor_set = self.spd_pipeline_instance.get_and_write_current_and_advance(
+            resource.mip_level_0_view, resource.mip_views
+        )
+        frame.mip_generation_requests.setdefault(mip_generation_filter, []).append(
+            MipGenerationRequest(
+                resource.image,
+                self.spd_pipeline_instance.constants.tobytes(),
+                descriptor_set,
+                self.spd_pipeline_instance.groups_x,
+                self.spd_pipeline_instance.groups_y,
+                1,
+                ImageBarrier(
+                    resource.image,
+                    ImageLayout.GENERAL,
+                    self.layout,
+                    PipelineStageFlags.COMPUTE_SHADER,
+                    AccessFlags.SHADER_SAMPLED_READ
+                    | AccessFlags.SHADER_STORAGE_READ
+                    | AccessFlags.SHADER_STORAGE_WRITE,
+                    self.pipeline_stage_flags,
+                    AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                ),
+            )
+        )
+
+    def _append_barriers_for_upload_on_graphics_queue(self, frame: RendererFrame, resource: GpuImageView) -> None:
+        frame.upload_before_image_barriers.append(
+            ImageBarrier(
+                resource.image,
+                ImageLayout.UNDEFINED,
+                ImageLayout.TRANSFER_DST_OPTIMAL,
+                self.pipeline_stage_flags,
+                AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                PipelineStageFlags.COPY,
+                AccessFlags.TRANSFER_WRITE,
+            )
+        )
+
+        if self.mips:
+            frame.upload_after_image_barriers.append(
+                ImageBarrier(
+                    resource.image,
+                    ImageLayout.TRANSFER_DST_OPTIMAL,
+                    ImageLayout.GENERAL,
+                    PipelineStageFlags.COPY,
+                    AccessFlags.TRANSFER_WRITE,
+                    PipelineStageFlags.COMPUTE_SHADER,
+                    AccessFlags.SHADER_SAMPLED_READ
+                    | AccessFlags.SHADER_STORAGE_READ
+                    | AccessFlags.SHADER_STORAGE_WRITE,
+                )
+            )
+        else:
+            frame.upload_after_image_barriers.append(
+                ImageBarrier(
+                    resource.image,
+                    ImageLayout.TRANSFER_DST_OPTIMAL,
+                    self.layout,
+                    PipelineStageFlags.COPY,
+                    AccessFlags.TRANSFER_WRITE,
+                    self.pipeline_stage_flags,
+                    AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                )
+            )
+
+    def _append_barriers_for_upload_on_transfer_queue(self, frame: RendererFrame, resource: GpuImageView) -> None:
+        frame.transfer_upload_before_image_barriers.append(
+            ImageBarrier(
+                resource.image,
+                ImageLayout.UNDEFINED,
+                ImageLayout.TRANSFER_DST_OPTIMAL,
+                # Needs to be all when going from application usage on graphics queue to copy on transfer queue.
+                PipelineStageFlags.ALL_COMMANDS,
+                AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                PipelineStageFlags.COPY,
+                AccessFlags.TRANSFER_WRITE,
+            )
+        )
+
+    def _append_acquire_barrier_on_graphics_queue(self, frame: RendererFrame, resource: GpuImageView) -> None:
+        if self.mips:
+            frame.upload_after_image_barriers.append(
+                ImageBarrier(
+                    resource.image,
+                    ImageLayout.TRANSFER_DST_OPTIMAL,
+                    ImageLayout.GENERAL,
+                    PipelineStageFlags.COPY,
+                    AccessFlags.TRANSFER_WRITE,
+                    PipelineStageFlags.COMPUTE_SHADER,
+                    AccessFlags.SHADER_SAMPLED_READ
+                    | AccessFlags.SHADER_STORAGE_READ
+                    | AccessFlags.SHADER_STORAGE_WRITE,
+                    self.renderer.ctx.transfer_queue_family_index,
+                    self.renderer.ctx.graphics_queue_family_index,
+                )
+            )
+        else:
+            frame.upload_after_image_barriers.append(
+                ImageBarrier(
+                    resource.image,
+                    # Layout transition should be specified twice the same for acquire/release pairs
+                    # according to the vulkan synchronization examples.
+                    ImageLayout.TRANSFER_DST_OPTIMAL,
+                    self.layout,
+                    # The spec says that these should be ignored, but validation seems to
+                    # look at these when a layout transition is involved.
+                    PipelineStageFlags.COPY,
+                    AccessFlags.TRANSFER_WRITE,
+                    self.pipeline_stage_flags,
+                    AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                    self.renderer.ctx.transfer_queue_family_index,
+                    self.renderer.ctx.graphics_queue_family_index,
+                )
+            )
+
+    def _append_release_barrier_on_transfer_queue(self, frame: RendererFrame, resource: GpuImageView) -> None:
+        frame.transfer_upload_after_image_barriers.append(
+            ImageBarrier(
+                resource.image,
+                # Layout transition should be specified twice the same for acquire/release pairs
+                # according to the vulkan synchronization examples.
+                ImageLayout.TRANSFER_DST_OPTIMAL,
+                ImageLayout.GENERAL if self.mips else self.layout,
+                PipelineStageFlags.TRANSFER,
+                AccessFlags.TRANSFER_WRITE,
+                # The spec says that these should be ignored, but validation seems to
+                # look at these when a layout transition is involved.
+                PipelineStageFlags.COPY,
+                AccessFlags.TRANSFER_WRITE,
+                self.renderer.ctx.transfer_queue_family_index,
+                self.renderer.ctx.graphics_queue_family_index,
+            )
+        )
+
     def _cmd_upload(self, cmd: CommandBuffer, buffer: CpuBuffer, view: GpuImageView) -> None:
         cmd.copy_buffer_to_image(buffer.buf, view.image)
 
     def _cmd_before_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
-        # TODO: Currently needs to be all because it could be run on the transfer queue. I am
-        # not even sure we need any barrier for that case since it's a separate submit.
         cmd.image_barrier(
             resource.image,
             ImageLayout.TRANSFER_DST_OPTIMAL,
+            # Needs to be all when going from application usage on graphics queue to copy on transfer queue for prefetching
             MemoryUsage.ALL,
             MemoryUsage.TRANSFER_DST,
             undefined=True,
-        )
-
-    def _cmd_after_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
-        cmd.image_barrier(
-            resource.image,
-            self.layout,
-            MemoryUsage.TRANSFER_DST,
-            self.memory_usage,
-        )
-
-    def _cmd_acquire_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
-        cmd.image_barrier(
-            resource.image,
-            self.layout,
-            MemoryUsage.NONE,
-            self.memory_usage,
-            self.renderer.ctx.transfer_queue_family_index,
-            self.renderer.ctx.graphics_queue_family_index,
-        )
-
-    def _cmd_release_barrier(self, cmd: CommandBuffer, resource: GpuImageView) -> None:
-        cmd.image_barrier(
-            resource.image,
-            self.layout,
-            MemoryUsage.TRANSFER_DST,
-            MemoryUsage.NONE,
-            self.renderer.ctx.transfer_queue_family_index,
-            self.renderer.ctx.graphics_queue_family_index,
         )

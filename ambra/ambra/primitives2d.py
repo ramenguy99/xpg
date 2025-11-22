@@ -129,6 +129,7 @@ class Image(Object2D):
     def __init__(
         self,
         image: ImageProperty,
+        mips: bool = False,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
@@ -146,8 +147,7 @@ class Image(Object2D):
             ImageUsageFlags.SAMPLED,
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
             PipelineStageFlags.FRAGMENT_SHADER,
-            # mips=False,
-            # srgb=False,
+            mips=mips,
         )
 
     def create(self, r: Renderer) -> None:

@@ -42,9 +42,7 @@ class HeadlessSwapchainFrame:
             self.image, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC
         )
         self.command_buffer.copy_image_to_buffer(self.image, self.readback_buffer)
-        self.command_buffer.memory_barrier(
-            MemoryUsage.TRANSFER_SRC, MemoryUsage.HOST_READ
-        )
+        self.command_buffer.memory_barrier(MemoryUsage.TRANSFER_SRC, MemoryUsage.HOST_READ)
 
     def realize_readback(self) -> NDArray[Any]:
         assert self.readback_buffer is not None

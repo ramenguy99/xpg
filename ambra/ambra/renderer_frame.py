@@ -2,14 +2,19 @@
 # SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pyxpg import (
+    BufferBarrier,
     CommandBuffer,
     DescriptorSet,
+    ImageBarrier,
     PipelineStageFlags,
     TimelineSemaphore,
 )
+
+from .ffx import MipGenerationRequest
+from .utils.gpu import MipGenerationFilter
 
 
 @dataclass
@@ -29,7 +34,23 @@ class RendererFrame:
     scene_descriptor_set: DescriptorSet
 
     cmd: CommandBuffer
+
+    # Before and after upload barriers
+    upload_property_pipeline_stages: PipelineStageFlags
+    upload_before_buffer_barriers: List[BufferBarrier]
+    upload_before_image_barriers: List[ImageBarrier]
+    upload_after_buffer_barriers: List[BufferBarrier]
+    upload_after_image_barriers: List[ImageBarrier]
+
+    # After mip generation barriers
+    mip_generation_requests: Dict[MipGenerationFilter, List[MipGenerationRequest]]
+
     additional_semaphores: List[SemaphoreInfo]
 
     transfer_cmd: Optional[CommandBuffer]
     transfer_semaphores: List[SemaphoreInfo]
+
+    transfer_upload_before_buffer_barriers: List[BufferBarrier]
+    transfer_upload_before_image_barriers: List[ImageBarrier]
+    transfer_upload_after_buffer_barriers: List[BufferBarrier]
+    transfer_upload_after_image_barriers: List[ImageBarrier]

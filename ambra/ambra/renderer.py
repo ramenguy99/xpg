@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tupl
 
 import numpy as np
 from pyxpg import (
+    AccessFlags,
     AllocType,
     BorderColor,
     Buffer,
@@ -30,8 +31,10 @@ from pyxpg import (
     ImageUsageFlags,
     ImageView,
     LoadOp,
+    MemoryBarrier,
     MemoryUsage,
     PhysicalDeviceType,
+    PipelineStageFlags,
     RenderingAttachment,
     ResolveMode,
     Sampler,
@@ -491,7 +494,7 @@ class Renderer:
         return self.compile_shader(SHADERS_PATH.joinpath(SHADERS_PATH, path), entry, target, defines, include_paths)
 
     def render(self, viewport: Viewport, frame: FrameInputs, gui: Gui) -> None:
-        # Destroy resources enqueued for destruction at this or an earlier frame
+        # Destroy resources enqueued for destruction for this or an earlier frame
         if self.destruction_queue:
             for index, resources in list(self.destruction_queue.items()):
                 if index <= self.total_frame_index:
@@ -519,6 +522,7 @@ class Renderer:
                     p.create(self)
                     if p.gpu_property is not None:
                         enabled_gpu_properties.add(p.gpu_property)
+
         viewport.scene.visit_objects(visit)
 
         # Flush synchronous upload buffers after creating new objects
@@ -589,22 +593,62 @@ class Renderer:
             self.total_frame_index,
             descriptor_set,
             cmd,
+            PipelineStageFlags(0),
+            [],
+            [],
+            [],
+            [],
+            {},
             frame.additional_semaphores,
             frame.transfer_command_buffer,
             frame.transfer_semaphores,
+            [],
+            [],
+            [],
+            [],
         )
 
+        # Load properties in CPU memory and prepare upload_before barriers
         for p in enabled_gpu_properties:
             p.load(f)
 
-        # Sync: preupload barriers
+        # Sync: before-upload barriers
+        cmd.barriers(
+            memory_barriers=[
+                MemoryBarrier(
+                    src_stage=PipelineStageFlags.ALL_COMMANDS,  # Would need to store the last stage as well
+                    src_access=AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                    dst_stage=PipelineStageFlags.TRANSFER,
+                    dst_access=AccessFlags.TRANSFER_READ | AccessFlags.TRANSFER_WRITE,
+                ),
+            ],
+            buffer_barriers=f.upload_before_buffer_barriers,
+            image_barriers=f.upload_before_image_barriers,
+        )
 
+        # Sync: after-upload transfer queue barriers (layout transitions)
+        if frame.transfer_semaphores:
+            assert frame.transfer_command_buffer is not None
+            frame.transfer_command_buffer.barriers(
+                memory_barriers=[
+                    MemoryBarrier(
+                        src_stage=PipelineStageFlags.ALL_COMMANDS,
+                        src_access=AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                        dst_stage=PipelineStageFlags.TRANSFER,
+                        dst_access=AccessFlags.TRANSFER_READ | AccessFlags.TRANSFER_WRITE,
+                    )
+                ],
+                buffer_barriers=f.transfer_upload_before_buffer_barriers,
+                image_barriers=f.transfer_upload_before_image_barriers,
+            )
+
+        # Upload all properties, objects and materials and colect upload_after barriers
         for p in enabled_gpu_properties:
             p.upload(f)
 
         buf.upload(
             cmd,
-            MemoryUsage.SHADER_UNIFORM,
+            MemoryUsage.NONE,  # None because will be synced by after-upload barriers
             self.constants.view(np.uint8),
         )
 
@@ -615,16 +659,56 @@ class Renderer:
                 o.material.upload(self, f)
             o.upload(self, f)
 
-        # Sync: post-upload barriers
+        # Sync: after-upload transfer queue barriers (queue release)
+        if frame.transfer_semaphores:
+            assert frame.transfer_command_buffer is not None
+            frame.transfer_command_buffer.barriers(
+                buffer_barriers=f.transfer_upload_after_buffer_barriers,
+                image_barriers=f.transfer_upload_after_image_barriers,
+            )
 
-        # TODO: mip creation. Assume that every streaming mip object has a spd pipeline
-        # instance preallocated, so that we can run all of them in the same submit.
-        # This is the path that streaming and dynamic properties will take when they need on
-        # the fly mip generation that does not stall.
-        # Streaming properties will preallocate an spd pipeline instance while
-        # preuploaded properties will allocate one when promoted to dynamic.
+        # Mip generation
+        if f.mip_generation_requests:
+            # Sync: after-upload image barriers before mip generation
+            cmd.barriers(image_barriers=f.upload_after_image_barriers)
 
-        # Sync: post-mip barriers + shadowmap + render barriers
+            # Batched mip creation.
+            #
+            # Assumes that every streaming mip object has a spd pipeline instance
+            # preallocated, so that we can run all of them in the same submit.
+            # This is the path that streaming and dynamic properties will take when
+            # they need on the fly mip generation that does not stall.
+            # Streaming properties will preallocate an spd pipeline instance while
+            # preuploaded properties will allocate one when promoted to dynamic.
+            mip_after_image_barriers = self.spd_pipeline.run_batched(f.cmd, f.mip_generation_requests)
+
+            # Sync: after-upload barriers and post mip generation barriers
+            cmd.barriers(
+                memory_barriers=[
+                    MemoryBarrier(
+                        src_stage=PipelineStageFlags.TRANSFER,
+                        src_access=AccessFlags.TRANSFER_READ | AccessFlags.TRANSFER_WRITE,
+                        dst_stage=f.upload_property_pipeline_stages,
+                        dst_access=AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                    ),
+                ],
+                buffer_barriers=f.upload_after_buffer_barriers,
+                image_barriers=mip_after_image_barriers,
+            )
+        else:
+            # Sync: after-upload barriers
+            cmd.barriers(
+                memory_barriers=[
+                    MemoryBarrier(
+                        src_stage=PipelineStageFlags.TRANSFER,
+                        src_access=AccessFlags.TRANSFER_READ | AccessFlags.TRANSFER_WRITE,
+                        dst_stage=f.upload_property_pipeline_stages,
+                        dst_access=AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                    ),
+                ],
+                buffer_barriers=f.upload_after_buffer_barriers,
+                image_barriers=f.upload_after_image_barriers,
+            )
 
         # Render shadows
         # TODO: also split this into upload / barriers / render steps and combine
