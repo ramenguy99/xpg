@@ -514,7 +514,7 @@ class Renderer:
                     enabled_lights.append(o)
                 o.create_if_needed(self)
                 if o.material is not None:
-                    for mp in o.material.properties:
+                    for mp, _ in o.material.properties:
                         mp.property.create(self)
                         if mp.property.gpu_property is not None:
                             enabled_gpu_properties.add(mp.property.gpu_property)

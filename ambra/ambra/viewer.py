@@ -31,7 +31,14 @@ from pyxpg import (
 )
 
 from .config import Config
-from .gpu_property import GpuBufferView, GpuImageView, GpuPreuploadedArrayProperty, GpuPreuploadedProperty, GpuProperty, GpuStreamingProperty
+from .gpu_property import (
+    GpuBufferView,
+    GpuImageView,
+    GpuPreuploadedArrayProperty,
+    GpuPreuploadedProperty,
+    GpuProperty,
+    GpuStreamingProperty,
+)
 from .headless import HeadlessSwapchain, HeadlessSwapchainFrame
 from .keybindings import KeyMap
 from .renderer import FrameInputs, Renderer

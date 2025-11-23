@@ -89,7 +89,7 @@ class Object:
             if p.num_frames > 1:
                 all_properties.add(p)
         if self.material is not None:
-            for mp in self.material.properties:
+            for mp, _ in self.material.properties:
                 if mp.property.num_frames > 1:
                     all_properties.add(mp.property)
 
