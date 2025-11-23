@@ -1,5 +1,5 @@
 Priority:
-- [ ] Lights, materials and shader permutations
+- [x] Lights, materials and shader permutations
     - [x] Cache shader compilations also in memory
     - [x] Ambient light
     - [x] PBR material
@@ -24,15 +24,20 @@ Priority:
                 case for having separate layouts so we don't expose this yet.
         - [x] Mip generation for materials
             - [x] Start simple, could potentially batch those generations at some point.
-    - [ ] Expose sampling options in materials
-- [ ] Cache pipelines -> requires hashable pyxpg objects
-- [ ] Stages presets in config or in helper functions (empty, origin, floor, lights, maybe more?)
-- [ ] Basic client/server example and initial set of APIs
-- [ ] Multi-viewport
+    - [x] Expose sampling options in materials
 - [x] Shaders / fonts build and packaging into wheel
     - [x] Explore using hatchlings instead of setuptools for better editable builds (read pep 517)
 - [x] Important 3D primitives
     - [x] Grid floor
+- [ ] Test edit API and delete
+- [ ] Rethink Animation and how it relates to:
+    - [ ] property edits (currently separate)
+    - [ ] first/last frame and boundary
+    - [ ] Maybe implement DB browser to get more context
+- [ ] Cache pipelines -> requires hashable pyxpg objects
+- [ ] Stages presets in config or in helper functions (empty, origin, floor, lights, maybe more?)
+- [ ] Basic client/server example and initial set of APIs
+- [ ] Multi-viewport
 - [ ] Windowless viewer
     - [x] Screenshots
     - [ ] Video, maybe using av? Maybe just user callback? Make PoC then decide
@@ -40,6 +45,212 @@ Priority:
         - [x] Do pipelinening and check speedup
         - [ ] Frame / timestamp range customization with different playback and render rate
 - [ ] Colormap material with user-configurable min-max and colormap (evaluated in shader from R channel)
+
+TODO:
+- [ ] Primitives
+    - [ ] Objects:
+        - [ ] thin points 2D / 3D
+        - [x] thin lines 2D / 3D
+        - [ ] circles and spheres
+        - [ ] Cilinders (with/without caps)
+        - [-] Meshes
+            - [ ] Handle optional params for:
+                - normals -> fallback to flat shading with shader derivatives
+                - uvs -> fallback to flat color
+                - tangents and normal maps (?)
+                - joint indices, weights, joints
+            - [ ] Fixup when correctly handling materials and
+        - [-] Grid floor
+            - [ ] Height control
+        - [x] 2D Images
+        - [x] 3D Images (e.g. textured quads)
+    - [ ] Add helpers to simplify creation of vertex buffers and descriptor sets
+    - [ ] Together with light / materials, figure out how to do shader permutations / optional properties
+- [ ] Renderer architecture / path tracer support
+    - [ ] Single object vs batching -> especially relevant for path tracing where you need to batch things in a tlas
+        - [ ] Lights
+        - [ ] Materials
+        - [ ] Instancing
+        - [ ] Support both raster and path tracing with accumulation
+        - Need to think what level of control the renderables need over how they are rendered.
+          Things like transparency and shadow map rendering might want to have something like this anyways.
+    - [ ] Immediate mode 3D api for things like I am hovering on this pixel / object and I want to see an arrow / sphere / lines
+    - [ ] Auxiliary buffers for picking and inspection:
+        - [ ] gl_PrimitiveID is expensive on modern hardware when using the traditional pipeline.
+              It can be cheaper with a mesh-shader based pipeline bat MoltenVK does not support that atm.
+        - [ ] it could potentially be possible to have an option for it but that also increases number
+              of shader permutations.
+        - [ ] also not sure if we need to always render this or if we can only render it on-demand, depending on UI
+- [ ] Descriptors
+    - [x] See what patterns we can find in primitives and if we can reduce amount of scene / material / object bindings by using compatible pipeline layouts.
+          Custom renderables might still want to have full control of bindings, but we can't interleave draws that want to reuse existing bound sets,
+          in that case we would need to render those at the end? Can be somehow similar to material based sorting, if it becomes a thing.
+    - [ ] Check if use of descriptor update templates can be useful to unify and speed up descriptor writes
+- [ ] Buffer and image management:
+    - [ ] UploadableBuffer and UploadableImage are currently only used
+          by renderer for bulk uniforms. I think the main issue with this
+          is that it only solves the startup / first time upload issue, which
+          can already be solved by .from_data.
+          It does handle DEVICE_MAPPED_WITH_FALLBACK but .from_data also does.
+          The fact that it keeps the staging buffer around is not that useful because
+          we can re-utilize it during rendering only if we alloc 1 per frame.
+          Shapes of upload:
+          - Sync upload once at creation                               -> .from_data
+          - Sync upload once after creation (batched)                  -> bulk_upload
+          - Per frame upload with one GPU buffer per sequence frame    -> preupload GpuProperty (lazily allocates staging buffers, shared across frames)
+          - Per frame upload with single GPU buffer for whole sequence -> streaming GpuProperty (preallocated staging buffers, shared across frames, also supports prefetching with additional staging and GPU buffers)
+          We are technically missing but we might not need it:
+          - Per frame upload without a sequence (e.g. bulk uniforms) -> this is in spirit the same as streaming GpuProperty but without relying on it (maybe GpuProperty should rely on this?)
+            - For GPU resources (non-mappable buffers or images)
+            - For buffers we should check if BAR memory is available and if we want to use and alloc per-frame mappable buffers, otherwise alloc per-frame staging and 1 device resource.
+    - [ ] Prefetching is currently assuming linearly increasing frame indices
+    - [x] Together with server, figure out API to append frames (and potentially insert / remove too)
+    - [x] Support buffer suballocation in gpu property for preuplaod and image array to reduce number of resources that we need for a sequence -> could require changes at usage side that will also get an offset
+    - [x] Implement invalidation of preuploaded properties. If using mapped buffers (CPU or BAR) we can just alloc the remaining frames_in_flight - 1 buffers and switch to ring buffer.
+    - [x] Implement smarter logic to pick which upload mode to use. For smaller properties we want bar if available I guess.
+- [ ] Server
+    - [ ] Test design and finish implementing
+    - [ ] Client python package (maybe shared ambra-protocol too, could require same version until 1.0.0 and then keep server backwards compatible within major)
+    - [ ] C/C++ and rust lib
+- [x] Frame helpers (ideally at object level, shared across all primitives)
+    - Fixed framerate
+    - Variable rate
+    - Missing frames / holes in data (different from hold last pose)
+    - Repeat vs hold vs disappear at end of sequence
+    -> think about how this fits together with streaming/prefetching/animated properties
+    -> also think about how to visualize this in a timeline viewer
+- [x] Transform properties, kinematic trees and node descriptor for constants
+    - [x] Transform 2D
+    - [x] Cleanup constants dup
+- [x] Uniform pool helper
+    - [x] Rework how we do descriptors for this. It seems reasonable to me that we will keep the pool
+          for memory managemnt / suballocation, but we need to have custom descriptors written every frame.
+          Anyways most primitives will have a set per object, right now plan is to have the object contants to
+          be the first binding of the object set.
+- [x] Images and upload
+- [x] .create currently has to be called manually on primitives
+- [x] Streaming properties
+    - [x] lines with list instead of np array
+    - [x] heterogeneous size with max_size
+    - [x] streaming prop
+    - [x] trigger all uploads before blocking for rendering -> made properties managed by renderer
+    - [x] prefetching
+            -> likely make a simple mesh class and recreate sequence
+            -> this means also porting some GUI, likey making some helpers, ideally also adding the profiler
+    - [x] unify GpuBufferProperty and GpuImageProperty
+    - [x] Think about getter/setters to update properties and explicit redraw to update properties
+    - [ ] More viewer playback controls (e.g. timeline view, property inspectors)
+        - Look at imguizmo sequencer, but likely re-implement with custom use-case in mind
+        - Likely want to do most of the ui work in C++ and just offer callbacks for input like click/over/tooltip etc..
+        - Look at rerun timeline for feature ideas
+- [x] Camera movement
+    - [x] Define interface / config / keybindings
+    - [x] Initialize camera controls with up / distance from config
+    - [x] Implement getters for front, up, right vectors from camera
+    - [x] Drag start / end detection
+    - [x] Camera mode dependent rotate/pan
+    - [x] Scroll zoom (how to handle moving the target (or reducing the distance)?)
+    Extra:
+    - [ ] 2D controls -> pan only and change zoom mode to modify ortho size?
+- [ ] Viewport:
+    - [x] resize
+    - [ ] multiple viewports
+    - [ ] related to UI if decide to do viewports in ImGui windows, not clear how to do default placement (check docs)
+- [ ] UI: -> likely in common ui place that can be customized / modified (helpers for things like default layout as well, likely configurable)
+    - [x] Scene tree and property view -> custom widget callback per property?
+    - [x] Playback UI
+    - [x] Fps display for debug
+    - [x] Configurable keybindings
+    - [x] NEXT: Expose imgui.get_io for things like want_capture_mouse (or add helper for that)
+    - [x] Show memory usage in stats
+    - [x] Better/configurable handling of imgui.ini file
+    - [x] User texture for UI stuff, e.g. in imagui window (or tooltip)
+        - ImGui uses VkDescriptorSet, must be a single COMBINED_IMAGE_SAMPLER in it
+        - You can pass the descriptor pool from which to allocate to imgui directly, but we currently
+        let ImGui do that and just pass a number
+        - You can allocate from ImGui's pool with ImGuiImplVulkan_AddTexture and ImGuiImplVulkan_RemoveTexture,
+        these will allocate from the imgui's managed pool. This only requires a VkSampler, an image view and a layout.
+        - We can also allocate those descriptor sets manually, either directly in python or in a Gui wrapper.
+        - It might be a bit inefficient to have a DescriptorSet and Pool per image, but we currently don't expose
+        descriptor pools anyway. We might want to revisit this once we do this.
+    - [ ] Port built-in profiler
+    - [ ] Memory breakdown view -> also plot of usage per-frame to spot mid-frame allocs
+- [ ] Shaders
+    - [x] check if there is a way for users that are writing custom shaders to import ambra modules (like scene.slang)
+    - [ ] cache + hot reloading for dev (?)
+    - [ ] export to spirv during package
+    - [ ] run spirv-optimizer (for sure on export, but maybe even during slang build)
+    - [ ] do we want a pipeline / layout cache? Can we do something using frozen dataclasses as hash keys?
+- [x] Config:
+    - [x] Improve camera initialization (especially ortho for 2D case)
+    - [x] vulkan validation options
+    - [x] add a way to set viewer position in addition to size? (expose glfw for this)
+    - [x] Think about clean way to handle handedness / zy up conventions.
+        - [x] wrap things that care in a separate module, make different default symbols base on config ?
+        - [x] maybe math and camera utils should expose both, and viewer use config to pick
+        - [ ] currently configurable but not used everywhere, double check that it is propagated where needed
+    - [ ] load from disk / yaml + default locations (e.g. home? cwd?)
+- [x] Hook pyxpg logging into python logging
+- [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
+- [ ] Cleanup before release:
+    - [ ] Public vs private API (hide / protect internal stuff)
+    - [ ] Unit tests on all python versions (likely with lavapipe on CI)
+    - [x] Rename some badly named things:
+        [x] UploadMethod constants
+    - [x] Is StreamingProperty any useful? Should users instead just subclass Property? Removed
+    - [ ] Re-organize utils directory, what really is a util anyway?
+- [ ] Extra Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
+    - [ ] Meshoptimizer + meshlets
+    - [ ] Gaussian splats
+        - [ ] Move into shaders/3d, it's integrated enough that we kinda need that.
+    - [ ] Ray marching / octrees
+    - [ ] Marching cubes
+    - [ ] Pointclouds
+    - [ ] Framegraph
+- [ ] Customization workflow
+    - [x] Completely new shader
+    - [x] Shader that reuses common scene stuff or utils
+        - [x] Import form ambra shader directory
+        - [ ] Reuse materials code but (with customizable descriptor layout ?)
+        - [ ] Customize material / shader for existing primitive (maybe just copy -> edit workflow?)
+
+Bugs:
+- [x] Fix non-unit world_up results in nans in camera
+- [ ] Why does @cache on shader break refcounting on context, especially for an object that does not have any reference to ctx
+      -> investigate further and maybe make minimal repro if it's actually a nanobind issue
+- [ ] Exceptions sometimes cause vulkan validation errors on wrong frees
+
+Issues found while implementing skeletal animation:
+[ ] if passing [N, 1] instead of [N] we can end up creating LOTS of frames (and therefore LOTS of buffers)
+    -> we can likely check if last dimension is 1 in something that usually is not (e.g. indices) and warn / raise
+    -> We can anyways try to optimize number of buffers that we actually create with suballocation
+[ ] easy to pass an image as np.float64 if you are doing ops (e.g. dstacking alpha), warn / raise if dtype does not match format
+
+Benchmarks:
+- [ ] Big sequence
+- [ ] Big frames (e.g. DM dataset)
+- [ ] Lots of objects -> create synthetic benchmark with variations in property types
+
+Tools:
+- [x] mypy:
+    # configured in tool.mypy
+    pip install mypy
+    mypy ambra
+- [x] ruff:
+    # configured in tool.ruff.*
+    pip install ruff
+    # Sort imports
+    ruff check --select I --fix
+    # Format
+    ruff format
+    # Lint (not including examples)
+    ruff check --exclude examples
+    ruff check --exclude examples --fix
+- [ ] clang-format shaders
+- [ ] run on CI once we have automated build / tests
+
+
+Notes:
 
 New property API plans:
 - Deps:
@@ -246,213 +457,6 @@ New property API plans:
            to astype() properties, but if you really care about memory you want to either
            create a view or error out if type is not ok. Maybe this should anyways be
            the default behavior (or opt in with some flag just for when you care).
-
-TODO:
-- [ ] Primitives
-    - [ ] Objects:
-        - [ ] thin points 2D / 3D
-        - [x] thin lines 2D / 3D
-        - [ ] circles and spheres
-        - [ ] Cilinders (with/without caps)
-        - [-] Meshes
-            - [ ] Handle optional params for:
-                - normals -> fallback to flat shading with shader derivatives
-                - uvs -> fallback to flat color
-                - tangents and normal maps (?)
-                - joint indices, weights, joints
-            - [ ] Fixup when correctly handling materials and
-        - [-] Grid floor
-            - [ ] Height control
-        - [x] 2D Images
-        - [x] 3D Images (e.g. textured quads)
-    - [ ] Add helpers to simplify creation of vertex buffers and descriptor sets
-    - [ ] Together with light / materials, figure out how to do shader permutations / optional properties
-- [ ] Renderer architecture / path tracer support
-    - [ ] Single object vs batching -> especially relevant for path tracing where you need to batch things in a tlas
-        - [ ] Lights
-        - [ ] Materials
-        - [ ] Instancing
-        - [ ] Support both raster and path tracing with accumulation
-    - [x] Unified render targets? Maybe with opt-out mechanism or special queues?
-        - Need to think what level of control the renderables need over how they are rendered.
-          Things like transparency and shadow map rendering might want to have something like this anyways.
-    - [ ] Immediate mode 3D api for things like I am hovering on this pixel / object and I want to see an arrow / sphere / lines
-    - [ ] Auxiliary buffers for picking and inspection:
-        - [ ] gl_PrimitiveID is expensive on modern hardware when using the traditional pipeline.
-              It can be cheaper with a mesh-shader based pipeline bat MoltenVK does not support that atm.
-        - [ ] it could potentially be possible to have an option for it but that also increases number
-              of shader permutations.
-        - [ ] also not sure if we need to always render this or if we can only render it on-demand, depending on UI
-- [ ] Descriptors
-    - [x] See what patterns we can find in primitives and if we can reduce amount of scene / material / object bindings by using compatible pipeline layouts.
-          Custom renderables might still want to have full control of bindings, but we can't interleave draws that want to reuse existing bound sets,
-          in that case we would need to render those at the end? Can be somehow similar to material based sorting, if it becomes a thing.
-    - [ ] Check if use of descriptor update templates can be useful to unify and speed up descriptor writes
-- [ ] Buffer and image management:
-    - [ ] UploadableBuffer and UploadableImage are currently only used
-          by renderer for bulk uniforms. I think the main issue with this
-          is that it only solves the startup / first time upload issue, which
-          can already be solved by .from_data.
-          It does handle DEVICE_MAPPED_WITH_FALLBACK but .from_data also does.
-          The fact that it keeps the staging buffer around is not that useful because
-          we can re-utilize it during rendering only if we alloc 1 per frame.
-          Shapes of upload:
-          - Sync upload once at creation                               -> .from_data
-          - Sync upload once after creation (batched)                  -> bulk_upload
-          - Per frame upload with one GPU buffer per sequence frame    -> preupload GpuProperty (lazily allocates staging buffers, shared across frames)
-          - Per frame upload with single GPU buffer for whole sequence -> streaming GpuProperty (preallocated staging buffers, shared across frames, also supports prefetching with additional staging and GPU buffers)
-          We are technically missing but we might not need it:
-          - Per frame upload without a sequence (e.g. bulk uniforms) -> this is in spirit the same as streaming GpuProperty but without relying on it (maybe GpuProperty should rely on this?)
-            - For GPU resources (non-mappable buffers or images)
-            - For buffers we should check if BAR memory is available and if we want to use and alloc per-frame mappable buffers, otherwise alloc per-frame staging and 1 device resource.
-    - [ ] Prefetching is currently assuming linearly increasing frame indices
-    - [x] Together with server, figure out API to append frames (and potentially insert / remove too)
-    - [x] Support buffer suballocation in gpu property for preuplaod and image array to reduce number of resources that we need for a sequence -> could require changes at usage side that will also get an offset
-    - [x] Implement invalidation of preuploaded properties. If using mapped buffers (CPU or BAR) we can just alloc the remaining frames_in_flight - 1 buffers and switch to ring buffer.
-    - [x] Implement smarter logic to pick which upload mode to use. For smaller properties we want bar if available I guess.
-- [ ] Server
-    - [ ] Test design and finish implementing
-    - [ ] Client python package (maybe shared ambra-protocol too, could require same version until 1.0.0 and then keep server backwards compatible within major)
-    - [ ] C/C++ and rust lib
-- [x] Frame helpers (ideally at object level, shared across all primitives)
-    - Fixed framerate
-    - Variable rate
-    - Missing frames / holes in data (different from hold last pose)
-    - Repeat vs hold vs disappear at end of sequence
-    -> think about how this fits together with streaming/prefetching/animated properties
-    -> also think about how to visualize this in a timeline viewer
-- [x] Transform properties, kinematic trees and node descriptor for constants
-    - [x] Transform 2D
-    - [x] Cleanup constants dup
-- [x] Uniform pool helper
-    - [x] Rework how we do descriptors for this. It seems reasonable to me that we will keep the pool
-          for memory managemnt / suballocation, but we need to have custom descriptors written every frame.
-          Anyways most primitives will have a set per object, right now plan is to have the object contants to
-          be the first binding of the object set.
-- [x] Images and upload
-- [x] .create currently has to be called manually on primitives
-- [x] Streaming properties
-    - [x] lines with list instead of np array
-    - [x] heterogeneous size with max_size
-    - [x] streaming prop
-    - [x] trigger all uploads before blocking for rendering -> made properties managed by renderer
-    - [x] prefetching
-            -> likely make a simple mesh class and recreate sequence
-            -> this means also porting some GUI, likey making some helpers, ideally also adding the profiler
-    - [x] unify GpuBufferProperty and GpuImageProperty
-    - [x] Think about getter/setters to update properties and explicit redraw to update properties
-    - [ ] More viewer playback controls (e.g. timeline view, property inspectors)
-        - Look at imguizmo sequencer, but likely re-implement with custom use-case in mind
-        - Likely want to do most of the ui work in C++ and just offer callbacks for input like click/over/tooltip etc..
-        - Look at rerun timeline for feature ideas
-- [x] Camera movement
-    - [x] Define interface / config / keybindings
-    - [x] Initialize camera controls with up / distance from config
-    - [x] Implement getters for front, up, right vectors from camera
-    - [x] Drag start / end detection
-    - [x] Camera mode dependent rotate/pan
-    - [x] Scroll zoom (how to handle moving the target (or reducing the distance)?)
-    Extra:
-    - [ ] 2D controls -> pan only and change zoom mode to modify ortho size?
-- [ ] Viewport:
-    - [x] resize
-    - [ ] multiple viewports
-    - [ ] related to UI if decide to do viewports in ImGui windows, not clear how to do default placement (check docs)
-- [ ] UI: -> likely in common ui place that can be customized / modified (helpers for things like default layout as well, likely configurable)
-    - [x] Scene tree and property view -> custom widget callback per property?
-    - [x] Playback UI
-    - [x] Fps display for debug
-    - [x] Configurable keybindings
-    - [x] NEXT: Expose imgui.get_io for things like want_capture_mouse (or add helper for that)
-    - [x] Show memory usage in stats
-    - [x] Better/configurable handling of imgui.ini file
-    - [x] User texture for UI stuff, e.g. in imagui window (or tooltip)
-        - ImGui uses VkDescriptorSet, must be a single COMBINED_IMAGE_SAMPLER in it
-        - You can pass the descriptor pool from which to allocate to imgui directly, but we currently
-        let ImGui do that and just pass a number
-        - You can allocate from ImGui's pool with ImGuiImplVulkan_AddTexture and ImGuiImplVulkan_RemoveTexture,
-        these will allocate from the imgui's managed pool. This only requires a VkSampler, an image view and a layout.
-        - We can also allocate those descriptor sets manually, either directly in python or in a Gui wrapper.
-        - It might be a bit inefficient to have a DescriptorSet and Pool per image, but we currently don't expose
-        descriptor pools anyway. We might want to revisit this once we do this.
-    - [ ] Port built-in profiler
-    - [ ] Memory breakdown view -> also plot of usage per-frame to spot mid-frame allocs
-- [ ] Shaders
-    - [x] check if there is a way for users that are writing custom shaders to import ambra modules (like scene.slang)
-    - [ ] cache + hot reloading for dev (?)
-    - [ ] export to spirv during package
-    - [ ] run spirv-optimizer (for sure on export, but maybe even during slang build)
-    - [ ] do we want a pipeline / layout cache? Can we do something using frozen dataclasses as hash keys?
-- [x] Config:
-    - [x] Improve camera initialization (especially ortho for 2D case)
-    - [x] vulkan validation options
-    - [x] add a way to set viewer position in addition to size? (expose glfw for this)
-    - [x] Think about clean way to handle handedness / zy up conventions.
-        - [x] wrap things that care in a separate module, make different default symbols base on config ?
-        - [x] maybe math and camera utils should expose both, and viewer use config to pick
-        - [ ] currently configurable but not used everywhere, double check that it is propagated where needed
-    - [ ] load from disk / yaml + default locations (e.g. home? cwd?)
-- [x] Hook pyxpg logging into python logging
-- [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
-- [ ] Cleanup before release:
-    - [ ] Public vs private API (hide / protect internal stuff)
-    - [ ] Unit tests on all python versions (likely with lavapipe on CI)
-    - [x] Rename some badly named things:
-        [x] UploadMethod constants
-    - [x] Is StreamingProperty any useful? Should users instead just subclass Property? Removed
-    - [ ] Re-organize utils directory, what really is a util anyway?
-- [ ] Extra Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
-    - [ ] Meshoptimizer + meshlets
-    - [ ] Gaussian splats
-        - [ ] Move into shaders/3d, it's integrated enough that we kinda need that.
-    - [ ] Ray marching / octrees
-    - [ ] Marching cubes
-    - [ ] Pointclouds
-    - [ ] Framegraph
-- [ ] Customization workflow
-    - [x] Completely new shader
-    - [x] Shader that reuses common scene stuff or utils
-        - [x] Import form ambra shader directory
-        - [ ] Reuse materials code but (with customizable descriptor layout ?)
-        - [ ] Customize material / shader for existing primitive (maybe just copy -> edit workflow?)
-
-Bugs:
-- [x] Fix non-unit world_up results in nans in camera
-- [ ] Why does @cache on shader break refcounting on context, especially for an object that does not have any reference to ctx
-      -> investigate further and maybe make minimal repro if it's actually a nanobind issue
-- [ ] Exceptions sometimes cause vulkan validation errors on wrong frees
-
-Issues found while implementing skeletal animation:
-[ ] if passing [N, 1] instead of [N] we can end up creating LOTS of frames (and therefore LOTS of buffers)
-    -> we can likely check if last dimension is 1 in something that usually is not (e.g. indices) and warn / raise
-    -> We can anyways try to optimize number of buffers that we actually create with suballocation
-[ ] easy to pass an image as np.float64 if you are doing ops (e.g. dstacking alpha), warn / raise if dtype does not match format
-
-Benchmarks:
-- [ ] Big sequence
-- [ ] Big frames (e.g. DM dataset)
-- [ ] Lots of objects -> create synthetic benchmark with variations in property types
-
-Tools:
-- [x] mypy:
-    # configured in tool.mypy
-    pip install mypy
-    mypy ambra
-- [x] ruff:
-    # configured in tool.ruff.*
-    pip install ruff
-    # Sort imports
-    ruff check --select I --fix
-    # Format
-    ruff format
-    # Lint (not including examples)
-    ruff check --exclude examples
-    ruff check --exclude examples --fix
-- [ ] clang-format shaders
-- [ ] run on CI once we have automated build / tests
-
-
-Notes:
 
 Material notes:
 - Channels:
