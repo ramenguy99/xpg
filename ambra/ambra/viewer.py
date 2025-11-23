@@ -31,7 +31,7 @@ from pyxpg import (
 )
 
 from .config import Config
-from .gpu_property import GpuBufferView, GpuImageView, GpuPreuploadedArrayProperty, GpuProperty, GpuStreamingProperty
+from .gpu_property import GpuBufferView, GpuImageView, GpuPreuploadedArrayProperty, GpuPreuploadedProperty, GpuProperty, GpuStreamingProperty
 from .headless import HeadlessSwapchain, HeadlessSwapchainFrame
 from .keybindings import KeyMap
 from .renderer import FrameInputs, Renderer
@@ -520,8 +520,8 @@ class Viewer:
         if imgui.begin("Renderer")[0]:
             imgui.text("GPU properties:")
             imgui.indent(5)
-            for p in self.renderer.enabled_gpu_properties:
-                s = imgui.selectable(p.name, self.gui_selected_gpu_property == p)
+            for i, p in enumerate(self.renderer.enabled_gpu_properties):
+                s = imgui.selectable(f"{p.name}##{i}", self.gui_selected_gpu_property == p)
                 if s:
                     if self.gui_selected_gpu_property == p:
                         self.gui_selected_gpu_property = None
@@ -542,6 +542,22 @@ class Viewer:
                     imgui.text(f"{self.gui_selected_gpu_property.resource}")
                     imgui.text(f"{self.gui_selected_gpu_property.resource.alloc}")
                     imgui.unindent()
+                if isinstance(self.gui_selected_gpu_property, GpuPreuploadedProperty):
+                    imgui.text(f"Frame size: {self.gui_selected_gpu_property.max_frame_size}")
+                    imgui.text(f"Batched: {self.gui_selected_gpu_property.batched}")
+                    imgui.text(f"Async load: {self.gui_selected_gpu_property.async_load}")
+                    imgui.text(f"Upload method: {self.gui_selected_gpu_property.upload_method}")
+                    inv = ", ".join([str(i) for i in self.gui_selected_gpu_property.invalid_frames])
+                    imgui.text(f"Invalid frames: {{{inv}}}")
+                    imgui.text(f"Resources: {len(self.gui_selected_gpu_property.resources)}")
+                    if isinstance(self.gui_selected_gpu_property.current, GpuBufferView):
+                        imgui.indent()
+                        imgui.text(f"{self.gui_selected_gpu_property.current.buffer}")
+                        imgui.unindent()
+                    elif isinstance(self.gui_selected_gpu_property.current, GpuImageView):
+                        imgui.indent()
+                        imgui.text(f"{self.gui_selected_gpu_property.current.image}")
+                        imgui.unindent()
                 elif isinstance(self.gui_selected_gpu_property, GpuStreamingProperty):
                     imgui.text(f"Upload method: {self.gui_selected_gpu_property.upload_method}")
                     imgui.text("CPU Resource:")
