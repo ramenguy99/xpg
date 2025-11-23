@@ -79,15 +79,16 @@ New property API plans:
             - [x] sRGB does not seem to be handled properly by SPD. As far as I can see SPD always converts from linear to sRGB and does averaging in sRGB.
                   My understanding is that we would want the opposite of this. Sample does sRGB -> linear (either automatically with sRGB view or manually when reading
                   from storage image, this includes the mid mip) and we linear -> sRGB manually before storing.
-    - [ ] New sync API
-        - [ ] Combine pipeline stage and access flags
-        - [ ] Batch upload and mip generation barriers
+    - [x] New sync API
+        - [x] Combine pipeline stage and access flags
+        - [x] Batch upload and mip generation barriers
                 -> Need to store/exec all image barriers that require layout transitions
                 -> Need to store/exec all queue ownership barriers
                 -> Need to store/exec all memory barriers (could potentially remove duplicates / combine)
-        - [ ] Image layout breaks down when you start having texture arrays or mips with different elements in differents layouts
+        - [x] Image layout breaks down when you start having texture arrays or mips with different elements in differents layouts
                 -> for batching images into single texture array we likely want to lift this constraint (not so important at creation, but for e.g. updating a single frame)
-    - [ ] Streaming mip creation and barriers -> rethink together with batches synchronization
+        - [x] Cleanup and batch more barriers in renderer
+    - [x] Streaming mip creation and barriers -> rethink together with batches synchronization
     - [x] update, append, insert, remove frames -> I am ok if batching is only allowed on Array* variants and those do not allow remove/insert (but do allow update).
         - [x] Both API objects and underlying data needs to be updated
             - [x] API objects are likely in list and can be cheap to move / realloc
@@ -529,7 +530,7 @@ Dynamic light count notes:
 Bindless:
 - Extensions:
     - descriptor indexing is widely available but requires managing different pools per descriptor type
-    - Descriptor buffer allows manually managing descriptor memory and copies -> TODO: check availability on desktop
+    - Descriptor buffer allows manually managing descriptor memory and copies
         - Nvidia: Kepler+
         - AMD: Old
         - Mac: not yet on MoltenVK, maybe soon?

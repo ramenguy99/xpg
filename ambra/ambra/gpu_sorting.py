@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 from pyxpg import (
+    AccessFlags,
     AllocType,
     Buffer,
     BufferUsageFlags,
@@ -16,7 +17,9 @@ from pyxpg import (
     DescriptorSetBinding,
     DescriptorType,
     DeviceFeatures,
+    MemoryBarrier,
     MemoryUsage,
+    PipelineStageFlags,
     PushConstantsRange,
     Shader,
 )
@@ -330,10 +333,19 @@ class GpuSortingPipeline:
             cmd.push_constants(self.onesweep_pipeline.init, self.constants.tobytes())
             cmd.dispatch(256, 1, 1)
 
-            # TODO: if we had a more expressive sync API we could do both in one barrier.
-            cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+            dst_stage = PipelineStageFlags.COMPUTE_SHADER
+            dst_access = AccessFlags.SHADER_READ | AccessFlags.SHADER_WRITE
             if indirect_count is not None:
-                cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.INDIRECT)
+                dst_stage |= PipelineStageFlags.DRAW_INDIRECT
+                dst_access |= AccessFlags.INDIRECT_COMMAND_READ
+            cmd.memory_barrier_full(
+                MemoryBarrier(
+                    PipelineStageFlags.COMPUTE_SHADER,
+                    AccessFlags.SHADER_READ | AccessFlags.SHADER_WRITE,
+                    dst_stage,
+                    dst_access,
+                )
+            )
 
             # Global hist
             cmd.bind_pipeline(self.onesweep_pipeline.global_histogram)
@@ -409,10 +421,19 @@ class GpuSortingPipeline:
             cmd.bind_pipeline(self.device_radix_sort_pipeline.init)
             cmd.dispatch(1, 1, 1)
 
-            # TODO: if we had a more expressive sync API we could do both in one barrier.
-            cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+            dst_stage = PipelineStageFlags.COMPUTE_SHADER
+            dst_access = AccessFlags.SHADER_READ | AccessFlags.SHADER_WRITE
             if indirect_count is not None:
-                cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.INDIRECT)
+                dst_stage |= PipelineStageFlags.DRAW_INDIRECT
+                dst_access |= AccessFlags.INDIRECT_COMMAND_READ
+            cmd.memory_barrier_full(
+                MemoryBarrier(
+                    PipelineStageFlags.COMPUTE_SHADER,
+                    AccessFlags.SHADER_READ | AccessFlags.SHADER_WRITE,
+                    dst_stage,
+                    dst_access,
+                )
+            )
 
             for radix_shift in range(0, 32, 8):
                 # Bind descriptor set (skip first because already bound)

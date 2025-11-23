@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 from pyglm.glm import inverse, normalize, orthoRH_ZO, quatLookAtRH, vec3, vec4
 from pyxpg import (
+    AccessFlags,
     AllocType,
     Buffer,
     BufferUsageFlags,
@@ -21,12 +22,14 @@ from pyxpg import (
     Format,
     Image,
     ImageAspectFlags,
+    ImageBarrier,
     ImageLayout,
     ImageUsageFlags,
     ImageView,
     ImageViewType,
     LoadOp,
     MemoryUsage,
+    PipelineStageFlags,
     PushConstantsRange,
     Shader,
     StoreOp,
@@ -194,8 +197,8 @@ class DirectionalLight(Light):
             for set, buf in zip(self.descriptor_sets, self.uniform_buffers):
                 set.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
-            # TODO: this and other matrices should be using config to know what is the deafult data handedness
-            # we should also have default front/back face winding andr require dynamic state for culling mode.
+        # TODO: this and other matrices should be using config to know what is the deafult data handedness
+        # we should also have default front/back face winding andr require dynamic state for culling mode.
         self.projection = orthoRH_ZO(
             -self.shadow_settings.half_extent,
             self.shadow_settings.half_extent,
@@ -218,32 +221,53 @@ class DirectionalLight(Light):
         self.light_info["bias"] = self.shadow_settings.bias
         renderer.upload_light(frame, LightTypes.DIRECTIONAL, view_bytes(self.light_info), self.light_buffer_offset)
 
+        if not self.shadow_settings.casts_shadow:
+            return
+
+        assert self.shadow_map is not None
+        view = inverse(self.current_transform_matrix)
+        self.constants["camera_matrix"] = self.projection * view
+        buf = self.uniform_buffers.get_current_and_advance()
+        buf.upload(
+            frame.cmd,
+            MemoryUsage.NONE,  # Synchronized by automatic after-upload barrier after
+            self.constants.view(np.uint8),
+        )
+        frame.upload_property_pipeline_stages |= PipelineStageFlags.VERTEX_SHADER
+
+        frame.upload_after_image_barriers.append(
+            ImageBarrier(
+                self.shadow_map,
+                ImageLayout.UNDEFINED,
+                ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                PipelineStageFlags.FRAGMENT_SHADER,
+                AccessFlags.SHADER_SAMPLED_READ,
+                PipelineStageFlags.EARLY_FRAGMENT_TESTS,
+                AccessFlags.DEPTH_STENCIL_ATTACHMENT_READ | AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE,
+                aspect_mask=ImageAspectFlags.DEPTH,
+            )
+        )
+
+        frame.before_render_image_barriers.append(
+            ImageBarrier(
+                self.shadow_map,
+                ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                PipelineStageFlags.LATE_FRAGMENT_TESTS,
+                AccessFlags.DEPTH_STENCIL_ATTACHMENT_READ | AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE,
+                PipelineStageFlags.FRAGMENT_SHADER,
+                AccessFlags.SHADER_SAMPLED_READ,
+                aspect_mask=ImageAspectFlags.DEPTH,
+            )
+        )
+
     def render_shadowmaps(self, renderer: "Renderer", frame: RendererFrame, objects: List[Object]) -> None:
         if not self.shadow_settings.casts_shadow:
             return
 
         assert self.shadow_map is not None
 
-        view = inverse(self.current_transform_matrix)
-        self.constants["camera_matrix"] = self.projection * view
-
         descriptor_set = self.descriptor_sets.get_current_and_advance()
-        buf = self.uniform_buffers.get_current_and_advance()
-
-        buf.upload(
-            frame.cmd,
-            MemoryUsage.SHADER_UNIFORM,
-            self.constants.view(np.uint8),
-        )
-
-        frame.cmd.image_barrier(
-            self.shadow_map,
-            ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            MemoryUsage.SHADER_READ_ONLY,
-            MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
-            aspect_mask=ImageAspectFlags.DEPTH,
-            undefined=True,
-        )
 
         frame.cmd.set_viewport(self.shadow_map_viewport)
         frame.cmd.set_scissors(self.shadow_map_viewport)
@@ -252,14 +276,6 @@ class DirectionalLight(Light):
         ):
             for o in objects:
                 o.render_depth(renderer, frame, descriptor_set)
-
-        frame.cmd.image_barrier(
-            self.shadow_map,
-            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-            MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
-            MemoryUsage.SHADER_READ_ONLY,
-            aspect_mask=ImageAspectFlags.DEPTH,
-        )
 
 
 class UniformEnvironmentLight(Light):

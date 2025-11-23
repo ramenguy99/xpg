@@ -33,8 +33,6 @@ def draw():
             #         AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
             #         PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
             #         AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
-            #         PipelineStageFlags.NONE,
-            #         AccessFlags.NONE,
             #     )
             # )
 

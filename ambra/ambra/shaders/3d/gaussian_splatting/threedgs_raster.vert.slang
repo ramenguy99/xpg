@@ -160,7 +160,6 @@ VertexOutput main(VertexInput input)
 
   const float2 ndcOffset = float2(fragPos.x * basisVector1 + fragPos.y * basisVector2) * g_constants.inverse_viewport_size * 2.0;
 
-  // TODO: can we multiply ndcOffset by clipCenter.w instead of dividing by ndcCenter.w here?
   const float4 quadPos = float4(ndcCenter.xy + ndcOffset, ndcCenter.z, 1.0);
 
   // Emit the vertex position

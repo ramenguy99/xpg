@@ -103,6 +103,9 @@ class Object:
     def upload(self, renderer: "Renderer", frame: RendererFrame) -> None:
         pass
 
+    def pre_render(self, renderer: "Renderer", frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        pass
+
     def render(self, renderer: "Renderer", frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         pass
 

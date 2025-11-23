@@ -793,11 +793,16 @@ class GaussianSplats(Object3D):
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
         self.constants["inverse_transform"] = mat4x3(inverse(self.current_transform_matrix))
 
-    # TODO: this is a misuse of ths method, because this relies on properties
-    # being already uploaded. On the CPU properties are uploaded before objects,
-    # but on the GPU, if resources have just been uploaded, the barrier that
-    # synchronizes them has not yet been dispatched.
     def upload(self, r: Renderer, frame: RendererFrame) -> None:
+        # Distances
+        if self.cull_at_dist:
+            if self.use_mesh_shader:
+                frame.cmd.update_buffer(self.draw_mesh_tasks_buf, self.draw_mesh_tasks_init)
+            else:
+                frame.cmd.fill_buffer(self.draw_parameters_buf, 0, 4, 4)
+            frame.upload_property_pipeline_stages |= PipelineStageFlags.COMPUTE_SHADER
+
+    def pre_render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         num_splats = self.positions.get_current().shape[0]
         self.constants["splat_count"] = num_splats
         self.constants["alpha_cull_threshold"] = self.alpha_cull_threshold
@@ -814,19 +819,6 @@ class GaussianSplats(Object3D):
             self.descriptor_set, DescriptorType.STORAGE_BUFFER, 6
         )
 
-        # TODO: Sync: remove these barriers and just do the upload here, relying on the
-        # renderer synchronization between upload and pre-render.
-
-        # Distances
-        if self.cull_at_dist:
-            frame.cmd.memory_barrier(MemoryUsage.ALL, MemoryUsage.ALL)
-            if self.use_mesh_shader:
-                frame.cmd.update_buffer(self.draw_mesh_tasks_buf, self.draw_mesh_tasks_init)
-            else:
-                frame.cmd.fill_buffer(self.draw_parameters_buf, 0, 4, 4)
-            frame.cmd.memory_barrier(MemoryUsage.TRANSFER_DST, MemoryUsage.COMPUTE_SHADER)
-
-        # TODO: add and move this to a before-render step
         frame.cmd.bind_compute_pipeline(
             self.dist_pipeline,
             descriptor_sets=[frame.scene_descriptor_set, self.descriptor_set],
@@ -866,7 +858,10 @@ class GaussianSplats(Object3D):
                 self.sorted_indices_alt_buf,
             )
 
-        frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.ALL)
+        frame.before_render_src_pipeline_stages |= PipelineStageFlags.COMPUTE_SHADER
+        frame.before_render_dst_pipeline_stages |= (
+            PipelineStageFlags.MESH_SHADER if self.use_mesh_shader else PipelineStageFlags.VERTEX_SHADER
+        )
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         frame.cmd.bind_graphics_pipeline(

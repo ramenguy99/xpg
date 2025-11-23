@@ -27,6 +27,7 @@ from pyxpg import (
     Gui,
     Image,
     ImageAspectFlags,
+    ImageBarrier,
     ImageLayout,
     ImageUsageFlags,
     ImageView,
@@ -462,9 +463,8 @@ class Renderer:
         return light_idx * LIGHT_TYPES_INFO[light_type.value].size, shadowmap_idx
 
     def upload_light(self, frame: RendererFrame, light_type: "LightTypes", data: memoryview, offset: int) -> None:
-        self.light_buffers.get_current()[light_type.value].upload(
-            frame.cmd, MemoryUsage.SHADER_READ_ONLY, data, offset
-        )
+        self.light_buffers.get_current()[light_type.value].upload(frame.cmd, MemoryUsage.NONE, data, offset)
+        frame.upload_property_pipeline_stages |= PipelineStageFlags.VERTEX_SHADER
 
     def compile_shader(
         self,
@@ -494,7 +494,7 @@ class Renderer:
         return self.compile_shader(SHADERS_PATH.joinpath(SHADERS_PATH, path), entry, target, defines, include_paths)
 
     def render(self, viewport: Viewport, frame: FrameInputs, gui: Gui) -> None:
-        # Destroy resources enqueued for destruction for this or an earlier frame
+        # Stage: destroy resources enqueued for destruction for this or an earlier frame
         if self.destruction_queue:
             for index, resources in list(self.destruction_queue.items()):
                 if index <= self.total_frame_index:
@@ -502,7 +502,7 @@ class Renderer:
                         resource.destroy()
                 del self.destruction_queue[index]
 
-        # Create new objects
+        # Stage: reate new objects
         enabled_objects: List[Object] = []
         enabled_lights: List[Light] = []
         enabled_gpu_properties: Set[GpuProperty[Any]] = set()
@@ -525,7 +525,7 @@ class Renderer:
 
         viewport.scene.visit_objects(visit)
 
-        # Flush synchronous upload buffers after creating new objects
+        # Stage: synchronous upload buffers after creating new objects
         if len(self.bulk_upload_list) > 0:
             mip_generation_requests: List[ImageUploadInfo] = []
             self.bulk_uploader.bulk_upload(self.bulk_upload_list, mip_generation_requests)
@@ -589,26 +589,39 @@ class Renderer:
         self.constants["focal"] = (proj[0][0] * 0.5 * viewport.rect.width, proj[1][1] * 0.5 * viewport.rect.height)
 
         f = RendererFrame(
+            # Frame counters
             self.total_frame_index % self.num_frames_in_flight,
             self.total_frame_index,
+            # Scene descriptor set
             descriptor_set,
+            # Graphics command list
             cmd,
+            # Upload stages and barriers
             PipelineStageFlags(0),
             [],
             [],
             [],
             [],
+            # Before render
+            PipelineStageFlags(0),
+            PipelineStageFlags(0),
+            [],
+            # Mip Generation requests
             {},
+            # Frame additional semaphores
             frame.additional_semaphores,
+            # Transfer queue commands
             frame.transfer_command_buffer,
+            # Transfer queue semaphores
             frame.transfer_semaphores,
+            # Transfer queue barriers
             [],
             [],
             [],
             [],
         )
 
-        # Load properties in CPU memory and prepare upload_before barriers
+        # Stage: Load properties in CPU memory and prepare upload_before barriers
         for p in enabled_gpu_properties:
             p.load(f)
 
@@ -616,10 +629,10 @@ class Renderer:
         cmd.barriers(
             memory_barriers=[
                 MemoryBarrier(
-                    src_stage=PipelineStageFlags.ALL_COMMANDS,  # Would need to store the last stage as well
-                    src_access=AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
-                    dst_stage=PipelineStageFlags.TRANSFER,
-                    dst_access=AccessFlags.TRANSFER_READ | AccessFlags.TRANSFER_WRITE,
+                    PipelineStageFlags.ALL_COMMANDS,  # Would need to store the last stage as well
+                    AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                    PipelineStageFlags.TRANSFER,
+                    AccessFlags.TRANSFER_READ | AccessFlags.TRANSFER_WRITE,
                 ),
             ],
             buffer_barriers=f.upload_before_buffer_barriers,
@@ -632,17 +645,17 @@ class Renderer:
             frame.transfer_command_buffer.barriers(
                 memory_barriers=[
                     MemoryBarrier(
-                        src_stage=PipelineStageFlags.ALL_COMMANDS,
-                        src_access=AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
-                        dst_stage=PipelineStageFlags.TRANSFER,
-                        dst_access=AccessFlags.TRANSFER_READ | AccessFlags.TRANSFER_WRITE,
+                        PipelineStageFlags.ALL_COMMANDS,
+                        AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                        PipelineStageFlags.TRANSFER,
+                        AccessFlags.TRANSFER_READ | AccessFlags.TRANSFER_WRITE,
                     )
                 ],
                 buffer_barriers=f.transfer_upload_before_buffer_barriers,
                 image_barriers=f.transfer_upload_before_image_barriers,
             )
 
-        # Upload all properties, objects and materials and colect upload_after barriers
+        # Stage: upload all properties, objects and materials and colect upload_after barriers
         for p in enabled_gpu_properties:
             p.upload(f)
 
@@ -667,7 +680,7 @@ class Renderer:
                 image_barriers=f.transfer_upload_after_image_barriers,
             )
 
-        # Mip generation
+        # Stage: in flight mip generation
         if f.mip_generation_requests:
             # Sync: after-upload image barriers before mip generation
             cmd.barriers(image_barriers=f.upload_after_image_barriers)
@@ -686,10 +699,10 @@ class Renderer:
             cmd.barriers(
                 memory_barriers=[
                     MemoryBarrier(
-                        src_stage=PipelineStageFlags.TRANSFER,
-                        src_access=AccessFlags.TRANSFER_READ | AccessFlags.TRANSFER_WRITE,
-                        dst_stage=f.upload_property_pipeline_stages,
-                        dst_access=AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                        PipelineStageFlags.TRANSFER,
+                        AccessFlags.TRANSFER_READ | AccessFlags.TRANSFER_WRITE,
+                        f.upload_property_pipeline_stages,
+                        AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
                     ),
                 ],
                 buffer_barriers=f.upload_after_buffer_barriers,
@@ -700,47 +713,76 @@ class Renderer:
             cmd.barriers(
                 memory_barriers=[
                     MemoryBarrier(
-                        src_stage=PipelineStageFlags.TRANSFER,
-                        src_access=AccessFlags.TRANSFER_READ | AccessFlags.TRANSFER_WRITE,
-                        dst_stage=f.upload_property_pipeline_stages,
-                        dst_access=AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                        PipelineStageFlags.TRANSFER,
+                        AccessFlags.TRANSFER_READ | AccessFlags.TRANSFER_WRITE,
+                        f.upload_property_pipeline_stages,
+                        AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
                     ),
                 ],
                 buffer_barriers=f.upload_after_buffer_barriers,
                 image_barriers=f.upload_after_image_barriers,
             )
 
-        # Render shadows
-        # TODO: also split this into upload / barriers / render steps and combine
+        # Stage: Render shadows
         for l in enabled_lights:
             l.render_shadowmaps(self, f, enabled_objects)
 
         # Render scene
-        # TODO: shift above
-        cmd.image_barrier(
-            frame.image,
-            ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
-            MemoryUsage.ALL,
-            MemoryUsage.COLOR_ATTACHMENT,
-            undefined=True,
+        f.before_render_image_barriers.extend(
+            [
+                ImageBarrier(
+                    frame.image,
+                    ImageLayout.UNDEFINED,
+                    ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                    PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                    AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                    PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                    AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                ),
+                ImageBarrier(
+                    self.depth_buffer,
+                    ImageLayout.UNDEFINED,
+                    ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    PipelineStageFlags.LATE_FRAGMENT_TESTS,
+                    AccessFlags.DEPTH_STENCIL_ATTACHMENT_READ | AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE,
+                    PipelineStageFlags.EARLY_FRAGMENT_TESTS,
+                    AccessFlags.DEPTH_STENCIL_ATTACHMENT_READ | AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE,
+                    aspect_mask=ImageAspectFlags.DEPTH,
+                ),
+            ]
         )
-        cmd.image_barrier(
-            self.depth_buffer,
-            ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
-            MemoryUsage.DEPTH_STENCIL_ATTACHMENT,
-            aspect_mask=ImageAspectFlags.DEPTH,
-            undefined=True,
-        )
+
         if self.msaa_target is not None:
-            cmd.image_barrier(
-                self.msaa_target,
-                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
-                MemoryUsage.COLOR_ATTACHMENT,
-                MemoryUsage.COLOR_ATTACHMENT,
-                undefined=True,
+            f.before_render_image_barriers.append(
+                ImageBarrier(
+                    self.msaa_target,
+                    ImageLayout.UNDEFINED,
+                    ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                    PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                    AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                    PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                    AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                )
             )
 
+        # Stage: pre-render
+        for o in enabled_objects:
+            o.pre_render(self, f, descriptor_set)
+
+        # Sync: before-render barriers
+        cmd.barriers(
+            memory_barriers=[
+                MemoryBarrier(
+                    f.before_render_src_pipeline_stages,
+                    AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                    f.before_render_dst_pipeline_stages,
+                    AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                ),
+            ],
+            image_barriers=f.before_render_image_barriers,
+        )
+
+        # Stage: render
         cmd.set_viewport(viewport_rect)
         cmd.set_scissors(rect)
         with cmd.rendering(
@@ -764,7 +806,7 @@ class Renderer:
             for o in enabled_objects:
                 o.render(self, f, descriptor_set)
 
-        # Render GUI
+        # Stage: Render GUI
         with cmd.rendering(
             rect,
             color_attachments=[
@@ -778,12 +820,17 @@ class Renderer:
         ):
             gui.render(cmd)
 
-        # Sync: post-render barriers
-        cmd.image_barrier(
-            frame.image,
-            ImageLayout.PRESENT_SRC,
-            MemoryUsage.COLOR_ATTACHMENT,
-            MemoryUsage.PRESENT,
+        # Sync: after render barriers
+        cmd.image_barrier_full(
+            ImageBarrier(
+                frame.image,
+                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                ImageLayout.PRESENT_SRC,
+                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                AccessFlags.NONE,
+            )
         )
 
         self.uniform_pool.advance()

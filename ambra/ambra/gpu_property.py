@@ -1436,7 +1436,6 @@ class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
         name: str,
     ):
         self.usage_flags = property.gpu_usage | ImageUsageFlags.TRANSFER_DST
-        self.memory_usage = MemoryUsage.ALL  # TODO: new sync API
 
         self.width = property.width
         self.height = property.height
@@ -1448,9 +1447,7 @@ class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
         self.spd_pipeline_instance = None
         if self.mips:
             mip_levels = max(self.width.bit_length(), self.height.bit_length())
-            self.spd_pipeline_instance = (
-                renderer.spd_pipeline.alloc_instance(renderer, False) if self.mips else None
-            )
+            self.spd_pipeline_instance = renderer.spd_pipeline.alloc_instance(renderer, False) if self.mips else None
             self.spd_pipeline_instance.set_image_extents(self.width, self.height, mip_levels)
 
         self.pitch, self.rows, _ = get_image_pitch_rows_and_texel_size(self.width, self.height, self.format)

@@ -206,7 +206,7 @@ class Image(Object2D):
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         descriptor_set = self.descriptor_sets.get_current_and_advance()
         descriptor_set.write_image(
-            self.image.get_current_gpu().image,  # TODO: use correct view
+            self.image.get_current_gpu().view(),
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
             DescriptorType.SAMPLED_IMAGE,
             1,
