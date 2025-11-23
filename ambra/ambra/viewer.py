@@ -161,6 +161,7 @@ class Viewer:
         self.gui_show_renderer = config.gui.renderer
         self.gui_selected_obj: Optional[Object] = None
         self.gui_selected_gpu_property: Optional[GpuProperty[Any]] = None
+        self.gui_playback_slider_held = False
 
         # Disable ImGui asserts
         imgui.get_io().config_error_recovery_enable_assert = False
@@ -406,7 +407,7 @@ class Viewer:
             self.playback.set_max_time(self.viewport.scene.max_animation_time(self.playback.frames_per_second))
 
         # Step dt
-        if self.playback.playing:
+        if self.playback.playing and not self.gui_playback_slider_held:
             self.playback.step(dt)
 
         # Update scene
@@ -473,6 +474,7 @@ class Viewer:
         imgui.end()
 
     def gui_playback(self) -> None:
+        self.gui_playback_slider_held = False
         if imgui.begin("Playback")[0]:
             _, self.playback.playing = imgui.checkbox("Playing", self.playback.playing)
             imgui.text(f"Time (s): {self.playback.current_time:7.3f} / {self.playback.max_time: 7.3f}")
@@ -482,7 +484,8 @@ class Viewer:
                 0,
                 self.playback.num_frames - 1,
             )
-            if u:
+            if imgui.is_item_active():
+                self.gui_playback_slider_held = True
                 self.playback.set_frame(frame)
         imgui.end()
 
