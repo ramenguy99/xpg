@@ -502,7 +502,7 @@ class Renderer:
                         resource.destroy()
                 del self.destruction_queue[index]
 
-        # Stage: reate new objects
+        # Stage: create new objects
         enabled_objects: List[Object] = []
         enabled_lights: List[Light] = []
         enabled_gpu_properties: Set[GpuProperty[Any]] = set()
@@ -525,7 +525,7 @@ class Renderer:
 
         viewport.scene.visit_objects(visit)
 
-        # Stage: synchronous upload buffers after creating new objects
+        # Stage: synchronous buffer upload after creating new objects
         if len(self.bulk_upload_list) > 0:
             mip_generation_requests: List[ImageUploadInfo] = []
             self.bulk_uploader.bulk_upload(self.bulk_upload_list, mip_generation_requests)
@@ -727,7 +727,11 @@ class Renderer:
         for l in enabled_lights:
             l.render_shadowmaps(self, f, enabled_objects)
 
-        # Render scene
+        # Stage: pre-render
+        for o in enabled_objects:
+            o.pre_render(self, f, descriptor_set)
+
+        # Sync: before-render barriers
         f.before_render_image_barriers.extend(
             [
                 ImageBarrier(
@@ -765,11 +769,6 @@ class Renderer:
                 )
             )
 
-        # Stage: pre-render
-        for o in enabled_objects:
-            o.pre_render(self, f, descriptor_set)
-
-        # Sync: before-render barriers
         cmd.barriers(
             memory_barriers=[
                 MemoryBarrier(
