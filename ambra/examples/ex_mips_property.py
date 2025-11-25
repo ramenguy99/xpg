@@ -79,5 +79,5 @@ v = Viewer(
         gui=GuiConfig(stats=True, playback=True, renderer=True),
     )
 )
-v.viewport.scene.objects.extend([mesh, l])
+v.scene.objects.extend([mesh, l])
 v.run()

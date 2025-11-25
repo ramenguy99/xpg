@@ -271,5 +271,5 @@ v = CustomViewer(
     )
 )
 
-v.viewport.scene.objects.append(m)
+v.scene.objects.append(m)
 v.run()

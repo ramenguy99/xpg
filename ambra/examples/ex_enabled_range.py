@@ -53,6 +53,6 @@ timestamp_range = Mesh(
     v, f, translation=(-1.5, 0, 0), material=ColorMaterial((0, 0, 0.8)), enabled=enabled_timestamp_range
 )
 
-viewer.viewport.scene.objects.extend([always, frame_range, timestamp_range])
+viewer.scene.objects.extend([always, frame_range, timestamp_range])
 
 viewer.run()

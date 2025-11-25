@@ -55,5 +55,5 @@ img = Image(
     scale=(1, H / W),
 )
 
-viewer.viewport.scene.objects.extend([img])
+viewer.scene.objects.extend([img])
 viewer.run()

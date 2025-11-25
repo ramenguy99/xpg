@@ -3,7 +3,7 @@
 
 import math
 from dataclasses import dataclass
-from typing import Union
+from typing import Optional, Union
 
 from pyglm.glm import (
     acos,
@@ -25,10 +25,11 @@ from pyglm.glm import (
     vec3,
     vec4,
 )
+from pyxpg import Image, imgui
+
 
 from .camera import CameraDepth, OrthographicCamera, PerspectiveCamera
 from .config import CameraConfig, CameraControlMode, CameraProjection, Handedness, PlaybackConfig
-from .scene import Scene
 from .transform3d import RigidTransform3D
 
 
@@ -78,11 +79,13 @@ class Viewport:
     def __init__(
         self,
         rect: Rect,
-        scene: Scene,
         playback: Playback,
         camera_config: CameraConfig,
         world_up: vec3,
         handedness: Handedness,
+        image: Optional[Image],
+        imgui_texture: Optional[imgui.Texture],
+        name: str,
     ):
         camera_from_world = RigidTransform3D.look_at(
             vec3(camera_config.position),
@@ -96,14 +99,12 @@ class Viewport:
             camera = PerspectiveCamera(
                 camera_from_world,
                 CameraDepth(camera_config.z_near, camera_config.z_far),
-                rect.width / rect.height,
                 camera_config.perspective_vertical_fov,
             )
         elif camera_config.projection == CameraProjection.ORTHOGRAPHIC:
             camera = OrthographicCamera(
                 camera_from_world,
                 CameraDepth(camera_config.z_near, camera_config.z_far),
-                rect.width / rect.height,
                 vec2(camera_config.ortho_center),
                 vec2(camera_config.ortho_half_extents),
             )
@@ -112,8 +113,10 @@ class Viewport:
 
         self.rect = rect
         self.camera = camera
-        self.scene = scene
         self.playback = playback
+        self.image = image
+        self.imgui_texture = imgui_texture
+        self.name = name
 
         # Config
         self.handedness = handedness
@@ -143,7 +146,6 @@ class Viewport:
     def resize(self, width: int, height: int) -> None:
         self.rect.width = width
         self.rect.height = height
-        self.camera.ar = width / height
 
     def start_drag(self, position: ivec2) -> None:
         self.drag_start_mouse_position = position

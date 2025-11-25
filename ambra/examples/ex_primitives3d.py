@@ -65,6 +65,6 @@ translation = ArrayBufferProperty(
     FrameAnimation(AnimationBoundary.MIRROR),
 )
 line2 = Lines(positions, colors, line_width, scale=None, translation=translation)
-viewer.viewport.scene.objects.extend([line, line2])
+viewer.scene.objects.extend([line, line2])
 
 viewer.run()

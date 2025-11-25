@@ -41,7 +41,7 @@ colors = np.array(
 )
 
 line = Lines(positions, colors, 1.0, translation=np.linspace((0, 0, 0), (1, 0, 0), 50))
-viewer.viewport.scene.objects.extend([line])
+viewer.scene.objects.extend([line])
 
 
 container = av.open("test.mp4", mode="w")

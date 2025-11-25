@@ -26,6 +26,7 @@ int main(int argc, char** argv) {
         .minimum_api_version = (u32)VK_API_VERSION_1_1,
         .required_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
         .enable_validation_layer = true,
+        .enable_synchronization_validation = true,
         //        .enable_gpu_based_validation = true,
     });
 
@@ -157,6 +158,8 @@ int main(int argc, char** argv) {
                 // gui::DrawStats(dt, window.fb_width, window.fb_height);
 
                 ImGui::DockSpaceOverViewport(0, 0, ImGuiDockNodeFlags_PassthruCentralNode);
+                ImVec2 pos = ImGui::GetCursorScreenPos() * ImGui::GetIO().DisplayFramebufferScale;
+                ImVec2 size = ImGui::GetContentRegionAvail() * ImGui::GetIO().DisplayFramebufferScale;
 
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
@@ -169,14 +172,14 @@ int main(int argc, char** argv) {
                     ImGui::SetNextWindowClass(&window_class);
 
                     if (ImGui::Begin(window_name)) {
-                        ImVec2 pos = ImGui::GetCursorScreenPos();
-                        ImVec2 size = ImGui::GetContentRegionAvail();
+                        ImVec2 pos = ImGui::GetCursorScreenPos() * ImGui::GetIO().DisplayFramebufferScale;
+                        ImVec2 size = ImGui::GetContentRegionAvail() * ImGui::GetIO().DisplayFramebufferScale;
 
                         viewports[i].pos = uvec2(pos.x, pos.y);
                         viewports[i].size = uvec2(size.x, size.y);
 
                         ImGuiWindow* w = ImGui::GetCurrentWindow();
-                        printf("window %zu: %d\n", i, w->DockIsActive);
+                        // printf("window %zu: %d\n", i, w->DockIsActive);
 
                         ImDrawList* list = ImGui::GetWindowDrawList();
                         bool channel = false;
@@ -193,6 +196,7 @@ int main(int argc, char** argv) {
                     ImGui::End();
                 }
                 ImGui::PopStyleVar();
+                ImGui::ShowDemoWindow();
                 gui::EndFrame();
             }
 
@@ -200,8 +204,8 @@ int main(int argc, char** argv) {
             gfx::BeginCommands(frame.command_pool, frame.command_buffer, vk);
 
             gfx::CmdImageBarrier(frame.command_buffer, {
-                .src_stage = VK_PIPELINE_STAGE_2_NONE,
-                .src_access = 0,
+                .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .src_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
                 .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                 .dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
                 .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -231,7 +235,7 @@ int main(int argc, char** argv) {
             gfx::CmdImageBarrier(frame.command_buffer, {
                 .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                 .src_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                .dst_stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+                .dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                 .dst_access = 0,
                 .old_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                 .new_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,

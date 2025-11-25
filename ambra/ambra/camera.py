@@ -28,13 +28,12 @@ class CameraDepth:
 class Camera:
     camera_from_world: RigidTransform3D
     depth: CameraDepth
-    ar: float
     """Horizontal over vertical aspect ratio"""
 
     def view(self) -> mat4:
         return self.camera_from_world.as_mat4()
 
-    def projection(self) -> mat4:
+    def projection(self, ar: float) -> mat4:
         return mat4(1.0)
 
     def position(self) -> vec3:
@@ -72,19 +71,17 @@ class OrthographicCamera(Camera):
         z_far: float,
         center: vec2,
         half_extents: vec2,
-        ar: float,
         handedness: Handedness,
     ) -> "OrthographicCamera":
         return cls(
             camera_from_world=RigidTransform3D.look_at(position, target, up, handedness),
             depth=CameraDepth(z_near, z_far),
-            ar=ar,
             center=center,
             half_extents=half_extents,
         )
 
-    def projection(self) -> mat4:
-        half_extents = self.half_extents * vec2(self.ar, 1)
+    def projection(self, ar: float) -> mat4:
+        half_extents = self.half_extents * vec2(ar, 1)
         top_left = self.center - half_extents
         bottom_right = self.center + half_extents
         return orthoRH_ZO(
@@ -111,15 +108,13 @@ class PerspectiveCamera(Camera):
         z_near: float,
         z_far: float,
         fov: float,
-        ar: float,
         handedness: Handedness,
     ) -> "PerspectiveCamera":
         return cls(
             camera_from_world=RigidTransform3D.look_at(position, target, up, handedness),
             depth=CameraDepth(z_near, z_far),
-            ar=ar,
             fov=fov,
         )
 
-    def projection(self) -> mat4:
-        return perspectiveRH_ZO(self.fov, self.ar, self.depth.z_near, self.depth.z_far)
+    def projection(self, ar: float) -> mat4:
+        return perspectiveRH_ZO(self.fov, ar, self.depth.z_near, self.depth.z_far)

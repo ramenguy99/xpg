@@ -96,9 +96,9 @@ v = Viewer(
     )
 )
 
-v.viewport.scene.objects.extend(lights)
-v.viewport.scene.objects.extend(meshes)
-v.viewport.scene.objects.extend(spheres)
-v.viewport.scene.objects.append(g)
+v.scene.objects.extend(lights)
+v.scene.objects.extend(meshes)
+v.scene.objects.extend(spheres)
+v.scene.objects.append(g)
 
 v.run()

@@ -225,7 +225,7 @@ def main():
         rotation=rotation,
     )
 
-    viewer.viewport.scene.objects.extend([cube, line, light])
+    viewer.scene.objects.extend([cube, line, light])
 
     viewer.run()
 

@@ -61,7 +61,7 @@ from .lights import (
     UniformEnvironmentLight,
 )
 from .renderer_frame import RendererFrame, SemaphoreInfo
-from .scene import Object
+from .scene import Object, Scene
 from .shaders import compile
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import (
@@ -493,7 +493,7 @@ class Renderer:
     ) -> slang.Shader:
         return self.compile_shader(SHADERS_PATH.joinpath(SHADERS_PATH, path), entry, target, defines, include_paths)
 
-    def render(self, viewport: Viewport, frame: FrameInputs, gui: Gui) -> None:
+    def render(self, scene: Scene, viewports: List[Viewport], frame: FrameInputs, gui: Gui) -> None:
         # Stage: destroy resources enqueued for destruction for this or an earlier frame
         if self.destruction_queue:
             for index, resources in list(self.destruction_queue.items()):
@@ -523,7 +523,7 @@ class Renderer:
                     if p.gpu_property is not None:
                         enabled_gpu_properties.add(p.gpu_property)
 
-        viewport.scene.visit_objects(visit)
+        scene.visit_objects(visit)
 
         # Stage: synchronous buffer upload after creating new objects
         if len(self.bulk_upload_list) > 0:
@@ -557,6 +557,9 @@ class Renderer:
                         )
 
         cmd = frame.command_buffer
+
+        # Split between viewports and window viewport
+        viewport = viewports[0]
         viewport_rect = (
             viewport.rect.x,
             viewport.rect.y + viewport.rect.height,
@@ -573,7 +576,7 @@ class Renderer:
         descriptor_set = self.scene_descriptor_sets.get_current_and_advance()
         buf = self.uniform_buffers.get_current_and_advance()
 
-        proj = viewport.camera.projection()
+        proj = viewport.camera.projection(viewport.rect.width / viewport.rect.height if viewport.rect.height > 0 else 0)
         self.constants["projection"] = proj
         self.constants["view"] = viewport.camera.view()
         self.constants["world_camera_position"] = viewport.camera.position()
@@ -585,7 +588,7 @@ class Renderer:
         else:
             self.constants["has_environment_light"] = 0
             self.constants["max_specular_mip"] = 0.0
-        self.constants["inverse_viewport_size"] = (1.0 / viewport.rect.width, 1.0 / viewport.rect.height)
+        self.constants["inverse_viewport_size"] = (1.0 / viewport.rect.width if viewport.rect.width != 0 else 0, 1.0 / viewport.rect.height if viewport.rect.height > 0 else 0)
         self.constants["focal"] = (proj[0][0] * 0.5 * viewport.rect.width, proj[1][1] * 0.5 * viewport.rect.height)
 
         f = RendererFrame(
@@ -782,28 +785,29 @@ class Renderer:
         )
 
         # Stage: render
-        cmd.set_viewport(viewport_rect)
-        cmd.set_scissors(rect)
-        with cmd.rendering(
-            rect,
-            color_attachments=[
-                (
-                    RenderingAttachment(
-                        self.msaa_target,
-                        load_op=LoadOp.CLEAR,
-                        store_op=StoreOp.STORE,
-                        clear=self.background_color,
-                        resolve_mode=ResolveMode.AVERAGE,
-                        resolve_image=frame.image,
+        if viewport.rect.width > 0 and viewport.rect.height > 0:
+            cmd.set_viewport(viewport_rect)
+            cmd.set_scissors(rect)
+            with cmd.rendering(
+                rect,
+                color_attachments=[
+                    (
+                        RenderingAttachment(
+                            self.msaa_target,
+                            load_op=LoadOp.CLEAR,
+                            store_op=StoreOp.STORE,
+                            clear=self.background_color,
+                            resolve_mode=ResolveMode.AVERAGE,
+                            resolve_image=frame.image,
+                        )
+                        if self.msaa_target is not None
+                        else RenderingAttachment(frame.image, LoadOp.CLEAR, StoreOp.STORE, self.background_color)
                     )
-                    if self.msaa_target is not None
-                    else RenderingAttachment(frame.image, LoadOp.CLEAR, StoreOp.STORE, self.background_color)
-                )
-            ],
-            depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
-        ):
-            for o in enabled_objects:
-                o.render(self, f, descriptor_set)
+                ],
+                depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
+            ):
+                for o in enabled_objects:
+                    o.render(self, f, descriptor_set)
 
         # Stage: Render GUI
         with cmd.rendering(

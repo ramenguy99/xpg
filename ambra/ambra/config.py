@@ -74,6 +74,10 @@ class Handedness(Enum):
 
 @dataclass
 class GuiConfig:
+    multiviewport: bool = False
+    initial_number_of_viewports: int = 1
+    max_viewport_count: int = 8
+
     ini_filename: Optional[str] = "imgui.ini"  # if set to None disables.
 
     stats: bool = False

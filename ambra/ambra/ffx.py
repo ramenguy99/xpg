@@ -112,7 +112,7 @@ class MipGenerationRequest:
 
 class SPDPipeline:
     def __init__(self, r: "Renderer"):
-        from .renderer import SHADERS_PATH
+        from .renderer import SHADERS_PATH  # noqa: PLC0415
 
         self.constants_dtype = np.dtype(
             {

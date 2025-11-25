@@ -175,7 +175,7 @@ light = DirectionalLight(
     rotation=rotation,
 )
 
-viewer.viewport.scene.objects.append(mesh)
-viewer.viewport.scene.objects.append(light)
+viewer.scene.objects.append(mesh)
+viewer.scene.objects.append(light)
 
 viewer.run()

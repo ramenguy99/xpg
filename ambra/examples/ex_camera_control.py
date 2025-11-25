@@ -55,6 +55,6 @@ line_width = 4
 
 line = Lines(positions, colors, line_width)
 
-viewer.viewport.scene.objects.extend([line])
+viewer.scene.objects.extend([line])
 
 viewer.run()

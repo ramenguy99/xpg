@@ -6,15 +6,22 @@ from queue import Empty, Queue
 from time import perf_counter_ns
 from typing import Any, Callable, Optional, Tuple
 
+from ambra.utils.descriptors import create_descriptor_layout_pool_and_set, create_descriptor_layout_pool_and_sets
 import numpy as np
 from numpy.typing import NDArray
 from pyglm.glm import dvec2, ivec2, normalize, vec3
 from pyxpg import (
     Action,
+    AllocType,
+    BorderColor,
     Context,
+    DescriptorSetBinding,
+    DescriptorType,
     DeviceFeatures,
     Format,
     Gui,
+    Image,
+    ImageLayout,
     ImageUsageFlags,
     Key,
     LogCapture,
@@ -22,6 +29,9 @@ from pyxpg import (
     MemoryHeapFlags,
     Modifiers,
     MouseButton,
+    Sampler,
+    SamplerAddressMode,
+    Stage,
     SwapchainOutOfDateError,
     SwapchainStatus,
     Window,
@@ -153,6 +163,7 @@ class Viewer:
             # GUI
             self.gui = Gui(self.ctx, num_frames_in_flight, output_format)
 
+        self.multiviewport = config.gui.multiviewport
         self.gui.set_ini_filename(config.gui.ini_filename)
 
         self.gui_show_stats = config.gui.stats
@@ -171,7 +182,12 @@ class Viewer:
 
         # Renderer
         self.renderer = Renderer(
-            self.ctx, render_width, render_height, num_frames_in_flight, output_format, config.renderer
+            self.ctx,
+            render_width,
+            render_height,
+            num_frames_in_flight,
+            output_format,
+            config.renderer,
         )
 
         # Playback
@@ -182,15 +198,64 @@ class Viewer:
         self.frame_time_index = 0
         self.frame_times = np.zeros(config.stats_frame_time_count, np.float32)
 
+        # Scene
+        self.scene = Scene("scene")
+
         # Viewport
-        self.viewport = Viewport(
-            rect=Rect(0, 0, render_width, render_height),
-            scene=Scene("scene"),
-            playback=self.playback,
-            camera_config=config.camera,
-            handedness=config.handedness,
-            world_up=normalize(vec3(config.world_up)),
-        )
+        if self.multiviewport:
+            self.viewport_sampler = Sampler(
+                self.ctx,
+                u=SamplerAddressMode.CLAMP_TO_BORDER,
+                v=SamplerAddressMode.CLAMP_TO_BORDER,
+                border_color=BorderColor.FLOAT_OPAQUE_BLACK,
+            )
+            self.viewport_descriptor_layout, self.viewport_descriptor_pool, self.viewport_descriptor_sets = create_descriptor_layout_pool_and_sets(
+                self.ctx,
+                [
+                    DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT),
+                ],
+                config.gui.max_viewport_count
+            )
+
+            self.viewports = []
+            for i in range(config.gui.initial_number_of_viewports):
+                img = Image(
+                    self.ctx,
+                    render_width,
+                    render_height,
+                    output_format,
+                    ImageUsageFlags.SAMPLED | ImageUsageFlags.COLOR_ATTACHMENT,
+                    AllocType.DEVICE,
+                    samples=self.renderer.msaa_samples,
+                    name=f"viewport-{i}",
+                )
+                s = self.viewport_descriptor_sets[i]
+                s.write_combined_image_sampler(img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, self.viewport_sampler, 0)
+                texture = imgui.Texture(s)
+
+                self.viewports.append(Viewport(
+                    rect=Rect(0, 0, render_width, render_height),
+                    playback=self.playback,
+                    camera_config=config.camera,
+                    handedness=config.handedness,
+                    world_up=normalize(vec3(config.world_up)),
+                    image=img,
+                    imgui_texture=texture,
+                    name=f"viewport-{i}",
+                ))
+        else:
+            self.viewports = [
+                Viewport(
+                    rect=Rect(0, 0, render_width, render_height),
+                    playback=self.playback,
+                    camera_config=config.camera,
+                    handedness=config.handedness,
+                    world_up=normalize(vec3(config.world_up)),
+                    image=None,
+                    imgui_texture=None,
+                    name=f"viewport",
+                )
+            ]
 
         # Server
         self.server = Server(self.on_raw_message_async, config.server)
@@ -214,6 +279,10 @@ class Viewer:
             if self.key_map.previous_frame.is_active(key, modifiers):
                 self.playback.set_frame(self.playback.current_frame - 1)
 
+    def get_active_viewport(self) -> Viewport:
+        # TODO: maybe need to split from active vs under mouse, also maybe can use some imgui magic to detect the active viewport.
+        return self.viewports[0]
+
     def on_mouse_button(
         self,
         position: ivec2,
@@ -224,19 +293,20 @@ class Viewer:
         if imgui.get_io().want_capture_mouse:
             return
 
+        viewport = self.get_active_viewport()
         if action == Action.PRESS:
             if self.key_map.camera_rotate.is_active(button, modifiers):
-                self.viewport.on_rotate_press(position)
+                viewport.on_rotate_press(position)
             if self.key_map.camera_pan.is_active(button, modifiers):
-                self.viewport.on_pan_press(position)
+                viewport.on_pan_press(position)
         if action == Action.RELEASE:
             if self.key_map.camera_rotate.button == button:
-                self.viewport.on_rotate_release()
+                viewport.on_rotate_release()
             if self.key_map.camera_pan.button == button:
-                self.viewport.on_pan_release()
+                viewport.on_pan_release()
 
     def on_mouse_move(self, position: ivec2) -> None:
-        self.viewport.on_move(position)
+        self.get_active_viewport().on_move(position)
 
     def on_scroll(self, position: ivec2, scroll: dvec2) -> None:
         if imgui.get_io().want_capture_mouse:
@@ -246,10 +316,11 @@ class Viewer:
         assert self.window is not None
         modifiers = self.window.get_modifiers_state()
 
+        viewport = self.get_active_viewport()
         if modifiers == self.key_map.camera_zoom_modifiers:
-            self.viewport.zoom(scroll, False)
+            viewport.zoom(scroll, False)
         if modifiers == self.key_map.camera_zoom_move_modifiers:
-            self.viewport.zoom(scroll, True)
+            viewport.zoom(scroll, True)
 
     def on_resize(self, width: int, height: int) -> None:
         pass
@@ -283,7 +354,7 @@ class Viewer:
             frame_inputs.transfer_command_buffer.begin()
 
         # Render
-        self.renderer.render(self.viewport, frame_inputs, self.gui)
+        self.renderer.render(self.scene, self.viewports, frame_inputs, self.gui)
 
         if not render_to_window:
             self.headless_swapchain.get_current().issue_readback()
@@ -325,15 +396,28 @@ class Viewer:
         # Prefetch next frames
         self.renderer.prefetch()
 
+    def _get_framebuffer_size(self) -> Tuple[int, int]:
+        if self.window is not None:
+            width = self.window.fb_width
+            height = self.window.fb_height
+        else:
+            # In headless mode there is always a single viewport
+            width = self.viewports[0].rect.width
+            height = self.viewports[0].rect.height
+        return width, height
+
     def render_image(self) -> NDArray[np.uint8]:
         # Update scene
-        self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
+        self.scene.update(self.playback.current_time, self.playback.current_frame)
+
+        # Get framebuffer size
+        width, height = self._get_framebuffer_size()
 
         # Resize if needed
-        self.headless_swapchain.ensure_size(self.viewport.rect.width, self.viewport.rect.height)
+        self.headless_swapchain.ensure_size(width, height)
 
         io = imgui.get_io()
-        io.display_size = imgui.Vec2(self.viewport.rect.width, self.viewport.rect.height)
+        io.display_size = imgui.Vec2(width, height)
         io.delta_time = 1.0 / 60.0
 
         # Render to headless swapchain
@@ -348,16 +432,19 @@ class Viewer:
     def render_video(self, on_frame: Callable[[NDArray[np.uint8]], bool]) -> None:
         # Set max time if not set
         if self.playback.max_time is None:
-            self.playback.set_max_time(self.viewport.scene.max_animation_time(self.playback.frames_per_second))
+            self.playback.set_max_time(self.scene.max_animation_time(self.playback.frames_per_second))
 
         begin_frame_index = 0
         end_frame_index = begin_frame_index + self.playback.num_frames
 
+        # Get framebuffer size
+        width, height = self._get_framebuffer_size()
+
         # Resize if needed
-        self.headless_swapchain.ensure_size(self.viewport.rect.width, self.viewport.rect.height)
+        self.headless_swapchain.ensure_size(width, height)
 
         io = imgui.get_io()
-        io.display_size = imgui.Vec2(self.viewport.rect.width, self.viewport.rect.height)
+        io.display_size = imgui.Vec2(width, height)
         io.delta_time = 1.0 / 60.0
 
         # Readback queue for pipelining rendering and readback.
@@ -375,7 +462,7 @@ class Viewer:
             self.playback.set_frame(frame_index)
 
             # Update scene
-            self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
+            self.scene.update(self.playback.current_time, self.playback.current_frame)
 
             # Render to headless swapchain
             self._render(False)
@@ -404,14 +491,14 @@ class Viewer:
 
         # Set max time if not set
         if self.playback.max_time is None:
-            self.playback.set_max_time(self.viewport.scene.max_animation_time(self.playback.frames_per_second))
+            self.playback.set_max_time(self.scene.max_animation_time(self.playback.frames_per_second))
 
         # Step dt
         if self.playback.playing and not self.gui_playback_slider_held:
             self.playback.step(dt)
 
         # Update scene
-        self.viewport.scene.update(self.playback.current_time, self.playback.current_frame)
+        self.scene.update(self.playback.current_time, self.playback.current_frame)
 
         # Resize
         swapchain_status = self.window.update_swapchain()
@@ -421,7 +508,11 @@ class Viewer:
             width, height = self.window.fb_width, self.window.fb_height
 
             self.renderer.resize(width, height)
-            self.viewport.resize(width, height)
+
+            # In the multi-viewport case resizing is handled as part of
+            # the GUI update. Otherwise we resize the single viewport we have here.
+            if not self.multiviewport:
+                self.viewports[0].resize(width, height)
 
             self.on_resize(width, height)
 
@@ -478,7 +569,7 @@ class Viewer:
         if imgui.begin("Playback")[0]:
             _, self.playback.playing = imgui.checkbox("Playing", self.playback.playing)
             imgui.text(f"Time (s): {self.playback.current_time:7.3f} / {self.playback.max_time: 7.3f}")
-            u, frame = imgui.slider_int(
+            _, frame = imgui.slider_int(
                 "Frame",
                 self.playback.current_frame,
                 0,
@@ -517,7 +608,7 @@ class Viewer:
             def post(o: Object) -> None:
                 imgui.tree_pop()
 
-            self.viewport.scene.visit_objects_pre_post(pre, post)
+            self.scene.visit_objects_pre_post(pre, post)
 
             imgui.separator()
 
@@ -714,6 +805,20 @@ class Viewer:
 
     def on_gui(self) -> None:
         imgui.dock_space_over_viewport(flags=imgui.DockNodeFlags.PASSTHRU_CENTRAL_NODE)
+
+        if self.multiviewport:
+            for v in self.viewports:
+                imgui.begin(v.name)
+                cursor_pos = imgui.get_cursor_screen_pos()
+                pos = ivec2(cursor_pos.x, cursor_pos.y)
+                avail = imgui.get_content_region_avail()
+                size = ivec2(avail.x, avail.y)
+                v.rect.x = pos.x
+                v.rect.y = pos.y
+                v.rect.width = size.x
+                v.rect.height = size.y
+                imgui.image(v.imgui_texture, avail, (0, 0), (size.x / self.window.fb_width, size.y / self.window.fb_height))
+                imgui.end()
 
         if self.gui_show_stats:
             self.gui_stats()

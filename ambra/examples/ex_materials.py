@@ -112,7 +112,7 @@ def main():
     lights.append(EnvironmentLight.from_equirectangular(equirectangular))
     # lights.append(UniformEnvironmentLight((0.1, 0.1, 0.1)))
 
-    viewer.viewport.scene.objects.extend(spheres + [o] + lights)
+    viewer.scene.objects.extend(spheres + [o] + lights)
     viewer.run()
 
 

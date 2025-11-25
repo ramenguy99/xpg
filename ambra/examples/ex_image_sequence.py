@@ -68,6 +68,6 @@ image_gen = GeneratedStreamingProperty(
 )
 
 image = Image(image_gen)
-viewer.viewport.scene.objects.append(image)
+viewer.scene.objects.append(image)
 
 viewer.run()

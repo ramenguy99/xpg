@@ -191,6 +191,6 @@ light = DirectionalLight(
     rotation=rotation,
 )
 
-viewer.viewport.scene.objects.extend([m, p, o, light])
+viewer.scene.objects.extend([m, p, o, light])
 
 viewer.run()

@@ -100,6 +100,6 @@ positions = ArrayBufferProperty(positions, np.float32, upload=UploadSettings(pre
 colors = ListBufferProperty(colors, shape=(-1,), upload=UploadSettings(preupload=True, batched=False))
 
 line = Lines(positions, colors, line_width)
-viewer.viewport.scene.objects.extend([line])
+viewer.scene.objects.extend([line])
 
 viewer.run()

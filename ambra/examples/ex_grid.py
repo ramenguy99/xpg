@@ -12,5 +12,5 @@ viewer = Viewer(
 
 grid = Grid.transparent_black_lines((100, 100), GridType.XY_PLANE)
 
-viewer.viewport.scene.objects.extend([grid])
+viewer.scene.objects.extend([grid])
 viewer.run()

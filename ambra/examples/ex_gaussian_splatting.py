@@ -162,7 +162,7 @@ v = CustomViewer(
         camera=CameraConfig(position=(-1, -1, -1)),
     )
 )
-v.viewport.scene.objects.append(gs)
+v.scene.objects.append(gs)
 
 positions = np.array(
     [
@@ -192,6 +192,6 @@ line_width = 1
 
 line = Lines(positions, colors, line_width)
 
-v.viewport.scene.objects.extend([line])
+v.scene.objects.extend([line])
 
 v.run()

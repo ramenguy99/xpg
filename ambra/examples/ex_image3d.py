@@ -40,6 +40,6 @@ for i in range(H):
 image = (np.linspace(start, end, 100) * 255).astype(np.uint8)
 
 img = Image(image, translation=translation, scale=(1, H / W, 1))
-viewer.viewport.scene.objects.extend([img])
+viewer.scene.objects.extend([img])
 
 viewer.run()

@@ -38,6 +38,48 @@ Priority:
 - [ ] Stages presets in config or in helper functions (empty, origin, floor, lights, maybe more?)
 - [ ] Basic client/server example and initial set of APIs
 - [ ] Multi-viewport
+    - [ ] UI:
+        - [x] Reusing surface requires injecting between imgui commands and stopping / resuming render pass
+              -> we can probably afford the extra blits in most cases
+              -> injecting imgui also has issues with viewport
+        - [ ] Clipping the viewport to the window could help with making rendering cheaper.
+              -> check if the API exposes this in some way or if we need to change the projection for this to work
+              -> anyway probably have to adjust projection, but will also need to add the concept of an offset, not just size aspect ratio
+        - [ ] The root node in ImGui seems to be special, in the sense that it does not resize like their children do when children take portions of its space.
+              The API could be something like:
+                - Opt in to using viewport system
+                - By default you get a single viewport window already docked to root node.
+                - If you undock and resize this you see the clear color in the background, but nobody is drawing there.
+                - Gui impl:
+                    - Create a window per viewport with default layout that just tiles within main window.
+                    - During GUI update get content sizes and ensure we have an image for each viewport to render into,
+                      write it to a descriptor set and submit it as full-window image for that viewport
+                      -> need to be careful with synchronization because we might need to resize viewports while they are being
+                         drawn in the previous frame. We either need to stall on resize (likely not gonna be super smooth) or
+                      -> we could have a resize backoff logic where instead of continuously destroying /  updating on resize
+                         or even alloc always the window size and just render/sample a subset -> sampling should always be exact anyway
+                    - During rendering render to each of this image then transition to shader read optimal before rendering GUI.
+                    - If you have multisampling on you actually need a multisample buffer for each viewport too
+                        -> actually since we render in sequence you could always reuse the same one
+    - [ ] Viewer:
+        - [ ] View dependent things need to be recomputed and potentially require multi-buffering:
+            - need to sort gaussians for both views
+                - need to have CPU and GPU resources per viewport
+                - or need to pre-render for 0 -> render for 0 -> render for 1 -> prerender for 1, but still need to buffer CPU resources
+            - no-need to re-render shadow maps
+        - [ ] Need to deduplicate uploads
+            - properties and gpu properties are sets -> should already work
+            - objects currently are lists(assuming the same object never appears twice in the scene hierarchy)
+            - [ ] Viewports could default to same scene
+            - [ ] If each viewport has a scene an object might have a parent in one scene but not in another.
+                - Maybe a viewport mask type thing is easier than multiple scenes
+                    -> objects have a viewport mask, if None render to all viewports (default)
+                    -> Move scene outside viewport (also easier to viewer.scene)
+        - [ ] Think about the API and UI for enabling / customizing this
+            - [ ] Shortcut to split
+            - [ ] viewports becomes a list, api to create a new viewport according to config or from scratch
+            - [ ] scene anyway moves before
+            - [ ] think about the camera, especially with respect to having cameras in scene
 - [ ] Windowless viewer
     - [x] Screenshots
     - [ ] Video, maybe using av? Maybe just user callback? Make PoC then decide
