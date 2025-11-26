@@ -7,7 +7,6 @@ from typing import Dict, List, Optional
 from pyxpg import (
     BufferBarrier,
     CommandBuffer,
-    DescriptorSet,
     ImageBarrier,
     PipelineStageFlags,
     TimelineSemaphore,
@@ -30,8 +29,6 @@ class SemaphoreInfo:
 class RendererFrame:
     index: int
     total_index: int
-
-    scene_descriptor_set: DescriptorSet
 
     cmd: CommandBuffer
 

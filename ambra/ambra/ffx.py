@@ -33,10 +33,9 @@ from pyxpg import (
     SubgroupFeatureFlags,
 )
 
-from ambra.utils.ring_buffer import RingBuffer
-
 from .utils.descriptors import create_descriptor_pool_and_sets_ringbuffer
 from .utils.gpu import MipGenerationFilter, view_bytes
+from .utils.ring_buffer import RingBuffer
 
 if TYPE_CHECKING:
     from .renderer import Renderer

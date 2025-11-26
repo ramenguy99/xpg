@@ -230,7 +230,7 @@ class DirectionalLight(Light):
         buf = self.uniform_buffers.get_current_and_advance()
         buf.upload(
             frame.cmd,
-            MemoryUsage.NONE,  # Synchronized by automatic after-upload barrier after
+            MemoryUsage.NONE,  # Synchronized by automatic after-upload barrier
             self.constants.view(np.uint8),
         )
         frame.upload_property_pipeline_stages |= PipelineStageFlags.VERTEX_SHADER

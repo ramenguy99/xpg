@@ -821,7 +821,7 @@ class GaussianSplats(Object3D):
 
         frame.cmd.bind_compute_pipeline(
             self.dist_pipeline,
-            descriptor_sets=[frame.scene_descriptor_set, self.descriptor_set],
+            descriptor_sets=[scene_descriptor_set, self.descriptor_set],
             push_constants=self.constants.tobytes(),
         )
         frame.cmd.dispatch(div_round_up(num_splats, self.DISTANCE_COMPUTE_WORKGROUP_SIZE), 1, 1)

@@ -63,7 +63,6 @@ from .lights import (
 from .renderer_frame import RendererFrame, SemaphoreInfo
 from .scene import Object, Scene
 from .shaders import compile
-from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import (
     BufferUploadInfo,
     BulkUploader,
@@ -109,11 +108,13 @@ class Renderer:
         height: int,
         num_frames_in_flight: int,
         output_format: Format,
+        multiviewport: bool,
         config: RendererConfig,
     ):
         self.ctx = ctx
         self.num_frames_in_flight = num_frames_in_flight
         self.output_format = output_format
+        self.multiviewport = multiviewport
 
         self.shadowmap_format = Format.D32_SFLOAT
 
@@ -192,22 +193,19 @@ class Renderer:
         self.destruction_queue: Dict[int, List[Union[Buffer, Image, ImageView]]] = {}
         self.shader_cache: Dict[Tuple[Union[str, Tuple[str, str], Path], ...], slang.Shader] = {}
 
-        self.scene_descriptor_set_layout, self.scene_descriptor_pool, self.scene_descriptor_sets = (
-            create_descriptor_layout_pool_and_sets_ringbuffer(
-                ctx,
-                [
-                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),  # 0 - Constants
-                    DescriptorSetBinding(1, DescriptorType.SAMPLER),  # 1 - Shadowmap sampler
-                    DescriptorSetBinding(1, DescriptorType.SAMPLER),  # 2 - Cubemap sampler
-                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 3 - Environment irradiance cubemap
-                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 4 - Environment specular cubemap
-                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 5 - Environment GGX LUT
-                    *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in LIGHT_TYPES_INFO],
-                    DescriptorSetBinding(self.max_shadowmaps, DescriptorType.SAMPLED_IMAGE),
-                ],
-                self.num_frames_in_flight,
-                name="scene-descriptors",
-            )
+        self.scene_descriptor_set_layout = DescriptorSetLayout(
+            ctx,
+            [
+                DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),  # 0 - Constants
+                DescriptorSetBinding(1, DescriptorType.SAMPLER),  # 1 - Shadowmap sampler
+                DescriptorSetBinding(1, DescriptorType.SAMPLER),  # 2 - Cubemap sampler
+                DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 3 - Environment irradiance cubemap
+                DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 4 - Environment specular cubemap
+                DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 5 - Environment GGX LUT
+                *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in LIGHT_TYPES_INFO],
+                DescriptorSetBinding(self.max_shadowmaps, DescriptorType.SAMPLED_IMAGE),
+            ],
+            name="scene-descriptor-layout",
         )
 
         self.scene_depth_descriptor_set_layout = DescriptorSetLayout(
@@ -218,7 +216,7 @@ class Renderer:
             name="scene-depth-descriptor-set-layout",
         )
 
-        constants_dtype = np.dtype(
+        self.scene_constants_dtype = np.dtype(
             {
                 "view": (np.dtype((np.float32, (4, 4))), 0),
                 "projection": (np.dtype((np.float32, (4, 4))), 64),
@@ -231,14 +229,6 @@ class Renderer:
                 "num_lights": (np.dtype((np.uint32, (len(LIGHT_TYPES_INFO),))), 180),
             }
         )  # type: ignore
-
-        self.constants = np.zeros((1,), constants_dtype)
-        self.uniform_buffers = RingBuffer(
-            [
-                UploadableBuffer(ctx, constants_dtype.itemsize, BufferUsageFlags.UNIFORM)
-                for _ in range(self.num_frames_in_flight)
-            ]
-        )
 
         self.max_lights_per_type = config.max_lights_per_type
         self.num_lights = [0] * len(LIGHT_TYPES_INFO)
@@ -261,25 +251,6 @@ class Renderer:
         self.ibl_pipeline: Optional[IBLPipeline] = None
         self.ggx_lut_pipeline = GGXLUTPipeline(self)
         self.ggx_lut = self.ggx_lut_pipeline.run(self)
-
-        for s, buf, light_bufs in zip(self.scene_descriptor_sets, self.uniform_buffers, self.light_buffers):
-            s.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0)
-            s.write_sampler(self.shadow_sampler, 1)
-            s.write_sampler(self.linear_sampler, 2)
-            s.write_image(self.zero_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 3)
-            s.write_image(self.zero_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 4)
-            s.write_image(self.ggx_lut, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 5)
-
-            for i, light_buf in enumerate(light_bufs):
-                s.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 6, i)
-            for i in range(self.max_shadowmaps):
-                s.write_image(
-                    self.zero_image,
-                    ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-                    DescriptorType.SAMPLED_IMAGE,
-                    6 + len(light_bufs),
-                    i,
-                )
 
         self.uniform_environment_lights: List[UniformEnvironmentLight] = []
         self.environment_light: Optional[EnvironmentLight] = None
@@ -422,13 +393,15 @@ class Renderer:
             )
         self.environment_light = light
 
-        for set in self.scene_descriptor_sets:
-            set.write_image(
-                cubemaps.irradiance_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 3
-            )
-            set.write_image(
-                cubemaps.specular_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 4
-            )
+        # TODO: fix, do we write this every frame instead or do we need the
+        # renderer to keep up with all the viewports?
+        # for set in self.scene_descriptor_sets:
+        #     set.write_image(
+        #         cubemaps.irradiance_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 3
+        #     )
+        #     set.write_image(
+        #         cubemaps.specular_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 4
+        #     )
 
     def add_light(self, light_type: "LightTypes", shadowmap: Optional[Image]) -> Tuple[int, int]:
         if self.num_lights[light_type.value] >= self.max_lights_per_type:
@@ -451,14 +424,16 @@ class Renderer:
             shadowmap_idx = self.num_shadowmaps
             self.num_shadowmaps += 1
 
-            for set in self.scene_descriptor_sets:
-                set.write_image(
-                    shadowmap,
-                    ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-                    DescriptorType.SAMPLED_IMAGE,
-                    6 + len(LIGHT_TYPES_INFO),
-                    shadowmap_idx,
-                )
+            # TODO: fix, do we write this every frame instead or do we need the
+            # renderer to keep up with all the viewports?
+            # for set in self.scene_descriptor_sets:
+            #     set.write_image(
+            #         shadowmap,
+            #         ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+            #         DescriptorType.SAMPLED_IMAGE,
+            #         6 + len(LIGHT_TYPES_INFO),
+            #         shadowmap_idx,
+            #     )
 
         return light_idx * LIGHT_TYPES_INFO[light_type.value].size, shadowmap_idx
 
@@ -558,45 +533,10 @@ class Renderer:
 
         cmd = frame.command_buffer
 
-        # Split between viewports and window viewport
-        viewport = viewports[0]
-        viewport_rect = (
-            viewport.rect.x,
-            viewport.rect.y + viewport.rect.height,
-            viewport.rect.width,
-            viewport.rect.y - viewport.rect.height,
-        )
-        rect = (
-            viewport.rect.x,
-            viewport.rect.y,
-            viewport.rect.width,
-            viewport.rect.height,
-        )
-
-        descriptor_set = self.scene_descriptor_sets.get_current_and_advance()
-        buf = self.uniform_buffers.get_current_and_advance()
-
-        proj = viewport.camera.projection(viewport.rect.width / viewport.rect.height if viewport.rect.height > 0 else 0)
-        self.constants["projection"] = proj
-        self.constants["view"] = viewport.camera.view()
-        self.constants["world_camera_position"] = viewport.camera.position()
-        self.constants["num_lights"] = self.num_lights
-        self.constants["ambient_light"] = np.sum([l.radiance.get_current() for l in self.uniform_environment_lights])
-        if self.environment_light is not None:
-            self.constants["has_environment_light"] = 1
-            self.constants["max_specular_mip"] = self.environment_light.gpu_cubemaps.specular_cubemap.mip_levels - 1.0
-        else:
-            self.constants["has_environment_light"] = 0
-            self.constants["max_specular_mip"] = 0.0
-        self.constants["inverse_viewport_size"] = (1.0 / viewport.rect.width if viewport.rect.width != 0 else 0, 1.0 / viewport.rect.height if viewport.rect.height > 0 else 0)
-        self.constants["focal"] = (proj[0][0] * 0.5 * viewport.rect.width, proj[1][1] * 0.5 * viewport.rect.height)
-
         f = RendererFrame(
             # Frame counters
             self.total_frame_index % self.num_frames_in_flight,
             self.total_frame_index,
-            # Scene descriptor set
-            descriptor_set,
             # Graphics command list
             cmd,
             # Upload stages and barriers
@@ -662,11 +602,37 @@ class Renderer:
         for p in enabled_gpu_properties:
             p.upload(f)
 
-        buf.upload(
-            cmd,
-            MemoryUsage.NONE,  # None because will be synced by after-upload barriers
-            self.constants.view(np.uint8),
-        )
+        # Upload scene constants for each viewport
+        for viewport in viewports:
+            viewport_width, viewport_height = viewport.rect.width, viewport.rect.height
+
+            if viewport_width <= 0 or viewport_height <= 0:
+                continue
+
+            descriptor_set = viewport.scene_descriptor_sets.get_current()
+            buf = viewport.scene_uniform_buffers.get_current_and_advance()
+            proj = viewport.camera.projection(viewport_width / viewport_height)
+
+            constants = viewport.scene_constants
+            constants["projection"] = proj
+            constants["view"] = viewport.camera.view()
+            constants["world_camera_position"] = viewport.camera.position()
+            constants["num_lights"] = self.num_lights
+            constants["ambient_light"] = np.sum([l.radiance.get_current() for l in self.uniform_environment_lights])
+            if self.environment_light is not None:
+                constants["has_environment_light"] = 1
+                constants["max_specular_mip"] = self.environment_light.gpu_cubemaps.specular_cubemap.mip_levels - 1.0
+            else:
+                constants["has_environment_light"] = 0
+                constants["max_specular_mip"] = 0.0
+            constants["inverse_viewport_size"] = (1.0 / viewport_width, 1.0 / viewport_height)
+            constants["focal"] = (proj[0][0] * 0.5 * viewport_width, proj[1][1] * 0.5 * viewport_height)
+
+            buf.upload(
+                cmd,
+                MemoryUsage.NONE,  # None because will be synced by after-upload barriers
+                constants.view(np.uint8),
+            )
 
         self.enabled_gpu_properties = enabled_gpu_properties
 
@@ -730,11 +696,6 @@ class Renderer:
         for l in enabled_lights:
             l.render_shadowmaps(self, f, enabled_objects)
 
-        # Stage: pre-render
-        for o in enabled_objects:
-            o.pre_render(self, f, descriptor_set)
-
-        # Sync: before-render barriers
         f.before_render_image_barriers.extend(
             [
                 ImageBarrier(
@@ -759,6 +720,33 @@ class Renderer:
             ]
         )
 
+        before_gui_barriers: List[ImageBarrier] = []
+        if self.multiviewport:
+            for v in viewports:
+                assert v.image is not None
+                f.before_render_image_barriers.append(
+                    ImageBarrier(
+                        v.image,
+                        ImageLayout.UNDEFINED,
+                        ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                        PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                        AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                        AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                    )
+                )
+                before_gui_barriers.append(
+                    ImageBarrier(
+                        v.image,
+                        ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                        ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                        PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                        AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        PipelineStageFlags.FRAGMENT_SHADER,
+                        AccessFlags.SHADER_SAMPLED_READ | AccessFlags.SHADER_SAMPLED_READ,
+                    )
+                )
+
         if self.msaa_target is not None:
             f.before_render_image_barriers.append(
                 ImageBarrier(
@@ -772,6 +760,7 @@ class Renderer:
                 )
             )
 
+        # Sync: before-render barriers
         cmd.barriers(
             memory_barriers=[
                 MemoryBarrier(
@@ -784,10 +773,46 @@ class Renderer:
             image_barriers=f.before_render_image_barriers,
         )
 
-        # Stage: render
-        if viewport.rect.width > 0 and viewport.rect.height > 0:
+        for viewport in viewports:
+            if viewport.rect.width <= 0 or viewport.rect.height <= 0:
+                continue
+
+            descriptor_set = viewport.scene_descriptor_sets.get_current_and_advance()
+
+            # Stage: pre-render
+            for o in enabled_objects:
+                o.pre_render(self, f, descriptor_set)
+
+            # Sync: before-render barriers
+            cmd.barriers(
+                memory_barriers=[
+                    MemoryBarrier(
+                        f.before_render_src_pipeline_stages,
+                        AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                        f.before_render_dst_pipeline_stages,
+                        AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                    ),
+                ],
+            )
+
+            viewport_rect = (
+                0,
+                viewport.rect.height,
+                viewport.rect.width,
+                -viewport.rect.height,
+            )
+            rect = (
+                0,
+                0,
+                viewport.rect.width,
+                viewport.rect.height,
+            )
+
+            # Stage: render
             cmd.set_viewport(viewport_rect)
             cmd.set_scissors(rect)
+
+            image = frame.image if viewport.image is None else viewport.image
             with cmd.rendering(
                 rect,
                 color_attachments=[
@@ -798,10 +823,10 @@ class Renderer:
                             store_op=StoreOp.STORE,
                             clear=self.background_color,
                             resolve_mode=ResolveMode.AVERAGE,
-                            resolve_image=frame.image,
+                            resolve_image=image,
                         )
                         if self.msaa_target is not None
-                        else RenderingAttachment(frame.image, LoadOp.CLEAR, StoreOp.STORE, self.background_color)
+                        else RenderingAttachment(image, LoadOp.CLEAR, StoreOp.STORE, self.background_color)
                     )
                 ],
                 depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
@@ -809,13 +834,16 @@ class Renderer:
                 for o in enabled_objects:
                     o.render(self, f, descriptor_set)
 
+        if before_gui_barriers:
+            cmd.barriers(image_barriers=before_gui_barriers)
+
         # Stage: Render GUI
         with cmd.rendering(
-            rect,
+            (0, 0, frame.image.width, frame.image.height),
             color_attachments=[
                 RenderingAttachment(
                     frame.image,
-                    load_op=LoadOp.LOAD,
+                    load_op=LoadOp.CLEAR if self.multiviewport else LoadOp.LOAD,
                     store_op=StoreOp.STORE,
                     clear=self.background_color,
                 ),

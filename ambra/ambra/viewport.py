@@ -3,8 +3,9 @@
 
 import math
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
+from numpy.typing import NDArray
 from pyglm.glm import (
     acos,
     clamp,
@@ -25,12 +26,13 @@ from pyglm.glm import (
     vec3,
     vec4,
 )
-from pyxpg import Image, imgui
-
+from pyxpg import DescriptorSet, Image, imgui
 
 from .camera import CameraDepth, OrthographicCamera, PerspectiveCamera
 from .config import CameraConfig, CameraControlMode, CameraProjection, Handedness, PlaybackConfig
 from .transform3d import RigidTransform3D
+from .utils.gpu import UploadableBuffer
+from .utils.ring_buffer import RingBuffer
 
 
 class Playback:
@@ -83,6 +85,9 @@ class Viewport:
         camera_config: CameraConfig,
         world_up: vec3,
         handedness: Handedness,
+        scene_descriptor_sets: RingBuffer[DescriptorSet],
+        scene_uniform_buffers: RingBuffer[UploadableBuffer],
+        scene_constants: NDArray[Any],
         image: Optional[Image],
         imgui_texture: Optional[imgui.Texture],
         name: str,
@@ -114,6 +119,9 @@ class Viewport:
         self.rect = rect
         self.camera = camera
         self.playback = playback
+        self.scene_descriptor_sets = scene_descriptor_sets
+        self.scene_uniform_buffers = scene_uniform_buffers
+        self.scene_constants = scene_constants
         self.image = image
         self.imgui_texture = imgui_texture
         self.name = name

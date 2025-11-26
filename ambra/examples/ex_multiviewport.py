@@ -1,6 +1,6 @@
 import numpy as np
 
-from ambra.config import CameraConfig, CameraProjection, Config, GuiConfig, PlaybackConfig
+from ambra.config import CameraConfig, CameraProjection, Config, GuiConfig, PlaybackConfig, RendererConfig
 from ambra.primitives2d import Lines
 from ambra.property import AnimationBoundary, ArrayBufferProperty, FrameAnimation
 from ambra.viewer import Viewer
@@ -18,7 +18,10 @@ viewer = Viewer(
         ),
         world_up=(0, 1, 0),
         gui=GuiConfig(
+            # multiviewport=False,
             multiviewport=True,
+            initial_number_of_viewports=3,
+            stats=True,
         ),
     ),
 )

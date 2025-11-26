@@ -4,9 +4,8 @@
 import logging
 from queue import Empty, Queue
 from time import perf_counter_ns
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
-from ambra.utils.descriptors import create_descriptor_layout_pool_and_set, create_descriptor_layout_pool_and_sets
 import numpy as np
 from numpy.typing import NDArray
 from pyglm.glm import dvec2, ivec2, normalize, vec3
@@ -14,6 +13,7 @@ from pyxpg import (
     Action,
     AllocType,
     BorderColor,
+    BufferUsageFlags,
     Context,
     DescriptorSetBinding,
     DescriptorType,
@@ -54,7 +54,13 @@ from .keybindings import KeyMap
 from .renderer import FrameInputs, Renderer
 from .scene import Object, Scene
 from .server import Client, Message, RawMessage, Server, parse_builtin_messages
+from .utils.descriptors import (
+    create_descriptor_layout_pool_and_sets,
+    create_descriptor_pool_and_sets,
+)
+from .utils.gpu import UploadableBuffer
 from .utils.lru_pool import LRUPool
+from .utils.ring_buffer import RingBuffer
 from .viewport import Playback, Rect, Viewport
 
 _log_levels = {
@@ -80,6 +86,7 @@ class Viewer:
         config: Optional[Config] = None,
         key_map: Optional[KeyMap] = None,
     ):
+        # Config
         config = config if config is not None else Config()
 
         # Key bindings
@@ -187,6 +194,7 @@ class Viewer:
             render_height,
             num_frames_in_flight,
             output_format,
+            self.multiviewport,
             config.renderer,
         )
 
@@ -209,16 +217,71 @@ class Viewer:
                 v=SamplerAddressMode.CLAMP_TO_BORDER,
                 border_color=BorderColor.FLOAT_OPAQUE_BLACK,
             )
-            self.viewport_descriptor_layout, self.viewport_descriptor_pool, self.viewport_descriptor_sets = create_descriptor_layout_pool_and_sets(
-                self.ctx,
-                [
-                    DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT),
-                ],
-                config.gui.max_viewport_count
+            self.viewport_descriptor_layout, self.viewport_descriptor_pool, self.viewport_descriptor_sets = (
+                create_descriptor_layout_pool_and_sets(
+                    self.ctx,
+                    [
+                        DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT),
+                    ],
+                    config.gui.max_viewport_count,
+                )
             )
+            num_viewports = config.gui.initial_number_of_viewports
+            max_viewports = config.gui.max_viewport_count
+        else:
+            num_viewports = 1
+            max_viewports = 1
 
-            self.viewports = []
-            for i in range(config.gui.initial_number_of_viewports):
+        self.viewport_scene_descriptor_pool, self.viewport_scene_descriptor_sets = create_descriptor_pool_and_sets(
+            self.ctx,
+            self.renderer.scene_descriptor_set_layout,
+            max_viewports * self.renderer.num_frames_in_flight,
+            name="viewport-scene-descriptor-sets",
+        )
+        self.viewports: List[Viewport] = []
+        for viewport_index in range(num_viewports):
+            scene_descriptor_sets = RingBuffer(
+                self.viewport_scene_descriptor_sets[
+                    viewport_index * self.renderer.num_frames_in_flight : (viewport_index + 1)
+                    * self.renderer.num_frames_in_flight
+                ]
+            )
+            scene_uniform_buffers = RingBuffer(
+                [
+                    UploadableBuffer(self.ctx, self.renderer.scene_constants_dtype.itemsize, BufferUsageFlags.UNIFORM)
+                    for _ in range(self.renderer.num_frames_in_flight)
+                ]
+            )
+            for s, buf, light_bufs in zip(scene_descriptor_sets, scene_uniform_buffers, self.renderer.light_buffers):
+                s.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0)
+                s.write_sampler(self.renderer.shadow_sampler, 1)
+                s.write_sampler(self.renderer.linear_sampler, 2)
+                s.write_image(
+                    self.renderer.zero_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 3
+                )
+                s.write_image(
+                    self.renderer.zero_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 4
+                )
+                s.write_image(
+                    self.renderer.ggx_lut, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 5
+                )
+
+                for i, light_buf in enumerate(light_bufs):
+                    s.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 6, i)
+                for i in range(self.renderer.max_shadowmaps):
+                    s.write_image(
+                        self.renderer.zero_image,
+                        ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                        DescriptorType.SAMPLED_IMAGE,
+                        6 + len(light_bufs),
+                        i,
+                    )
+
+            scene_constants = np.zeros((1,), self.renderer.scene_constants_dtype)
+
+            img = None
+            texture = None
+            if self.multiviewport:
                 img = Image(
                     self.ctx,
                     render_width,
@@ -226,36 +289,28 @@ class Viewer:
                     output_format,
                     ImageUsageFlags.SAMPLED | ImageUsageFlags.COLOR_ATTACHMENT,
                     AllocType.DEVICE,
-                    samples=self.renderer.msaa_samples,
-                    name=f"viewport-{i}",
+                    name=f"viewport-{viewport_index}",
                 )
-                s = self.viewport_descriptor_sets[i]
+
+                s = self.viewport_descriptor_sets[viewport_index]
                 s.write_combined_image_sampler(img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, self.viewport_sampler, 0)
                 texture = imgui.Texture(s)
 
-                self.viewports.append(Viewport(
-                    rect=Rect(0, 0, render_width, render_height),
-                    playback=self.playback,
-                    camera_config=config.camera,
-                    handedness=config.handedness,
-                    world_up=normalize(vec3(config.world_up)),
-                    image=img,
-                    imgui_texture=texture,
-                    name=f"viewport-{i}",
-                ))
-        else:
-            self.viewports = [
+            self.viewports.append(
                 Viewport(
                     rect=Rect(0, 0, render_width, render_height),
                     playback=self.playback,
                     camera_config=config.camera,
                     handedness=config.handedness,
                     world_up=normalize(vec3(config.world_up)),
-                    image=None,
-                    imgui_texture=None,
-                    name=f"viewport",
+                    scene_descriptor_sets=scene_descriptor_sets,
+                    scene_uniform_buffers=scene_uniform_buffers,
+                    scene_constants=scene_constants,
+                    image=img,
+                    imgui_texture=texture,
+                    name=f"viewport-{viewport_index}",
                 )
-            ]
+            )
 
         # Server
         self.server = Server(self.on_raw_message_async, config.server)
@@ -416,6 +471,9 @@ class Viewer:
         # Resize if needed
         self.headless_swapchain.ensure_size(width, height)
 
+        # TODO: I think in the headless case we also need to resize the renderer
+        # here, for things like depth buffer and msaa targets. Double check this.
+
         io = imgui.get_io()
         io.display_size = imgui.Vec2(width, height)
         io.delta_time = 1.0 / 60.0
@@ -509,10 +567,27 @@ class Viewer:
 
             self.renderer.resize(width, height)
 
-            # In the multi-viewport case resizing is handled as part of
-            # the GUI update. Otherwise we resize the single viewport we have here.
             if not self.multiviewport:
+                # In the multi-viewport case rect resizing is handled as part of
+                # the GUI update.
                 self.viewports[0].resize(width, height)
+            else:
+                for viewport_index, viewport in enumerate(self.viewports):
+                    assert viewport.image is not None
+                    viewport.image.destroy()
+                    img = Image(
+                        self.ctx,
+                        width,
+                        height,
+                        self.renderer.output_format,
+                        ImageUsageFlags.SAMPLED | ImageUsageFlags.COLOR_ATTACHMENT,
+                        AllocType.DEVICE,
+                        name=f"viewport-{viewport_index}",
+                    )
+
+                    s = self.viewport_descriptor_sets[viewport_index]
+                    s.write_combined_image_sampler(img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, self.viewport_sampler, 0)
+                    viewport.image = img
 
             self.on_resize(width, height)
 
@@ -543,7 +618,8 @@ class Viewer:
             | imgui.WindowFlags.NO_SAVED_SETTINGS
             | imgui.WindowFlags.NO_MOVE
             | imgui.WindowFlags.NO_FOCUS_ON_APPEARING
-            | imgui.WindowFlags.NO_NAV,
+            | imgui.WindowFlags.NO_NAV
+            | imgui.WindowFlags.NO_MOUSE_INPUTS,
         )[0]:
             avg_dt = self.frame_times.mean()
             avg_fps = 1.0 / avg_dt if avg_dt > 0 else 0.0
@@ -807,7 +883,11 @@ class Viewer:
         imgui.dock_space_over_viewport(flags=imgui.DockNodeFlags.PASSTHRU_CENTRAL_NODE)
 
         if self.multiviewport:
+            imgui.push_style_var_im_vec2(imgui.StyleVar.WINDOW_PADDING, imgui.Vec2(0.0, 0.0))
+            fb_width, fb_height = self._get_framebuffer_size()
             for v in self.viewports:
+                assert v.imgui_texture is not None
+
                 imgui.begin(v.name)
                 cursor_pos = imgui.get_cursor_screen_pos()
                 pos = ivec2(cursor_pos.x, cursor_pos.y)
@@ -817,8 +897,11 @@ class Viewer:
                 v.rect.y = pos.y
                 v.rect.width = size.x
                 v.rect.height = size.y
-                imgui.image(v.imgui_texture, avail, (0, 0), (size.x / self.window.fb_width, size.y / self.window.fb_height))
+                imgui.image(
+                    v.imgui_texture, avail, imgui.Vec2(0, 0), imgui.Vec2(size.x / fb_width, size.y / fb_height)
+                )
                 imgui.end()
+            imgui.pop_style_var()
 
         if self.gui_show_stats:
             self.gui_stats()

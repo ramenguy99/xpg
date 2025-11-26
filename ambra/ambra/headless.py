@@ -20,10 +20,9 @@ from pyxpg import (
     MemoryUsage,
 )
 
-from ambra.utils.ring_buffer import RingBuffer
-
 from .renderer import FrameInputs
 from .utils.gpu import _format_to_channels_dtype_int_table, get_image_pitch_rows_and_texel_size
+from .utils.ring_buffer import RingBuffer
 
 
 @dataclass
