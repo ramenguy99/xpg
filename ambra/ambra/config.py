@@ -41,7 +41,7 @@ class RendererConfig:
     force_buffer_upload_method: Optional[UploadMethod] = None
     force_image_upload_method: Optional[UploadMethod] = None
     max_lights_per_type: int = 32
-    max_shadowmaps: int = 8
+    max_shadow_maps: int = 8
     mip_generation_batch_size: int = 32
 
 

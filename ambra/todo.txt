@@ -25,6 +25,8 @@ Priority:
         - [x] Mip generation for materials
             - [x] Start simple, could potentially batch those generations at some point.
     - [x] Expose sampling options in materials
+    - [ ] Adding / removing and enabling / disabling lights is still a bit tricky.
+    - [ ] Point and spot lights and shadows
 - [x] Shaders / fonts build and packaging into wheel
     - [x] Explore using hatchlings instead of setuptools for better editable builds (read pep 517)
 - [x] Important 3D primitives
@@ -61,7 +63,7 @@ Priority:
                     - During rendering render to each of this image then transition to shader read optimal before rendering GUI.
                     - If you have multisampling on you actually need a multisample buffer for each viewport too
                         -> actually since we render in sequence you could always reuse the same one
-        - [ ] Would be nice to highlight viewport borders when active (also maybe on over with slightly dimmer tone)
+        - [ ] Would be nice to highlight viewport borders when active (also maybe on hover with slightly dimmer tone)
     - [ ] Viewer:
         - [x] View dependent things need to be recomputed and potentially require multi-buffering:
             - need to sort gaussians for both views
@@ -82,10 +84,11 @@ Priority:
             - [ ] scene anyway moves before
             - [ ] think about the camera, especially with respect to having cameras in scene
         - [ ] Missing:
-            - [ ] Object viewport masks
+            - [x] Camera mouse interactions with different viewport
             - [ ] Upload lights and how it would integrate with masking
-            - [ ] Camera mouse interactions with different viewport
-            - [ ] Maybe move some viewport code inside renderer? It seems like now it's quite renderer specific, but currenlty lives in viewer.py
+                - Plan is to make this more immediate mode, upload lights every frame and only if enabled and the mask matches the viewport
+            - [ ] Object viewport masks
+            - [ ] Maybe move some viewport code inside renderer? It seems like now it's quite renderer specific, but currently lives in viewer.py
 - [ ] Windowless viewer
     - [x] Screenshots
     - [ ] Video, maybe using av? Maybe just user callback? Make PoC then decide

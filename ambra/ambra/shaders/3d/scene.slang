@@ -42,7 +42,7 @@ public struct DirectionalLight : ILight
 {
     public float4x4 orthographic_camera;
     public float3 radiance;
-    public uint32_t shadowmap_index;
+    public uint32_t shadow_map_index;
     public float3 direction;
     public float bias;
 
@@ -50,7 +50,7 @@ public struct DirectionalLight : ILight
     {
         float3 L = radiance;
 
-        if (shadowmap_index != 0xffffffff) {
+        if (shadow_map_index != 0xffffffff) {
             // Compute fragment coordinates in light space
             float3 light_pos = mul(orthographic_camera, float4(world_position, 1.0)).xyz;
 
@@ -62,8 +62,8 @@ public struct DirectionalLight : ILight
                 float b = max(bias * 0.5 * (1.0 + dot(direction, world_normal)), bias);
                 float cmp_value = z - b;
 
-                // Sample shadowmap
-                float shadow = g_directional_shadowmaps[shadowmap_index].SampleCmpLevelZero(g_directional_shadowmap_sampler, light_pos.xy * 0.5 + 0.5, cmp_value);
+                // Sample shadow_map
+                float shadow = g_directional_shadow_maps[shadow_map_index].SampleCmpLevelZero(g_directional_shadow_map_sampler, light_pos.xy * 0.5 + 0.5, cmp_value);
 
                 // Weight radiance by shadow term
                 L *= shadow;
@@ -453,7 +453,7 @@ public struct Constants {
 public ConstantBuffer<Constants> g_constants;
 
 [vk::binding(1, 0)]
-public SamplerComparisonState g_directional_shadowmap_sampler;
+public SamplerComparisonState g_directional_shadow_map_sampler;
 
 [vk::binding(2, 0)]
 public SamplerState g_linear_sampler;
@@ -471,4 +471,4 @@ public Texture2D g_ggx_lut;
 public StructuredBuffer<DirectionalLight> g_directional_lights;
 
 [vk::binding(7, 0)]
-public Texture2D g_directional_shadowmaps[];
+public Texture2D g_directional_shadow_maps[];

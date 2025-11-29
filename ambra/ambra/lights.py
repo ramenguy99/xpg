@@ -63,7 +63,7 @@ directional_light_dtype = np.dtype(
     {
         "orthographic_camera": (np.dtype((np.float32, (4, 4))), 0),
         "radiance": (np.dtype((np.float32, (3,))), 64),
-        "shadowmap_index": (np.dtype((np.int32, (1,))), 76),
+        "shadow_map_index": (np.dtype((np.int32, (1,))), 76),
         "direction": (np.dtype((np.float32, (3,))), 80),
         "bias": (np.dtype((np.float32, (1,))), 92),
     }
@@ -76,7 +76,7 @@ LIGHT_TYPES_INFO = [
 
 
 class Light(Object3D):
-    def render_shadowmaps(self, renderer: "Renderer", frame: RendererFrame, objects: List[Object]) -> None:
+    def render_shadow_maps(self, renderer: "Renderer", frame: RendererFrame, objects: List[Object]) -> None:
         pass
 
 
@@ -88,8 +88,9 @@ class PointLight(Light):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
-        super().__init__(name, translation, rotation, scale)
+        super().__init__(name, translation, rotation, scale, enabled=enabled)
         self.intensity = self.add_buffer_property(intensity, np.float32, (-1, 3), name="intensity")
 
 
@@ -103,8 +104,9 @@ class SpotLight(Light):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
-        super().__init__(name, translation, rotation, scale)
+        super().__init__(name, translation, rotation, scale, enabled=enabled)
         self.intensity = self.add_buffer_property(intensity, np.float32, (-1, 3), name="intensity")
         self.stop_cosine = self.add_buffer_property(stop_cosine, np.float32, (-1, 3), name="stop_cosine")
         self.falloff_start_cosine = self.add_buffer_property(
@@ -131,8 +133,9 @@ class DirectionalLight(Light):
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
-        super().__init__(name, translation, rotation, scale)
+        super().__init__(name, translation, rotation, scale, enabled=enabled)
         self.radiance = self.add_buffer_property(radiance, np.float32, (3,), name="radiance")
         self.shadow_settings = shadow_settings if shadow_settings is not None else DirectionalShadowSettings()
         self.shadow_map: Optional[Image] = None
@@ -164,10 +167,10 @@ class DirectionalLight(Light):
                 r.ctx,
                 self.shadow_settings.shadow_map_size,
                 self.shadow_settings.shadow_map_size,
-                r.shadowmap_format,
+                r.shadow_map_format,
                 ImageUsageFlags.SAMPLED | ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT,
                 AllocType.DEVICE,
-                name=f"{self.name}-shadowmap",
+                name=f"{self.name}-shadow_map",
             )
             self.shadow_map_viewport = [
                 0,
@@ -208,7 +211,7 @@ class DirectionalLight(Light):
             self.shadow_settings.z_far,
         )
 
-        self.light_buffer_offset, self.shadowmap_index = r.add_light(LightTypes.DIRECTIONAL, self.shadow_map)
+        self.light_buffer_offset, self.shadow_map_index = r.add_light(LightTypes.DIRECTIONAL, self.shadow_map)
         self.light_info = np.zeros((1,), directional_light_dtype)
 
     def upload(self, renderer: "Renderer", frame: RendererFrame) -> None:
@@ -216,7 +219,7 @@ class DirectionalLight(Light):
         direction = vec3(self.current_transform_matrix * vec4(0, 0, -1, 0))
         self.light_info["orthographic_camera"] = self.projection * view
         self.light_info["radiance"] = self.radiance.get_current()
-        self.light_info["shadowmap_index"] = self.shadowmap_index
+        self.light_info["shadow_map_index"] = self.shadow_map_index
         self.light_info["direction"] = direction
         self.light_info["bias"] = self.shadow_settings.bias
         renderer.upload_light(frame, LightTypes.DIRECTIONAL, view_bytes(self.light_info), self.light_buffer_offset)
@@ -261,7 +264,7 @@ class DirectionalLight(Light):
             )
         )
 
-    def render_shadowmaps(self, renderer: "Renderer", frame: RendererFrame, objects: List[Object]) -> None:
+    def render_shadow_maps(self, renderer: "Renderer", frame: RendererFrame, objects: List[Object]) -> None:
         if not self.shadow_settings.casts_shadow:
             return
 
@@ -283,12 +286,10 @@ class UniformEnvironmentLight(Light):
         self,
         radiance: BufferProperty,
         name: Optional[str] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
-        super().__init__(name)
+        super().__init__(name, enabled=enabled)
         self.radiance = self.add_buffer_property(radiance, np.float32, (3,), name="radiance")
-
-    def create(self, r: "Renderer") -> None:
-        r.add_uniform_environment_light(self)
 
 
 @dataclass(frozen=True)
@@ -739,6 +740,7 @@ class EnvironmentLight(Light):
         cubemaps: Optional[EnvironmentCubemaps] = None,
         ibl_params: Optional[IBLParams] = None,
         name: Optional[str] = None,
+        enabled: Optional[BufferProperty] = None,
     ):
         if not ((equirectangular is None) ^ (cubemaps is None)):
             raise RuntimeError('Exactly one of "equirectangular" and "cubemaps" must not be None')
@@ -756,7 +758,7 @@ class EnvironmentLight(Light):
         self.equirectangular = equirectangular
         self.cubemaps = cubemaps
         self.ibl_params = ibl_params
-        super().__init__(name)
+        super().__init__(name, enabled=enabled)
 
     def create(self, r: "Renderer") -> None:
         if self.equirectangular is not None:
@@ -775,7 +777,6 @@ class EnvironmentLight(Light):
         else:
             assert self.cubemaps is not None
             self.gpu_cubemaps = self.cubemaps.gpu(r.ctx)
-        r.add_environment_light(self, self.gpu_cubemaps)
 
     @classmethod
     def from_equirectangular(

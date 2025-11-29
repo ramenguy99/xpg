@@ -18,7 +18,7 @@ class CustomViewer(Viewer):
     @hook
     def on_gui(self):
         global scale
-        if imgui.begin("Shadowmap"):
+        if imgui.begin("shadow_map")[0]:
             if hasattr(light, "shadow_map"):
                 if self._texture is None and light.shadow_map is not None:
                     sampler = Sampler(

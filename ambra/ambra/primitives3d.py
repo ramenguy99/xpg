@@ -276,7 +276,7 @@ class Mesh(Object3D):
             rasterization=Rasterization(cull_mode=cull_mode_opposite_face(self.cull_mode), front_face=self.front_face),
             input_assembly=InputAssembly(self.primitive_topology),
             attachments=[],
-            depth=Depth(r.shadowmap_format, True, True, r.depth_compare_op),
+            depth=Depth(r.shadow_map_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_depth_descriptor_set_layout,
             ],
@@ -494,7 +494,7 @@ class Grid(Object3D):
                     dst_color_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
                     color_blend_op=BlendOp.ADD,
                     src_alpha_blend_factor=BlendFactor.ONE,
-                    dst_alpha_blend_factor=BlendFactor.ZERO,
+                    dst_alpha_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
                     alpha_blend_op=BlendOp.ADD,
                 )
             ],

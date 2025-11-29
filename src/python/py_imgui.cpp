@@ -170,6 +170,9 @@ void imgui_create_bindings(nb::module_& mod_imgui)
     // IO
     mod_imgui.def("get_io", ImGui::GetIO, nb::rv_policy::reference);
 
+    // APIs not covered by generated bindings
+    mod_imgui.def("set_next_window_size_constraints", [](const ImVec2& min_size, const ImVec2& max_size) { ImGui::SetNextWindowSizeConstraints(min_size, max_size); }, nb::arg("min_size"), nb::arg("max_size"));
+
     // Texture
     nb::class_<Texture>(mod_imgui, "Texture",
         nb::intrusive_ptr<Texture>([](Texture *o, PyObject *po) noexcept { o->set_self_py(po); }))

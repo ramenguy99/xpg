@@ -12,11 +12,13 @@ viewer = Viewer(
         ),
         world_up=(0, 1, 0),
         gui=GuiConfig(
-            multiviewport=False,
-            # multiviewport=True,
-            initial_number_of_viewports=3,
+            multiviewport=True,
+            initial_number_of_viewports=2,
             stats=True,
             inspector=True,
+        ),
+        renderer=RendererConfig(
+            msaa_samples=4,
         ),
     ),
 )

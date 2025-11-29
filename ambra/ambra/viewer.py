@@ -211,6 +211,10 @@ class Viewer:
 
         # Viewport
         if self.multiviewport:
+            if config.gui.initial_number_of_viewports > config.gui.max_viewport_count:
+                raise ValueError(
+                    "config.gui.initial_number_of_viewports must be less than or equal to config.gui.max_viewport_count"
+                )
             self.viewport_sampler = Sampler(
                 self.ctx,
                 u=SamplerAddressMode.CLAMP_TO_BORDER,
@@ -239,7 +243,7 @@ class Viewer:
             name="viewport-scene-descriptor-sets",
         )
         self.viewports: List[Viewport] = []
-        for viewport_index in range(num_viewports):
+        for viewport_index in range(min(num_viewports, config.gui.max_viewport_count)):
             scene_descriptor_sets = RingBuffer(
                 self.viewport_scene_descriptor_sets[
                     viewport_index * self.renderer.num_frames_in_flight : (viewport_index + 1)
@@ -268,7 +272,7 @@ class Viewer:
 
                 for i, light_buf in enumerate(light_bufs):
                     s.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 6, i)
-                for i in range(self.renderer.max_shadowmaps):
+                for i in range(self.renderer.max_shadow_maps):
                     s.write_image(
                         self.renderer.zero_image,
                         ImageLayout.SHADER_READ_ONLY_OPTIMAL,
@@ -311,8 +315,7 @@ class Viewer:
                     name=f"viewport-{viewport_index}",
                 )
             )
-        # TODO: do we want to allow 0 initial viewports?
-        self.active_viewport = self.viewports[0]
+        self.active_viewport = self.viewports[0] if self.viewports else None
 
         # Server
         self.server = Server(self.on_raw_message_async, config.server)
@@ -336,9 +339,6 @@ class Viewer:
             if self.key_map.previous_frame.is_active(key, modifiers):
                 self.playback.set_frame(self.playback.current_frame - 1)
 
-    def get_active_viewport(self) -> Viewport:
-        return self.active_viewport
-
     def on_mouse_button(
         self,
         position: ivec2,
@@ -349,34 +349,35 @@ class Viewer:
         if imgui.get_io().want_capture_mouse:
             return
 
-        viewport = self.get_active_viewport()
-        if action == Action.PRESS:
-            if self.key_map.camera_rotate.is_active(button, modifiers):
-                viewport.on_rotate_press(position)
-            if self.key_map.camera_pan.is_active(button, modifiers):
-                viewport.on_pan_press(position)
-        if action == Action.RELEASE:
-            if self.key_map.camera_rotate.button == button:
-                viewport.on_rotate_release()
-            if self.key_map.camera_pan.button == button:
-                viewport.on_pan_release()
+        if self.active_viewport is not None:
+            if action == Action.PRESS:
+                if self.key_map.camera_rotate.is_active(button, modifiers):
+                    self.active_viewport.on_rotate_press(position)
+                if self.key_map.camera_pan.is_active(button, modifiers):
+                    self.active_viewport.on_pan_press(position)
+            if action == Action.RELEASE:
+                if self.key_map.camera_rotate.button == button:
+                    self.active_viewport.on_rotate_release()
+                if self.key_map.camera_pan.button == button:
+                    self.active_viewport.on_pan_release()
 
     def on_mouse_move(self, position: ivec2) -> None:
-        self.get_active_viewport().on_move(position)
+        if self.active_viewport is not None:
+            self.active_viewport.on_move(position)
 
     def on_scroll(self, position: ivec2, scroll: dvec2) -> None:
         if imgui.get_io().want_capture_mouse:
             return
 
-        # Callbacks are only called if a window is present
-        assert self.window is not None
-        modifiers = self.window.get_modifiers_state()
+        if self.active_viewport is not None:
+            # Callbacks are only called if a window is present
+            assert self.window is not None
+            modifiers = self.window.get_modifiers_state()
 
-        viewport = self.get_active_viewport()
-        if modifiers == self.key_map.camera_zoom_modifiers:
-            viewport.zoom(scroll, False)
-        if modifiers == self.key_map.camera_zoom_move_modifiers:
-            viewport.zoom(scroll, True)
+            if modifiers == self.key_map.camera_zoom_modifiers:
+                self.active_viewport.zoom(scroll, False)
+            if modifiers == self.key_map.camera_zoom_move_modifiers:
+                self.active_viewport.zoom(scroll, True)
 
     def on_resize(self, width: int, height: int) -> None:
         pass
@@ -473,7 +474,9 @@ class Viewer:
         self.headless_swapchain.ensure_size(width, height)
 
         # TODO: I think in the headless case we also need to resize the renderer
-        # here, for things like depth buffer and msaa targets. Double check this.
+        # here, for things like depth buffer and msaa targets. Double check this
+        # by making a test that renders in headless mode at different resolutions
+        # on the same viewer.
 
         io = imgui.get_io()
         io.display_size = imgui.Vec2(width, height)
@@ -620,7 +623,8 @@ class Viewer:
             | imgui.WindowFlags.NO_MOVE
             | imgui.WindowFlags.NO_FOCUS_ON_APPEARING
             | imgui.WindowFlags.NO_NAV
-            | imgui.WindowFlags.NO_MOUSE_INPUTS,
+            | imgui.WindowFlags.NO_MOUSE_INPUTS
+            | imgui.WindowFlags.NO_SCROLLBAR,
         )[0]:
             avg_dt = self.frame_times.mean()
             avg_fps = 1.0 / avg_dt if avg_dt > 0 else 0.0
@@ -886,9 +890,37 @@ class Viewer:
         if self.multiviewport:
             imgui.push_style_var_im_vec2(imgui.StyleVar.WINDOW_PADDING, imgui.Vec2(0.0, 0.0))
             fb_width, fb_height = self._get_framebuffer_size()
+
+            io = imgui.get_io()
+            imgui_modifiers = io.key_mods
+
+            mapped_mods = (
+                (Modifiers.SHIFT if imgui_modifiers & imgui.Key.MOD_SHIFT else 0)
+                | (Modifiers.CTRL if imgui_modifiers & imgui.Key.MOD_CTRL else 0)
+                | (Modifiers.ALT if imgui_modifiers & imgui.Key.MOD_ALT else 0)
+                | (Modifiers.SUPER if imgui_modifiers & imgui.Key.MOD_SUPER else 0)
+            )
+            mouse_button_map = {
+                MouseButton.LEFT: imgui.MouseButton.LEFT,
+                MouseButton.RIGHT: imgui.MouseButton.RIGHT,
+                MouseButton.MIDDLE: imgui.MouseButton.MIDDLE,
+            }
+            rotate_button = mouse_button_map[self.key_map.camera_rotate.button]
+            pan_button = mouse_button_map[self.key_map.camera_pan.button]
+
+            prevent_left_button_window_move = (
+                self.key_map.camera_rotate.button == MouseButton.LEFT
+                and self.key_map.camera_rotate.mods == Modifiers.NONE
+            ) or (
+                self.key_map.camera_pan.button == MouseButton.LEFT and self.key_map.camera_pan.mods == Modifiers.NONE
+            )
+
+            output_width, output_height = self._get_framebuffer_size()
+
             for v in self.viewports:
                 assert v.imgui_texture is not None
 
+                imgui.set_next_window_size_constraints(imgui.Vec2(0, 0), imgui.Vec2(v.image.width, v.image.height))
                 if imgui.begin(v.name)[0]:
                     cursor_pos = imgui.get_cursor_screen_pos()
                     pos = ivec2(cursor_pos.x, cursor_pos.y)
@@ -896,27 +928,41 @@ class Viewer:
                     size = ivec2(avail.x, avail.y)
                     v.rect.x = pos.x
                     v.rect.y = pos.y
-                    v.rect.width = size.x
-                    v.rect.height = size.y
+                    v.rect.width = min(size.x, output_width)
+                    v.rect.height = min(size.y, output_height)
                     imgui.image(
                         v.imgui_texture, avail, imgui.Vec2(0, 0), imgui.Vec2(size.x / fb_width, size.y / fb_height)
                     )
 
-                    # TODO:
-                    # - Remap to our keybindings
-                    # - Add scroll (with modifiers)
-                    # - Maybe combine with on_mouse_button after remapping?
-                    mouse_pos = imgui.get_mouse_pos()
-                    if imgui.is_item_clicked(imgui.MouseButton.LEFT):
+                    # Rotate
+                    if imgui.is_item_clicked(rotate_button) and mapped_mods == self.key_map.camera_rotate.mods:
                         self.active_viewport = v
+                        mouse_pos = imgui.get_mouse_pos()
                         v.on_rotate_press(ivec2(mouse_pos.x, mouse_pos.y))
-                    elif not imgui.is_mouse_down(imgui.MouseButton.LEFT):
+                    elif not imgui.is_mouse_down(rotate_button):
                         v.on_rotate_release()
-                    if imgui.is_item_clicked(imgui.MouseButton.RIGHT):
+
+                    # Pan
+                    if imgui.is_item_clicked(pan_button) and mapped_mods == self.key_map.camera_pan.mods:
                         self.active_viewport = v
+                        mouse_pos = imgui.get_mouse_pos()
                         v.on_pan_press(ivec2(mouse_pos.x, mouse_pos.y))
-                    elif not imgui.is_mouse_down(imgui.MouseButton.RIGHT):
+                    elif not imgui.is_mouse_down(pan_button):
                         v.on_pan_release()
+
+                    # Zoom
+                    if imgui.is_item_hovered():
+                        if mapped_mods == self.key_map.camera_zoom_modifiers:
+                            v.zoom(dvec2(0, io.mouse_wheel), False)
+                        elif mapped_mods == self.key_map.camera_zoom_move_modifiers:
+                            v.zoom(dvec2(0, io.mouse_wheel), True)
+
+                    # If pan or rotate is happening on just left click, prevent imgui window move
+                    # by creating an invisible button on the whole window content area.
+                    # Moving is still possible by dragging the window title bar.
+                    if prevent_left_button_window_move and avail.x > 0 and avail.y > 0:
+                        imgui.set_cursor_screen_pos(cursor_pos)
+                        imgui.invisible_button(v.name, avail)
                 else:
                     v.rect.width = 0
                     v.rect.height = 0
