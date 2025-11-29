@@ -61,6 +61,7 @@ Priority:
                     - During rendering render to each of this image then transition to shader read optimal before rendering GUI.
                     - If you have multisampling on you actually need a multisample buffer for each viewport too
                         -> actually since we render in sequence you could always reuse the same one
+        - [ ] Would be nice to highlight viewport borders when active (also maybe on over with slightly dimmer tone)
     - [ ] Viewer:
         - [x] View dependent things need to be recomputed and potentially require multi-buffering:
             - need to sort gaussians for both views

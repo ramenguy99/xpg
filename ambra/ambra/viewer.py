@@ -311,6 +311,8 @@ class Viewer:
                     name=f"viewport-{viewport_index}",
                 )
             )
+        # TODO: do we want to allow 0 initial viewports?
+        self.active_viewport = self.viewports[0]
 
         # Server
         self.server = Server(self.on_raw_message_async, config.server)
@@ -335,8 +337,7 @@ class Viewer:
                 self.playback.set_frame(self.playback.current_frame - 1)
 
     def get_active_viewport(self) -> Viewport:
-        # TODO: maybe need to split from active vs under mouse, also maybe can use some imgui magic to detect the active viewport.
-        return self.viewports[0]
+        return self.active_viewport
 
     def on_mouse_button(
         self,
@@ -888,18 +889,37 @@ class Viewer:
             for v in self.viewports:
                 assert v.imgui_texture is not None
 
-                imgui.begin(v.name)
-                cursor_pos = imgui.get_cursor_screen_pos()
-                pos = ivec2(cursor_pos.x, cursor_pos.y)
-                avail = imgui.get_content_region_avail()
-                size = ivec2(avail.x, avail.y)
-                v.rect.x = pos.x
-                v.rect.y = pos.y
-                v.rect.width = size.x
-                v.rect.height = size.y
-                imgui.image(
-                    v.imgui_texture, avail, imgui.Vec2(0, 0), imgui.Vec2(size.x / fb_width, size.y / fb_height)
-                )
+                if imgui.begin(v.name)[0]:
+                    cursor_pos = imgui.get_cursor_screen_pos()
+                    pos = ivec2(cursor_pos.x, cursor_pos.y)
+                    avail = imgui.get_content_region_avail()
+                    size = ivec2(avail.x, avail.y)
+                    v.rect.x = pos.x
+                    v.rect.y = pos.y
+                    v.rect.width = size.x
+                    v.rect.height = size.y
+                    imgui.image(
+                        v.imgui_texture, avail, imgui.Vec2(0, 0), imgui.Vec2(size.x / fb_width, size.y / fb_height)
+                    )
+
+                    # TODO:
+                    # - Remap to our keybindings
+                    # - Add scroll (with modifiers)
+                    # - Maybe combine with on_mouse_button after remapping?
+                    mouse_pos = imgui.get_mouse_pos()
+                    if imgui.is_item_clicked(imgui.MouseButton.LEFT):
+                        self.active_viewport = v
+                        v.on_rotate_press(ivec2(mouse_pos.x, mouse_pos.y))
+                    elif not imgui.is_mouse_down(imgui.MouseButton.LEFT):
+                        v.on_rotate_release()
+                    if imgui.is_item_clicked(imgui.MouseButton.RIGHT):
+                        self.active_viewport = v
+                        v.on_pan_press(ivec2(mouse_pos.x, mouse_pos.y))
+                    elif not imgui.is_mouse_down(imgui.MouseButton.RIGHT):
+                        v.on_pan_release()
+                else:
+                    v.rect.width = 0
+                    v.rect.height = 0
                 imgui.end()
             imgui.pop_style_var()
 
