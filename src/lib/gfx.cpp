@@ -1846,7 +1846,9 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
         VkDevice device = vk.device;
 
         CreateGPUSemaphore(vk.device, &present_semaphores[i]);
-        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, present_semaphores[i], "xpg-swapchain-present-semaphore");
+        if (vk.debug_utils_enabled) {
+            DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, present_semaphores[i], "xpg-swapchain-present-semaphore");
+        }
     }
 
     // We limit the number of frames we create to at most being the number of swapchain images.
