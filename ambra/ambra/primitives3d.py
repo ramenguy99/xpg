@@ -509,10 +509,10 @@ class AxisGizmo(Mesh):
         )
 
         super().__init__(
-            mesh_v,
-            mesh_f,
-            mesh_n,
-            vertex_colors=mesh_c,
+            mesh_v, # type: ignore
+            mesh_f, # type: ignore
+            mesh_n, # type: ignore
+            vertex_colors=mesh_c, # type: ignore
             name=name,
             translation=translation,
             rotation=rotation,

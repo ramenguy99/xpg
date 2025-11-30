@@ -923,6 +923,7 @@ class Viewer:
 
             for v in self.viewports:
                 assert v.imgui_texture is not None
+                assert v.image is not None
 
                 imgui.set_next_window_size_constraints(imgui.Vec2(0, 0), imgui.Vec2(v.image.width, v.image.height))
                 if imgui.begin(v.name)[0]:

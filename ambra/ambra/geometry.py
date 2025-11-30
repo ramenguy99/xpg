@@ -1,4 +1,4 @@
-from typing import Any, Sequence, Tuple
+from typing import Any, List, Sequence, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -8,7 +8,7 @@ from pyglm.glm import mat3, mat4
 # TODO: replace with array version
 def create_sphere(
     radius: float = 1.0, rings: int = 16, sectors: int = 32
-) -> Tuple[NDArray[np.float32], NDArray[np.uint32]]:
+) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
     inv_r = 1.0 / (rings - 1)
     inv_s = 1.0 / (sectors - 1)
 
@@ -38,7 +38,7 @@ def create_sphere(
     return vertices, normals, faces.flatten()
 
 
-def create_disk(radius: float = 1.0, sectors: int = 8):
+def create_disk(radius: float = 1.0, sectors: int = 8) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
     angle = 2 * np.pi / sectors
 
     vertices = np.zeros((sectors + 1, 3), np.float32)
@@ -48,8 +48,8 @@ def create_disk(radius: float = 1.0, sectors: int = 8):
     normals = np.zeros_like(vertices)
     normals[:, 2] = 1.0
 
-    faces = np.zeros((sectors, 3), dtype=np.int32)
-    idxs = np.array(range(1, sectors + 1), dtype=np.int32)
+    faces = np.zeros((sectors, 3), dtype=np.uint32)
+    idxs = np.array(range(1, sectors + 1), dtype=np.uint32)
     faces[:, 2] = idxs
     faces[:-1, 1] = idxs[1:]
     faces[-1, 1] = 1
@@ -57,7 +57,7 @@ def create_disk(radius: float = 1.0, sectors: int = 8):
     return vertices, normals, faces.flatten()
 
 
-def create_cylinder(radius: float = 1.0, height=1.0, sectors: int = 8):
+def create_cylinder(radius: float = 1.0, height:float=1.0, sectors: int = 8) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
     angle = 2 * np.pi / sectors
 
     vertices = np.zeros((sectors * 2, 3), np.float32)
@@ -195,7 +195,7 @@ _cube_indices = np.array(
 
 def create_cube(
     position: Tuple[float, float, float] = (0, 0, 0), extents: Tuple[float, float, float] = (1, 1, 1)
-) -> Tuple[NDArray[np.float32], NDArray[np.uint32]]:
+) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
     return (
         _cube_positions * np.asarray(extents, np.float32) + np.asarray(position, np.float32),
         _cube_normals.copy(),
@@ -203,7 +203,7 @@ def create_cube(
     )
 
 
-def concatenate_meshes(attributes: Sequence[Sequence[NDArray[Any]]], indices: Sequence[NDArray[np.uint32]]):
+def concatenate_meshes(attributes: Sequence[Sequence[NDArray[Any]]], indices: Sequence[NDArray[np.uint32]]) -> Tuple[List[NDArray[np.float32]], NDArray[np.uint32]]:
     total_offset = 0
     offsets = []
     for m in attributes:
@@ -221,16 +221,16 @@ def concatenate_meshes(attributes: Sequence[Sequence[NDArray[Any]]], indices: Se
     return cc_attributes, cc_indices
 
 
-def transform_positions(transform: mat4, vertices: NDArray[np.float32]):
+def transform_positions(transform: mat4, vertices: NDArray[np.float32]) -> NDArray[np.float32]:
     t = np.array(transform)
     v_h = np.hstack((vertices, np.ones((vertices.shape[0], 1), np.float32)))
-    return (v_h @ t.T)[:, :3]
+    return (v_h @ t.T)[:, :3] # type: ignore
 
 
-def transform_directions(transform: mat3, directions: NDArray[np.float32]):
+def transform_directions(transform: mat3, directions: NDArray[np.float32]) -> NDArray[np.float32]:
     t = np.array(transform)
-    return directions @ t.T
+    return directions @ t.T # type: ignore
 
 
-def transform_mesh(transform: mat4, vertices: NDArray[np.float32], normals: NDArray[np.float32]):
+def transform_mesh(transform: mat4, vertices: NDArray[np.float32], normals: NDArray[np.float32]) -> Tuple[NDArray[np.float32], NDArray[np.float32]]:
     return transform_positions(transform, vertices), transform_directions(mat3(transform), normals)
