@@ -42,6 +42,16 @@ struct VSInput
     [[vk::location(VERTEX_UVS)]]
     float2 uv;
 #endif
+
+#ifdef VERTEX_COLORS
+    [[vk::location(VERTEX_COLORS)]]
+    uint32_t color;
+#endif
+
+#ifdef INSTANCE_POSITIONS
+    [[vk::location(INSTANCE_POSITIONS)]]
+    float3 instance_position;
+#endif
 };
 
 struct VSOutput
@@ -57,6 +67,9 @@ struct VSOutput
 #ifdef VERTEX_UVS
     float2 uv;
 #endif
+#ifdef VERTEX_COLORS
+    float4 color;
+#endif
 };
 
 [shader("vertex")]
@@ -64,6 +77,9 @@ VSOutput vertex_main(VSInput in)
 {
     VSOutput out;
     float3 world_position = mul(g_object_constants.transform, float4(in.position, 1.0));
+#ifdef INSTANCE_POSITIONS
+    world_position += in.instance_position;
+#endif
     out.position = mul(g_constants.projection, mul(g_constants.view, float4(world_position, 1.0)));
     out.world_position = world_position;
 #ifdef VERTEX_NORMALS
@@ -74,6 +90,14 @@ VSOutput vertex_main(VSInput in)
 #endif
 #ifdef VERTEX_UVS
     out.uv = in.uv;
+#endif
+#ifdef VERTEX_COLORS
+    out.color = float4(
+        (float)((in.color >> 0) & 0xFF) * (1.0 / 255.0),
+        (float)((in.color >> 8) & 0xFF) * (1.0 / 255.0),
+        (float)((in.color >> 16) & 0xFF) * (1.0 / 255.0),
+        (float)((in.color >> 24) & 0xFF) * (1.0 / 255.0),
+    );
 #endif
 
     return out;
@@ -106,7 +130,13 @@ float4 pixel_main(VSOutput in) : SV_Target0
     float2 uv = 0.0;
 #endif
 
-    float3 color = g_material.eval(in.world_position, uv, N, T);
+#ifdef VERTEX_COLORS
+    float3 tint = in.color.rgb;
+#else
+    float3 tint = 1.0;
+#endif
+
+    float3 color = g_material.eval(in.world_position, uv, N, T, tint);
 
     return float4(color, 1.0);
 }

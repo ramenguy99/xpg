@@ -649,7 +649,9 @@ class Viewer:
         self.gui_playback_slider_held = False
         if imgui.begin("Playback")[0]:
             _, self.playback.playing = imgui.checkbox("Playing", self.playback.playing)
-            imgui.text(f"Time (s): {self.playback.current_time:7.3f} / {self.playback.max_time: 7.3f}")
+            _, self.playback.playback_speed_multiplier = imgui.drag_float(
+                "Playback speed", self.playback.playback_speed_multiplier, 0.01, 0.01, 10.0, format="%.2fx"
+            )
             _, frame = imgui.slider_int(
                 "Frame",
                 self.playback.current_frame,
@@ -659,6 +661,8 @@ class Viewer:
             if imgui.is_item_active():
                 self.gui_playback_slider_held = True
                 self.playback.set_frame(frame)
+            imgui.text(f"Time (s): {self.playback.current_time:7.3f} / {self.playback.max_time: 7.3f}")
+            imgui.text(f"Playback FPS: {self.playback.frames_per_second:7.3f}")
         imgui.end()
 
     def gui_inspector(self) -> None:

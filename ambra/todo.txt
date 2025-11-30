@@ -85,9 +85,9 @@ Priority:
             - [ ] think about the camera, especially with respect to having cameras in scene
         - [ ] Missing:
             - [x] Camera mouse interactions with different viewport
-            - [ ] Upload lights and how it would integrate with masking
-                - Plan is to make this more immediate mode, upload lights every frame and only if enabled and the mask matches the viewport
             - [ ] Object viewport masks
+                - [ ] Mask is optional int, None means all
+                - [ ] Lights with masking -> plan is to make this more immediate mode, upload lights every frame and only if enabled and the mask matches the viewport
             - [ ] Maybe move some viewport code inside renderer? It seems like now it's quite renderer specific, but currently lives in viewer.py
 - [ ] Windowless viewer
     - [x] Screenshots
@@ -96,11 +96,14 @@ Priority:
         - [x] Do pipelinening and check speedup
         - [ ] Frame / timestamp range customization with different playback and render rate
 - [ ] Colormap material with user-configurable min-max and colormap (evaluated in shader from R channel)
+    - think about how to also maybe support variants like versions dependent on distance to position / plane
+- [ ] Remove all the get_current() that we don't need from render() (to avoid spurious streaming loads)
 
 TODO:
 - [ ] Primitives
     - [ ] Objects:
-        - [ ] thin points 2D / 3D
+        - [ ] thin points 2D
+        - [x] thin points 3D
         - [x] thin lines 2D / 3D
         - [ ] circles and spheres
         - [ ] Cilinders (with/without caps)
@@ -115,6 +118,14 @@ TODO:
             - [ ] Height control
         - [x] 2D Images
         - [x] 3D Images (e.g. textured quads)
+        - [ ] There are multiple types of simple shapes you could want:
+            - [ ] Instanced objects with normal materials -> basically the current mesh we have now + instancing (could be added to mesh, could be separate)
+            - [ ] Instanced with single fixed color for all objects -> similar to diffuse material but color comes from uniforms (e.g. push constants)
+            - [ ] Instanced with different color per object -> similar to diffuse material but with color coming from buffers + instance_id instead of from uniform / (sampler + uv)
+            - [ ] The 2 above could also come in a variation where you have more than one color per object (but a bounded amount, e.g. 4)
+                - Can implement this by having a separate object for each, but then you need to 4x a lot of stuff which does not help scaling.
+                - One option is to do tint and have different shader permutation that tint
+                    -> need to remember to create a white material for this (could have logic that defaults to diffuse (1, 1, 1, 1) instead of (0.5, 0.5, 0.5, 1.0) if vertex colors or intance colors are passed in)
     - [ ] Add helpers to simplify creation of vertex buffers and descriptor sets
     - [ ] Together with light / materials, figure out how to do shader permutations / optional properties
 - [ ] Renderer architecture / path tracer support
@@ -302,6 +313,18 @@ Tools:
 
 
 Notes:
+
+DB viewer implementation notes:
+- Need prefetch to work also
+- If you use get_current() on a property in renderable (for example to get the number of points to draw) you trigger a
+  get_frame_by_index per frame, which in the streaming case is bad because this is not cached.
+- If we cache it on update we have the weird behavior that now on update you always get a load that does not now about the GpuProperty cache.
+  -> if we were to redesign from scratch we maybe separate the concept of CPU and GPU caching a bit more instead of having both happening inside the GPU property.
+     this might be easier said than done since the GpuProperty is actually doing CPU memory management as well right now because it wants to
+     fill GPU visiblee CPU buffers directly.
+  -> for now we can avoid this by not calling get_current on render, but this is potentially easy to do by mistake
+  -> this also interacts weirdly with async_load because if you call get_current on the CPU you also need to handle main thread loads (thread_idx = -1), which
+     if used naively to index resources would result in concurrent usage of the last item in the resource list.
 
 New property API plans:
 - Deps:

@@ -209,7 +209,7 @@ def main():
     cubemap_data = EnvironmentCubemaps.load(file)
     result = cubemap_data.gpu(ctx)
 
-    cube_positions, cube_faces = create_cube()
+    cube_positions, _, cube_faces = create_cube(extents=(2.0, 2.0, 2.0))
     cube = DebugCube(result.specular_cubemap, cube_positions, cube_faces)
 
     line_width = 4

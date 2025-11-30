@@ -65,8 +65,7 @@ def main():
         np.uint32,
     )
 
-    v, f = create_sphere(0.5, rings=32, sectors=64)
-    n = v / np.linalg.norm(v, axis=1, keepdims=True)
+    v, n, f = create_sphere(0.5, rings=32, sectors=64)
 
     p_v = ArrayBufferProperty(v[np.newaxis], np.float32)
     p_n = ArrayBufferProperty(n[np.newaxis], np.float32)

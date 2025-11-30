@@ -49,6 +49,7 @@ class RendererConfig:
 class PlaybackConfig:
     playing: bool = False
     frames_per_second: float = 30.0
+    playback_speed_multiplier: float = 1.0
     initial_time: float = 0.0
     initial_frame: Optional[int] = None
     max_time: Optional[float] = None
@@ -92,7 +93,7 @@ class CameraConfig:
     projection: CameraProjection = CameraProjection.PERSPECTIVE
     position: Tuple[float, float, float] = (1.0, 1.0, 1.0)
     target: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-    z_near: float = 0.001
+    z_near: float = 0.01
     z_far: float = 1000.0
 
     # If type is CameraProjection.PERSPECTIVE

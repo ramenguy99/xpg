@@ -5,7 +5,7 @@ from enum import Enum, IntFlag
 from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
-from pyglm.glm import inverse, mat3, mat4x3, transpose
+from pyglm.glm import inverse, mat3, mat4x3, rotate, transpose, vec3
 from pyxpg import (
     AllocType,
     Attachment,
@@ -37,6 +37,7 @@ from pyxpg import (
     VertexInputRate,
 )
 
+from .geometry import concatenate_meshes, create_cylinder, create_sphere, transform_mesh
 from .gpu_sorting import GpuSortingPipeline, SortDataType, SortOptions
 from .materials import ColorMaterial, DiffuseMaterial, Material
 from .property import BufferProperty, ImageProperty, as_image_property
@@ -45,6 +46,85 @@ from .renderer_frame import RendererFrame
 from .scene import Object, Object3D
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import cull_mode_opposite_face, div_round_up
+
+
+class Points(Object3D):
+    def __init__(
+        self,
+        points: BufferProperty,
+        colors: BufferProperty,
+        point_size: Union[BufferProperty, float] = 1.0,
+        name: Optional[str] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
+    ):
+        self.constants_dtype = np.dtype(
+            {
+                "transform": (np.dtype((np.float32, (3, 4))), 0),
+                "point_size": (np.float32, 48),
+            }
+        )  # type: ignore
+        self.constants = np.zeros((1,), self.constants_dtype)
+
+        super().__init__(name, translation, rotation, scale, enabled=enabled)
+        self.points = self.add_buffer_property(points, np.float32, (-1, 3), name="points").use_gpu(
+            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+        )
+        self.colors = self.add_buffer_property(colors, np.uint32, (-1,), name="colors").use_gpu(
+            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+        )
+        self.point_size = self.add_buffer_property(point_size, np.float32, name="point_size")
+
+    def create(self, r: Renderer) -> None:
+        vert = r.compile_builtin_shader("3d/points.slang", "vertex_main")
+        frag = r.compile_builtin_shader("3d/points.slang", "pixel_main")
+
+        # Instantiate the pipeline using the compiled shaders
+        self.pipeline = GraphicsPipeline(
+            r.ctx,
+            stages=[
+                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+            ],
+            vertex_bindings=[
+                VertexBinding(0, 12, VertexInputRate.VERTEX),
+                VertexBinding(1, 4, VertexInputRate.VERTEX),
+            ],
+            vertex_attributes=[
+                VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
+                VertexAttribute(1, 1, Format.R32_UINT),
+            ],
+            input_assembly=InputAssembly(PrimitiveTopology.POINT_LIST),
+            samples=r.msaa_samples,
+            attachments=[Attachment(format=r.output_format)],
+            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+            ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
+        )
+
+    def update_transform(self, parent: Optional[Object]) -> None:
+        super().update_transform(parent)
+        self.constants["transform"] = mat4x3(self.current_transform_matrix)
+
+    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        self.constants["point_size"] = self.point_size.get_current()
+        points = self.points.get_current_gpu()
+        frame.cmd.bind_graphics_pipeline(
+            self.pipeline,
+            vertex_buffers=[
+                points.buffer_and_offset(),
+                self.colors.get_current_gpu().buffer_and_offset(),
+            ],
+            descriptor_sets=[
+                scene_descriptor_set,
+            ],
+            push_constants=self.constants.tobytes(),
+        )
+        frame.cmd.draw(points.size // 12)
 
 
 class Lines(Object3D):
@@ -140,6 +220,8 @@ class Mesh(Object3D):
         normals: Optional[BufferProperty] = None,
         tangents: Optional[BufferProperty] = None,
         uvs: Optional[BufferProperty] = None,
+        vertex_colors: Optional[BufferProperty] = None,
+        instance_positions: Optional[BufferProperty] = None,
         primitive_topology: PrimitiveTopology = PrimitiveTopology.TRIANGLE_LIST,
         cull_mode: CullMode = CullMode.NONE,
         front_face: FrontFace = FrontFace.COUNTER_CLOCKWISE,
@@ -161,12 +243,16 @@ class Mesh(Object3D):
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
+        if material is None:
+            default_color = (0.5, 0.5, 0.5) if vertex_colors is None else (1.0, 1.0, 1.0)
+            material = DiffuseMaterial(default_color)
+
         super().__init__(
             name,
             translation,
             rotation,
             scale,
-            material if material is not None else DiffuseMaterial((0.5, 0.5, 0.5)),
+            material,
             enabled,
         )
 
@@ -202,12 +288,28 @@ class Mesh(Object3D):
             if indices is not None
             else None
         )
+        self.vertex_colors = (
+            self.add_buffer_property(vertex_colors, np.uint32, (-1,), name="vertex_colors").use_gpu(
+                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+            )
+            if vertex_colors is not None
+            else None
+        )
+        self.instance_positions = (
+            self.add_buffer_property(instance_positions, np.float32, (-1, 3), name="instance_positions").use_gpu(
+                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+            )
+            if instance_positions is not None
+            else None
+        )
 
     def create(self, r: Renderer) -> None:
         assert self.material is not None
         defines: List[Tuple[str, str]] = []
         defines.extend(self.material.shader_defines)
 
+        depth_defines: List[Tuple[str, str]] = []
+        vertex_binding_index = 1
         vertex_bindings = [
             VertexBinding(0, 12, VertexInputRate.VERTEX),
         ]
@@ -215,7 +317,14 @@ class Mesh(Object3D):
             VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
         ]
 
-        vertex_binding_index = 1
+        depth_vertex_binding_index = 1
+        depth_vertex_bindings = [
+            VertexBinding(0, 12, VertexInputRate.VERTEX),
+        ]
+        depth_vertex_attributes = [
+            VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
+        ]
+
         if self.normals is not None:
             defines.append(("VERTEX_NORMALS", str(vertex_binding_index)))
             vertex_bindings.append(VertexBinding(vertex_binding_index, 12, VertexInputRate.VERTEX))
@@ -237,6 +346,27 @@ class Mesh(Object3D):
             vertex_bindings.append(VertexBinding(vertex_binding_index, 8, VertexInputRate.VERTEX))
             vertex_attributes.append(VertexAttribute(vertex_binding_index, vertex_binding_index, Format.R32G32_SFLOAT))
             vertex_binding_index += 1
+
+        if self.vertex_colors is not None:
+            defines.append(("VERTEX_COLORS", str(vertex_binding_index)))
+            vertex_bindings.append(VertexBinding(vertex_binding_index, 4, VertexInputRate.VERTEX))
+            vertex_attributes.append(VertexAttribute(vertex_binding_index, vertex_binding_index, Format.R32_UINT))
+            vertex_binding_index += 1
+
+        if self.instance_positions is not None:
+            defines.append(("INSTANCE_POSITIONS", str(vertex_binding_index)))
+            vertex_bindings.append(VertexBinding(vertex_binding_index, 12, VertexInputRate.INSTANCE))
+            vertex_attributes.append(
+                VertexAttribute(vertex_binding_index, vertex_binding_index, Format.R32G32B32_SFLOAT)
+            )
+            vertex_binding_index += 1
+
+            depth_defines.append(("INSTANCE_POSITIONS", str(depth_vertex_binding_index)))
+            depth_vertex_bindings.append(VertexBinding(depth_vertex_binding_index, 12, VertexInputRate.INSTANCE))
+            depth_vertex_attributes.append(
+                VertexAttribute(depth_vertex_binding_index, depth_vertex_binding_index, Format.R32G32B32_SFLOAT)
+            )
+            depth_vertex_binding_index += 1
 
         vert = r.compile_builtin_shader("3d/mesh.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
@@ -261,18 +391,14 @@ class Mesh(Object3D):
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
-        depth_vert = r.compile_builtin_shader("3d/mesh_depth.slang", "vertex_main")
+        depth_vert = r.compile_builtin_shader("3d/mesh_depth.slang", "vertex_main", defines=depth_defines)
         self.depth_pipeline = GraphicsPipeline(
             r.ctx,
             stages=[
                 PipelineStage(Shader(r.ctx, depth_vert.code), Stage.VERTEX),
             ],
-            vertex_bindings=[
-                VertexBinding(0, 12, VertexInputRate.VERTEX),
-            ],
-            vertex_attributes=[
-                VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
-            ],
+            vertex_bindings=depth_vertex_bindings,
+            vertex_attributes=depth_vertex_attributes,
             rasterization=Rasterization(cull_mode=cull_mode_opposite_face(self.cull_mode), front_face=self.front_face),
             input_assembly=InputAssembly(self.primitive_topology),
             attachments=[],
@@ -289,11 +415,15 @@ class Mesh(Object3D):
         self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3(self.current_transform_matrix)))
 
     def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        vertex_buffers = [
+            self.positions.get_current_gpu().buffer_and_offset(),
+        ]
+        if self.instance_positions is not None:
+            vertex_buffers.append(self.instance_positions.get_current_gpu().buffer_and_offset())
+
         frame.cmd.bind_graphics_pipeline(
             self.depth_pipeline,
-            vertex_buffers=[
-                self.positions.get_current_gpu().buffer_and_offset(),
-            ],
+            vertex_buffers=vertex_buffers,
             index_buffer=self.indices.get_current_gpu().buffer_and_offset() if self.indices is not None else None,
             descriptor_sets=[
                 scene_descriptor_set,
@@ -318,6 +448,10 @@ class Mesh(Object3D):
             vertex_buffers.append(self.tangents.get_current_gpu().buffer_and_offset())
         if self.uvs is not None:
             vertex_buffers.append(self.uvs.get_current_gpu().buffer_and_offset())
+        if self.vertex_colors is not None:
+            vertex_buffers.append(self.vertex_colors.get_current_gpu().buffer_and_offset())
+        if self.instance_positions is not None:
+            vertex_buffers.append(self.instance_positions.get_current_gpu().buffer_and_offset())
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -330,10 +464,61 @@ class Mesh(Object3D):
             push_constants=self.constants.tobytes(),
         )
 
+        num_instances = 1 if self.instance_positions is None else self.instance_positions.get_current().shape[0]
         if self.indices is not None:
-            frame.cmd.draw_indexed(self.indices.get_current().shape[0])
+            frame.cmd.draw_indexed(self.indices.get_current().shape[0], num_instances)
         else:
-            frame.cmd.draw(self.positions.get_current().shape[0])
+            frame.cmd.draw(self.positions.get_current().shape[0], num_instances)
+
+
+class AxisGizmo(Mesh):
+    def __init__(
+        self,
+        sphere_radius: float = 0.02,
+        axis_radius: float = 0.01,
+        axis_length: float = 0.1,
+        sphere_color: int = 0xFFCCCCCC,
+        x_axis_color: int = 0xFF0000FF,
+        y_axis_color: int = 0xFF00FF00,
+        z_axis_color: int = 0xFFFF0000,
+        name: Optional[str] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
+    ):
+        sphere_v, sphere_n, sphere_f = create_sphere(sphere_radius, 8, 16)
+        sphere_c = np.full(sphere_v.shape[0], sphere_color, np.uint32)
+
+        z_cylinder_v, z_cylinder_n, cylinder_f = create_cylinder(axis_radius, axis_length)
+        z_cylinder_c = np.full(z_cylinder_v.shape[0], z_axis_color, np.uint32)
+
+        x_cylinder_v, x_cylinder_n = transform_mesh(rotate(np.pi * 0.5, vec3(0, 1, 0)), z_cylinder_v, z_cylinder_n)
+        x_cylinder_c = np.full(x_cylinder_v.shape[0], x_axis_color, np.uint32)
+
+        y_cylinder_v, y_cylinder_n = transform_mesh(rotate(np.pi * 0.5, vec3(0, 0, 1)), x_cylinder_v, x_cylinder_n)
+        y_cylinder_c = np.full(y_cylinder_v.shape[0], y_axis_color, np.uint32)
+        (mesh_v, mesh_n, mesh_c), mesh_f = concatenate_meshes(
+            [
+                (sphere_v, sphere_n, sphere_c),
+                (x_cylinder_v, x_cylinder_n, x_cylinder_c),
+                (y_cylinder_v, y_cylinder_n, y_cylinder_c),
+                (z_cylinder_v, z_cylinder_v, z_cylinder_c),
+            ],
+            [sphere_f, cylinder_f, cylinder_f, cylinder_f],
+        )
+
+        super().__init__(
+            mesh_v,
+            mesh_f,
+            mesh_n,
+            vertex_colors=mesh_c,
+            name=name,
+            translation=translation,
+            rotation=rotation,
+            scale=scale,
+            enabled=enabled,
+        )
 
 
 class Image(Mesh):

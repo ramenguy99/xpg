@@ -29,7 +29,7 @@ viewer = Viewer(
     ),
 )
 
-v, f = create_sphere(0.5, rings=32, sectors=64)
+v, _, f = create_sphere(0.5, rings=32, sectors=64)
 
 enabled_always = True
 

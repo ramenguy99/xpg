@@ -91,12 +91,12 @@ public struct UniformEnvironmentLight : ILight
 
 public interface IMaterial
 {
-    public float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent);
+    public float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float3 tint);
 }
 
 public struct EmptyMaterial : IMaterial
 {
-    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent)
+    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float3 tint)
     {
         return 0.0;
     }
@@ -110,7 +110,7 @@ public struct ColorMaterial : IMaterial
     public SamplerState sampler;
     public Texture2D color_texture;
 
-    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent)
+    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float3 tint)
     {
         float3 color;
         if (has_color_texture) {
@@ -118,7 +118,7 @@ public struct ColorMaterial : IMaterial
         } else {
             color = this.color;
         }
-        return color;
+        return color * tint.rgb;
     }
 }
 
@@ -132,7 +132,7 @@ public struct DiffuseMaterial : IMaterial
     public Texture2D diffuse_texture;
     public Texture2D normal_texture;
 
-    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent)
+    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float3 tint)
     {
         float3 diffuse;
         if (has_diffuse_texture) {
@@ -140,6 +140,7 @@ public struct DiffuseMaterial : IMaterial
         } else {
             diffuse = this.diffuse;
         }
+        diffuse *= tint;
 
         float3 N = world_normal;
         if (has_normal_texture != 0) {
@@ -194,7 +195,7 @@ public struct DiffuseSpecularMaterial : IMaterial
     public Texture2D specular_strength_texture;
     public Texture2D normal_texture;
 
-    public float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent)
+    public float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float3 tint)
     {
         float3 diffuse;
         if (has_diffuse_texture) {
@@ -202,6 +203,8 @@ public struct DiffuseSpecularMaterial : IMaterial
         } else {
             diffuse = this.diffuse;
         }
+        diffuse *= tint;
+
         float specular_strength;
         if (has_diffuse_texture) {
             specular_strength = this.specular_strength_texture.Sample(sampler, uv).r;
@@ -341,7 +344,7 @@ public struct PBRMaterial : IMaterial
     public Texture2D ao_texture;
     public Texture2D normal_texture;
 
-    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent)
+    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float3 tint)
     {
         float3 albedo;
         if (has_albedo_texture != 0) {
@@ -349,6 +352,7 @@ public struct PBRMaterial : IMaterial
         } else {
             albedo = this.albedo;
         }
+        albedo *= tint;
 
         float roughness;
         if (has_roughness_texture != 0) {

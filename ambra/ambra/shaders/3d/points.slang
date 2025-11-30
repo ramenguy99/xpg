@@ -1,0 +1,49 @@
+// Copyright Dario Mylonopoulos
+// SPDX-License-Identifier: MIT
+
+import "scene";
+
+public struct ObjectConstants {
+    public float3x4 transform;
+    public float point_size;
+};
+
+[vk::push_constant]
+public ConstantBuffer<ObjectConstants> g_object_constants;
+
+struct VSInput
+{
+    [[vk::location(0)]]
+    float3 pos;
+
+    [[vk::location(1)]]
+    uint color;
+};
+
+struct VSOutput
+{
+    float4 position: SV_Position;
+    float4 color;
+    float point_size : SV_PointSize;
+};
+
+[shader("vertex")]
+VSOutput vertex_main(VSInput in, uint instance_id: SV_InstanceID)
+{
+    VSOutput out;
+    out.position = mul(g_constants.projection, (mul(g_constants.view, float4(mul(g_object_constants.transform, float4(in.pos, 1.0)), 1.0))));
+    out.color = float4(
+        (float)((in.color >> 0) & 0xFF) * (1.0 / 255.0),
+        (float)((in.color >> 8) & 0xFF) * (1.0 / 255.0),
+        (float)((in.color >> 16) & 0xFF) * (1.0 / 255.0),
+        (float)((in.color >> 24) & 0xFF) * (1.0 / 255.0),
+    );
+    out.point_size = g_object_constants.point_size;
+    return out;
+}
+
+[shader("pixel")]
+float4 pixel_main(VSOutput in) : SV_Target0
+{
+    return in.color;
+}

@@ -42,6 +42,8 @@ class Playback:
 
         self.playing = config.playing
         self.frames_per_second = config.frames_per_second
+        self.playback_speed_multiplier = config.playback_speed_multiplier
+
         if config.initial_frame is None:
             self.current_time = config.initial_time
             self.current_frame = int(self.current_time * self.frames_per_second)
@@ -53,7 +55,7 @@ class Playback:
         self.num_frames = max(int(self.max_time * self.frames_per_second), 1)
 
     def step(self, dt: float) -> None:
-        self.set_time(self.current_time + dt)
+        self.set_time(self.current_time + dt * self.playback_speed_multiplier)
 
     def toggle_play_pause(self) -> None:
         self.playing = not self.playing

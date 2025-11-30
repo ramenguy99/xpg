@@ -72,8 +72,7 @@ light_gray = PBRMaterial(
     roughness=(1.0),
     metallic=0,
 )
-v, f = create_sphere(0.5, rings=32, sectors=64)
-n = v / np.linalg.norm(v, axis=1, keepdims=True)
+v, n, f = create_sphere(0.5, rings=32, sectors=64)
 spheres = [
     Mesh(v, f, normals=n, translation=(2, 1, 0), material=mirror),
     Mesh(v, f, normals=n, translation=(2, 1, 1.1), material=white),
