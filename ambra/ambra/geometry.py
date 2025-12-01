@@ -38,7 +38,9 @@ def create_sphere(
     return vertices, normals, faces.flatten()
 
 
-def create_disk(radius: float = 1.0, sectors: int = 8) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
+def create_disk(
+    radius: float = 1.0, sectors: int = 8
+) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
     angle = 2 * np.pi / sectors
 
     vertices = np.zeros((sectors + 1, 3), np.float32)
@@ -57,7 +59,9 @@ def create_disk(radius: float = 1.0, sectors: int = 8) -> Tuple[NDArray[np.float
     return vertices, normals, faces.flatten()
 
 
-def create_cylinder(radius: float = 1.0, height:float=1.0, sectors: int = 8) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
+def create_cylinder(
+    radius: float = 1.0, height: float = 1.0, sectors: int = 8
+) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
     angle = 2 * np.pi / sectors
 
     vertices = np.zeros((sectors * 2, 3), np.float32)
@@ -203,7 +207,9 @@ def create_cube(
     )
 
 
-def concatenate_meshes(attributes: Sequence[Sequence[NDArray[Any]]], indices: Sequence[NDArray[np.uint32]]) -> Tuple[List[NDArray[np.float32]], NDArray[np.uint32]]:
+def concatenate_meshes(
+    attributes: Sequence[Sequence[NDArray[Any]]], indices: Sequence[NDArray[np.uint32]]
+) -> Tuple[List[NDArray[np.float32]], NDArray[np.uint32]]:
     total_offset = 0
     offsets = []
     for m in attributes:
@@ -224,13 +230,15 @@ def concatenate_meshes(attributes: Sequence[Sequence[NDArray[Any]]], indices: Se
 def transform_positions(transform: mat4, vertices: NDArray[np.float32]) -> NDArray[np.float32]:
     t = np.array(transform)
     v_h = np.hstack((vertices, np.ones((vertices.shape[0], 1), np.float32)))
-    return (v_h @ t.T)[:, :3] # type: ignore
+    return (v_h @ t.T)[:, :3]  # type: ignore
 
 
 def transform_directions(transform: mat3, directions: NDArray[np.float32]) -> NDArray[np.float32]:
     t = np.array(transform)
-    return directions @ t.T # type: ignore
+    return directions @ t.T  # type: ignore
 
 
-def transform_mesh(transform: mat4, vertices: NDArray[np.float32], normals: NDArray[np.float32]) -> Tuple[NDArray[np.float32], NDArray[np.float32]]:
+def transform_mesh(
+    transform: mat4, vertices: NDArray[np.float32], normals: NDArray[np.float32]
+) -> Tuple[NDArray[np.float32], NDArray[np.float32]]:
     return transform_positions(transform, vertices), transform_directions(mat3(transform), normals)

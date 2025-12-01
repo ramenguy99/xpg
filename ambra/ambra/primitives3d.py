@@ -1,6 +1,7 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
+from dataclasses import dataclass
 from enum import Enum, IntFlag
 from typing import Any, List, Optional, Tuple, Union
 
@@ -48,11 +49,43 @@ from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import cull_mode_opposite_face, div_round_up
 
 
+class ColormapKind(Enum):
+    AUTUMN = 0
+    BONE = 1
+    COOL = 2
+    COPPER = 3
+    HOT = 4
+    HSV = 5
+    JET = 6
+    SPRING = 7
+    SUMMER = 8
+    WINTER = 9
+
+
+@dataclass
+class Colormap:
+    color: ColormapKind = ColormapKind.JET
+    range_min: float = 0.0
+    range_max: float = 1.0
+
+
+@dataclass
+class ColormapDistanceToPoint(Colormap):
+    point: vec3 = vec3(0, 0, 0)
+
+
+@dataclass
+class ColormapDistanceToPlane(Colormap):
+    normal: vec3 = vec3(0, 0, 1)
+
+
 class Points(Object3D):
     def __init__(
         self,
         points: BufferProperty,
-        colors: BufferProperty,
+        colors: Optional[BufferProperty] = None,
+        uniform_color: Optional[int] = None,
+        colormap: Optional[Colormap] = None,
         point_size: Union[BufferProperty, float] = 1.0,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
@@ -60,26 +93,73 @@ class Points(Object3D):
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
     ):
-        self.constants_dtype = np.dtype(
-            {
-                "transform": (np.dtype((np.float32, (3, 4))), 0),
-                "point_size": (np.float32, 48),
-            }
-        )  # type: ignore
+        if uniform_color is None and colors is None and colormap is None:
+            uniform_color = 0xFFCCCCCC
+
+        if uniform_color is not None:
+            if colormap is not None or colors is not None:
+                raise ValueError("Only one of uniform_color, colormap and colors can be not None")
+            self.constants_dtype = np.dtype(
+                {
+                    "transform": (np.dtype((np.float32, (3, 4))), 0),
+                    "point_size": (np.float32, 48),
+                    "color": (np.uint32, 52),
+                }
+            )  # type: ignore
+        elif colors is not None:
+            if colormap is not None:
+                raise ValueError("Only one of uniform_color, colormap and colors can be not None")
+            self.constants_dtype = np.dtype(
+                {
+                    "transform": (np.dtype((np.float32, (3, 4))), 0),
+                    "point_size": (np.float32, 48),
+                }
+            )  # type: ignore
+        elif colormap is not None:
+            self.constants_dtype = np.dtype(
+                {
+                    "transform": (np.dtype((np.float32, (3, 4))), 0),
+                    "point_size": (np.float32, 48),
+                    "colormap_measure": (np.uint32, 52),
+                    "range_min": (np.float32, 56),
+                    "range_inv_delta": (np.float32, 60),
+                    "point_or_normal": (np.dtype((np.float32, (3,))), 64),
+                }
+            )  # type: ignore
+
         self.constants = np.zeros((1,), self.constants_dtype)
 
         super().__init__(name, translation, rotation, scale, enabled=enabled)
+        self.point_size = self.add_buffer_property(point_size, np.float32, name="point_size")
         self.points = self.add_buffer_property(points, np.float32, (-1, 3), name="points").use_gpu(
             BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
         )
-        self.colors = self.add_buffer_property(colors, np.uint32, (-1,), name="colors").use_gpu(
-            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+        self.colors = (
+            self.add_buffer_property(colors, np.uint32, (-1,), name="colors").use_gpu(
+                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+            )
+            if colors is not None
+            else None
         )
-        self.point_size = self.add_buffer_property(point_size, np.float32, name="point_size")
+        self.uniform_color = uniform_color
+        self.colormap = colormap
 
     def create(self, r: Renderer) -> None:
-        vert = r.compile_builtin_shader("3d/points.slang", "vertex_main")
-        frag = r.compile_builtin_shader("3d/points.slang", "pixel_main")
+        vertex_bindings = [VertexBinding(0, 12, VertexInputRate.VERTEX)]
+        vertex_attributes = [VertexAttribute(0, 0, Format.R32G32B32_SFLOAT)]
+
+        defines = []
+        if self.uniform_color is not None:
+            defines.append(("UNIFORM_COLOR", ""))
+        elif self.colors is not None:
+            defines.append(("VERTEX_COLORS", ""))
+            vertex_bindings.append(VertexBinding(1, 4, VertexInputRate.VERTEX))
+            vertex_attributes.append(VertexAttribute(1, 1, Format.R32_UINT))
+        elif self.colormap is not None:
+            defines.append(("COLORMAP", ""))
+
+        vert = r.compile_builtin_shader("3d/points.slang", "vertex_main", defines=defines)
+        frag = r.compile_builtin_shader("3d/points.slang", "pixel_main", defines=defines)
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
@@ -88,14 +168,8 @@ class Points(Object3D):
                 PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
                 PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
             ],
-            vertex_bindings=[
-                VertexBinding(0, 12, VertexInputRate.VERTEX),
-                VertexBinding(1, 4, VertexInputRate.VERTEX),
-            ],
-            vertex_attributes=[
-                VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
-                VertexAttribute(1, 1, Format.R32_UINT),
-            ],
+            vertex_bindings=vertex_bindings,
+            vertex_attributes=vertex_attributes,
             input_assembly=InputAssembly(PrimitiveTopology.POINT_LIST),
             samples=r.msaa_samples,
             attachments=[Attachment(format=r.output_format)],
@@ -112,13 +186,30 @@ class Points(Object3D):
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         self.constants["point_size"] = self.point_size.get_current()
+        if self.uniform_color is not None:
+            self.constants["color"] = self.uniform_color
+        elif self.colormap is not None:
+            if isinstance(self.colormap, ColormapDistanceToPoint):
+                measure = 0
+                self.constants["point_or_normal"][:3] = self.colormap.point
+            elif isinstance(self.colormap, ColormapDistanceToPlane):
+                measure = 1
+                self.constants["point_or_normal"][:3] = self.colormap.normal
+            else:
+                raise ValueError("colormap must be of type ColormapDistanceToPlane or ColormapDistanceToPoint")
+            self.constants["colormap_measure"] = (measure << 16) | self.colormap.color.value
+            self.constants["range_min"] = self.colormap.range_min
+            self.constants["range_inv_delta"] = 1.0 / (self.colormap.range_max - self.colormap.range_min)
+
         points = self.points.get_current_gpu()
+
+        vertex_buffers = [points.buffer_and_offset()]
+        if self.colors is not None:
+            vertex_buffers.append(self.colors.get_current_gpu().buffer_and_offset())
+
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
-            vertex_buffers=[
-                points.buffer_and_offset(),
-                self.colors.get_current_gpu().buffer_and_offset(),
-            ],
+            vertex_buffers=vertex_buffers,
             descriptor_sets=[
                 scene_descriptor_set,
             ],
@@ -509,10 +600,10 @@ class AxisGizmo(Mesh):
         )
 
         super().__init__(
-            mesh_v, # type: ignore
-            mesh_f, # type: ignore
-            mesh_n, # type: ignore
-            vertex_colors=mesh_c, # type: ignore
+            mesh_v,  # type: ignore
+            mesh_f,  # type: ignore
+            mesh_n,  # type: ignore
+            vertex_colors=mesh_c,  # type: ignore
             name=name,
             translation=translation,
             rotation=rotation,
