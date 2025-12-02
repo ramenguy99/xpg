@@ -1425,6 +1425,7 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
         resource: GpuBufferView,
     ) -> None:
         cmd.copy_buffer_range(cpu_buf.buf, resource.buffer, cpu_buf.used_size, resource.offset)
+        resource.size = cpu_buf.used_size
 
     def _cmd_before_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
         # Needs to be all when going from application usage on graphics queue to copy on transfer queue for prefetching
