@@ -107,10 +107,11 @@ class Lines(Object2D):
         self.constants["transform"][:, :3, :3] = mat3(self.current_transform_matrix)
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        lines = self.lines.get_current_gpu()
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[
-                self.lines.get_current_gpu().buffer_and_offset(),
+                lines.buffer_and_offset(),
                 self.colors.get_current_gpu().buffer_and_offset(),
             ],
             descriptor_sets=[
@@ -122,7 +123,7 @@ class Lines(Object2D):
             self.line_width.get_current().item() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
         )
 
-        frame.cmd.draw(self.lines.get_current().shape[0])
+        frame.cmd.draw(lines.size // 8)
 
 
 class Image(Object2D):

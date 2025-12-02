@@ -89,6 +89,7 @@ Priority:
                 - [ ] Mask is optional int, None means all
                 - [ ] Lights with masking -> plan is to make this more immediate mode, upload lights every frame and only if enabled and the mask matches the viewport
             - [ ] Maybe move some viewport code inside renderer? It seems like now it's quite renderer specific, but currently lives in viewer.py
+            - [ ] GaussianSplatting is not yet ready for multi-viewport (need to split all uploads and descriptor writes into "upload", now interleaved, including for sorting).
 - [ ] Windowless viewer
     - [x] Screenshots
     - [ ] Video, maybe using av? Maybe just user callback? Make PoC then decide
@@ -97,7 +98,7 @@ Priority:
         - [ ] Frame / timestamp range customization with different playback and render rate
 - [ ] Colormap material with user-configurable min-max and colormap (evaluated in shader from R channel)
     - think about how to also maybe support variants like versions dependent on distance to position / plane
-- [ ] Remove all the get_current() that we don't need from render() (to avoid spurious streaming loads)
+- [x] Remove all the get_current() that we don't need from render() (to avoid spurious streaming loads)
 
 TODO:
 - [ ] Primitives

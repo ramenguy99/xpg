@@ -285,10 +285,11 @@ class Lines(Object3D):
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        lines = self.lines.get_current_gpu()
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[
-                self.lines.get_current_gpu().buffer_and_offset(),
+                lines.buffer_and_offset(),
                 self.colors.get_current_gpu().buffer_and_offset(),
             ],
             descriptor_sets=[
@@ -300,7 +301,7 @@ class Lines(Object3D):
             self.line_width.get_current().item() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
         )
 
-        frame.cmd.draw(self.lines.get_current().shape[0])
+        frame.cmd.draw(lines.size // 12)
 
 
 class Mesh(Object3D):
@@ -506,8 +507,9 @@ class Mesh(Object3D):
         self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3(self.current_transform_matrix)))
 
     def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        positions = self.positions.get_current_gpu()
         vertex_buffers = [
-            self.positions.get_current_gpu().buffer_and_offset(),
+            positions.buffer_and_offset(),
         ]
         num_instances = 1
         if self.instance_positions is not None:
@@ -516,10 +518,11 @@ class Mesh(Object3D):
             vertex_buffers.append(instance_positions_buf.buffer_and_offset())
             num_instances = instance_positions_buf.size // 12
 
+        indices = self.indices.get_current_gpu() if self.indices is not None else None
         frame.cmd.bind_graphics_pipeline(
             self.depth_pipeline,
             vertex_buffers=vertex_buffers,
-            index_buffer=self.indices.get_current_gpu().buffer_and_offset() if self.indices is not None else None,
+            index_buffer=indices.buffer_and_offset() if indices is not None else None,
             descriptor_sets=[
                 scene_descriptor_set,
             ],
@@ -527,15 +530,16 @@ class Mesh(Object3D):
         )
 
         if self.indices is not None:
-            frame.cmd.draw_indexed(self.indices.get_current().shape[0], num_instances)
+            frame.cmd.draw_indexed(indices.size // 4, num_instances)
         else:
-            frame.cmd.draw(self.positions.get_current().shape[0], num_instances)
+            frame.cmd.draw(positions.size // 12, num_instances)
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         assert self.material is not None
 
+        positions = self.positions.get_current_gpu()
         vertex_buffers = [
-            self.positions.get_current_gpu().buffer_and_offset(),
+            positions.buffer_and_offset(),
         ]
         num_instances = 1
         if self.normals is not None:
@@ -552,10 +556,11 @@ class Mesh(Object3D):
             num_instances = instance_positions_buf.size // 12
 
 
+        indices = self.indices.get_current_gpu() if self.indices is not None else None
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=vertex_buffers,
-            index_buffer=self.indices.get_current_gpu().buffer_and_offset() if self.indices is not None else None,
+            index_buffer=indices.buffer_and_offset() if indices is not None else None,
             descriptor_sets=[
                 scene_descriptor_set,
                 self.material.descriptor_set,
@@ -564,10 +569,39 @@ class Mesh(Object3D):
         )
 
         if self.indices is not None:
-            frame.cmd.draw_indexed(self.indices.get_current().shape[0], num_instances)
+            frame.cmd.draw_indexed(indices.size // 4, num_instances)
         else:
-            frame.cmd.draw(self.positions.get_current().shape[0], num_instances)
+            frame.cmd.draw(positions.size // 12, num_instances)
 
+class Sphere(Mesh):
+    def __init__(
+        self,
+        radius: float = 0.1,
+        color: int = 0xFFCCCCCC,
+        rings: int = 16,
+        sectors: int = 32,
+        instance_positions: Optional[BufferProperty] = None,
+        name: Optional[str] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
+    ):
+        v, n, f = create_sphere(radius, rings, sectors)
+        c = np.full(v.shape[0], color, np.uint32)
+
+        super().__init__(
+            v,
+            f,
+            n,
+            vertex_colors=c,
+            instance_positions=instance_positions,
+            name=name,
+            translation=translation,
+            rotation=rotation,
+            scale=scale,
+            enabled=enabled,
+        )
 
 class AxisGizmo(Mesh):
     def __init__(
@@ -1086,7 +1120,8 @@ class GaussianSplats(Object3D):
             frame.upload_property_pipeline_stages |= PipelineStageFlags.COMPUTE_SHADER
 
     def pre_render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
-        num_splats = self.positions.get_current().shape[0]
+        positions = self.positions.get_current_gpu()
+        num_splats = positions.size // 12
         self.constants["splat_count"] = num_splats
         self.constants["alpha_cull_threshold"] = self.alpha_cull_threshold
         self.constants["frustum_dilation"] = self.frustum_dilation
