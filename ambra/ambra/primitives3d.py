@@ -509,8 +509,12 @@ class Mesh(Object3D):
         vertex_buffers = [
             self.positions.get_current_gpu().buffer_and_offset(),
         ]
+        num_instances = 1
         if self.instance_positions is not None:
             vertex_buffers.append(self.instance_positions.get_current_gpu().buffer_and_offset())
+            instance_positions_buf = self.instance_positions.get_current_gpu()
+            vertex_buffers.append(instance_positions_buf.buffer_and_offset())
+            num_instances = instance_positions_buf.size // 12
 
         frame.cmd.bind_graphics_pipeline(
             self.depth_pipeline,
@@ -523,9 +527,9 @@ class Mesh(Object3D):
         )
 
         if self.indices is not None:
-            frame.cmd.draw_indexed(self.indices.get_current().shape[0])
+            frame.cmd.draw_indexed(self.indices.get_current().shape[0], num_instances)
         else:
-            frame.cmd.draw(self.positions.get_current().shape[0])
+            frame.cmd.draw(self.positions.get_current().shape[0], num_instances)
 
     def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
         assert self.material is not None
@@ -533,6 +537,7 @@ class Mesh(Object3D):
         vertex_buffers = [
             self.positions.get_current_gpu().buffer_and_offset(),
         ]
+        num_instances = 1
         if self.normals is not None:
             vertex_buffers.append(self.normals.get_current_gpu().buffer_and_offset())
         if self.tangents is not None:
@@ -542,7 +547,10 @@ class Mesh(Object3D):
         if self.vertex_colors is not None:
             vertex_buffers.append(self.vertex_colors.get_current_gpu().buffer_and_offset())
         if self.instance_positions is not None:
-            vertex_buffers.append(self.instance_positions.get_current_gpu().buffer_and_offset())
+            instance_positions_buf = self.instance_positions.get_current_gpu()
+            vertex_buffers.append(instance_positions_buf.buffer_and_offset())
+            num_instances = instance_positions_buf.size // 12
+
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -555,7 +563,6 @@ class Mesh(Object3D):
             push_constants=self.constants.tobytes(),
         )
 
-        num_instances = 1 if self.instance_positions is None else self.instance_positions.get_current().shape[0]
         if self.indices is not None:
             frame.cmd.draw_indexed(self.indices.get_current().shape[0], num_instances)
         else:
