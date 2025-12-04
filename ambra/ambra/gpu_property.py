@@ -346,6 +346,7 @@ class GpuPreuploadedArrayProperty(GpuProperty[V], Generic[R, V]):
         view = self.resource_views[self.property.current_frame_index]
         if self.current_staging_buf is not None:
             self._cmd_upload(frame.cmd, self.current_staging_buf, view)
+            self.current_staging_buf = None
         self.current = view
 
     # Edit API
