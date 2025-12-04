@@ -325,6 +325,9 @@ class Viewer:
         self.wait_events = config.wait_events
 
     def on_key(self, key: Key, action: Action, modifiers: Modifiers) -> None:
+        if imgui.get_io().want_capture_keyboard:
+            return
+
         # Press
         if action == Action.PRESS:
             if self.key_map.toggle_play_pause.is_active(key, modifiers):

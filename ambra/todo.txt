@@ -99,6 +99,7 @@ Priority:
 - [ ] Colormap material with user-configurable min-max and colormap (evaluated in shader from R channel)
     - think about how to also maybe support variants like versions dependent on distance to position / plane
 - [x] Remove all the get_current() that we don't need from render() (to avoid spurious streaming loads)
+- [ ] Fix leak issue with non ref-counted objects as default argument. Maybe open issue in nanobind to check if intended.
 
 TODO:
 - [ ] Primitives
