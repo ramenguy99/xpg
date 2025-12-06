@@ -2535,6 +2535,12 @@ struct Window: nb::intrusive_base {
         gfx::SetWindowCallbacks(&window, {
                 .mouse_move_event = [this](glm::ivec2 p) {
                     nb::gil_scoped_acquire gil;
+
+                    // Ignore following events after an error has occured while processing previous events
+                    if (PyErr_Occurred()) {
+                        return;
+                    }
+
                     try {
                         if(this->mouse_move_event)
                             this->mouse_move_event(nb::make_tuple(p.x, p.y));
@@ -2544,6 +2550,12 @@ struct Window: nb::intrusive_base {
                 },
                 .mouse_button_event = [this] (glm::ivec2 p, gfx::MouseButton b, gfx::Action a, gfx::Modifiers m) {
                     nb::gil_scoped_acquire gil;
+
+                    // Ignore following events after an error has occured while processing previous events
+                    if (PyErr_Occurred()) {
+                        return;
+                    }
+
                     try {
                         if(this->mouse_button_event)
                             this->mouse_button_event(nb::make_tuple(p.x, p.y), b, a, m);
@@ -2553,6 +2565,12 @@ struct Window: nb::intrusive_base {
                 },
                 .mouse_scroll_event = [this] (glm::ivec2 p, glm::dvec2 s) {
                     nb::gil_scoped_acquire gil;
+
+                    // Ignore following events after an error has occured while processing previous events
+                    if (PyErr_Occurred()) {
+                        return;
+                    }
+
                     try {
                         if(this->mouse_scroll_event)
                             this->mouse_scroll_event(nb::make_tuple(p.x, p.y), nb::make_tuple(s.x, s.y));
@@ -2562,6 +2580,12 @@ struct Window: nb::intrusive_base {
                 },
                 .key_event = [this] (gfx::Key k, gfx::Action a, gfx::Modifiers m) {
                     nb::gil_scoped_acquire gil;
+
+                    // Ignore following events after an error has occured while processing previous events
+                    if (PyErr_Occurred()) {
+                        return;
+                    }
+
                     try {
                         if(this->key_event)
                             this->key_event(k, a, m);
@@ -2571,6 +2595,12 @@ struct Window: nb::intrusive_base {
                 },
                 .draw = [this] () {
                     nb::gil_scoped_acquire gil;
+
+                    // Ignore following events after an error has occured while processing previous events
+                    if (PyErr_Occurred()) {
+                        return;
+                    }
+
                     try {
                         if(this->draw)
                             this->draw();
