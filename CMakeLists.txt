@@ -9,6 +9,7 @@ set(XPG_BUILD_APPS ON CACHE BOOL "Build XPG applications")
 set(XPG_BUILD_PYTHON ON CACHE BOOL "Build XPG python module")
 set(XPG_BUILD_SLANG ON CACHE BOOL "Build XPG with slang")
 set(XPG_BUILD_GLSLANG_AND_SPIRV OFF CACHE BOOL "Build XPG with GLSL and SPIRV support")
+set(XPG_DISABLE_NANOBIND_LEAK_WARNINGS ON CACHE BOOL "Disable nanobind leak warnings in python module")
 set(XPG_MSVC_ANALYZE OFF CACHE BOOL "Build with /analyze when using MSVC (heavily increases build times)")
 
 # Compiler specific
@@ -137,7 +138,7 @@ target_include_directories(xpg PUBLIC
 target_link_libraries(xpg PUBLIC Vulkan-Headers volk_headers glfw glm VulkanMemoryAllocator)
 if (APPLE)
     if (NOT "${XPG_MOLTENVK_PATH}" STREQUAL "")
-        message("xpg: Linking statically with MoltenVK at ${XPG_MOLTENVK_PATH}")
+        message(STATUS "xpg: Linking statically with MoltenVK at ${XPG_MOLTENVK_PATH}")
 
         target_link_directories(xpg PUBLIC "${XPG_MOLTENVK_PATH}/MoltenVK/static/MoltenVK.xcframework/macos-arm64_x86_64/")
         target_link_libraries(xpg PUBLIC "libMoltenVK.a")
@@ -193,9 +194,17 @@ if(XPG_BUILD_PYTHON)
 
     # Create python module
     nanobind_add_module(_pyxpg
+        NB_DOMAIN _pyxpg_abi_domain
         STABLE_ABI
         ${PYXPG_SOURCES}
     )
+    if(XPG_DISABLE_NANOBIND_LEAK_WARNINGS)
+        message(STATUS "Disabling nanobind leak warnings")
+        target_compile_definitions(_pyxpg PRIVATE PYXPG_DISABLE_NANOBIND_LEAK_WARNINGS=1)
+    else()
+        message(STATUS "Enabling nanobind leak warnings")
+    endif()
+
     if(XPG_BUILD_SLANG)
         target_compile_definitions(_pyxpg PRIVATE PYXPG_SLANG_ENABLED=1)
         target_link_libraries(_pyxpg PRIVATE xpg slang)

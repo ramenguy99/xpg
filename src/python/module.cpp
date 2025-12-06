@@ -111,6 +111,10 @@ void log_create_bindings(nb::module_ &m, PyModuleDef &pmd) {
 }
 
 NB_MODULE(_pyxpg, m) {
+#if PYXPG_DISABLE_NANOBIND_LEAK_WARNINGS
+    nb::set_leak_warnings(false);
+#endif
+
     nb::intrusive_init(
         [](PyObject *o) noexcept {
             nb::gil_scoped_acquire guard;

@@ -1,9 +1,9 @@
 Python:
 
     Interactive recompile on import:
-        pip install -C cmake.build-type=Debug -Ceditable.rebuild=true  --no-build-isolation -ve .
+        pip install -C cmake.build-type=Debug -C cmake.define.XPG_DISABLE_NANOBIND_LEAK_WARNINGS=OFF -Ceditable.rebuild=true  --no-build-isolation -ve .
     Same but force ninja (much faster on windows):
-        pip install -C cmake.args=-GNinja -C cmake.build-type=Debug -Ceditable.rebuild=true  --no-build-isolation -ve .
+        pip install -C cmake.args=-GNinja -C cmake.build-type=Debug -C cmake.define.XPG_DISABLE_NANOBIND_LEAK_WARNINGS=OFF -Ceditable.rebuild=true  --no-build-isolation -ve .
 
 Ubuntu build (X11 only):
     apt install \
