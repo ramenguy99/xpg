@@ -549,7 +549,7 @@ class Renderer:
             image_barriers=f.upload_before_image_barriers,
         )
 
-        # Sync: after-upload transfer queue barriers (layout transitions)
+        # Sync: before-upload transfer queue barriers (layout transitions)
         if frame.transfer_semaphores:
             assert frame.transfer_command_buffer is not None
             frame.transfer_command_buffer.barriers(

@@ -1,26 +1,31 @@
 from __future__ import annotations
 
-from threading import Thread
-from queue import Queue
+import time
 from dataclasses import dataclass
-from typing import Callable, Optional
+from queue import Queue
+from threading import Thread
 from time import sleep
+from typing import Callable, Optional
+
 import numpy as np
 from pyglm.glm import vec3
-import time
 from pyxpg import imgui
 
 from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig
 from ambra.primitives3d import Colormap, ColormapDistanceToPlane, ColormapKind, Points
+from ambra.property import AnimationBoundary, ListBufferProperty, ListTimeSampledAnimation, UploadSettings
 from ambra.viewer import Viewer
+
 
 @dataclass
 class CameraReading:
     camera_index: int
-    data: bytes
+    data: np.ndarray
+
 
 WIDTH = 320
 HEIGHT = 240
+
 
 class Camera:
     def __init__(
@@ -59,54 +64,99 @@ class Camera:
         self.should_stop = True
         self.thread.join()
 
+
 def main():
     queue: Queue[CameraReading] = Queue()
 
     def on_frame(reading: CameraReading):
         queue.put(reading)
+
     camera = Camera(0, "", on_frame)
 
     try:
         pc: Optional[Points] = None
+
+        total_idx = 0.0
+        points_animation = ListTimeSampledAnimation(AnimationBoundary.HOLD, [total_idx])
+
         class CustomViewer(Viewer):
             def on_draw(self):
-                nonlocal pc
+                nonlocal pc, total_idx
                 if not queue.empty():
                     reading = queue.get()
                     if pc is None:
-                        pc = Points(reading.data, colormap=ColormapDistanceToPlane(ColormapKind.JET, 0, 1), point_size=3)
+                        if False:
+                            points_property = ListBufferProperty(
+                                [reading.data],
+                                np.float32,
+                                (-1, 3),
+                                reading.data.nbytes,
+                                upload=UploadSettings(batched=False),
+                            )
+                        else:
+                            points_property = ListBufferProperty(
+                                [reading.data],
+                                np.float32,
+                                (-1, 3),
+                                reading.data.nbytes,
+                                # animation=points_animation,
+                                upload=UploadSettings(batched=False, preupload=False),
+                            )
+                        pc = Points(
+                            points_property, colormap=ColormapDistanceToPlane(ColormapKind.JET, 0, 1), point_size=3
+                        )
                         self.scene.objects.append(pc)
                     else:
-                        pc.points.update_frame(0, reading.data)
+                        total_idx += 1
+
+                        # pc.points.append_frames([reading.data] * 10)
+
+                        pc.points.append_frame(reading.data)
+                        # points_animation.timestamps.append(float(total_idx))
+
+                        self.playback.set_max_time(pc.points.max_animation_time(self.playback.frames_per_second))
+                        if True:
+                            if not self.gui_playback_slider_held:
+                                self.playback.set_frame(self.playback.num_frames - 1)
                 return super().on_draw()
 
             def on_gui(self):
                 nonlocal pc
+
+                super().on_gui()
                 if imgui.begin("Editor")[0]:
                     if pc is not None:
                         u, ps = imgui.slider_float("point size", pc.point_size.get_current(), 1, 10)
                         if u:
                             pc.point_size.update_frame(0, ps)
 
-                imgui.end()
-                return super().on_gui()
+                        if imgui.button("Remove frames"):
+                            pc.points.remove_frame_range(1, pc.points.num_frames)
+                            pc.points.update(self.playback.current_time, self.playback.current_frame)
 
+                        if imgui.button("Destroy"):
+                            self.scene.objects.clear()
+                            pc.destroy()
+                            pc = None
+
+                imgui.end()
 
         viewer = CustomViewer(
             config=Config(
                 playback=PlaybackConfig(
-                    playing=True,
+                    playing=False,
                 ),
                 camera=CameraConfig(
                     position=vec3(3),
                     target=vec3(0),
                 ),
-                gui=GuiConfig(stats=True),
+                gui=GuiConfig(stats=True, playback=True, renderer=True, inspector=True),
             ),
         )
 
         viewer.run()
     finally:
         camera.stop()
+
 
 main()

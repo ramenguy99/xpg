@@ -1,7 +1,6 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
-import logging
 from queue import Empty, Queue
 from time import perf_counter_ns
 from typing import Any, Callable, List, Optional, Tuple
@@ -61,6 +60,7 @@ from .utils.gpu import UploadableBuffer
 from .utils.lru_pool import LRUPool
 from .utils.ring_buffer import RingBuffer
 from .viewport import Playback, Rect, Viewport
+
 
 class Viewer:
     def __init__(

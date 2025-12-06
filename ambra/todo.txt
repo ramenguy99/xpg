@@ -316,6 +316,11 @@ Tools:
 
 Notes:
 
+Live streaming implementation notes:
+- ListBufferProperty + UploadSettings(batched=False or streaming=True) are needed to avoid awful perf
+- Editing frame in on_gui (e.g. clear button) is trick because scene.update() already happened. Maybe we could have a before_update gui
+  and an after update one. Or also just part of the API that you need to re-update properties.
+
 DB viewer implementation notes:
 - Need prefetch to work also
 - If you use get_current() on a property in renderable (for example to get the number of points to draw) you trigger a

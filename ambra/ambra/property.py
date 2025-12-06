@@ -1,6 +1,7 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
+import bisect
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
@@ -119,6 +120,25 @@ class TimeSampledAnimation(Animation):
         return self.timestamps[-1] if self.timestamps.size > 0 else 0.0
 
 
+class ListTimeSampledAnimation(Animation):
+    def __init__(self, boundary: AnimationBoundary, timestamps: List[float]):
+        super().__init__(boundary)
+        self.timestamps = timestamps
+
+    def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
+        count = len(self.timestamps)
+        if count == 0:
+            return -1
+        elif count == 1:
+            return 0
+        else:
+            t = self.boundary.map_time(time, self.timestamps[0], self.timestamps[-1])
+            return max(bisect.bisect_right(self.timestamps, t) - 1, 0)
+
+    def max_animation_time(self, n: int, fps: float) -> float:
+        return self.timestamps[-1] if self.timestamps else 0.0
+
+
 class FrameSampledAnimation(Animation):
     def __init__(self, boundary: AnimationBoundary, indices: NDArray[np.uint32]):
         super().__init__(boundary)
@@ -136,6 +156,25 @@ class FrameSampledAnimation(Animation):
 
     def max_animation_time(self, n: int, fps: float) -> float:
         return (self.indices[-1] + 1) / fps if self.indices.size > 0 else 0.0
+
+
+class ListFrameSampledAnimation(Animation):
+    def __init__(self, boundary: AnimationBoundary, indices: List[int]):
+        super().__init__(boundary)
+        self.indices = indices
+
+    def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
+        count = len(self.indices)
+        if count == 0:
+            return -1
+        elif count == 1:
+            return 0
+        else:
+            idx = self.boundary.map_frame_index_range(frame_index, self.indices[0], self.indices[-1] + 1)
+            return max(bisect.bisect_right(self.indices, idx) - 1, 0)
+
+    def max_animation_time(self, n: int, fps: float) -> float:
+        return (self.indices[-1] + 1) / fps if self.indices else 0.0
 
 
 @dataclass
@@ -264,7 +303,7 @@ class Property:
     def append_frames(self, frames: Any) -> None:
         if self.gpu_property is not None:
             if self.gpu_property.supported_operations & gpu_property_mod.GpuPropertySupportedOperations.APPEND:
-                self.gpu_property.append_frame()
+                self.gpu_property.append_frames(len(frames))
             else:
                 self.destroy_gpu_property()
 
@@ -579,6 +618,7 @@ class ListBufferProperty(BufferProperty):
 
     def append_frame(self, frame: NDArray[Any]) -> None:
         self.data.append(frame)
+        self.num_frames = len(self.data)
         super().append_frame(frame)
 
     def append_frames(self, frames: List[NDArray[Any]]) -> None:
@@ -763,6 +803,7 @@ class ListImageProperty(ImageProperty):
 
     def append_frame(self, frame: NDArray[Any]) -> None:
         self.data.append(frame)
+        self.num_frames = len(self.data)
         super().append_frame(frame)
 
     def append_frames(self, frames: List[NDArray[Any]]) -> None:

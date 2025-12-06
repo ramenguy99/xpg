@@ -529,7 +529,7 @@ class Mesh(Object3D):
             push_constants=self.constants["transform"].tobytes(),
         )
 
-        if self.indices is not None:
+        if indices is not None:
             frame.cmd.draw_indexed(indices.size // 4, num_instances)
         else:
             frame.cmd.draw(positions.size // 12, num_instances)
@@ -555,7 +555,6 @@ class Mesh(Object3D):
             vertex_buffers.append(instance_positions_buf.buffer_and_offset())
             num_instances = instance_positions_buf.size // 12
 
-
         indices = self.indices.get_current_gpu() if self.indices is not None else None
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -568,10 +567,11 @@ class Mesh(Object3D):
             push_constants=self.constants.tobytes(),
         )
 
-        if self.indices is not None:
+        if indices is not None:
             frame.cmd.draw_indexed(indices.size // 4, num_instances)
         else:
             frame.cmd.draw(positions.size // 12, num_instances)
+
 
 class Sphere(Mesh):
     def __init__(
@@ -591,10 +591,10 @@ class Sphere(Mesh):
         c = np.full(v.shape[0], color, np.uint32)
 
         super().__init__(
-            v,
-            f,
-            n,
-            vertex_colors=c,
+            v, # type: ignore
+            f, # type: ignore
+            n, # type: ignore
+            vertex_colors=c, # type: ignore
             instance_positions=instance_positions,
             name=name,
             translation=translation,
@@ -602,6 +602,7 @@ class Sphere(Mesh):
             scale=scale,
             enabled=enabled,
         )
+
 
 class AxisGizmo(Mesh):
     def __init__(

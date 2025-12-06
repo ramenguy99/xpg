@@ -4,6 +4,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Tuple
+
 from pyxpg import LogLevel
 
 
@@ -110,7 +111,7 @@ class CameraConfig:
 @dataclass
 class Config:
     # Logging.
-    # 
+    #
     # If not None, the Viewer constructor sets the pyxpg log level to this value.
     # If None preserve the existing pyxpg log level.
     # The pyxpg log level is global for the module and defaults to DISABLED.
