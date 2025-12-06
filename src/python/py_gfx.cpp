@@ -5,6 +5,7 @@
 #include <vector>
 #include <optional>
 #include <memory>
+#include <inttypes.h>
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
@@ -2043,10 +2044,10 @@ struct CommandBuffer: GfxObject {
 
     void copy_buffer_range(const Buffer& src, const Buffer& dst, VkDeviceSize size, VkDeviceSize src_offset, VkDeviceSize dst_offset) {
         if (src_offset + size > src.size) {
-            nb::raise("Source buffer too small. Src size: %zu. Src offset: %llu. Size: %llu", src.size, src_offset, size);
+            nb::raise("Source buffer too small. Src size: %zu. Src offset: %" PRIu64 ". Size: %" PRIu64, src.size, src_offset, size);
         }
         if (dst_offset + size > dst.size) {
-            nb::raise("Dest buffer too small. Dst size: %zu. Dst offset: %llu. Size: %llu", dst.size, dst_offset, size);
+            nb::raise("Dest buffer too small. Dst size: %zu. Dst offset: %" PRIu64 ". Size: %" PRIu64, dst.size, dst_offset, size);
         }
 
         gfx::CmdCopyBuffer(buffer, {
