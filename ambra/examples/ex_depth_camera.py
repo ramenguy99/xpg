@@ -34,7 +34,7 @@ class Camera:
         self.on_frame = on_frame
 
         self.should_stop = False
-        self.thread = Thread(target=self._entry, daemon=True)
+        self.thread = Thread(target=self._entry)
         self.thread.start()
 
     def _entry(self):
@@ -59,51 +59,54 @@ class Camera:
         self.should_stop = True
         self.thread.join()
 
-queue: Queue[CameraReading] = Queue()
+def main():
+    queue: Queue[CameraReading] = Queue()
 
-def on_frame(reading: CameraReading):
-    queue.put(reading)
-camera = Camera(0, "", on_frame)
+    def on_frame(reading: CameraReading):
+        queue.put(reading)
+    camera = Camera(0, "", on_frame)
 
-pc: Optional[Points] = None
+    try:
+        pc: Optional[Points] = None
+        class CustomViewer(Viewer):
+            def on_draw(self):
+                nonlocal pc
+                if not queue.empty():
+                    reading = queue.get()
+                    if pc is None:
+                        pc = Points(reading.data, colormap=ColormapDistanceToPlane(ColormapKind.JET, 0, 1), point_size=3)
+                        self.scene.objects.append(pc)
+                    else:
+                        pc.points.update_frame(0, reading.data)
+                return super().on_draw()
 
-class CustomViewer(Viewer):
-    def on_draw(self):
-        global pc
-        if not queue.empty():
-            reading = queue.get()
-            if pc is None:
-                pc = Points(reading.data, colormap=ColormapDistanceToPlane(ColormapKind.JET, 0, 1), point_size=3)
-                self.scene.objects.append(pc)
-            else:
-                pc.points.update_frame(0, reading.data)
-        return super().on_draw()
+            def on_gui(self):
+                nonlocal pc
+                if imgui.begin("Editor")[0]:
+                    if pc is not None:
+                        u, ps = imgui.slider_float("point size", pc.point_size.get_current(), 1, 10)
+                        if u:
+                            pc.point_size.update_frame(0, ps)
 
-    def on_gui(self):
-        global pc
-        if imgui.begin("Editor")[0]:
-            if pc is not None:
-                u, ps = imgui.slider_float("point size", pc.point_size.get_current(), 1, 10)
-                if u:
-                    pc.point_size.update_frame(0, ps)
-
-        imgui.end()
-        return super().on_gui()
+                imgui.end()
+                return super().on_gui()
 
 
-viewer = CustomViewer(
-    config=Config(
-        playback=PlaybackConfig(
-            playing=True,
-        ),
-        camera=CameraConfig(
-            position=vec3(3),
-            target=vec3(0),
-        ),
-        gui=GuiConfig(stats=True),
-    ),
-)
+        viewer = CustomViewer(
+            config=Config(
+                playback=PlaybackConfig(
+                    playing=True,
+                ),
+                camera=CameraConfig(
+                    position=vec3(3),
+                    target=vec3(0),
+                ),
+                gui=GuiConfig(stats=True),
+            ),
+        )
 
-viewer.run()
+        viewer.run()
+    finally:
+        camera.stop()
 
-camera.stop()
+main()

@@ -24,7 +24,6 @@ from pyxpg import (
     ImageLayout,
     ImageUsageFlags,
     Key,
-    LogCapture,
     LogLevel,
     MemoryHeapFlags,
     Modifiers,
@@ -63,22 +62,6 @@ from .utils.lru_pool import LRUPool
 from .utils.ring_buffer import RingBuffer
 from .viewport import Playback, Rect, Viewport
 
-_log_levels = {
-    LogLevel.TRACE: logging.DEBUG,
-    LogLevel.DEBUG: logging.DEBUG,
-    LogLevel.INFO: logging.INFO,
-    LogLevel.WARN: logging.WARNING,
-    LogLevel.ERROR: logging.ERROR,
-}
-
-
-_logger = logging.getLogger(__name__)
-
-
-def _log(level: LogLevel, c: str, s: str) -> None:
-    _logger.log(_log_levels[level], f"[{c}] {s}")  # noqa: G004
-
-
 class Viewer:
     def __init__(
         self,
@@ -93,8 +76,8 @@ class Viewer:
         self.key_map = key_map if key_map is not None else KeyMap()
 
         # Logging
-        self.log_capture = LogCapture(_log)
-        set_log_level(LogLevel(config.log_level.value))
+        if config.log_level is not None:
+            set_log_level(LogLevel(config.log_level.value))
 
         # Viewer
         self.running = False

@@ -224,6 +224,7 @@ struct Context: nb::intrusive_base {
 
     ~Context() {
         gfx::WaitIdle(vk);
+        logging::info("gfx", "destroying context");
         gfx::DestroyContext(&vk);
         logging::info("gfx", "done");
     }
@@ -2780,12 +2781,7 @@ struct Window: nb::intrusive_base {
         // Retrieve a pointer to the C++ instance associated with 'self' (never fails)
         Window *w = nb::inst_ptr<Window>(self);
 
-        // Manually call destructor. The object will be left in a safe to destruct
-        // state because the destructor will be called again.
-        w->~Window();
-
         // Clear the cycle!
-        w->ctx.reset();
         w->draw               = nullptr;
         w->mouse_move_event   = nullptr;
         w->mouse_button_event = nullptr;
@@ -3443,13 +3439,13 @@ struct GraphicsPipeline: GfxObject {
         const std::vector<nb::ref<PipelineStage>>& stages,
         const std::vector<VertexBinding>& vertex_bindings,
         const std::vector<VertexAttribute>& vertex_attributes,
-        InputAssembly input_assembly,
-        Rasterization rasterization,
+        std::optional<InputAssembly> input_assembly,
+        std::optional<Rasterization> rasterization,
         const std::vector<PushConstantsRange>& push_constant_ranges,
         const std::vector<nb::ref<DescriptorSetLayout>>& descriptor_set_layouts,
         u32 samples,
         const std::vector<Attachment>& attachments,
-        Depth depth,
+        std::optional<Depth> depth,
         std::optional<nb::str> name
         )
         : GfxObject(ctx, true, std::move(name))
@@ -3473,10 +3469,10 @@ struct GraphicsPipeline: GfxObject {
             .stages = ArrayView(s),
             .vertex_bindings = ArrayView((gfx::VertexBindingDesc*)vertex_bindings.data(), vertex_bindings.size()),
             .vertex_attributes = ArrayView((gfx::VertexAttributeDesc*)vertex_attributes.data(), vertex_attributes.size()),
-            .input_assembly = input_assembly,
-            .rasterization = rasterization,
+            .input_assembly = input_assembly.value_or(InputAssembly()),
+            .rasterization = rasterization.value_or(Rasterization()),
             .samples = (VkSampleCountFlagBits)samples,
-            .depth = depth,
+            .depth = depth.value_or(Depth(VK_FORMAT_UNDEFINED)),
             .push_constants = ArrayView((gfx::PushConstantsRangeDesc*)push_constant_ranges.data(), push_constant_ranges.size()),
             .descriptor_sets = ArrayView(d),
             .attachments = ArrayView((gfx::AttachmentDesc*)attachments.data(), attachments.size()),
@@ -4976,9 +4972,9 @@ void gfx_create_bindings(nb::module_& m)
                 VkAccessFlagBits2Enum
             >(),
             nb::arg("src_stage") = enum_VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-            nb::arg("src_access") = enum_VK_ACCESS_2_MEMORY_READ_BIT | enum_VK_ACCESS_2_MEMORY_WRITE_BIT,
+            nb::arg("src_access") = (VkAccessFlagBits2Enum)(enum_VK_ACCESS_2_MEMORY_READ_BIT | enum_VK_ACCESS_2_MEMORY_WRITE_BIT),
             nb::arg("dst_stage") = enum_VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-            nb::arg("dst_access") = enum_VK_ACCESS_2_MEMORY_READ_BIT | enum_VK_ACCESS_2_MEMORY_WRITE_BIT
+            nb::arg("dst_access") = (VkAccessFlagBits2Enum)(enum_VK_ACCESS_2_MEMORY_READ_BIT | enum_VK_ACCESS_2_MEMORY_WRITE_BIT)
         )
         .def_rw("src_stage", &MemoryBarrier::src_stage)
         .def_rw("src_access", &MemoryBarrier::src_access)
@@ -6087,26 +6083,26 @@ void gfx_create_bindings(nb::module_& m)
                 const std::vector<nb::ref<PipelineStage>>&,
                 const std::vector<VertexBinding>&,
                 const std::vector<VertexAttribute>&,
-                InputAssembly,
-                Rasterization,
+                std::optional<InputAssembly>,
+                std::optional<Rasterization>,
                 const std::vector<PushConstantsRange>&,
                 const std::vector<nb::ref<DescriptorSetLayout>>&,
                 u32,
                 const std::vector<Attachment>&,
-                Depth,
+                std::optional<Depth>,
                 std::optional<nb::str>
             >(),
             nb::arg("ctx"),
             nb::arg("stages") = std::vector<nb::ref<PipelineStage>>(),
             nb::arg("vertex_bindings") = std::vector<VertexBinding>(),
             nb::arg("vertex_attributes") = std::vector<VertexAttribute>(),
-            nb::arg("input_assembly") = InputAssembly(),
-            nb::arg("rasterization") = Rasterization(),
+            nb::arg("input_assembly") = nb::none(),
+            nb::arg("rasterization") = nb::none(),
             nb::arg("push_constants_ranges") = std::vector<PushConstantsRange>(),
             nb::arg("descriptor_set_layouts") = std::vector<nb::ref<DescriptorSetLayout>>(),
             nb::arg("samples") = 1,
             nb::arg("attachments") = std::vector<Attachment>(),
-            nb::arg("depth") = Depth(VK_FORMAT_UNDEFINED),
+            nb::arg("depth") = nb::none(),
             nb::arg("name") = nb::none()
         )
         .def("__repr__", [](GraphicsPipeline& pipeline) {

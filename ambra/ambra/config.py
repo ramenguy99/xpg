@@ -4,15 +4,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Tuple
-
-
-class LogLevel(Enum):
-    TRACE = 0
-    DEBUG = 1
-    INFO = 2
-    WARN = 3
-    ERROR = 4
-    DISABLED = 5
+from pyxpg import LogLevel
 
 
 @dataclass
@@ -117,8 +109,14 @@ class CameraConfig:
 
 @dataclass
 class Config:
-    # Logging
-    log_level: LogLevel = LogLevel.DISABLED
+    # Logging.
+    # 
+    # If not None, the Viewer constructor sets the pyxpg log level to this value.
+    # If None preserve the existing pyxpg log level.
+    # The pyxpg log level is global for the module and defaults to DISABLED.
+    #
+    # Log messages from pyxpg are always printed to stdout.
+    log_level: Optional[LogLevel] = None
 
     # Window
     window: bool = True
