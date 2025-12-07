@@ -480,7 +480,7 @@ class Viewer:
     def render_video(self, on_frame: Callable[[NDArray[np.uint8]], bool]) -> None:
         # Set max time if not set
         if self.playback.max_time is None:
-            self.playback.set_max_time(self.scene.max_animation_time(self.playback.frames_per_second))
+            self.playback.set_max_time(self.scene.end_animation_time(self.playback.frames_per_second))
 
         begin_frame_index = 0
         end_frame_index = begin_frame_index + self.playback.num_frames
@@ -539,7 +539,7 @@ class Viewer:
 
         # Set max time if not set
         if self.playback.max_time is None:
-            self.playback.set_max_time(self.scene.max_animation_time(self.playback.frames_per_second))
+            self.playback.set_max_time(self.scene.end_animation_time(self.playback.frames_per_second))
 
         # Step dt
         if self.playback.playing and not self.gui_playback_slider_held:
@@ -664,7 +664,7 @@ class Viewer:
                     flags |= imgui.TreeNodeFlags.LEAF
                     flags |= imgui.TreeNodeFlags.BULLET
 
-                imgui.push_style_var_im_vec2(imgui.StyleVar.FRAME_PADDING, imgui.Vec2(0, 1))
+                imgui.push_style_var_im_vec2(imgui.StyleVar.FRAME_PADDING, imgui.Vec2(0, 3))
                 o.gui_expanded = imgui.tree_node_ex(f"{o.name}##tree_node_{o.uid}", flags)
                 imgui.pop_style_var()
 
@@ -673,6 +673,9 @@ class Viewer:
                         self.gui_selected_obj = None
                     else:
                         self.gui_selected_obj = o
+
+                imgui.same_line(imgui.get_content_region_max().x - 25)
+                _, o.gui_enabled = imgui.checkbox(f"##enabled_{o.uid}", o.gui_enabled)
 
                 return o.gui_expanded
 

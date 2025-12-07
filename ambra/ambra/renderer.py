@@ -450,20 +450,32 @@ class Renderer:
         enabled_gpu_properties: Set[GpuProperty[Any]] = set()
 
         def visit(o: Object) -> None:
-            if o.enabled.get_current():
-                enabled_objects.append(o)
-                if isinstance(o, Light):
-                    enabled_lights.append(o)
+            # Filter objects that are hidden in the GUI or that are not enabled this frame
+            if o.gui_enabled and o.enabled.get_current():
+                properties_enabled = True
                 o.create_if_needed(self)
+
                 if o.material is not None:
                     for mp, _ in o.material.properties:
-                        mp.property.create(self)
-                        if mp.property.gpu_property is not None:
-                            enabled_gpu_properties.add(mp.property.gpu_property)
+                        if mp.property.current_animation_enabled:
+                            mp.property.create(self)
+                            if mp.property.gpu_property is not None:
+                                enabled_gpu_properties.add(mp.property.gpu_property)
+                        else:
+                            properties_enabled = False
                 for p in o.properties:
-                    p.create(self)
-                    if p.gpu_property is not None:
-                        enabled_gpu_properties.add(p.gpu_property)
+                    if p.current_animation_enabled:
+                        p.create(self)
+                        if p.gpu_property is not None:
+                            enabled_gpu_properties.add(p.gpu_property)
+                    else:
+                        properties_enabled = False
+
+                # Filter objects that have any property disabled for this frame
+                if properties_enabled:
+                    if isinstance(o, Light):
+                        enabled_lights.append(o)
+                    enabled_objects.append(o)
 
         scene.visit_objects(visit)
 

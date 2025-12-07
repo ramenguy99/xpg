@@ -1184,7 +1184,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
             prefetch_start = self.property.current_frame_index + 1
             prefetch_end = prefetch_start + self.property.upload.cpu_prefetch_count
             prefetch_range = [
-                self.property.animation.boundary.map_frame_index(i, self.property.num_frames)
+                self.property.animation.map_frame_index(i, 0, self.property.num_frames)
                 for i in range(prefetch_start, prefetch_end)
             ]
             self.cpu_pool.prefetch(prefetch_range, cpu_prefetch_cleanup, cpu_prefetch)
@@ -1251,7 +1251,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
             prefetch_end = prefetch_start + self.property.upload.gpu_prefetch_count
             available_range = []
             for i in range(prefetch_start, prefetch_end):
-                frame_index = self.property.animation.boundary.map_frame_index(i, self.property.num_frames)
+                frame_index = self.property.animation.map_frame_index(i, 0, self.property.num_frames)
                 if self.cpu_pool.is_available(frame_index):
                     available_range.append(frame_index)
 

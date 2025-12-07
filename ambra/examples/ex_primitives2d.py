@@ -50,7 +50,6 @@ scale = np.linspace(np.array([1, 1]), np.array([1, 3]), 100)
 rotation = ArrayBufferProperty(
     np.linspace(0, 4 * np.pi, 50),
     np.float32,
-    animation=FrameAnimation(AnimationBoundary.HOLD),
 )
 translation = ArrayBufferProperty(
     np.linspace(np.array([0, 0]), np.array([1, 1]), 50),

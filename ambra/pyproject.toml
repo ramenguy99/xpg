@@ -15,7 +15,7 @@ dependencies = [
     "numpy>=1.22",      # Required for numpy.typing
     "pyglm>=2,<3",
     "platformdirs>=4,<5",
-    #"pyxpg",
+    "pyxpg",
 ]
 
 [project.urls]
@@ -23,7 +23,10 @@ Homepage = "https://github.com/ramenguy99/xpg"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
+    "*.bat",
+    "*.sh",
     "todo.txt",
+    "priv/",
 ]
 
 [tool.mypy]

@@ -1,3 +1,4 @@
+import numpy as np
 from pyglm.glm import vec3
 
 from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig
@@ -25,6 +26,7 @@ viewer = Viewer(
         gui=GuiConfig(
             stats=True,
             playback=True,
+            inspector=True,
         ),
     ),
 )
@@ -35,24 +37,50 @@ enabled_always = True
 
 # Disabled at frame 0, enabled at frame 20, disabled again at frame 40
 enabled_frame_range = ArrayBufferProperty(
-    [0, 1, 0],
+    [1, 0],
     bool,
-    animation=FrameSampledAnimation(AnimationBoundary.HOLD, [0, 20, 40]),
+    animation=FrameSampledAnimation(
+        [20, 40],
+        AnimationBoundary.HOLD,
+    ),
 )
 
-# Enabled at time 0s, enabled at time 1s, disabled again at time 2s
+# Disabled at time 0s, enabled at time 1s, disabled again at time 2s
 enabled_timestamp_range = ArrayBufferProperty(
-    [0, 1, 0],
+    [1, 0],
     bool,
-    animation=TimeSampledAnimation(AnimationBoundary.HOLD, [0.0, 1.0, 2.0]),
+    animation=TimeSampledAnimation([1.0, 2.0], AnimationBoundary.HOLD),
 )
 
-always = Mesh(v, f, translation=(1.5, 0, 0), material=ColorMaterial((0.8, 0, 0)), enabled=enabled_always)
-frame_range = Mesh(v, f, translation=(0, 0, 0), material=ColorMaterial((0, 0.8, 0)), enabled=enabled_frame_range)
+always = Mesh(v, f, translation=(1.5, 0, 0.7), material=ColorMaterial((0.8, 0, 0)), enabled=enabled_always)
+frame_range = Mesh(v, f, translation=(0, 0, 0.7), material=ColorMaterial((0, 0.8, 0)), enabled=enabled_frame_range)
 timestamp_range = Mesh(
-    v, f, translation=(-1.5, 0, 0), material=ColorMaterial((0, 0, 0.8)), enabled=enabled_timestamp_range
+    v, f, translation=(-1.5, 0, 0.7), material=ColorMaterial((0, 0, 0.8)), enabled=enabled_timestamp_range
 )
 
-viewer.scene.objects.extend([always, frame_range, timestamp_range])
+v_enabled_frame_range = ArrayBufferProperty(
+    [v], np.float32, animation=FrameSampledAnimation([20, 40], boundary=AnimationBoundary.DISABLE)
+)
+v_enabled_timestamp_range = ArrayBufferProperty(
+    [v], np.float32, animation=TimeSampledAnimation([1.0, 2.0], boundary=AnimationBoundary.DISABLE)
+)
+
+new_always = Mesh(v, f, translation=(1.5, 0, -0.7), material=ColorMaterial((0.8, 0, 0)))
+new_frame_range = Mesh(v_enabled_frame_range, f, translation=(0, 0, -0.7), material=ColorMaterial((0, 0.8, 0)))
+new_timestamp_range = Mesh(
+    v_enabled_timestamp_range, f, translation=(-1.5, 0, -0.7), material=ColorMaterial((0, 0, 0.8))
+)
+
+
+viewer.scene.objects.extend(
+    [
+        always,
+        frame_range,
+        timestamp_range,
+        new_always,
+        new_frame_range,
+        new_timestamp_range,
+    ]
+)
 
 viewer.run()

@@ -25,84 +25,74 @@ if TYPE_CHECKING:
 
 PropertyItem = NDArray[Any]
 
-# class AnimationInterpolation(Enum):
-#     NEAREST = auto()
-
-#     # For linear quantities
-#     LINEAR = auto()
-#     CUBIC = auto()
-
-#     # For rotations
-#     NLERP = auto()
-#     SLERP = auto()
-
 
 class AnimationBoundary(Enum):
     HOLD = auto()
     REPEAT = auto()
     MIRROR = auto()
+    DISABLE = auto()
 
-    def map_frame_index(self, frame: int, n: int) -> int:
-        if self == AnimationBoundary.HOLD:
-            return min(frame, n - 1)
-        elif self == AnimationBoundary.MIRROR:
-            dr = frame % (2 * n)
-            if dr >= n:
-                return 2 * n - dr - 1
-            else:
-                return dr
-        elif self == AnimationBoundary.REPEAT:
-            return frame % n
-        else:
-            raise ValueError(f"Unhandled enum variant: {self}")
 
-    def map_frame_index_range(self, frame: int, begin: int, end: int) -> int:
-        if self == AnimationBoundary.HOLD:
-            return np.clip(frame, begin, end - 1)  # type: ignore
+class Animation:
+    def __init__(self, boundary: AnimationBoundary = AnimationBoundary.HOLD):
+        self.boundary = boundary
+
+    def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
+        return -1
+
+    def is_dynamic(self, n: int) -> bool:
+        return False
+
+    def is_disabled(self, n: int, time: float, frame_index: int) -> bool:
+        return True
+
+    def start_animation_time(self, n: int, fps: float) -> float:
+        return 0
+
+    def end_animation_time(self, n: int, fps: float) -> float:
+        return 0
+
+    def is_frame_index_disabled(self, frame: int, begin: int, end: int) -> bool:
+        return (frame < begin) or (self.boundary == AnimationBoundary.DISABLE and frame >= end)
+
+    def is_time_disabled(self, t: float, t_min: float, t_max: float) -> bool:
+        return (t < t_min) or (self.boundary == AnimationBoundary.DISABLE and t >= t_max)
+
+    def map_frame_index(self, frame: int, begin: int, end: int) -> int:
+        if self.boundary == AnimationBoundary.HOLD or self.boundary == AnimationBoundary.DISABLE:
+            return int(np.clip(frame, begin, end - 1))
 
         n = end - begin
         norm_frame = frame - begin
-        if self == AnimationBoundary.MIRROR:
+        if self.boundary == AnimationBoundary.REPEAT:
+            return (norm_frame % n) + begin
+        elif self.boundary == AnimationBoundary.MIRROR:
             dr = norm_frame % (2 * n)
             if dr >= n:
                 return 2 * n - dr - 1 + begin
             else:
                 return dr + begin
-        if self == AnimationBoundary.REPEAT:
-            return (norm_frame % n) + begin
         else:
-            raise ValueError(f"Unhandled enum variant: {self}")
+            raise ValueError(f"Unhandled enum variant: {self.boundary}")
 
     def map_time(self, t: float, t_min: float, t_max: float) -> float:
-        if self == AnimationBoundary.HOLD:
+        if self.boundary == AnimationBoundary.HOLD or self.boundary == AnimationBoundary.DISABLE:
             return np.clip(t, t_min, t_max)  # type: ignore
-        elif self == AnimationBoundary.MIRROR:
+        elif self.boundary == AnimationBoundary.REPEAT:
+            return np.fmod(t - t_min, t_max - t_min) + t_min  # type: ignore
+        elif self.boundary == AnimationBoundary.MIRROR:
             double_dt = (t_max - t_min) * 2.0
             dr: float = np.fmod(t - t_min, double_dt)
             if dr >= t_max - t_min:
                 return double_dt - dr + t_min
             else:
                 return dr + t_min
-        elif self == AnimationBoundary.REPEAT:
-            return np.fmod(t - t_min, t_max - t_min) + t_min  # type: ignore
         else:
-            raise ValueError(f"Unhandled enum variant: {self}")
-
-
-class Animation:
-    # interpolation = AnimationInterpolation.NEAREST
-    def __init__(self, boundary: AnimationBoundary = AnimationBoundary.REPEAT):
-        self.boundary = boundary
-
-    def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
-        return 0
-
-    def max_animation_time(self, n: int, fps: float) -> float:
-        return 0
+            raise ValueError(f"Unhandled enum variant: {self.boundary}")
 
 
 class TimeSampledAnimation(Animation):
-    def __init__(self, boundary: AnimationBoundary, timestamps: NDArray[np.float64]):
+    def __init__(self, timestamps: NDArray[np.float64], boundary: AnimationBoundary = AnimationBoundary.HOLD):
         super().__init__(boundary)
         self.timestamps = np.asarray(timestamps)
 
@@ -113,15 +103,28 @@ class TimeSampledAnimation(Animation):
         elif count == 1:
             return 0
         else:
-            t = self.boundary.map_time(time, self.timestamps[0], self.timestamps[-1])
-            return max(np.searchsorted(self.timestamps, t, side="right") - 1, 0)  # type: ignore
+            t = self.map_time(time, self.timestamps[0], self.timestamps[-1])
+            return max(int(np.searchsorted(self.timestamps, t, side="right")) - 1, 0)
 
-    def max_animation_time(self, n: int, fps: float) -> float:
+    def is_dynamic(self, n: int) -> bool:
+        return True
+
+    def is_disabled(self, n: int, time: float, frame_index: int) -> bool:
+        count = self.timestamps.size
+        if count == 0:
+            return True
+        else:
+            return self.is_time_disabled(time, self.timestamps[0], self.timestamps[-1])
+
+    def start_animation_time(self, n: int, fps: float) -> float:
+        return self.timestamps[0] if self.timestamps else 0.0
+
+    def end_animation_time(self, n: int, fps: float) -> float:
         return self.timestamps[-1] if self.timestamps.size > 0 else 0.0
 
 
 class ListTimeSampledAnimation(Animation):
-    def __init__(self, boundary: AnimationBoundary, timestamps: List[float]):
+    def __init__(self, timestamps: List[float], boundary: AnimationBoundary = AnimationBoundary.HOLD):
         super().__init__(boundary)
         self.timestamps = timestamps
 
@@ -132,15 +135,27 @@ class ListTimeSampledAnimation(Animation):
         elif count == 1:
             return 0
         else:
-            t = self.boundary.map_time(time, self.timestamps[0], self.timestamps[-1])
+            t = self.map_time(time, self.timestamps[0], self.timestamps[-1])
             return max(bisect.bisect_right(self.timestamps, t) - 1, 0)
 
-    def max_animation_time(self, n: int, fps: float) -> float:
+    def is_dynamic(self, n: int) -> bool:
+        return True
+
+    def is_disabled(self, n: int, time: float, frame_index: int) -> bool:
+        if not self.timestamps:
+            return True
+        else:
+            return self.is_time_disabled(time, self.timestamps[0], self.timestamps[-1])
+
+    def start_animation_time(self, n: int, fps: float) -> float:
+        return self.timestamps[0] if self.timestamps else 0.0
+
+    def end_animation_time(self, n: int, fps: float) -> float:
         return self.timestamps[-1] if self.timestamps else 0.0
 
 
 class FrameSampledAnimation(Animation):
-    def __init__(self, boundary: AnimationBoundary, indices: NDArray[np.uint32]):
+    def __init__(self, indices: NDArray[np.uint32], boundary: AnimationBoundary = AnimationBoundary.HOLD):
         super().__init__(boundary)
         self.indices = np.asarray(indices, np.uint32)
 
@@ -151,15 +166,28 @@ class FrameSampledAnimation(Animation):
         elif count == 1:
             return 0
         else:
-            idx = self.boundary.map_frame_index_range(frame_index, self.indices[0], self.indices[-1] + 1)
-            return max(np.searchsorted(self.indices, idx, side="right") - 1, 0)  # type: ignore
+            idx = self.map_frame_index(frame_index, self.indices[0], self.indices[-1] + 1)
+            return max(int(np.searchsorted(self.indices, idx, side="right")) - 1, 0)
 
-    def max_animation_time(self, n: int, fps: float) -> float:
+    def is_dynamic(self, n: int) -> bool:
+        return True
+
+    def is_disabled(self, n: int, time: float, frame_index: int) -> bool:
+        count = self.indices.size
+        if count == 0:
+            return True
+        else:
+            return self.is_frame_index_disabled(frame_index, self.indices[0], self.indices[-1])
+
+    def start_animation_time(self, n: int, fps: float) -> float:
+        return self.indices[0] / fps if self.indices else 0.0
+
+    def end_animation_time(self, n: int, fps: float) -> float:
         return (self.indices[-1] + 1) / fps if self.indices.size > 0 else 0.0
 
 
 class ListFrameSampledAnimation(Animation):
-    def __init__(self, boundary: AnimationBoundary, indices: List[int]):
+    def __init__(self, indices: List[int], boundary: AnimationBoundary = AnimationBoundary.HOLD):
         super().__init__(boundary)
         self.indices = indices
 
@@ -170,34 +198,78 @@ class ListFrameSampledAnimation(Animation):
         elif count == 1:
             return 0
         else:
-            idx = self.boundary.map_frame_index_range(frame_index, self.indices[0], self.indices[-1] + 1)
+            idx = self.map_frame_index(frame_index, self.indices[0], self.indices[-1] + 1)
             return max(bisect.bisect_right(self.indices, idx) - 1, 0)
 
-    def max_animation_time(self, n: int, fps: float) -> float:
+    def is_dynamic(self, n: int) -> bool:
+        return True
+
+    def is_disabled(self, n: int, time: float, frame_index: int) -> bool:
+        if not self.indices:
+            return True
+        else:
+            return self.is_frame_index_disabled(frame_index, self.indices[0], self.indices[-1])
+
+    def start_animation_time(self, n: int, fps: float) -> float:
+        return self.indices[0] / fps if self.indices else 0.0
+
+    def end_animation_time(self, n: int, fps: float) -> float:
         return (self.indices[-1] + 1) / fps if self.indices else 0.0
 
 
-@dataclass
 class ConstantSpeedAnimation(Animation):
-    frames_per_second: float  # frame time in seconds
+    def __init__(
+        self, frames_per_second: float, start_frame: int = 0, boundary: AnimationBoundary = AnimationBoundary.HOLD
+    ):
+        super().__init__(boundary)
+        self.frames_per_second = frames_per_second
+        self.start_frame = start_frame
 
     def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
         if n == 0:
             return -1
-        return self.boundary.map_frame_index(int(time * self.frames_per_second), n)
+        return self.map_frame_index(int(time * self.frames_per_second), 0, n)
 
-    def max_animation_time(self, n: int, fps: float) -> float:
-        return n / self.frames_per_second
+    def is_dynamic(self, n: int) -> bool:
+        return n > 1 or self.start_frame > 0
+
+    def is_disabled(self, n: int, time: float, frame_index: int) -> bool:
+        if n == 0:
+            return True
+        else:
+            return self.is_frame_index_disabled(int(time * self.frames_per_second), 0, n)
+
+    def start_animation_time(self, n: int, fps: float) -> float:
+        return self.start_frame / self.frames_per_second
+
+    def end_animation_time(self, n: int, fps: float) -> float:
+        return (self.start_frame + n) / self.frames_per_second
 
 
 class FrameAnimation(Animation):
-    def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
-        if n == 0:
-            return -1
-        return self.boundary.map_frame_index(frame_index, n)
+    def __init__(self, start_frame: int = 0, boundary: AnimationBoundary = AnimationBoundary.HOLD):
+        super().__init__(boundary)
+        self.start_frame = start_frame
 
-    def max_animation_time(self, n: int, frames_per_second: float) -> float:
-        return n / frames_per_second
+    def get_frame_index(self, n: int, time: float, frame_index: int) -> int:
+        if n == 0 or frame_index < self.start_frame:
+            return -1
+        return self.map_frame_index(frame_index - self.start_frame, 0, n)
+
+    def is_dynamic(self, n: int) -> bool:
+        return n > 1 or self.start_frame > 0
+
+    def is_disabled(self, n: int, time: float, frame_index: int) -> bool:
+        if n == 0 or frame_index < self.start_frame:
+            return True
+        else:
+            return self.is_frame_index_disabled(frame_index - self.start_frame, 0, n)
+
+    def start_animation_time(self, n: int, frames_per_second: float) -> float:
+        return self.start_frame / frames_per_second
+
+    def end_animation_time(self, n: int, frames_per_second: float) -> float:
+        return (self.start_frame + n) / frames_per_second
 
 
 @dataclass
@@ -224,16 +296,14 @@ class Property:
         self.animation = animation if animation is not None else FrameAnimation()
         self.upload = upload if upload is not None else UploadSettings()
 
-        self.current_frame_index = 0
+        self.current_frame_index = 0 if num_frames > 0 else -1
+        self.current_animation_enabled = num_frames > 0
 
         self.update_callbacks: List[Callable[[Property], None]] = []
 
     # Public API
     def get_current(self) -> PropertyItem:
         return self.get_frame_by_index(self.current_frame_index)
-
-    def get_frame_index(self, time: float, playback_frame: int) -> int:
-        return self.animation.get_frame_index(self.num_frames, time, playback_frame)
 
     def get_frame_by_index_into(self, frame_index: int, out: memoryview, thread_index: int = -1) -> int:
         frame = self.get_frame_by_index(frame_index, thread_index)
@@ -253,16 +323,23 @@ class Property:
             self.gpu_property = None
 
     # Scene API
-    def update(self, time: float, playback_frame: int) -> None:
+    def is_dynamic(self) -> bool:
+        return self.animation.is_dynamic(self.num_frames)
+
+    def update(self, time: float, frame: int) -> None:
         old_frame = self.current_frame_index
-        self.current_frame_index = self.get_frame_index(time, playback_frame)
+        self.current_frame_index = self.animation.get_frame_index(self.num_frames, time, frame)
+        self.current_animation_enabled = not self.animation.is_disabled(self.num_frames, time, frame)
 
         if old_frame != self.current_frame_index:
             for c in self.update_callbacks:
                 c(self)
 
-    def max_animation_time(self, fps: float) -> float:
-        return self.animation.max_animation_time(self.num_frames, fps)
+    def start_animation_time(self, fps: float) -> float:
+        return self.animation.start_animation_time(self.num_frames, fps)
+
+    def end_animation_time(self, fps: float) -> float:
+        return self.animation.end_animation_time(self.num_frames, fps)
 
     # Renderer API
     def create(self, r: "Renderer") -> None:

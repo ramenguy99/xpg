@@ -591,10 +591,10 @@ class Sphere(Mesh):
         c = np.full(v.shape[0], color, np.uint32)
 
         super().__init__(
-            v, # type: ignore
-            f, # type: ignore
-            n, # type: ignore
-            vertex_colors=c, # type: ignore
+            v,  # type: ignore
+            f,  # type: ignore
+            n,  # type: ignore
+            vertex_colors=c,  # type: ignore
             instance_positions=instance_positions,
             name=name,
             translation=translation,

@@ -1,7 +1,7 @@
 import numpy as np
 from pyglm.glm import vec3
 
-from ambra.config import CameraConfig, Config, PlaybackConfig
+from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig
 from ambra.primitives3d import Lines
 from ambra.property import (
     AnimationBoundary,
@@ -18,6 +18,11 @@ viewer = Viewer(
         camera=CameraConfig(
             position=vec3(3),
             target=vec3(0),
+        ),
+        gui=GuiConfig(
+            playback=True,
+            stats=True,
+            inspector=True,
         ),
     ),
 )
@@ -54,15 +59,15 @@ line_width = np.linspace(1, 32, 100)
 translation = ArrayBufferProperty(
     np.linspace(np.array([0, 0, 0]), np.array([0, 1, 1]), 50),
     np.float32,
-    FrameAnimation(AnimationBoundary.MIRROR),
+    FrameAnimation(boundary=AnimationBoundary.MIRROR),
 )
 
 line = Lines(positions, colors, line_width, scale=None, translation=translation)
 
 translation = ArrayBufferProperty(
-    np.linspace(np.array([1, 0, 0]), np.array([2, 0, 0]), 50),
+    np.linspace(np.array([1, 0, 0]), np.array([2, 0, 0]), 100),
     np.float32,
-    FrameAnimation(AnimationBoundary.MIRROR),
+    FrameAnimation(start_frame=10, boundary=AnimationBoundary.MIRROR),
 )
 line2 = Lines(positions, colors, line_width, scale=None, translation=translation)
 viewer.scene.objects.extend([line, line2])

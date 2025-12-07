@@ -41,6 +41,7 @@ class Object:
         self.material = material
 
         self.created = False
+        self.gui_enabled = True
         self.gui_expanded = False
         self.gui_selected = False
         self.gui_selected_property: Optional[Property] = None
@@ -86,11 +87,11 @@ class Object:
 
     def collect_dynamic_properties(self, all_properties: Set[Property]) -> None:
         for p in self.properties:
-            if p.num_frames > 1:
+            if p.is_dynamic():
                 all_properties.add(p)
         if self.material is not None:
             for mp, _ in self.material.properties:
-                if mp.property.num_frames > 1:
+                if mp.property.is_dynamic():
                     all_properties.add(mp.property)
 
     def update(self, time: float, frame: int) -> None:
@@ -131,8 +132,10 @@ class Object:
                 elif isinstance(p, ImageProperty):
                     imgui.text(f"[{p.width}x{p.height}] {p.format}")
 
-                if p.num_frames > 1:
-                    imgui.text(f"{p.current_frame_index} / {p.num_frames}")
+                imgui.text(f"{p.current_frame_index} / {p.num_frames}")
+
+                imgui.text(f"Enabled: {p.current_animation_enabled}")
+                imgui.text(f"Dynamic: {p.is_dynamic()}")
                 imgui.indent(-10)
         imgui.indent(-5)
 
@@ -257,7 +260,7 @@ class Scene:
         for o in self.objects:
             visit_recursive(o)
 
-    def max_animation_time(self, frames_per_second: float) -> float:
+    def end_animation_time(self, frames_per_second: float) -> float:
         time = 0.0
 
         all_dynamic_properties: Set[Property] = set()
@@ -268,7 +271,8 @@ class Scene:
         self.visit_objects(visit)
 
         for p in all_dynamic_properties:
-            time = max(time, p.max_animation_time(frames_per_second))
+            t = p.end_animation_time(frames_per_second)
+            time = max(time, t)
 
         return time
 

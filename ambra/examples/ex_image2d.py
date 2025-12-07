@@ -25,12 +25,11 @@ viewer = Viewer(
 rotation = ArrayBufferProperty(
     np.linspace(0, 4 * np.pi, 50),
     np.float32,
-    animation=FrameAnimation(AnimationBoundary.MIRROR),
+    animation=FrameAnimation(boundary=AnimationBoundary.MIRROR),
 )
 translation = ArrayBufferProperty(
     np.linspace(np.array([0, 0]), np.array([5, 0]), 100),
     np.float32,
-    FrameAnimation(AnimationBoundary.HOLD),
 )
 
 H, W = 32, 64

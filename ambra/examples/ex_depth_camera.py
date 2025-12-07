@@ -114,7 +114,7 @@ def main():
                         pc.points.append_frame(reading.data)
                         # points_animation.timestamps.append(float(total_idx))
 
-                        self.playback.set_max_time(pc.points.max_animation_time(self.playback.frames_per_second))
+                        self.playback.set_max_time(pc.points.end_animation_time(self.playback.frames_per_second))
                         if True:
                             if not self.gui_playback_slider_held:
                                 self.playback.set_frame(self.playback.num_frames - 1)

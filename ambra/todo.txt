@@ -31,11 +31,28 @@ Priority:
     - [x] Explore using hatchlings instead of setuptools for better editable builds (read pep 517)
 - [x] Important 3D primitives
     - [x] Grid floor
+- [x] Rethink Animation and how it relates to:
+    - [x] property edits -> stays separate because animations can also be reused across different objects
+    - [x] Maybe implement DB browser to get more context
+    - [x] first/last frame and boundary
+        - Property has an animation
+        - Animation has:
+            - max time -> used to set the playback max time on startup
+            - boundary conditions used for frame remapping -> playback frame index and playback time to property frame index
+                - extra: boundary is now the same for min and max, in theory could have a DoubleSidedAnimationBoundary
+            - we could add a min time / frame and a DISABLED boundary
+                - an object would behave as disabled when any of its properties are outside their boundary
+                - animation types:
+                    - disabled
+                - current_frame_index could still be set as HOLD so that get_current() would not break when disabled
+                - atm the only system that needs to know if the object is disabled is the renderer (maybe in the future the GUI too)
+                    - during update we could cache if we are oob and use this from both gui and renderer when collecting objects
+                - collect_dynamic_properties is now pruning on number of frames, but if we want to compute this disabled state on update
+                  we also need to check that this is not the case
+                - it's maybe weird to keep the animation state in the property, one could even think about having the same property
+                  with different animations on top at some point, but then this becomes harder for automatic ndarray -> property conversion
+                  -> this is already the case at a higher level because Property does not own the data, so you can do this by reusing arrays / lists in a different property
 - [ ] Test edit API and delete
-- [ ] Rethink Animation and how it relates to:
-    - [ ] property edits (currently separate)
-    - [ ] first/last frame and boundary
-    - [ ] Maybe implement DB browser to get more context
 - [ ] Cache pipelines -> requires hashable pyxpg objects
 - [ ] Stages presets in config or in helper functions (empty, origin, floor, lights, maybe more?)
 - [ ] Basic client/server example and initial set of APIs
@@ -351,7 +368,7 @@ New property API plans:
     - [x] Re-organize scene traversals / collection (ideally minimize)
             - Scene traversal notes:
                 - Startup:
-                    One full traversal on first frame to collect max_animation_time
+                    One full traversal on first frame to collect end_animation_time
                 - Loop:
                     - Call update on each unique property
                     - Call update_transform on each object -> also disabled
