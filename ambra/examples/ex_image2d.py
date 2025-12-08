@@ -48,7 +48,6 @@ for i in range(H):
 image = (np.linspace(start, end, 100) * 255).astype(np.uint8)
 img = Image(
     image,
-    Format.R8G8B8A8_UNORM,
     translation=translation,
     rotation=rotation,
     scale=(1, H / W),
