@@ -92,6 +92,7 @@ class Points(Object3D):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
         if uniform_color is None and colors is None and colormap is None:
             uniform_color = 0xFFCCCCCC
@@ -129,7 +130,7 @@ class Points(Object3D):
 
         self.constants = np.zeros((1,), self.constants_dtype)
 
-        super().__init__(name, translation, rotation, scale, enabled=enabled)
+        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
         self.point_size = self.add_buffer_property(point_size, np.float32, name="point_size")
         self.points = self.add_buffer_property(points, np.float32, (-1, 3), name="points").use_gpu(
             BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
@@ -230,6 +231,7 @@ class Lines(Object3D):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -238,7 +240,7 @@ class Lines(Object3D):
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
-        super().__init__(name, translation, rotation, scale, enabled=enabled)
+        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
         self.is_strip = is_strip
         self.lines = self.add_buffer_property(lines, np.float32, (-1, 3), name="lines").use_gpu(
             BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
@@ -323,6 +325,7 @@ class Mesh(Object3D):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
         self.primitive_topology = primitive_topology
         self.cull_mode = cull_mode
@@ -346,6 +349,7 @@ class Mesh(Object3D):
             scale,
             material,
             enabled,
+            viewport_mask,
         )
 
         # Add properties
@@ -586,6 +590,7 @@ class Sphere(Mesh):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
         v, n, f = create_sphere(radius, rings, sectors)
         c = np.full(v.shape[0], color, np.uint32)
@@ -601,6 +606,7 @@ class Sphere(Mesh):
             rotation=rotation,
             scale=scale,
             enabled=enabled,
+            viewport_mask=viewport_mask,
         )
 
 
@@ -651,6 +657,7 @@ class AxisGizmo(Mesh):
             rotation=rotation,
             scale=scale,
             enabled=enabled,
+            viewport_mask=viewport_mask,
         )
 
 
@@ -663,6 +670,7 @@ class Image(Mesh):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
         material = ColorMaterial(as_image_property(image))
         positions = np.array(
@@ -703,6 +711,7 @@ class Image(Mesh):
             rotation=rotation,
             scale=scale,
             enabled=enabled,
+            viewport_mask=viewport_mask,
         )
 
 
@@ -732,6 +741,7 @@ class Grid(Object3D):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -766,7 +776,7 @@ class Grid(Object3D):
 
         self.is_transparent = base_color[3] < 1.0
 
-        super().__init__(name, translation, rotation, scale, enabled=enabled)
+        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
 
     @classmethod
     def white(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
@@ -868,6 +878,7 @@ class GaussianSplats(Object3D):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -882,7 +893,7 @@ class GaussianSplats(Object3D):
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
-        super().__init__(name, translation, rotation, scale, enabled=enabled)
+        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
         self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
             BufferUsageFlags.STORAGE,
             PipelineStageFlags.COMPUTE_SHADER,
@@ -1094,7 +1105,7 @@ class GaussianSplats(Object3D):
                     dst_color_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
                     color_blend_op=BlendOp.ADD,
                     src_alpha_blend_factor=BlendFactor.ONE,
-                    dst_alpha_blend_factor=BlendFactor.ZERO,
+                    dst_alpha_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
                     alpha_blend_op=BlendOp.ADD,
                 )
             ],

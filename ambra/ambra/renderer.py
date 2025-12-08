@@ -47,7 +47,6 @@ from pyxpg import (
 
 from .config import RendererConfig, UploadMethod
 
-# from . import ffx, lights, scene
 from .ffx import SPDPipeline
 from .lights import (
     LIGHT_TYPES_INFO,
@@ -133,6 +132,7 @@ class Renderer:
             SamplerMipmapMode.LINEAR,
             u=SamplerAddressMode.CLAMP_TO_EDGE,
             v=SamplerAddressMode.CLAMP_TO_EDGE,
+            name="linear-sampler",
         )
         self.shadow_sampler = Sampler(
             ctx,
@@ -759,9 +759,10 @@ class Renderer:
             image_barriers=f.before_render_image_barriers,
         )
 
-        for viewport in viewports:
+        for viewport_index, viewport in enumerate(viewports):
             if viewport.rect.width <= 0 or viewport.rect.height <= 0:
                 continue
+            viewport_bit =  1 << viewport_index
 
             descriptor_set = viewport.scene_descriptor_sets.get_current_and_advance()
 
@@ -791,7 +792,8 @@ class Renderer:
 
             # Stage: pre-render
             for o in enabled_objects:
-                o.pre_render(self, f, descriptor_set)
+                if o.viewport_mask is None or (o.viewport_mask & viewport_bit):
+                    o.pre_render(self, f, descriptor_set)
 
             # Sync: before-render barriers
             if f.before_render_src_pipeline_stages:
@@ -843,7 +845,8 @@ class Renderer:
                 depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
             ):
                 for o in enabled_objects:
-                    o.render(self, f, descriptor_set)
+                    if o.viewport_mask is None or (o.viewport_mask & viewport_bit):
+                        o.render(self, f, descriptor_set)
 
         if before_gui_barriers:
             cmd.barriers(image_barriers=before_gui_barriers)

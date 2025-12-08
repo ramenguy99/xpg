@@ -80,7 +80,7 @@ Priority:
                     - During rendering render to each of this image then transition to shader read optimal before rendering GUI.
                     - If you have multisampling on you actually need a multisample buffer for each viewport too
                         -> actually since we render in sequence you could always reuse the same one
-        - [ ] Would be nice to highlight viewport borders when active (also maybe on hover with slightly dimmer tone)
+        - [-] Would be nice to highlight viewport borders when active (also maybe on hover with slightly dimmer tone)
     - [ ] Viewer:
         - [x] View dependent things need to be recomputed and potentially require multi-buffering:
             - need to sort gaussians for both views
@@ -103,7 +103,7 @@ Priority:
         - [ ] Missing:
             - [x] Camera mouse interactions with different viewport
             - [ ] Object viewport masks
-                - [ ] Mask is optional int, None means all
+                - [x] Mask is optional int, None means all
                 - [ ] Lights with masking -> plan is to make this more immediate mode, upload lights every frame and only if enabled and the mask matches the viewport
             - [ ] Maybe move some viewport code inside renderer? It seems like now it's quite renderer specific, but currently lives in viewer.py
             - [ ] GaussianSplatting is not yet ready for multi-viewport (need to split all uploads and descriptor writes into "upload", now interleaved, including for sorting).

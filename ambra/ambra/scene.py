@@ -33,12 +33,14 @@ class Object:
         name: Optional[str] = None,
         material: Optional["Material"] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
         self.uid = Object.next_id()
         self.name = name or f"{type(self).__name__}<{self.uid}>"
         self.children: List[Object] = []
         self.properties: List[Property] = []
         self.material = material
+        self.viewport_mask = viewport_mask
 
         self.created = False
         self.gui_enabled = True
@@ -148,8 +150,9 @@ class Object2D(Object):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
-        super().__init__(name, enabled=enabled)
+        super().__init__(name, enabled=enabled, viewport_mask=viewport_mask)
         self.translation = self.add_buffer_property(
             translation if translation is not None else np.array([0, 0]),
             np.float32,
@@ -191,8 +194,9 @@ class Object3D(Object):
         scale: Optional[BufferProperty] = None,
         material: Optional["Material"] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
-        super().__init__(name, material, enabled)
+        super().__init__(name, material, enabled, viewport_mask)
         self.translation = self.add_buffer_property(
             translation if translation is not None else np.array([0, 0, 0]),
             np.float32,
