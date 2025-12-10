@@ -52,7 +52,7 @@ class Lines(Object2D):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
-        viewport_index: Optional[int] = None,
+        viewport_mask: Optional[int] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -61,7 +61,7 @@ class Lines(Object2D):
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
-        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_index=viewport_index)
+        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
         self.is_strip = is_strip
         self.lines = self.add_buffer_property(lines, np.float32, (-1, 2), name="lines").use_gpu(
             BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
@@ -137,7 +137,7 @@ class Image(Object2D):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
-        viewport_index: Optional[int] = None,
+        viewport_mask: Optional[int] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -145,7 +145,7 @@ class Image(Object2D):
             }
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
-        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_index=viewport_index)
+        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
         self.image = self.add_image_property(image, name="image").use_gpu(
             ImageUsageFlags.SAMPLED,
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,

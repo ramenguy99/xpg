@@ -625,6 +625,7 @@ class AxisGizmo(Mesh):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
         sphere_v, sphere_n, sphere_f = create_sphere(sphere_radius, 8, 16)
         sphere_c = np.full(sphere_v.shape[0], sphere_color, np.uint32)
@@ -1123,15 +1124,7 @@ class GaussianSplats(Object3D):
         self.constants["inverse_transform"] = mat4x3(inverse(self.current_transform_matrix))
 
     def upload(self, r: Renderer, frame: RendererFrame) -> None:
-        # Distances
-        if self.cull_at_dist:
-            if self.use_mesh_shader:
-                frame.cmd.update_buffer(self.draw_mesh_tasks_buf, self.draw_mesh_tasks_init)
-            else:
-                frame.cmd.fill_buffer(self.draw_parameters_buf, 0, 4, 4)
-            frame.upload_property_pipeline_stages |= PipelineStageFlags.COMPUTE_SHADER
-
-    def pre_render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        # Constants
         positions = self.positions.get_current_gpu()
         num_splats = positions.size // 12
         self.constants["splat_count"] = num_splats
@@ -1149,6 +1142,40 @@ class GaussianSplats(Object3D):
             self.descriptor_set, DescriptorType.STORAGE_BUFFER, 6
         )
 
+        count_buf = None
+        if self.cull_at_dist:
+            if self.use_mesh_shader:
+                count_buf = self.draw_mesh_tasks_buf
+            else:
+                count_buf = self.draw_parameters_buf
+
+        self.sort_pipeline.upload(
+            r,
+            self.dists_buf,
+            self.dists_alt_buf,
+            self.sorted_indices_buf,
+            self.sorted_indices_alt_buf,
+            count_buf,
+        )
+
+        frame.between_viewport_render_src_pipeline_stages |= PipelineStageFlags.COMPUTE_SHADER
+        frame.between_viewport_render_dst_pipeline_stages |= PipelineStageFlags.TRANSFER
+
+    def pre_render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        positions = self.positions.get_current_gpu()
+        num_splats = positions.size // 12
+
+        # Reset counters
+        if self.cull_at_dist:
+            if self.use_mesh_shader:
+                frame.cmd.update_buffer(self.draw_mesh_tasks_buf, self.draw_mesh_tasks_init)
+            else:
+                frame.cmd.fill_buffer(self.draw_parameters_buf, 0, 4, 4)
+            frame.upload_property_pipeline_stages |= PipelineStageFlags.COMPUTE_SHADER
+
+        frame.cmd.memory_barrier(MemoryUsage.TRANSFER_DST, MemoryUsage.COMPUTE_SHADER)
+
+        # Distance
         frame.cmd.bind_compute_pipeline(
             self.dist_pipeline,
             descriptor_sets=[scene_descriptor_set, self.descriptor_set],
@@ -1161,31 +1188,20 @@ class GaussianSplats(Object3D):
         # Sort
         if self.cull_at_dist:
             if self.use_mesh_shader:
-                count_buf = self.draw_mesh_tasks_buf
                 count_offset = 12
             else:
-                count_buf = self.draw_parameters_buf
                 count_offset = 4
 
             self.sort_pipeline.run_indirect(
                 r,
                 frame.cmd,
-                count_buf,
                 count_offset,
-                self.dists_buf,
-                self.dists_alt_buf,
-                self.sorted_indices_buf,
-                self.sorted_indices_alt_buf,
             )
         else:
             self.sort_pipeline.run(
                 r,
                 frame.cmd,
                 num_splats,
-                self.dists_buf,
-                self.dists_alt_buf,
-                self.sorted_indices_buf,
-                self.sorted_indices_alt_buf,
             )
 
         frame.before_render_src_pipeline_stages |= PipelineStageFlags.COMPUTE_SHADER

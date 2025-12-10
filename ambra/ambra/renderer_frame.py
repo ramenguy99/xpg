@@ -39,12 +39,15 @@ class RendererFrame:
     upload_after_buffer_barriers: List[BufferBarrier]
     upload_after_image_barriers: List[ImageBarrier]
 
+    # Mip generation requests
+    mip_generation_requests: Dict[MipGenerationFilter, List[MipGenerationRequest]]
+
     before_render_src_pipeline_stages: PipelineStageFlags
     before_render_dst_pipeline_stages: PipelineStageFlags
     before_render_image_barriers: List[ImageBarrier]
 
-    # After mip generation barriers
-    mip_generation_requests: Dict[MipGenerationFilter, List[MipGenerationRequest]]
+    between_viewport_render_src_pipeline_stages: PipelineStageFlags
+    between_viewport_render_dst_pipeline_stages: PipelineStageFlags
 
     additional_semaphores: List[SemaphoreInfo]
 

@@ -46,7 +46,6 @@ from pyxpg import (
 )
 
 from .config import RendererConfig, UploadMethod
-
 from .ffx import SPDPipeline
 from .lights import (
     LIGHT_TYPES_INFO,
@@ -524,12 +523,15 @@ class Renderer:
             [],
             [],
             [],
+            # Mip Generation requests
+            {},
             # Before render
             PipelineStageFlags(0),
             PipelineStageFlags(0),
             [],
-            # Mip Generation requests
-            {},
+            # Between viewport render
+            PipelineStageFlags(0),
+            PipelineStageFlags(0),
             # Frame additional semaphores
             frame.additional_semaphores,
             # Transfer queue commands
@@ -762,7 +764,7 @@ class Renderer:
         for viewport_index, viewport in enumerate(viewports):
             if viewport.rect.width <= 0 or viewport.rect.height <= 0:
                 continue
-            viewport_bit =  1 << viewport_index
+            viewport_bit = 1 << viewport_index
 
             descriptor_set = viewport.scene_descriptor_sets.get_current_and_advance()
 
@@ -789,6 +791,18 @@ class Renderer:
                         6 + len(LIGHT_TYPES_INFO),
                         l.shadow_map_index,
                     )
+
+            if viewport_index > 0 and f.between_viewport_render_src_pipeline_stages:
+                cmd.barriers(
+                    memory_barriers=[
+                        MemoryBarrier(
+                            f.between_viewport_render_src_pipeline_stages,
+                            AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                            f.between_viewport_render_dst_pipeline_stages,
+                            AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                        ),
+                    ],
+                )
 
             # Stage: pre-render
             for o in enabled_objects:
