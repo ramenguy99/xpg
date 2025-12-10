@@ -157,13 +157,11 @@ public struct DiffuseMaterial : IMaterial
             outgoing_radiance += cosine * diffuse * light.L;
         }
 
-        float3 irradiance;
+        float3 irradiance = 0.0;
         if (g_constants.has_environment_light != 0) {
-            irradiance = g_irradiance_cubemap.SampleLevel(g_linear_sampler, N, 0.0).rgb;
+            irradiance += g_irradiance_cubemap.SampleLevel(g_linear_sampler, N, 0.0).rgb;
         }
-        else {
-            irradiance = g_constants.ambient_light;
-        }
+        irradiance += g_constants.ambient_light;
 
         float3 color = outgoing_radiance + irradiance * diffuse;
 
@@ -234,13 +232,11 @@ public struct DiffuseSpecularMaterial : IMaterial
             outgoing_radiance += ((cosine * diffuse) + lerp(1.0, diffuse, specular_tint) * specular) * light.L;
         }
 
-        float3 irradiance;
+        float3 irradiance = 0.0;
         if (g_constants.has_environment_light != 0) {
-            irradiance = g_irradiance_cubemap.SampleLevel(g_linear_sampler, N, 0.0).rgb;
+            irradiance += g_irradiance_cubemap.SampleLevel(g_linear_sampler, N, 0.0).rgb;
         }
-        else {
-            irradiance = g_constants.ambient_light;
-        }
+        irradiance += g_constants.ambient_light;
 
         float3 color = outgoing_radiance + irradiance * diffuse;
 
@@ -403,22 +399,20 @@ public struct PBRMaterial : IMaterial
         float3 kS = f;
         float3 kD = (1.0 - kS) * (1.0 - metallic);
 
-        float3 irradiance;
+        float3 irradiance = 0.0;
         if (g_constants.has_environment_light != 0) {
-            irradiance = g_irradiance_cubemap.SampleLevel(g_linear_sampler, N, 0.0).rgb;
+            irradiance += g_irradiance_cubemap.SampleLevel(g_linear_sampler, N, 0.0).rgb;
         }
-        else {
-            irradiance = g_constants.ambient_light;
-        }
+        irradiance += g_constants.ambient_light;
+
         float3 diffuse = irradiance * albedo;
 
-        float3 prefiltered_specular;
+        float3 prefiltered_specular = 0.0;
         if (g_constants.has_environment_light != 0) {
             float3 reflection = reflect(-view, N);
-            prefiltered_specular = g_specular_cubemap.SampleLevel(g_linear_sampler, reflection, roughness * g_constants.max_specular_mip).rgb;
-        } else {
-            prefiltered_specular = g_constants.ambient_light;
+            prefiltered_specular += g_specular_cubemap.SampleLevel(g_linear_sampler, reflection, roughness * g_constants.max_specular_mip).rgb;
         }
+        prefiltered_specular += g_constants.ambient_light;
 
         float2 lut = g_ggx_lut.SampleLevel(g_linear_sampler, float2(cosine, roughness), 0).rg;
 

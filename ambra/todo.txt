@@ -103,10 +103,11 @@ Priority:
             - [x] GaussianSplatting is not yet ready for multi-viewport (need to split all uploads and descriptor writes into "upload", now interleaved, including for sorting).
             - [-] Maybe move some viewport code inside renderer? It seems like now it's quite renderer specific, but currently lives in viewer.py
         - [ ] Think about the API and UI for enabling / customizing this
-            - [ ] Shortcut to split
-            - [ ] viewports becomes a list, api to create a new viewport according to config or from scratch
-            - [ ] scene anyway moves before
-            - [ ] think about the camera, especially with respect to having cameras in scene
+            - [x] viewports becomes a list, api to create a new viewport according to config or from scratch
+            - [ ] Think about the camera, especially with respect to having cameras in scene
+            - [ ] Keyboard shortcut to split
+            - [ ] API to create / destroy viewports
+            - [ ] Automatic initial layout / docking? Also need this in general for all UIs
 - [ ] Windowless viewer
     - [x] Screenshots
     - [ ] Video, maybe using av? Maybe just user callback? Make PoC then decide
