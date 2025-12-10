@@ -49,6 +49,7 @@ from .gpu_property import (
 )
 from .headless import HeadlessSwapchain, HeadlessSwapchainFrame
 from .keybindings import KeyMap
+from .lights import LIGHT_TYPES_INFO
 from .renderer import FrameInputs, Renderer
 from .scene import Object, Scene
 from .server import Client, Message, RawMessage, Server, parse_builtin_messages
@@ -239,7 +240,19 @@ class Viewer:
                     for _ in range(self.renderer.num_frames_in_flight)
                 ]
             )
-            for s, buf, light_bufs in zip(scene_descriptor_sets, scene_uniform_buffers, self.renderer.light_buffers):
+            scene_light_buffers = RingBuffer(
+                [
+                    [
+                        UploadableBuffer(
+                            self.ctx, info.size * self.renderer.max_lights_per_type, BufferUsageFlags.STORAGE
+                        )
+                        for info in LIGHT_TYPES_INFO
+                    ]
+                    for _ in range(self.renderer.num_frames_in_flight)
+                ]
+            )
+
+            for s, buf, light_bufs in zip(scene_descriptor_sets, scene_uniform_buffers, scene_light_buffers):
                 s.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0)
                 s.write_sampler(self.renderer.shadow_sampler, 1)
                 s.write_sampler(self.renderer.linear_sampler, 2)
@@ -292,6 +305,7 @@ class Viewer:
                     world_up=normalize(vec3(config.world_up)),
                     scene_descriptor_sets=scene_descriptor_sets,
                     scene_uniform_buffers=scene_uniform_buffers,
+                    scene_light_buffers=scene_light_buffers,
                     scene_constants=scene_constants,
                     image=img,
                     imgui_texture=texture,

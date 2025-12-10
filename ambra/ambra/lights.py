@@ -211,19 +211,22 @@ class DirectionalLight(Light):
             self.shadow_settings.z_far,
         )
 
-        self.light_buffer_offset, self.shadow_map_index = r.add_light(LightTypes.DIRECTIONAL, self.shadow_map)
         self.light_info = np.zeros((1,), directional_light_dtype)
 
-    def upload(self, renderer: "Renderer", frame: RendererFrame) -> None:
+    def upload_light(
+        self, renderer: "Renderer", frame: RendererFrame, shadow_map_index: int, offset: int, buffer: UploadableBuffer
+    ) -> None:
         view = inverse(self.current_transform_matrix)
         direction = vec3(self.current_transform_matrix * vec4(0, 0, -1, 0))
         self.light_info["orthographic_camera"] = self.projection * view
         self.light_info["radiance"] = self.radiance.get_current()
-        self.light_info["shadow_map_index"] = self.shadow_map_index
+        self.light_info["shadow_map_index"] = shadow_map_index
         self.light_info["direction"] = direction
         self.light_info["bias"] = self.shadow_settings.bias
-        renderer.upload_light(frame, LightTypes.DIRECTIONAL, view_bytes(self.light_info), self.light_buffer_offset)
 
+        buffer.upload(frame.cmd, MemoryUsage.NONE, view_bytes(self.light_info), offset)
+
+    def upload(self, renderer: "Renderer", frame: RendererFrame) -> None:
         if not self.shadow_settings.casts_shadow:
             return
 

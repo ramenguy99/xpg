@@ -95,24 +95,25 @@ Priority:
                 - Maybe a viewport mask type thing is easier than multiple scenes
                     -> objects have a viewport mask, if None render to all viewports (default)
                     -> Move scene outside viewport (also easier to viewer.scene)
+        - [x] Missing:
+            - [x] Camera mouse interactions with different viewport
+            - [x] Object viewport masks
+                - [x] Mask is optional int, None means all
+                - [x] Lights with masking -> plan is to make this more immediate mode, upload lights every frame and only if enabled and the mask matches the viewport
+            - [x] GaussianSplatting is not yet ready for multi-viewport (need to split all uploads and descriptor writes into "upload", now interleaved, including for sorting).
+            - [-] Maybe move some viewport code inside renderer? It seems like now it's quite renderer specific, but currently lives in viewer.py
         - [ ] Think about the API and UI for enabling / customizing this
             - [ ] Shortcut to split
             - [ ] viewports becomes a list, api to create a new viewport according to config or from scratch
             - [ ] scene anyway moves before
             - [ ] think about the camera, especially with respect to having cameras in scene
-        - [ ] Missing:
-            - [x] Camera mouse interactions with different viewport
-            - [ ] Object viewport masks
-                - [x] Mask is optional int, None means all
-                - [ ] Lights with masking -> plan is to make this more immediate mode, upload lights every frame and only if enabled and the mask matches the viewport
-            - [ ] Maybe move some viewport code inside renderer? It seems like now it's quite renderer specific, but currently lives in viewer.py
-            - [ ] GaussianSplatting is not yet ready for multi-viewport (need to split all uploads and descriptor writes into "upload", now interleaved, including for sorting).
 - [ ] Windowless viewer
     - [x] Screenshots
     - [ ] Video, maybe using av? Maybe just user callback? Make PoC then decide
         - [x] PoC with PyAV
         - [x] Do pipelinening and check speedup
         - [ ] Frame / timestamp range customization with different playback and render rate
+- [x] Remove all the get_current() that we don't need from render() (to avoid spurious streaming loads)
 - [ ] Colormap material with user-configurable min-max and colormap (evaluated in shader from R channel)
     - think about how to also maybe support variants like versions dependent on distance to position / plane
 - [x] Remove all the get_current() that we don't need from render() (to avoid spurious streaming loads)

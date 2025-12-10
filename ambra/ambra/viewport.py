@@ -3,7 +3,7 @@
 
 import math
 from dataclasses import dataclass
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 from numpy.typing import NDArray
 from pyglm.glm import (
@@ -89,6 +89,7 @@ class Viewport:
         handedness: Handedness,
         scene_descriptor_sets: RingBuffer[DescriptorSet],
         scene_uniform_buffers: RingBuffer[UploadableBuffer],
+        scene_light_buffers: RingBuffer[List[UploadableBuffer]],
         scene_constants: NDArray[Any],
         image: Optional[Image],
         imgui_texture: Optional[imgui.Texture],
@@ -123,6 +124,7 @@ class Viewport:
         self.playback = playback
         self.scene_descriptor_sets = scene_descriptor_sets
         self.scene_uniform_buffers = scene_uniform_buffers
+        self.scene_light_buffers = scene_light_buffers
         self.scene_constants = scene_constants
         self.image = image
         self.imgui_texture = imgui_texture

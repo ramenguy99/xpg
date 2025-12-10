@@ -67,9 +67,7 @@ from .utils.gpu import (
     BulkUploader,
     ImageUploadInfo,
     UniformPool,
-    UploadableBuffer,
 )
-from .utils.ring_buffer import RingBuffer
 from .utils.threadpool import ThreadPool
 from .viewport import Viewport
 
@@ -122,7 +120,6 @@ class Renderer:
 
         # Scene descriptors
         self.max_shadow_maps = config.max_shadow_maps
-        self.num_shadow_maps = 0
 
         self.linear_sampler = Sampler(
             ctx,
@@ -231,16 +228,6 @@ class Renderer:
         )  # type: ignore
 
         self.max_lights_per_type = config.max_lights_per_type
-        self.num_lights = [0] * len(LIGHT_TYPES_INFO)
-        self.light_buffers = RingBuffer(
-            [
-                [
-                    UploadableBuffer(ctx, info.size * self.max_lights_per_type, BufferUsageFlags.STORAGE)
-                    for info in LIGHT_TYPES_INFO
-                ]
-                for _ in range(self.num_frames_in_flight)
-            ]
-        )
 
         self.spd_pipeline = SPDPipeline(self)
         self.spd_pipeline_instances = [
@@ -379,33 +366,6 @@ class Renderer:
         if ibl_params is None:
             ibl_params = self.ibl_default_params
         return self.ibl_pipeline.run(self, equirectangular, ibl_params)
-
-    def add_light(self, light_type: "LightTypes", shadow_map: Optional[Image]) -> Tuple[int, int]:
-        if self.num_lights[light_type.value] >= self.max_lights_per_type:
-            raise RuntimeError(
-                f'Too many ligths of type: {light_type}. Increase "config.renderer.max_lights_per_type" (current value: {self.max_lights_per_type}) to allow more lights.'
-            )
-
-        # Allocate light
-        light_idx = self.num_lights[light_type.value]
-        self.num_lights[light_type.value] += 1
-
-        shadow_map_idx = -1
-        if shadow_map is not None:
-            if self.num_shadow_maps >= self.max_shadow_maps:
-                raise RuntimeError(
-                    f'Too many shadow_maps. Increase "config.renderer.max_shadow_maps" (current value: {self.max_shadow_maps}) to allow more shadow_maps.'
-                )
-
-            # Allocate light
-            shadow_map_idx = self.num_shadow_maps
-            self.num_shadow_maps += 1
-
-        return light_idx * LIGHT_TYPES_INFO[light_type.value].size, shadow_map_idx
-
-    def upload_light(self, frame: RendererFrame, light_type: "LightTypes", data: memoryview, offset: int) -> None:
-        self.light_buffers.get_current()[light_type.value].upload(frame.cmd, MemoryUsage.NONE, data, offset)
-        frame.upload_property_pipeline_stages |= PipelineStageFlags.VERTEX_SHADER
 
     def compile_shader(
         self,
@@ -583,20 +543,51 @@ class Renderer:
         for p in enabled_gpu_properties:
             p.upload(f)
 
-        environment_light: Optional[EnvironmentLight] = None
-        uniform_environment_radiance = np.array((0, 0, 0), np.float32)
-        for l in enabled_lights:
-            if isinstance(l, EnvironmentLight):
-                environment_light = l
-            elif isinstance(l, UniformEnvironmentLight):
-                uniform_environment_radiance += l.radiance.get_current()
-
         # Upload scene constants for each viewport
-        for viewport in viewports:
+        for viewport_index, viewport in enumerate(viewports):
             viewport_width, viewport_height = viewport.rect.width, viewport.rect.height
 
             if viewport_width <= 0 or viewport_height <= 0:
                 continue
+
+            environment_light: Optional[EnvironmentLight] = None
+            uniform_environment_radiance = np.array((0, 0, 0), np.float32)
+            light_buffer_offset = 0
+            shadow_map_index = 0
+            num_lights = 0
+            light_buffers = viewport.scene_light_buffers.get_current_and_advance()
+            for l in enabled_lights:
+                if l.viewport_mask is None or l.viewport_mask & (1 << viewport_index):
+                    if isinstance(l, DirectionalLight):
+                        if num_lights >= self.max_lights_per_type:
+                            raise RuntimeError(
+                                f'Too many ligths of type: {LightTypes.DIRECTIONAL}. Increase "config.renderer.max_lights_per_type" (current value: {self.max_lights_per_type}) to allow more lights.'
+                            )
+
+                        map_index = -1
+                        if l.shadow_map is not None:
+                            map_index = shadow_map_index
+                            shadow_map_index += 1
+
+                            if map_index >= self.max_shadow_maps:
+                                raise RuntimeError(
+                                    f'Too many shadow_maps. Increase "config.renderer.max_shadow_maps" (current value: {self.max_shadow_maps}) to allow more shadow_maps.'
+                                )
+
+                        light_type_idx = LightTypes.DIRECTIONAL.value
+                        offset = light_buffer_offset
+
+                        l.upload_light(self, f, map_index, offset, light_buffers[light_type_idx])
+                        light_buffer_offset += LIGHT_TYPES_INFO[light_type_idx].size
+                        num_lights += 1
+                    elif isinstance(l, EnvironmentLight):
+                        if environment_light is not None:
+                            raise RuntimeError(
+                                f"More than one environment light enabled for viewport index {viewport_index}"
+                            )
+                        environment_light = l
+                    elif isinstance(l, UniformEnvironmentLight):
+                        uniform_environment_radiance += l.radiance.get_current()
 
             buf = viewport.scene_uniform_buffers.get_current_and_advance()
             proj = viewport.camera.projection(viewport_width / viewport_height)
@@ -605,7 +596,7 @@ class Renderer:
             constants["projection"] = proj
             constants["view"] = viewport.camera.view()
             constants["world_camera_position"] = viewport.camera.position()
-            constants["num_lights"] = self.num_lights
+            constants["num_lights"] = num_lights
             constants["ambient_light"] = uniform_environment_radiance
             if environment_light is not None:
                 constants["has_environment_light"] = 1
@@ -768,29 +759,31 @@ class Renderer:
 
             descriptor_set = viewport.scene_descriptor_sets.get_current_and_advance()
 
-            if environment_light is not None:
-                descriptor_set.write_image(
-                    environment_light.gpu_cubemaps.irradiance_cubemap,
-                    ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-                    DescriptorType.SAMPLED_IMAGE,
-                    3,
-                )
-                descriptor_set.write_image(
-                    environment_light.gpu_cubemaps.specular_cubemap,
-                    ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-                    DescriptorType.SAMPLED_IMAGE,
-                    4,
-                )
-
+            shadow_map_index = 0
             for l in enabled_lights:
-                if isinstance(l, DirectionalLight) and l.shadow_map is not None:
-                    descriptor_set.write_image(
-                        l.shadow_map,
-                        ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-                        DescriptorType.SAMPLED_IMAGE,
-                        6 + len(LIGHT_TYPES_INFO),
-                        l.shadow_map_index,
-                    )
+                if l.viewport_mask is None or l.viewport_mask & (1 << viewport_index):
+                    if isinstance(l, DirectionalLight) and l.shadow_map is not None:
+                        descriptor_set.write_image(
+                            l.shadow_map,
+                            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                            DescriptorType.SAMPLED_IMAGE,
+                            6 + len(LIGHT_TYPES_INFO),
+                            shadow_map_index,
+                        )
+                        shadow_map_index += 1
+                    elif isinstance(l, EnvironmentLight):
+                        descriptor_set.write_image(
+                            l.gpu_cubemaps.irradiance_cubemap,
+                            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                            DescriptorType.SAMPLED_IMAGE,
+                            3,
+                        )
+                        descriptor_set.write_image(
+                            l.gpu_cubemaps.specular_cubemap,
+                            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                            DescriptorType.SAMPLED_IMAGE,
+                            4,
+                        )
 
             if viewport_index > 0 and f.between_viewport_render_src_pipeline_stages:
                 cmd.barriers(
@@ -893,7 +886,6 @@ class Renderer:
         )
 
         self.uniform_pool.advance()
-        self.light_buffers.advance()
         self.total_frame_index += 1
 
     def prefetch(self) -> None:
