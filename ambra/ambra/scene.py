@@ -44,7 +44,7 @@ class Object:
 
         self.created = False
         self.gui_enabled = True
-        self.gui_expanded = False
+        self.gui_expanded = True
         self.gui_selected = False
         self.gui_selected_property: Optional[Property] = None
 

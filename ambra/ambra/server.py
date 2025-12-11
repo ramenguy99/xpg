@@ -38,8 +38,8 @@ class MessageId(Enum):
 class Format(Enum):
     # Default formats
     BINARY = 0
-    PICKLE = 2
     JSON = 1
+    PICKLE = 2
 
     # Starting id available for users
     USER = 1 << 20
@@ -72,7 +72,7 @@ class Server:
                     logger.info("Server: client %s:%s opened connection", client_address[0], client_address[1])
                     magic = await reader.readexactly(4)
                     if magic != b"AMBR":
-                        return
+                        raise ValueError("invalid magic")
 
                     # Header
                     client_name_length = struct.unpack("<I", await reader.readexactly(4))[0]

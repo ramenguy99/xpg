@@ -207,6 +207,36 @@ def create_cube(
     )
 
 
+def create_cube_edges(
+        min_p: Tuple[float, float, float], max_p: Tuple[float, float, float]
+) -> NDArray[np.float32]:
+    vertices = np.zeros((8, 3), dtype=np.float32)
+    vertices[0:4] = min_p
+    vertices[1, 0] = max_p[0]
+    vertices[2, 0:2] = max_p[0:2]
+    vertices[3, 1] = max_p[1]
+    vertices[4:] = max_p
+    vertices[4, 0:2] = min_p[0:2]
+    vertices[7, 0] = min_p[0]
+    vertices[5, 1] = min_p[1]
+
+    lines = np.zeros((24, 3), dtype=np.float32)
+    lines[0:2] = vertices[0:2]
+    lines[2:4] = vertices[1:3]
+    lines[4:6] = vertices[2:4]
+    lines[6:8] = vertices[[3, 0]]
+    lines[8:10] = vertices[4:6]
+    lines[10:12] = vertices[5:7]
+    lines[12:14] = vertices[6:8]
+    lines[14:16] = vertices[[7, 4]]
+    lines[16:18] = vertices[[0, 4]]
+    lines[18:20] = vertices[[1, 5]]
+    lines[20:22] = vertices[[2, 6]]
+    lines[22:24] = vertices[[3, 7]]
+
+    return lines
+
+
 def concatenate_meshes(
     attributes: Sequence[Sequence[NDArray[Any]]], indices: Sequence[NDArray[np.uint32]]
 ) -> Tuple[List[NDArray[np.float32]], NDArray[np.uint32]]:
