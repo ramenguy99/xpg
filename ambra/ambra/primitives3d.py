@@ -942,7 +942,7 @@ class Voxels(Object3D):
             ],
             push_constants=self.constants.tobytes(),
         )
-        frame.cmd.draw_indexed(8, positions.size // 12)
+        frame.cmd.draw_indexed(18, positions.size // 12)
 
 
 # NOTE: must be kept in sync with RenderFlags in shaders/3d/gaussian_splatting/shaderio.h

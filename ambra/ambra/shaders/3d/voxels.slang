@@ -35,8 +35,6 @@ VSOutput vertex_main(VSInput in, uint vertex_index: SV_VertexID)
 {
     VSOutput out;
 
-    uint voxel = vertex_index >> 3;
-
     float3 center = in.pos;
     float3 dir = g_constants.world_camera_position - center;
     uint3 xyz = uint3((vertex_index & 0x4) >> 2, (vertex_index & 0x2) >> 1, (vertex_index & 0x1) >> 0);
@@ -45,7 +43,7 @@ VSOutput vertex_main(VSInput in, uint vertex_index: SV_VertexID)
     if (dir.z > 0) xyz.z = 1 - xyz.z;
 
     float3 uvw = float3(xyz);
-    float3 world_position = center + (uvw * 2.0 - 1.0) * g_object_constants.voxel_size;
+    float3 world_position = center + (uvw - 0.5) * g_object_constants.voxel_size;
 
     out.position = mul(g_constants.projection, mul(g_constants.view, float4(world_position, 1.0)));
 
