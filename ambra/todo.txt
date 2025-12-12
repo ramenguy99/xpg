@@ -130,11 +130,13 @@ TODO:
         - [ ] Cilinders (with/without caps)
         - [-] Meshes
             - [ ] Handle optional params for:
-                - normals -> fallback to flat shading with shader derivatives
-                - uvs -> fallback to flat color
-                - tangents and normal maps (?)
-                - joint indices, weights, joints
-            - [ ] Fixup when correctly handling materials and
+                - [x] normals -> fallback to flat shading with shader derivatives
+                - [x] uvs -> fallback to flat color
+                - [x] tangents and normal maps
+                - [ ] joint indices, weights, joints
+        - [ ] Voxels
+            - [ ] Borders -> is there a way to use barycentrics but distinguish sides from center of face edge? e.g. order edges always as side side, cross
+            - [ ] Colormap -> same as pointcloud could be nice to colormap voxels
         - [-] Grid floor
             - [ ] Height control
         - [x] 2D Images
@@ -147,8 +149,8 @@ TODO:
                 - Can implement this by having a separate object for each, but then you need to 4x a lot of stuff which does not help scaling.
                 - One option is to do tint and have different shader permutation that tint
                     -> need to remember to create a white material for this (could have logic that defaults to diffuse (1, 1, 1, 1) instead of (0.5, 0.5, 0.5, 1.0) if vertex colors or intance colors are passed in)
-    - [ ] Add helpers to simplify creation of vertex buffers and descriptor sets
-    - [ ] Together with light / materials, figure out how to do shader permutations / optional properties
+    - [x] Add helpers to simplify creation of vertex buffers and descriptor sets
+    - [x] Together with light / materials, figure out how to do shader permutations / optional properties
 - [ ] Renderer architecture / path tracer support
     - [ ] Single object vs batching -> especially relevant for path tracing where you need to batch things in a tlas
         - [ ] Lights

@@ -65,8 +65,6 @@ VSOutput vertex_main(VSInput in, uint instance_id: SV_InstanceID)
     float remapped_value = (value - g_object_constants.range_min) * g_object_constants.range_inv_delta;
     ColormapId colormap_id = (ColormapId)(g_object_constants.colormap_measure & 0xFFFF);
 
-    // float remapped_value = 0.5;
-    // ColormapId colormap_id = ColormapId.JET;
     out.color = float4(colormap(colormap_id, remapped_value), 1.0);
 #elif defined(UNIFORM_COLOR)
     out.color = float4(

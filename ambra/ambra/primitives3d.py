@@ -46,7 +46,7 @@ from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object, Object3D
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
-from .utils.gpu import cull_mode_opposite_face, div_round_up
+from .utils.gpu import cull_mode_opposite_face, div_round_up, view_bytes
 
 
 class ColormapKind(Enum):
@@ -843,6 +843,106 @@ class Grid(Object3D):
             push_constants=self.constants.tobytes(),
         )
         frame.cmd.draw(4)
+
+
+class Voxels(Object3D):
+    def __init__(
+        self,
+        positions: BufferProperty,
+        size: float,
+        colormap: Optional[Colormap] = None,
+        name: Optional[str] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
+    ):
+        self.constants_dtype = np.dtype(
+            {
+                "transform": (np.dtype((np.float32, (3, 4))), 0),
+                "size": (np.float32, 48),
+                "colormap_measure": (np.uint32, 52),
+                "range_min": (np.float32, 56),
+                "range_inv_delta": (np.float32, 60),
+                "point_or_normal": (np.dtype((np.float32, (3,))), 64),
+            }
+        )  # type: ignore
+        self.constants = np.zeros((1,), self.constants_dtype)
+        self.size = size
+
+        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
+        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
+            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+        )
+        self.colormap = colormap
+
+    def create(self, r: "Renderer"):
+        defines = []
+        vert = r.compile_builtin_shader("3d/voxels.slang", "vertex_main", defines=defines)
+        frag = r.compile_builtin_shader("3d/voxels.slang", "pixel_main", defines=defines)
+
+        indices = np.array([
+            [0, 1, 3],
+            [3, 0, 2],
+            [0, 4, 5],
+            [1, 0, 5],
+            [0, 2, 4],
+            [2, 4, 6],
+        ], np.uint32)
+        self.indices = Buffer.from_data(r.ctx, view_bytes(indices), BufferUsageFlags.INDEX | BufferUsageFlags.TRANSFER_DST, AllocType.DEVICE, name="voxel-indices")
+
+        vertex_bindings = [VertexBinding(0, 12, VertexInputRate.INSTANCE)]
+        vertex_attributes = [VertexAttribute(0, 0, Format.R32G32B32_SFLOAT)]
+
+        self.pipeline = GraphicsPipeline(
+            r.ctx,
+            stages=[
+                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+            ],
+            vertex_bindings=vertex_bindings,
+            vertex_attributes=vertex_attributes,
+            input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
+            samples=r.msaa_samples,
+            attachments=[Attachment(format=r.output_format)],
+            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+            ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
+        )
+
+    def update_transform(self, parent: Optional[Object]) -> None:
+        super().update_transform(parent)
+        self.constants["transform"] = mat4x3(self.current_transform_matrix)
+
+    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        self.constants["size"] = self.size
+        if isinstance(self.colormap, ColormapDistanceToPoint):
+            measure = 0
+            self.constants["point_or_normal"][:3] = self.colormap.point
+        elif isinstance(self.colormap, ColormapDistanceToPlane):
+            measure = 1
+            self.constants["point_or_normal"][:3] = self.colormap.normal
+        else:
+            raise ValueError("colormap must be of type ColormapDistanceToPlane or ColormapDistanceToPoint")
+        self.constants["colormap_measure"] = (measure << 16) | self.colormap.color.value
+        self.constants["range_min"] = self.colormap.range_min
+        self.constants["range_inv_delta"] = 1.0 / (self.colormap.range_max - self.colormap.range_min)
+
+        positions = self.positions.get_current_gpu()
+        vertex_buffers = [positions.buffer_and_offset()]
+        frame.cmd.bind_graphics_pipeline(
+            self.pipeline,
+            vertex_buffers=vertex_buffers,
+            index_buffer=self.indices,
+            descriptor_sets=[
+                scene_descriptor_set,
+            ],
+            push_constants=self.constants.tobytes(),
+        )
+        frame.cmd.draw_indexed(8, positions.size // 12)
 
 
 # NOTE: must be kept in sync with RenderFlags in shaders/3d/gaussian_splatting/shaderio.h
