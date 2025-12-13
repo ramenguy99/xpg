@@ -207,9 +207,7 @@ def create_cube(
     )
 
 
-def create_cube_edges(
-        min_p: Tuple[float, float, float], max_p: Tuple[float, float, float]
-) -> NDArray[np.float32]:
+def create_cube_edges(min_p: Tuple[float, float, float], max_p: Tuple[float, float, float]) -> NDArray[np.float32]:
     vertices = np.zeros((8, 3), dtype=np.float32)
     vertices[0:4] = min_p
     vertices[1, 0] = max_p[0]

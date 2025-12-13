@@ -800,7 +800,7 @@ class Renderer:
             # Stage: pre-render
             for o in enabled_objects:
                 if o.viewport_mask is None or (o.viewport_mask & viewport_bit):
-                    o.pre_render(self, f, descriptor_set)
+                    o.pre_render(self, f, viewport, descriptor_set)
 
             # Sync: before-render barriers
             if f.before_render_src_pipeline_stages:
@@ -853,7 +853,7 @@ class Renderer:
             ):
                 for o in enabled_objects:
                     if o.viewport_mask is None or (o.viewport_mask & viewport_bit):
-                        o.render(self, f, descriptor_set)
+                        o.render(self, f, viewport, descriptor_set)
 
         if before_gui_barriers:
             cmd.barriers(image_barriers=before_gui_barriers)

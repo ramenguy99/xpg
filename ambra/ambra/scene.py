@@ -22,6 +22,7 @@ from .transform3d import Transform3D
 if TYPE_CHECKING:
     from .materials import Material
     from .renderer import Renderer
+    from .viewport import Viewport
 
 
 _counter = 0
@@ -106,10 +107,14 @@ class Object:
     def upload(self, renderer: "Renderer", frame: RendererFrame) -> None:
         pass
 
-    def pre_render(self, renderer: "Renderer", frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def pre_render(
+        self, renderer: "Renderer", frame: RendererFrame, viewport: "Viewport", scene_descriptor_set: DescriptorSet
+    ) -> None:
         pass
 
-    def render(self, renderer: "Renderer", frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render(
+        self, renderer: "Renderer", frame: RendererFrame, viewport: "Viewport", scene_descriptor_set: DescriptorSet
+    ) -> None:
         pass
 
     def render_depth(self, renderer: "Renderer", frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:

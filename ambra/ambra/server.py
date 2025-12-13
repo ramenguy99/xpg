@@ -72,7 +72,7 @@ class Server:
                     logger.info("Server: client %s:%s opened connection", client_address[0], client_address[1])
                     magic = await reader.readexactly(4)
                     if magic != b"AMBR":
-                        raise ValueError("invalid magic")
+                        raise ValueError("invalid magic")  # noqa: TRY301
 
                     # Header
                     client_name_length = struct.unpack("<I", await reader.readexactly(4))[0]

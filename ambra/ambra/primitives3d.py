@@ -6,7 +6,7 @@ from enum import Enum, IntFlag
 from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
-from pyglm.glm import inverse, mat3, mat4x3, rotate, transpose, vec3
+from pyglm.glm import inverse, mat3, mat4x3, rotate, transpose, vec3, vec4
 from pyxpg import (
     AllocType,
     Attachment,
@@ -47,6 +47,7 @@ from .renderer_frame import RendererFrame
 from .scene import Object, Object3D
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import cull_mode_opposite_face, div_round_up, view_bytes
+from .viewport import Viewport
 
 
 class ColormapKind(Enum):
@@ -185,7 +186,9 @@ class Points(Object3D):
         super().update_transform(parent)
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
 
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
         self.constants["point_size"] = self.point_size.get_current()
         if self.uniform_color is not None:
             self.constants["color"] = self.uniform_color
@@ -286,7 +289,9 @@ class Lines(Object3D):
         super().update_transform(parent)
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
 
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
         lines = self.lines.get_current_gpu()
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -300,7 +305,7 @@ class Lines(Object3D):
             push_constants=self.constants.tobytes(),
         )
         frame.cmd.set_line_width(
-            self.line_width.get_current().item() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
+            self.line_width.get_current().item() if renderer.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
         )
 
         frame.cmd.draw(lines.size // 12)
@@ -538,7 +543,9 @@ class Mesh(Object3D):
         else:
             frame.cmd.draw(positions.size // 12, num_instances)
 
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
         assert self.material is not None
 
         positions = self.positions.get_current_gpu()
@@ -834,7 +841,9 @@ class Grid(Object3D):
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             descriptor_sets=[
@@ -850,7 +859,11 @@ class Voxels(Object3D):
         self,
         positions: BufferProperty,
         size: float,
+        colors: Optional[BufferProperty] = None,
+        uniform_color: Optional[int] = None,
         colormap: Optional[Colormap] = None,
+        border_size: float = 0.1,
+        border_factor: float = 0.5,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
@@ -858,42 +871,103 @@ class Voxels(Object3D):
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
     ):
-        self.constants_dtype = np.dtype(
-            {
-                "transform": (np.dtype((np.float32, (3, 4))), 0),
-                "size": (np.float32, 48),
-                "colormap_measure": (np.uint32, 52),
-                "range_min": (np.float32, 56),
-                "range_inv_delta": (np.float32, 60),
-                "point_or_normal": (np.dtype((np.float32, (3,))), 64),
-            }
-        )  # type: ignore
+        if uniform_color is None and colors is None and colormap is None:
+            uniform_color = 0xFFCCCCCC
+
+        if uniform_color is not None:
+            if colormap is not None or colors is not None:
+                raise ValueError("Only one of uniform_color, colormap and colors can be not None")
+            self.constants_dtype = np.dtype(
+                {
+                    "transform": (np.dtype((np.float32, (3, 4))), 0),
+                    "object_camera_position": (np.dtype((np.float32, (3,))), 48),
+                    "size": (np.float32, 60),
+                    "border_size": (np.float32, 64),
+                    "border_factor": (np.float32, 68),
+                    "color": (np.uint32, 72),
+                }
+            )  # type: ignore
+        elif colors is not None:
+            if colormap is not None:
+                raise ValueError("Only one of uniform_color, colormap and colors can be not None")
+            self.constants_dtype = np.dtype(
+                {
+                    "transform": (np.dtype((np.float32, (3, 4))), 0),
+                    "object_camera_position": (np.dtype((np.float32, (3,))), 48),
+                    "size": (np.float32, 60),
+                    "border_size": (np.float32, 64),
+                    "border_factor": (np.float32, 68),
+                }
+            )  # type: ignore
+        elif colormap is not None:
+            self.constants_dtype = np.dtype(
+                {
+                    "transform": (np.dtype((np.float32, (3, 4))), 0),
+                    "object_camera_position": (np.dtype((np.float32, (3,))), 48),
+                    "size": (np.float32, 60),
+                    "border_size": (np.float32, 64),
+                    "border_factor": (np.float32, 68),
+                    "colormap_measure": (np.uint32, 72),
+                    "range_min": (np.float32, 76),
+                    "point_or_normal": (np.dtype((np.float32, (3,))), 80),
+                    "range_inv_delta": (np.float32, 92),
+                }
+            )  # type: ignore
+
         self.constants = np.zeros((1,), self.constants_dtype)
         self.size = size
+        self.border_size = border_size
+        self.border_factor = border_factor
 
         super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
         self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
             BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
         )
+        self.colors = (
+            self.add_buffer_property(colors, np.uint32, (-1,), name="colors").use_gpu(
+                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+            )
+            if colors is not None
+            else None
+        )
         self.colormap = colormap
+        self.uniform_color = uniform_color
 
-    def create(self, r: "Renderer"):
+    def create(self, r: Renderer) -> None:
+        vertex_bindings = [VertexBinding(0, 12, VertexInputRate.INSTANCE)]
+        vertex_attributes = [VertexAttribute(0, 0, Format.R32G32B32_SFLOAT)]
+
         defines = []
+        if self.uniform_color is not None:
+            defines.append(("UNIFORM_COLOR", ""))
+        elif self.colors is not None:
+            defines.append(("VERTEX_COLORS", ""))
+            vertex_bindings.append(VertexBinding(1, 4, VertexInputRate.INSTANCE))
+            vertex_attributes.append(VertexAttribute(1, 1, Format.R32_UINT))
+        elif self.colormap is not None:
+            defines.append(("COLORMAP", ""))
+
         vert = r.compile_builtin_shader("3d/voxels.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/voxels.slang", "pixel_main", defines=defines)
 
-        indices = np.array([
-            [0, 1, 3],
-            [3, 0, 2],
-            [0, 4, 5],
-            [1, 0, 5],
-            [0, 2, 4],
-            [2, 4, 6],
-        ], np.uint32)
-        self.indices = Buffer.from_data(r.ctx, view_bytes(indices), BufferUsageFlags.INDEX | BufferUsageFlags.TRANSFER_DST, AllocType.DEVICE, name="voxel-indices")
-
-        vertex_bindings = [VertexBinding(0, 12, VertexInputRate.INSTANCE)]
-        vertex_attributes = [VertexAttribute(0, 0, Format.R32G32B32_SFLOAT)]
+        indices = np.array(
+            [
+                [0, 1, 3],
+                [3, 0, 2],
+                [0, 4, 5],
+                [1, 0, 5],
+                [0, 2, 4],
+                [2, 4, 6],
+            ],
+            np.uint32,
+        )
+        self.indices = Buffer.from_data(
+            r.ctx,
+            view_bytes(indices),
+            BufferUsageFlags.INDEX | BufferUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+            name="voxel-indices",
+        )
 
         self.pipeline = GraphicsPipeline(
             r.ctx,
@@ -917,22 +991,36 @@ class Voxels(Object3D):
         super().update_transform(parent)
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
 
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
+        self.constants["object_camera_position"] = vec3(
+            inverse(self.current_transform_matrix) * vec4(viewport.camera.position(), 1.0)
+        )  # type: ignore
         self.constants["size"] = self.size
-        if isinstance(self.colormap, ColormapDistanceToPoint):
-            measure = 0
-            self.constants["point_or_normal"][:3] = self.colormap.point
-        elif isinstance(self.colormap, ColormapDistanceToPlane):
-            measure = 1
-            self.constants["point_or_normal"][:3] = self.colormap.normal
-        else:
-            raise ValueError("colormap must be of type ColormapDistanceToPlane or ColormapDistanceToPoint")
-        self.constants["colormap_measure"] = (measure << 16) | self.colormap.color.value
-        self.constants["range_min"] = self.colormap.range_min
-        self.constants["range_inv_delta"] = 1.0 / (self.colormap.range_max - self.colormap.range_min)
+        self.constants["border_size"] = self.border_size
+        self.constants["border_factor"] = self.border_factor
+        if self.uniform_color is not None:
+            self.constants["color"] = self.uniform_color
+        elif self.colormap is not None:
+            if isinstance(self.colormap, ColormapDistanceToPoint):
+                measure = 0
+                self.constants["point_or_normal"][:3] = self.colormap.point
+            elif isinstance(self.colormap, ColormapDistanceToPlane):
+                measure = 1
+                self.constants["point_or_normal"][:3] = self.colormap.normal
+            else:
+                raise ValueError("colormap must be of type ColormapDistanceToPlane or ColormapDistanceToPoint")
+            self.constants["colormap_measure"] = (measure << 16) | self.colormap.color.value
+            self.constants["range_min"] = self.colormap.range_min
+            self.constants["range_inv_delta"] = 1.0 / (self.colormap.range_max - self.colormap.range_min)
 
         positions = self.positions.get_current_gpu()
+
         vertex_buffers = [positions.buffer_and_offset()]
+        if self.colors is not None:
+            vertex_buffers.append(self.colors.get_current_gpu().buffer_and_offset())
+
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=vertex_buffers,
@@ -1261,7 +1349,9 @@ class GaussianSplats(Object3D):
         frame.between_viewport_render_src_pipeline_stages |= PipelineStageFlags.COMPUTE_SHADER
         frame.between_viewport_render_dst_pipeline_stages |= PipelineStageFlags.TRANSFER
 
-    def pre_render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def pre_render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
         positions = self.positions.get_current_gpu()
         num_splats = positions.size // 12
 
@@ -1293,13 +1383,13 @@ class GaussianSplats(Object3D):
                 count_offset = 4
 
             self.sort_pipeline.run_indirect(
-                r,
+                renderer,
                 frame.cmd,
                 count_offset,
             )
         else:
             self.sort_pipeline.run(
-                r,
+                renderer,
                 frame.cmd,
                 num_splats,
             )
@@ -1309,7 +1399,9 @@ class GaussianSplats(Object3D):
             PipelineStageFlags.MESH_SHADER if self.use_mesh_shader else PipelineStageFlags.VERTEX_SHADER
         )
 
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=[

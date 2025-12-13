@@ -38,6 +38,7 @@ from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object, Object2D
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
+from .viewport import Viewport
 
 
 class Lines(Object2D):
@@ -107,7 +108,9 @@ class Lines(Object2D):
         super().update_transform(parent)
         self.constants["transform"][:, :3, :3] = mat3(self.current_transform_matrix)
 
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
         lines = self.lines.get_current_gpu()
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -121,7 +124,7 @@ class Lines(Object2D):
             push_constants=self.constants.tobytes(),
         )
         frame.cmd.set_line_width(
-            self.line_width.get_current().item() if r.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
+            self.line_width.get_current().item() if renderer.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
         )
 
         frame.cmd.draw(lines.size // 8)
@@ -206,7 +209,9 @@ class Image(Object2D):
         super().update_transform(parent)
         self.constants["transform"][:, :3, :3] = mat3(self.current_transform_matrix)
 
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
         descriptor_set = self.descriptor_sets.get_current_and_advance()
         descriptor_set.write_image(
             self.image.get_current_gpu().view(),
