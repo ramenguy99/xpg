@@ -527,14 +527,14 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     // descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing = VK_TRUE;
     // descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing = VK_TRUE;
     // descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing = VK_TRUE;
-    descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing = VK_TRUE;
+    // descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing = VK_TRUE;
     descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
     descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
     descriptor_indexing_features.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
     // descriptor_indexing_features.shaderInputAttachmentArrayNonUniformIndexing = VK_TRUE;
     // descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing = VK_TRUE;
     // descriptor_indexing_features.shaderStorageTexelBufferArrayNonUniformIndexing = VK_TRUE;
-    descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+    // descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
     descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
     descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
     descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
