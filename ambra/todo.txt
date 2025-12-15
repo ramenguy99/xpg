@@ -1,4 +1,36 @@
-Priority:
+TODO:
+- [ ] Primitives
+    - [ ] Objects:
+        - [ ] thin points 2D
+        - [ ] circles 2D
+        - [x] thin points 3D
+        - [x] thin lines 2D / 3D
+        - [x] Spheres
+        - [ ] Cilinders (with/without caps)
+        - [-] Axis -> missing caps / cones
+        - [-] Meshes
+            - [ ] Handle optional params for:
+                - [x] normals -> fallback to flat shading with shader derivatives
+                - [x] uvs -> fallback to flat color
+                - [x] tangents and normal maps
+                - [ ] joint indices, weights, joints
+        - [x] Voxels
+            - [x] Borders -> is there a way to use barycentrics but distinguish sides from center of face edge? e.g. order edges always as side side, cross
+            - [x] Colormap -> same as pointcloud could be nice to colormap voxels
+        - [-] Grid floor
+            - [ ] Height control
+        - [x] 2D Images
+        - [x] 3D Images (e.g. textured quads)
+        - There are multiple types of simple shapes you could want:
+            - Instanced objects with normal materials -> basically the current mesh we have now + instancing (could be added to mesh, could be separate)
+            - Instanced with single fixed color for all objects -> similar to diffuse material but color comes from uniforms (e.g. push constants)
+            - Instanced with different color per object -> similar to diffuse material but with color coming from buffers + instance_id instead of from uniform / (sampler + uv)
+            - The 2 above could also come in a variation where you have more than one color per object (but a bounded amount, e.g. 4)
+                - Can implement this by having a separate object for each, but then you need to 4x a lot of stuff which does not help scaling.
+                - One option is to do tint and have different shader permutation that tint
+                    -> need to remember to create a white material for this (could have logic that defaults to diffuse (1, 1, 1, 1) instead of (0.5, 0.5, 0.5, 1.0) if vertex colors or intance colors are passed in)
+    - [x] Add helpers to simplify creation of vertex buffers and descriptor sets
+    - [x] Together with light / materials, figure out how to do shader permutations / optional properties
 - [x] Lights, materials and shader permutations
     - [x] Cache shader compilations also in memory
     - [x] Ambient light
@@ -25,12 +57,12 @@ Priority:
         - [x] Mip generation for materials
             - [x] Start simple, could potentially batch those generations at some point.
     - [x] Expose sampling options in materials
-    - [ ] Adding / removing and enabling / disabling lights is still a bit tricky.
+    - [x] Adding / removing and enabling / disabling lights is still a bit tricky.
     - [ ] Point and spot lights and shadows
-- [x] Shaders / fonts build and packaging into wheel
-    - [x] Explore using hatchlings instead of setuptools for better editable builds (read pep 517)
-- [x] Important 3D primitives
-    - [x] Grid floor
+    - [ ] Colormap material with user-configurable min-max and colormap (evaluated in shader from R channel)
+        - think about how to also maybe support variants like versions dependent on distance to position / plane
+- [ ] Stages presets in config or in helper functions (empty, origin, floor, lights, maybe more?)
+- [ ] Test edit API and delete
 - [x] Rethink Animation and how it relates to:
     - [x] property edits -> stays separate because animations can also be reused across different objects
     - [x] Maybe implement DB browser to get more context
@@ -52,105 +84,6 @@ Priority:
                 - it's maybe weird to keep the animation state in the property, one could even think about having the same property
                   with different animations on top at some point, but then this becomes harder for automatic ndarray -> property conversion
                   -> this is already the case at a higher level because Property does not own the data, so you can do this by reusing arrays / lists in a different property
-- [ ] Test edit API and delete
-- [ ] Cache pipelines -> requires hashable pyxpg objects
-- [ ] Stages presets in config or in helper functions (empty, origin, floor, lights, maybe more?)
-- [ ] Basic client/server example and initial set of APIs
-- [ ] Multi-viewport
-    - [x] UI:
-        - [x] Reusing surface requires injecting between imgui commands and stopping / resuming render pass
-              -> we can probably afford the extra blits in most cases
-              -> injecting imgui also has issues with viewport
-        - [x] Clipping the viewport to the window could help with making rendering cheaper.
-              -> check if the API exposes this in some way or if we need to change the projection for this to work
-              -> anyway probably have to adjust projection, but will also need to add the concept of an offset, not just size aspect ratio
-        - [x] The root node in ImGui seems to be special, in the sense that it does not resize like their children do when children take portions of its space.
-              The API could be something like:
-                - Opt in to using viewport system
-                - By default you get a single viewport window already docked to root node.
-                - If you undock and resize this you see the clear color in the background, but nobody is drawing there.
-                - Gui impl:
-                    - Create a window per viewport with default layout that just tiles within main window.
-                    - During GUI update get content sizes and ensure we have an image for each viewport to render into,
-                      write it to a descriptor set and submit it as full-window image for that viewport
-                      -> need to be careful with synchronization because we might need to resize viewports while they are being
-                         drawn in the previous frame. We either need to stall on resize (likely not gonna be super smooth) or
-                      -> we could have a resize backoff logic where instead of continuously destroying /  updating on resize
-                         or even alloc always the window size and just render/sample a subset -> sampling should always be exact anyway
-                    - During rendering render to each of this image then transition to shader read optimal before rendering GUI.
-                    - If you have multisampling on you actually need a multisample buffer for each viewport too
-                        -> actually since we render in sequence you could always reuse the same one
-        - [-] Would be nice to highlight viewport borders when active (also maybe on hover with slightly dimmer tone)
-    - [ ] Viewer:
-        - [x] View dependent things need to be recomputed and potentially require multi-buffering:
-            - need to sort gaussians for both views
-                - need to have CPU and GPU resources per viewport
-                - or need to pre-render for 0 -> render for 0 -> render for 1 -> prerender for 1, but still need to buffer CPU resources
-            - no-need to re-render shadow maps
-        - [x] Need to deduplicate uploads
-            - properties and gpu properties are sets -> should already work
-            - objects currently are lists(assuming the same object never appears twice in the scene hierarchy)
-            - Viewports could default to same scene
-            - If each viewport has a scene an object might have a parent in one scene but not in another.
-                - Maybe a viewport mask type thing is easier than multiple scenes
-                    -> objects have a viewport mask, if None render to all viewports (default)
-                    -> Move scene outside viewport (also easier to viewer.scene)
-        - [x] Missing:
-            - [x] Camera mouse interactions with different viewport
-            - [x] Object viewport masks
-                - [x] Mask is optional int, None means all
-                - [x] Lights with masking -> plan is to make this more immediate mode, upload lights every frame and only if enabled and the mask matches the viewport
-            - [x] GaussianSplatting is not yet ready for multi-viewport (need to split all uploads and descriptor writes into "upload", now interleaved, including for sorting).
-            - [-] Maybe move some viewport code inside renderer? It seems like now it's quite renderer specific, but currently lives in viewer.py
-        - [ ] Think about the API and UI for enabling / customizing this
-            - [x] viewports becomes a list, api to create a new viewport according to config or from scratch
-            - [ ] Think about the camera, especially with respect to having cameras in scene
-            - [ ] Keyboard shortcut to split
-            - [ ] API to create / destroy viewports
-            - [ ] Automatic initial layout / docking? Also need this in general for all UIs
-- [ ] Windowless viewer
-    - [x] Screenshots
-    - [ ] Video, maybe using av? Maybe just user callback? Make PoC then decide
-        - [x] PoC with PyAV
-        - [x] Do pipelinening and check speedup
-        - [ ] Frame / timestamp range customization with different playback and render rate
-- [x] Remove all the get_current() that we don't need from render() (to avoid spurious streaming loads)
-- [ ] Colormap material with user-configurable min-max and colormap (evaluated in shader from R channel)
-    - think about how to also maybe support variants like versions dependent on distance to position / plane
-- [x] Remove all the get_current() that we don't need from render() (to avoid spurious streaming loads)
-- [ ] Fix leak issue with non ref-counted objects as default argument. Maybe open issue in nanobind to check if intended.
-
-TODO:
-- [ ] Primitives
-    - [ ] Objects:
-        - [ ] thin points 2D
-        - [x] thin points 3D
-        - [x] thin lines 2D / 3D
-        - [ ] circles and spheres
-        - [ ] Cilinders (with/without caps)
-        - [-] Meshes
-            - [ ] Handle optional params for:
-                - [x] normals -> fallback to flat shading with shader derivatives
-                - [x] uvs -> fallback to flat color
-                - [x] tangents and normal maps
-                - [ ] joint indices, weights, joints
-        - [ ] Voxels
-            - [ ] Borders -> is there a way to use barycentrics but distinguish sides from center of face edge? e.g. order edges always as side side, cross
-            - [ ] Colormap -> same as pointcloud could be nice to colormap voxels
-        - [-] Grid floor
-            - [ ] Height control
-        - [x] 2D Images
-        - [x] 3D Images (e.g. textured quads)
-        - [ ] There are multiple types of simple shapes you could want:
-            - [ ] Instanced objects with normal materials -> basically the current mesh we have now + instancing (could be added to mesh, could be separate)
-            - [ ] Instanced with single fixed color for all objects -> similar to diffuse material but color comes from uniforms (e.g. push constants)
-            - [ ] Instanced with different color per object -> similar to diffuse material but with color coming from buffers + instance_id instead of from uniform / (sampler + uv)
-            - [ ] The 2 above could also come in a variation where you have more than one color per object (but a bounded amount, e.g. 4)
-                - Can implement this by having a separate object for each, but then you need to 4x a lot of stuff which does not help scaling.
-                - One option is to do tint and have different shader permutation that tint
-                    -> need to remember to create a white material for this (could have logic that defaults to diffuse (1, 1, 1, 1) instead of (0.5, 0.5, 0.5, 1.0) if vertex colors or intance colors are passed in)
-    - [x] Add helpers to simplify creation of vertex buffers and descriptor sets
-    - [x] Together with light / materials, figure out how to do shader permutations / optional properties
 - [ ] Renderer architecture / path tracer support
     - [ ] Single object vs batching -> especially relevant for path tracing where you need to batch things in a tlas
         - [ ] Lights
@@ -188,15 +121,16 @@ TODO:
           - Per frame upload without a sequence (e.g. bulk uniforms) -> this is in spirit the same as streaming GpuProperty but without relying on it (maybe GpuProperty should rely on this?)
             - For GPU resources (non-mappable buffers or images)
             - For buffers we should check if BAR memory is available and if we want to use and alloc per-frame mappable buffers, otherwise alloc per-frame staging and 1 device resource.
-    - [ ] Prefetching is currently assuming linearly increasing frame indices
     - [x] Together with server, figure out API to append frames (and potentially insert / remove too)
     - [x] Support buffer suballocation in gpu property for preuplaod and image array to reduce number of resources that we need for a sequence -> could require changes at usage side that will also get an offset
     - [x] Implement invalidation of preuploaded properties. If using mapped buffers (CPU or BAR) we can just alloc the remaining frames_in_flight - 1 buffers and switch to ring buffer.
     - [x] Implement smarter logic to pick which upload mode to use. For smaller properties we want bar if available I guess.
+    - [ ] Prefetching currently happens in frame data order + remapping: no prefetching of start of sequence if HOLD boundary condition (maybe oK)
 - [ ] Server
     - [ ] Test design and finish implementing
     - [ ] Client python package (maybe shared ambra-protocol too, could require same version until 1.0.0 and then keep server backwards compatible within major)
     - [ ] C/C++ and rust lib
+    - [ ] Maybe even including (optional, maybe based on handshake? depends how invasive API is for client) dynamic subscription in same protocol / connection
 - [x] Frame helpers (ideally at object level, shared across all primitives)
     - Fixed framerate
     - Variable rate
@@ -235,12 +169,66 @@ TODO:
     - [x] Drag start / end detection
     - [x] Camera mode dependent rotate/pan
     - [x] Scroll zoom (how to handle moving the target (or reducing the distance)?)
-    Extra:
     - [ ] 2D controls -> pan only and change zoom mode to modify ortho size?
-- [ ] Viewport:
-    - [x] resize
-    - [ ] multiple viewports
-    - [ ] related to UI if decide to do viewports in ImGui windows, not clear how to do default placement (check docs)
+- [ ] Multi-viewport
+    - [x] UI:
+        - [x] Reusing surface requires injecting between imgui commands and stopping / resuming render pass
+              -> we can probably afford the extra blits in most cases
+              -> injecting imgui also has issues with viewport
+        - [x] Clipping the viewport to the window could help with making rendering cheaper.
+              -> check if the API exposes this in some way or if we need to change the projection for this to work
+              -> anyway probably have to adjust projection, but will also need to add the concept of an offset, not just size aspect ratio
+        - [x] The root node in ImGui seems to be special, in the sense that it does not resize like their children do when children take portions of its space.
+              The API could be something like:
+                - Opt in to using viewport system
+                - By default you get a single viewport window already docked to root node.
+                - If you undock and resize this you see the clear color in the background, but nobody is drawing there.
+                - Gui impl:
+                    - Create a window per viewport with default layout that just tiles within main window.
+                    - During GUI update get content sizes and ensure we have an image for each viewport to render into,
+                      write it to a descriptor set and submit it as full-window image for that viewport
+                      -> need to be careful with synchronization because we might need to resize viewports while they are being
+                         drawn in the previous frame. We either need to stall on resize (likely not gonna be super smooth) or
+                      -> we could have a resize backoff logic where instead of continuously destroying /  updating on resize
+                         or even alloc always the window size and just render/sample a subset -> sampling should always be exact anyway
+                    - During rendering render to each of this image then transition to shader read optimal before rendering GUI.
+                    - If you have multisampling on you actually need a multisample buffer for each viewport too
+                        -> actually since we render in sequence you could always reuse the same one
+        - [-] Would be nice to highlight viewport borders when active (also maybe on hover with slightly dimmer tone) -> relying on imgui for now
+        - [-] Resize behavior is not ideal right now due to special central imgui viewport. Likely improving soon upstream.
+    - [ ] Viewer:
+        - [x] View dependent things need to be recomputed and potentially require multi-buffering:
+            - need to sort gaussians for both views
+                - need to have CPU and GPU resources per viewport
+                - or need to pre-render for 0 -> render for 0 -> render for 1 -> prerender for 1, but still need to buffer CPU resources
+            - no-need to re-render shadow maps
+        - [x] Need to deduplicate uploads
+            - properties and gpu properties are sets -> should already work
+            - objects currently are lists(assuming the same object never appears twice in the scene hierarchy)
+            - Viewports could default to same scene
+            - If each viewport has a scene an object might have a parent in one scene but not in another.
+                - Maybe a viewport mask type thing is easier than multiple scenes
+                    -> objects have a viewport mask, if None render to all viewports (default)
+                    -> Move scene outside viewport (also easier to viewer.scene)
+        - [x] Missing:
+            - [x] Camera mouse interactions with different viewport
+            - [x] Object viewport masks
+                - [x] Mask is optional int, None means all
+                - [x] Lights with masking -> plan is to make this more immediate mode, upload lights every frame and only if enabled and the mask matches the viewport
+            - [x] GaussianSplatting is not yet ready for multi-viewport (need to split all uploads and descriptor writes into "upload", now interleaved, including for sorting).
+            - [-] Maybe move some viewport code inside renderer? It seems like now it's quite renderer specific, but currently lives in viewer.py
+        - [ ] Think about the API and UI for enabling / customizing this
+            - [x] viewports becomes a list, api to create a new viewport according to config or from scratch
+            - [ ] Think about the camera, especially with respect to having cameras in scene
+            - [ ] Keyboard shortcut to split
+            - [ ] API to create / destroy viewports
+            - [ ] Automatic initial layout / docking? Also need this in general for all UIs
+- [ ] Windowless viewer
+    - [x] Screenshots
+    - [ ] Video, maybe using av? Maybe just user callback? Make PoC then decide
+        - [x] PoC with PyAV
+        - [x] Do pipelinening and check speedup
+        - [ ] Frame / timestamp range customization with different playback and render rate
 - [ ] UI: -> likely in common ui place that can be customized / modified (helpers for things like default layout as well, likely configurable)
     - [x] Scene tree and property view -> custom widget callback per property?
     - [x] Playback UI
@@ -258,6 +246,15 @@ TODO:
         - We can also allocate those descriptor sets manually, either directly in python or in a Gui wrapper.
         - It might be a bit inefficient to have a DescriptorSet and Pool per image, but we currently don't expose
         descriptor pools anyway. We might want to revisit this once we do this.
+    - [ ] Better default window placement
+    - [ ] Images in UI or viewports:
+        - [ ] Native 2D rendering is maybe not that useful if we anyway have imgui draw API?
+        - [ ] Not an obviously easy way to use GpuProperties (e.g. images for imgui widgets)
+            - One option is to create some fictitious renderable that has image properties and that draws some gui either on update, on gui or on render
+            - Would be nice to also have a way to conditionally not load those properties if they are not visible (e.g. collapsed window, different tab or combo option etc..)
+            - The same thing could be applied to renderables if you have some form of conditional rendering (e.g. switch to vertex color, stop streaming material)
+                - One way would be to double command buffers, render before upload, mark used objects as requiring uploads, then later record and submit uploads before render.
+                - Would be nice to find another way that does not require too much complexity but still achieves this
     - [ ] Port built-in profiler
     - [ ] Memory breakdown view -> also plot of usage per-frame to spot mid-frame allocs
 - [ ] Shaders
@@ -266,7 +263,8 @@ TODO:
     - [ ] export to spirv during package
     - [ ] run spirv-optimizer (for sure on export, but maybe even during slang build)
     - [ ] do we want a pipeline / layout cache? Can we do something using frozen dataclasses as hash keys?
-- [x] Config:
+        - [ ] Cache pipelines -> requires hashable pyxpg objects
+- [ ] Config:
     - [x] Improve camera initialization (especially ortho for 2D case)
     - [x] vulkan validation options
     - [x] add a way to set viewer position in addition to size? (expose glfw for this)
@@ -278,12 +276,13 @@ TODO:
 - [x] Hook pyxpg logging into python logging
 - [x] separate concepts of frames in flight and number of swapchain images -> needs xpg changes too
 - [ ] Cleanup before release:
-    - [ ] Public vs private API (hide / protect internal stuff)
-    - [ ] Unit tests on all python versions (likely with lavapipe on CI)
     - [x] Rename some badly named things:
         [x] UploadMethod constants
     - [x] Is StreamingProperty any useful? Should users instead just subclass Property? Removed
+    - [ ] Public vs private API (hide / protect internal stuff)
+    - [ ] Unit tests on all python versions (likely with lavapipe on CI)
     - [ ] Re-organize utils directory, what really is a util anyway?
+    - [ ] Re-export symbols to allow import ambra as am and just use am.Viewer? instead of requiring many imports
 - [ ] Extra Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
     - [ ] Meshoptimizer + meshlets
     - [ ] Gaussian splats
@@ -292,24 +291,28 @@ TODO:
     - [ ] Marching cubes
     - [ ] Pointclouds
     - [ ] Framegraph
-- [ ] Customization workflow
+- [ ] Customization workflows
     - [x] Completely new shader
     - [x] Shader that reuses common scene stuff or utils
         - [x] Import form ambra shader directory
-        - [ ] Reuse materials code but (with customizable descriptor layout ?)
-        - [ ] Customize material / shader for existing primitive (maybe just copy -> edit workflow?)
+    - [ ] Reuse materials code but (with customizable descriptor layout ?)
+    - [ ] Customize material / shader for existing primitive (maybe just copy -> edit workflow? Try it to see how easy it is)
+- [x] Shaders / fonts build and packaging into wheel
+    - [x] Explore using hatchlings instead of setuptools for better editable builds (read pep 517)
 
 Bugs:
 - [x] Fix non-unit world_up results in nans in camera
 - [ ] Why does @cache on shader break refcounting on context, especially for an object that does not have any reference to ctx
       -> investigate further and maybe make minimal repro if it's actually a nanobind issue
 - [ ] Exceptions sometimes cause vulkan validation errors on wrong frees
+- [ ] Ctrl+C requires tabbing to window to exit on linux if using wait_events -> issue with being blocked in event loop
+- [ ] Ctrl+C usually results in destroying pipelines in use, not sure how we can prevent that, would need a wait_idle somewhere before destroying
 
 Issues found while implementing skeletal animation:
-[ ] if passing [N, 1] instead of [N] we can end up creating LOTS of frames (and therefore LOTS of buffers)
+- if passing [N, 1] instead of [N] we can end up creating LOTS of frames (and therefore LOTS of buffers)
     -> we can likely check if last dimension is 1 in something that usually is not (e.g. indices) and warn / raise
     -> We can anyways try to optimize number of buffers that we actually create with suballocation
-[ ] easy to pass an image as np.float64 if you are doing ops (e.g. dstacking alpha), warn / raise if dtype does not match format
+- easy to pass an image as np.float64 if you are doing ops (e.g. dstacking alpha), warn / raise if dtype does not match format
 
 Benchmarks:
 - [ ] Big sequence
