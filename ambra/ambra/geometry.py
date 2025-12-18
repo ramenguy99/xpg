@@ -2,7 +2,7 @@ from typing import Any, List, Sequence, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
-from pyglm.glm import mat3, mat4
+from pyglm.glm import mat3, mat4, normalize, vec3
 
 
 # TODO: replace with array version
@@ -68,7 +68,6 @@ def create_cylinder(
     vertices[:sectors, 0] = radius * np.cos(np.arange(sectors, dtype=np.float32) * angle)
     vertices[:sectors, 1] = radius * np.sin(np.arange(sectors, dtype=np.float32) * angle)
     vertices[sectors:, :2] = vertices[:sectors, :2]
-    vertices[:sectors, 2] = 0
     vertices[sectors:, 2] = height
 
     normals = np.zeros_like(vertices)
@@ -89,6 +88,53 @@ def create_cylinder(
     faces = np.concatenate([faces_top, faces_bot], axis=0)
 
     return vertices, normals, faces.flatten()
+
+
+def create_cone(
+    radius: float = 1.0, height: float = 1.0, sectors: int = 8
+) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
+    angle = 2 * np.pi / sectors
+
+    c = np.cos(np.arange(sectors, dtype=np.float32) * angle)
+    s = np.sin(np.arange(sectors, dtype=np.float32) * angle)
+    vertices = np.zeros((sectors + 1, 3), np.float32)
+    vertices[:sectors, 0] = radius * c
+    vertices[:sectors, 1] = radius * s
+    vertices[sectors, 2] = height
+
+    normal = np.array(normalize(vec3(height, 0.0, radius)))
+    normals = np.zeros_like(vertices)
+    normals[:sectors, 0] = c * normal[0]
+    normals[:sectors, 1] = s * normal[0]
+
+    faces = np.zeros((sectors, 3), dtype=np.uint32)
+    faces[:, 0] = np.arange(sectors, dtype=np.uint32)
+    faces[:-1, 1] = faces[1:, 0]
+    faces[-1, 1] = 0
+    faces[:, 2] = sectors
+    return vertices, normals, faces.flatten()
+
+
+def create_arrow(
+    radius: float = 0.1, height: float = 0.8, tip_radius: float = 0.2, tip_height: float = 0.2, sectors: int = 8
+):
+    bottom_lid_v, bottom_lid_n, bottom_lid_f = create_disk(radius, sectors)
+    top_lid_v, top_lid_n, top_lid_f = create_disk(tip_radius, sectors)
+    top_lid_v[:, 2] = height
+    top_lid_n[:, 2] = -1.0
+    cylinder_v, cylinder_n, cylinder_f = create_cylinder(radius, height, sectors)
+    tip_v, tip_n, tip_f = create_cone(tip_radius, tip_height, sectors)
+    tip_v[:, 2] += height
+    (v, n), f = concatenate_meshes(
+        [
+            (bottom_lid_v, bottom_lid_n),
+            (top_lid_v, top_lid_n),
+            (cylinder_v, cylinder_n),
+            (tip_v, tip_n),
+        ],
+        [bottom_lid_f, top_lid_f, cylinder_f, tip_f],
+    )
+    return v, n, f
 
 
 _cube_positions = np.array(
@@ -232,6 +278,14 @@ def create_cube_edges(min_p: Tuple[float, float, float], max_p: Tuple[float, flo
     lines[20:22] = vertices[[2, 6]]
     lines[22:24] = vertices[[3, 7]]
 
+    return lines
+
+
+def create_normal_lines(positions: NDArray[np.float32], normals: NDArray[np.float32], length: float = 0.01):
+    n = positions.shape[0]
+    lines = np.zeros([n * 2, 3])
+    lines[::2] = positions
+    lines[1::2] = positions + normals * length
     return lines
 
 

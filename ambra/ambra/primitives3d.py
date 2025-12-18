@@ -38,7 +38,7 @@ from pyxpg import (
     VertexInputRate,
 )
 
-from .geometry import concatenate_meshes, create_cylinder, create_sphere, transform_mesh
+from .geometry import concatenate_meshes, create_arrow, create_cone, create_sphere, transform_mesh
 from .gpu_sorting import GpuSortingPipeline, SortDataType, SortOptions
 from .materials import ColorMaterial, DiffuseMaterial, Material
 from .property import BufferProperty, ImageProperty, as_image_property
@@ -620,8 +620,8 @@ class Sphere(Mesh):
 class AxisGizmo(Mesh):
     def __init__(
         self,
-        sphere_radius: float = 0.02,
-        axis_radius: float = 0.01,
+        sphere_radius: float = 0.01,
+        axis_radius: float = 0.005,
         axis_length: float = 0.1,
         sphere_color: int = 0xFFCCCCCC,
         x_axis_color: int = 0xFF0000FF,
@@ -637,7 +637,9 @@ class AxisGizmo(Mesh):
         sphere_v, sphere_n, sphere_f = create_sphere(sphere_radius, 8, 16)
         sphere_c = np.full(sphere_v.shape[0], sphere_color, np.uint32)
 
-        z_cylinder_v, z_cylinder_n, cylinder_f = create_cylinder(axis_radius, axis_length)
+        z_cylinder_v, z_cylinder_n, cylinder_f = create_arrow(
+            axis_radius, axis_length * 0.8, axis_radius * 2.0, axis_length * 0.2, 16
+        )
         z_cylinder_c = np.full(z_cylinder_v.shape[0], z_axis_color, np.uint32)
 
         x_cylinder_v, x_cylinder_n = transform_mesh(rotate(np.pi * 0.5, vec3(0, 1, 0)), z_cylinder_v, z_cylinder_n)
@@ -650,7 +652,7 @@ class AxisGizmo(Mesh):
                 (sphere_v, sphere_n, sphere_c),
                 (x_cylinder_v, x_cylinder_n, x_cylinder_c),
                 (y_cylinder_v, y_cylinder_n, y_cylinder_c),
-                (z_cylinder_v, z_cylinder_v, z_cylinder_c),
+                (z_cylinder_v, z_cylinder_n, z_cylinder_c),
             ],
             [sphere_f, cylinder_f, cylinder_f, cylinder_f],
         )
