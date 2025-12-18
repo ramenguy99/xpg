@@ -1,4 +1,4 @@
-name: Build wheels and sdist and publish to pypi
+name: Build pyxpg wheels and sdist and publish to pypi
 
 on:
   workflow_dispatch:
