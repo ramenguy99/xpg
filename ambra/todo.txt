@@ -308,6 +308,13 @@ Bugs:
 - [ ] Ctrl+C requires tabbing to window to exit on linux if using wait_events -> issue with being blocked in event loop
 - [ ] Ctrl+C usually results in destroying pipelines in use, not sure how we can prevent that, would need a wait_idle somewhere before destroying
 
+Feature ideas:
+- [ ] Client statistics (e.g. number of messages, bytes, etc.., maybe some ui like stats or in stats itself)
+- [ ] Quickly switch to ortho views and back (maybe with tunable grid size too)
+- [ ] Better orthographic navigation (e.g. zoom, different panning speed logic from what we have now)
+- [ ] Open3D style oneliner to create a viewer and run it (list of objects + config + other utils?)
+- [ ] Simpler property constructors, e.g. ArrayBufferProperty.streaming()
+
 Issues found while implementing skeletal animation:
 - if passing [N, 1] instead of [N] we can end up creating LOTS of frames (and therefore LOTS of buffers)
     -> we can likely check if last dimension is 1 in something that usually is not (e.g. indices) and warn / raise

@@ -113,6 +113,31 @@ void imgui_create_bindings(nb::module_& mod_imgui)
 
     #include "generated_imgui.inc"
 
+    drawlist_class.def("add_line_batch",
+        [](DrawList& self,
+           nb::ndarray<float, nb::shape<-1, 2>> p1,
+           nb::ndarray<float, nb::shape<-1, 2>> p2,
+           nb::ndarray<uint32_t, nb::shape<-1>> col,
+           nb::ndarray<float, nb::shape<-1>> thickness
+        ) {
+
+            bool col_per_object = col.shape(0) != 1;
+            bool thickness_per_object = thickness.shape(0) != 1;
+            for (size_t i = 0; i < p1.shape(0); i++) {
+                self.list->AddLine(
+                    ImVec2(p1(i, 0), p2(i, 1)),
+                    ImVec2(p1(i, 0), p2(i, 1)),
+                    col_per_object ? col(i) : col(0),
+                    thickness_per_object ? thickness(i) : thickness(0)
+                );
+            }
+        },
+        nb::arg("p1"),
+        nb::arg("p2"),
+        nb::arg("color"),
+        nb::arg("thickness")
+    );
+
     drawlist_class.def("add_rect_batch",
         [](DrawList& self,
            nb::ndarray<float, nb::shape<-1, 2>> p_min,
