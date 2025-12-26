@@ -1,6 +1,7 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
+from enum import Enum, auto
 import os
 import sys
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tupl
 
 import numpy as np
 from pyxpg import (
+    AccelerationStructure,
     AccessFlags,
     AllocType,
     BorderColor,
@@ -18,6 +20,8 @@ from pyxpg import (
     CompareOp,
     Context,
     DepthAttachment,
+    DescriptorPool,
+    DescriptorSet,
     DescriptorSetBinding,
     DescriptorSetLayout,
     DescriptorType,
@@ -41,6 +45,7 @@ from pyxpg import (
     Sampler,
     SamplerAddressMode,
     SamplerMipmapMode,
+    Shader,
     StoreOp,
     slang,
 )
@@ -97,6 +102,25 @@ class FrameInputs:
     transfer_semaphores: List[SemaphoreInfo]
 
 
+@dataclass
+class PathTracer:
+    # Per object
+    blases: List[AccelerationStructure] # Blases probably live in primitives in the end
+
+    # Per scene
+    tlas: AccelerationStructure
+    constants: UploadableBuffer
+
+    # Renderer
+    descriptor_set: DescriptorSet
+    descriptor_pool: DescriptorPool
+    descriptor_layout: DescriptorSetLayout
+
+    path_tracing_pipeline: ComputePipeline
+    postprocess_shader: ComputePipeline
+
+
+
 class Renderer:
     def __init__(
         self,
@@ -117,6 +141,7 @@ class Renderer:
 
         # Config
         self.background_color = config.background_color
+        self.render_mode = config.render_mode
 
         # Scene descriptors
         self.max_shadow_maps = config.max_shadow_maps

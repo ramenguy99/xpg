@@ -1,3 +1,16 @@
+Priority:
+- [x] Load URDF (can already do with object tree, but maybe want to do skinned object? Maybe start with tree)
+- [ ] Simple raytracer
+- [ ] Add missing primitives:
+    - [x] cones and arrows
+    - [ ] 3D lines
+- [ ] UI improvements:
+    - [ ] Ortho views
+    - [ ] Images in GUI
+    - [ ] More GUI
+- [ ] Server:
+    - [ ] Dynamic logging experiments
+
 TODO:
 - [ ] Primitives
     - [ ] Objects:
@@ -31,6 +44,13 @@ TODO:
                     -> need to remember to create a white material for this (could have logic that defaults to diffuse (1, 1, 1, 1) instead of (0.5, 0.5, 0.5, 1.0) if vertex colors or intance colors are passed in)
     - [x] Add helpers to simplify creation of vertex buffers and descriptor sets
     - [x] Together with light / materials, figure out how to do shader permutations / optional properties
+- [ ] Cameras
+    - [ ] Better ortho controls
+    - [ ] Temporary axis aligned ortho view from all sides
+    - [ ] Camera primitives (in scene):
+        - [ ] Constructor from opencv intrinsics
+        - [ ] Extrinsics to rotation translation (helper in c++ module? Otherwise numpy but could be annoying without scipy)
+        - [ ] View from camera (and stick view to it during playback)
 - [x] Lights, materials and shader permutations
     - [x] Cache shader compilations also in memory
     - [x] Ambient light
@@ -304,9 +324,11 @@ Bugs:
 - [x] Fix non-unit world_up results in nans in camera
 - [ ] Why does @cache on shader break refcounting on context, especially for an object that does not have any reference to ctx
       -> investigate further and maybe make minimal repro if it's actually a nanobind issue
+      -> might be fixed reoving global log context
 - [ ] Exceptions sometimes cause vulkan validation errors on wrong frees
-- [ ] Ctrl+C requires tabbing to window to exit on linux if using wait_events -> issue with being blocked in event loop
+- [ ] Ctrl+C requires tabbing to window to exit on linux and macos if using wait_events -> issue with being blocked in event loop
 - [ ] Ctrl+C usually results in destroying pipelines in use, not sure how we can prevent that, would need a wait_idle somewhere before destroying
+- [ ] Playback with very few timestamped frames (sub 1 frame) can result in flicker without changing frame, think if there is a way to add that additional frame at least.
 
 Feature ideas:
 - [ ] Client statistics (e.g. number of messages, bytes, etc.., maybe some ui like stats or in stats itself)

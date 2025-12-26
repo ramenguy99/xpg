@@ -182,6 +182,9 @@ class Points(Object3D):
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
+    def create_acceleration_structure(self, r: Renderer) -> None:
+        pass
+
     def update_transform(self, parent: Optional[Object]) -> None:
         super().update_transform(parent)
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
