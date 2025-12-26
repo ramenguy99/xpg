@@ -22,9 +22,15 @@ class UploadMethod(Enum):
     MAPPED_PREFER_DEVICE = 3
 
 
+class RenderMode(Enum):
+    RASTER = 0
+    PATH_TRACER = 1
+
+
 @dataclass
 class RendererConfig:
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
+    render_mode: RenderMode = RenderMode.RASTER
     msaa_samples: int = 1
     uniform_pool_block_size: int = 4 * 1024 * 1024
     upload_buffer_size: int = 32 * 1024 * 1024
