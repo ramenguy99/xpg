@@ -116,6 +116,7 @@ Python:
     - [x] VulkanError exception type that wraps VkResult for better error reporting over all bindings
     - [x] Make index buffer offset consistent with vertex buffer offset (by using optional tuple)
     - [ ] Expose push descriptors and update template
+    - [ ] AccelerationStructure build commands and types
 - [ ] Clean examples
     - [x] Headless graphics and compute
     - [x] Minimal

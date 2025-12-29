@@ -106,7 +106,8 @@ class Viewer:
             preferred_frames_in_flight=config.preferred_frames_in_flight,
             preferred_swapchain_usage_flags=ImageUsageFlags.COLOR_ATTACHMENT
             | ImageUsageFlags.TRANSFER_DST
-            | ImageUsageFlags.TRANSFER_SRC,
+            | ImageUsageFlags.TRANSFER_SRC
+            | ImageUsageFlags.STORAGE,
             vsync=config.vsync,
             force_physical_device_index=0xFFFFFFFF
             if config.force_physical_device_index is None
@@ -227,7 +228,7 @@ class Viewer:
             name="viewport-scene-descriptor-sets",
         )
         self.viewports: List[Viewport] = []
-        for viewport_index in range(min(num_viewports, config.gui.max_viewport_count)):
+        for viewport_index in range(min(num_viewports, max_viewports)):
             scene_descriptor_sets = RingBuffer(
                 self.viewport_scene_descriptor_sets[
                     viewport_index * self.renderer.num_frames_in_flight : (viewport_index + 1)
@@ -282,12 +283,15 @@ class Viewer:
             img = None
             texture = None
             if self.multiviewport:
+                usage_flags = ImageUsageFlags.SAMPLED | ImageUsageFlags.COLOR_ATTACHMENT
+                if self.renderer.supports_path_tracing:
+                    usage_flags |= ImageUsageFlags.STORAGE
                 img = Image(
                     self.ctx,
                     render_width,
                     render_height,
                     output_format,
-                    ImageUsageFlags.SAMPLED | ImageUsageFlags.COLOR_ATTACHMENT,
+                    usage_flags,
                     AllocType.DEVICE,
                     name=f"viewport-{viewport_index}",
                 )
@@ -331,6 +335,8 @@ class Viewer:
                 self.playback.toggle_play_pause()
             if self.key_map.exit.is_active(key, modifiers):
                 self.running = False
+            if self.key_map.toggle_path_tracer.is_active(key, modifiers):
+                self.renderer.toggle_path_tracer()
 
         # Press + repeat
         if action == Action.PRESS or action == Action.REPEAT:
@@ -407,7 +413,7 @@ class Viewer:
 
         # Begin recording on command buffers
         frame_inputs.command_buffer.begin()
-        if frame_inputs.transfer_command_buffer:
+        if frame_inputs.transfer_command_buffer is not None:
             frame_inputs.transfer_command_buffer.begin()
 
         # Render
@@ -417,7 +423,7 @@ class Viewer:
             self.headless_swapchain.get_current().issue_readback()
 
         # Submit transfer queue commands, if submitted
-        if frame_inputs.transfer_command_buffer:
+        if frame_inputs.transfer_command_buffer is not None:
             frame_inputs.transfer_command_buffer.end()
 
             # If there is no semaphore to signal, we assume there is no commands to submit.

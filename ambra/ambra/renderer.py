@@ -1,7 +1,7 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
-from enum import Enum, auto
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tupl
 import numpy as np
 from pyxpg import (
     AccelerationStructure,
+    AccelerationStructureMesh,
     AccessFlags,
     AllocType,
     BorderColor,
@@ -18,8 +19,10 @@ from pyxpg import (
     BufferUsageFlags,
     CommandBuffer,
     CompareOp,
+    ComputePipeline,
     Context,
     DepthAttachment,
+    DescriptorBindingFlags,
     DescriptorPool,
     DescriptorSet,
     DescriptorSetBinding,
@@ -35,6 +38,7 @@ from pyxpg import (
     ImageLayout,
     ImageUsageFlags,
     ImageView,
+    IndexType,
     LoadOp,
     MemoryBarrier,
     MemoryUsage,
@@ -50,7 +54,7 @@ from pyxpg import (
     slang,
 )
 
-from .config import RendererConfig, UploadMethod
+from .config import RendererConfig, RenderMode, UploadMethod
 from .ffx import SPDPipeline
 from .lights import (
     LIGHT_TYPES_INFO,
@@ -64,20 +68,36 @@ from .lights import (
     LightTypes,
     UniformEnvironmentLight,
 )
+from .materials import (
+    ColorMaterial,
+    DiffuseMaterial,
+    DiffuseSpecularMaterial,
+    PBRMaterial,
+)
+from .property import BufferProperty, ImageProperty, Property, PropertyItem
 from .renderer_frame import RendererFrame, SemaphoreInfo
 from .scene import Object, Scene
 from .shaders import compile
+from .utils.descriptors import create_descriptor_layout_pool_and_set, create_descriptor_pool_and_sets
 from .utils.gpu import (
+    AccelerationStructureInstanceInfo,
     BufferUploadInfo,
     BulkUploader,
     ImageUploadInfo,
     UniformPool,
+    UploadableBuffer,
+    div_round_up,
+    view_bytes,
 )
+from .utils.ring_buffer import RingBuffer
 from .utils.threadpool import ThreadPool
-from .viewport import Viewport
+from .viewport import PathTracerViewport, Viewport
 
 if TYPE_CHECKING:
     from .gpu_property import GpuProperty
+    from .materials import Material
+
+logger = logging.getLogger(__name__)
 
 SHADERS_PATH = Path(__file__).parent.joinpath("shaders")
 
@@ -104,21 +124,24 @@ class FrameInputs:
 
 @dataclass
 class PathTracer:
-    # Per object
-    blases: List[AccelerationStructure] # Blases probably live in primitives in the end
-
-    # Per scene
-    tlas: AccelerationStructure
-    constants: UploadableBuffer
-
-    # Renderer
+    # Static
+    pipeline: ComputePipeline
+    accumulation_image: Optional[Image]
     descriptor_set: DescriptorSet
     descriptor_pool: DescriptorPool
-    descriptor_layout: DescriptorSetLayout
+    descriptor_set_layout: DescriptorSetLayout
 
-    path_tracing_pipeline: ComputePipeline
-    postprocess_shader: ComputePipeline
+    viewport_descriptor_sets: List[DescriptorSet]
+    viewport_descriptor_pool: DescriptorPool
+    viewport_descriptor_set_layout: DescriptorSetLayout
 
+    # Scene
+    acceleration_structure: Optional[AccelerationStructure]
+    instances_buf: Optional[Buffer]
+    materials_buf: Optional[Buffer]
+
+    # Config
+    sample_index: int
 
 
 class Renderer:
@@ -136,12 +159,66 @@ class Renderer:
         self.num_frames_in_flight = num_frames_in_flight
         self.output_format = output_format
         self.multiviewport = multiviewport
-
         self.shadow_map_format = Format.D32_SFLOAT
 
         # Config
         self.background_color = config.background_color
-        self.render_mode = config.render_mode
+        self.supports_path_tracing = bool(ctx.device_features & DeviceFeatures.RAY_QUERY)
+        if config.render_mode == RenderMode.PATH_TRACER and not self.supports_path_tracing:
+            logger.warning(
+                "Path tracing cannot be enabled because DeviceFeatures.RAY_QUERY is not supported. Falling back to raster mode."
+            )
+            self.render_mode = RenderMode.RASTER
+        else:
+            self.render_mode = config.render_mode
+
+        # Path tracing
+        self.path_tracer: Optional[PathTracer] = None
+        self.path_tracer_max_bounces = config.path_tracer_max_bounces
+        self.path_tracer_max_samples_per_pixel = config.path_tracer_max_samples_per_pixel
+        self.path_tracer_max_textures = config.path_tracer_max_textures
+        self.path_tracer_instance_dtype = np.dtype(
+            {
+                "normal_matrix": (np.dtype((np.float32, (3, 4))), 0),
+                "positions": (np.uint64, 48),
+                "normals": (np.uint64, 56),
+                "tangents": (np.uint64, 64),
+                "uvs": (np.uint64, 72),
+                "indices": (np.uint64, 80),
+                "material_index": (np.uint32, 88),
+                "_padding": (np.uint32, 92),
+            }
+        )  # type: ignore
+        self.path_tracer_material_dtype = np.dtype(
+            {
+                "albedo": (np.dtype((np.float32, (3,))), 0),
+                "albedo_texture": (np.uint32, 12),
+                "roughness": (np.float32, 16),
+                "roughness_texture": (np.uint32, 20),
+                "metallic": (np.float32, 24),
+                "metallic_texture": (np.uint32, 28),
+                "normal_texture": (np.uint32, 32),
+                "_padding": (np.uint32, 36),
+            }
+        )  # type: ignore
+        self.path_tracer_constants_dtype = np.dtype(
+            {
+                "width": (np.uint32, 0),
+                "height": (np.uint32, 4),
+                "max_bounces": (np.uint32, 8),
+                "num_directional_lights": (np.uint32, 12),
+                "camera_position": (np.dtype((np.float32, (3,))), 16),
+                "sample_index": (np.uint32, 28),
+                "camera_front": (np.dtype((np.float32, (3,))), 32),
+                "film_dist": (np.float32, 44),
+                "camera_up": (np.dtype((np.float32, (3,))), 48),
+                "max_samples_per_pixel": (np.uint32, 60),
+                "camera_right": (np.dtype((np.float32, (3,))), 64),
+                "_padding": (np.uint32, 76),
+                "ambient_light": (np.dtype((np.float32, (3,))), 80),
+                "has_environment_light": (np.uint32, 92),
+            }
+        )  # type: ignore
 
         # Scene descriptors
         self.max_shadow_maps = config.max_shadow_maps
@@ -343,10 +420,10 @@ class Renderer:
         # TODO:
         # - proper thing to do would be to check max supported count for the color
         #   and depth format in use.
-        # - additionally we could use StoreOP.DONT_CARE, TRANSIENT_ATTACHMENT and LAZILY_ALLOCATED memory
+        # - additionally we could use StoreOp.DONT_CARE, TRANSIENT_ATTACHMENT and LAZILY_ALLOCATED memory
         #   for best performance on tilers.
         # - if at some point we want to expose multiple MSAA passes we can add a way to disable it.
-        # - For retrieving color/depth we can do it by returning the resolved framebuffer (allocating one more for depth).
+        # - for retrieving color/depth we can do it by returning the resolved framebuffer (allocating one more for depth).
         self.msaa_samples = max(1, config.msaa_samples)
         self.msaa_target: Optional[Image] = None
 
@@ -358,8 +435,12 @@ class Renderer:
         self.resize(width, height)
 
     def resize(self, width: int, height: int) -> None:
+        self.render_width = width
+        self.render_height = height
+
         if self.depth_buffer is not None:
             self.depth_buffer.destroy()
+
         self.depth_buffer = Image(
             self.ctx,
             width,
@@ -477,29 +558,123 @@ class Renderer:
             batch_size = len(self.spd_pipeline_instances)
             for i in range(0, len(mip_generation_requests), batch_size):
                 with self.ctx.sync_commands() as cmd:
-                    for j, instance in enumerate(self.spd_pipeline_instances):
+                    for j, spd_instance in enumerate(self.spd_pipeline_instances):
                         if i + j >= len(mip_generation_requests):
                             break
                         req = mip_generation_requests[i + j]
                         assert req.level_0_view is not None
 
-                        instance.set_image_extents(req.image.width, req.image.height, req.image.mip_levels)
+                        spd_instance.set_image_extents(req.image.width, req.image.height, req.image.mip_levels)
                         self.spd_pipeline.run(
                             cmd,
                             req.image,
                             req.layout,
                             req.level_0_view,
                             req.mip_views,
-                            instance,
+                            spd_instance,
                             req.mip_generation_filter,
                         )
 
-        cmd = frame.command_buffer
+        path_tracing = self.render_mode == RenderMode.PATH_TRACER
 
+        # Stage: path tracing pipeline creation
+        if path_tracing and self.path_tracer is None:
+            path_tracer_descriptor_set_layout, path_tracer_descriptor_pool, path_tracer_descriptor_set = (
+                create_descriptor_layout_pool_and_set(
+                    self.ctx,
+                    [
+                        DescriptorSetBinding(1, DescriptorType.ACCELERATION_STRUCTURE),
+                        DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),
+                        DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),
+                        DescriptorSetBinding(1, DescriptorType.SAMPLER),
+                        DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),
+                        DescriptorSetBinding(
+                            self.path_tracer_max_textures,
+                            DescriptorType.SAMPLED_IMAGE,
+                            DescriptorBindingFlags.VARIABLE_DESCRIPTOR_COUNT | DescriptorBindingFlags.PARTIALLY_BOUND,
+                        ),
+                    ],
+                    name="path-tracer",
+                )
+            )
+            path_tracer_viewport_descriptor_set_layout = DescriptorSetLayout(
+                self.ctx,
+                [
+                    DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),  # 0 - Constants
+                    *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in LIGHT_TYPES_INFO],  # 1 - Lights
+                    DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),  # 2 - Output
+                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 3 - Environment light
+                ],
+                name="path-tracer-viewport-descriptor-layout",
+            )
+            shader = self.compile_builtin_shader("path_tracer/ray.slang")
+            path_tracer_pipeline = ComputePipeline(
+                self.ctx,
+                Shader(self.ctx, shader.code),
+                descriptor_set_layouts=[
+                    path_tracer_descriptor_set_layout,
+                    path_tracer_viewport_descriptor_set_layout,
+                ],
+                name="pathtracer",
+            )
+
+            # TODO: dynamic viewport creation
+
+            # TODO: currently renderer does not know this, but we anyway planned to move this stuff in at some point
+            max_viewports = 1
+            viewport_descriptor_pool, viewport_descriptor_sets = create_descriptor_pool_and_sets(
+                self.ctx,
+                path_tracer_viewport_descriptor_set_layout,
+                max_viewports * self.num_frames_in_flight,
+                name="pathtracer-viewport-scene-descriptor-sets",
+            )
+            self.viewports: List[Viewport] = []
+            for viewport_index, v in enumerate(viewports):
+                descriptor_sets = RingBuffer(
+                    viewport_descriptor_sets[
+                        viewport_index * self.num_frames_in_flight : (viewport_index + 1) * self.num_frames_in_flight
+                    ]
+                )
+                uniform_buffers = RingBuffer(
+                    [
+                        UploadableBuffer(self.ctx, self.path_tracer_constants_dtype.itemsize, BufferUsageFlags.UNIFORM)
+                        for _ in range(self.num_frames_in_flight)
+                    ]
+                )
+                constants = np.zeros((1,), self.path_tracer_constants_dtype)
+                for s, buf, light_bufs in zip(descriptor_sets, uniform_buffers, v.scene_light_buffers):
+                    s.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0)
+                    for i, light_buf in enumerate(light_bufs):
+                        s.write_buffer(light_buf, DescriptorType.UNIFORM_BUFFER, 1, i)
+                v.path_tracer_viewport = PathTracerViewport(
+                    descriptor_sets,
+                    uniform_buffers,
+                    constants,
+                )
+
+            self.path_tracer = PathTracer(
+                pipeline=path_tracer_pipeline,
+                accumulation_image=None,
+                descriptor_set=path_tracer_descriptor_set,
+                descriptor_pool=path_tracer_descriptor_pool,
+                descriptor_set_layout=path_tracer_descriptor_set_layout,
+                viewport_descriptor_set_layout=path_tracer_viewport_descriptor_set_layout,
+                viewport_descriptor_pool=viewport_descriptor_pool,
+                viewport_descriptor_sets=viewport_descriptor_sets,
+                # Scene
+                acceleration_structure=None,
+                instances_buf=None,
+                materials_buf=None,
+                # State
+                sample_index=0,
+            )
+
+        cmd = frame.command_buffer
         f = RendererFrame(
             # Frame counters
             self.total_frame_index % self.num_frames_in_flight,
             self.total_frame_index,
+            path_tracing,
             # Graphics command list
             cmd,
             # Upload stages and barriers
@@ -614,29 +789,57 @@ class Renderer:
                     elif isinstance(l, UniformEnvironmentLight):
                         uniform_environment_radiance += l.radiance.get_current()
 
-            buf = viewport.scene_uniform_buffers.get_current_and_advance()
-            proj = viewport.camera.projection(viewport_width / viewport_height)
+            if path_tracing:
+                assert viewport.path_tracer_viewport is not None
+                assert self.path_tracer is not None
+                buf = viewport.path_tracer_viewport.uniform_buffers.get_current_and_advance()
+                constants = viewport.path_tracer_viewport.constants
 
-            constants = viewport.scene_constants
-            constants["projection"] = proj
-            constants["view"] = viewport.camera.view()
-            constants["world_camera_position"] = viewport.camera.position()
-            constants["num_lights"] = num_lights
-            constants["ambient_light"] = uniform_environment_radiance
-            if environment_light is not None:
-                constants["has_environment_light"] = 1
-                constants["max_specular_mip"] = environment_light.gpu_cubemaps.specular_cubemap.mip_levels - 1.0
+                constants["width"] = viewport_width
+                constants["height"] = viewport_height
+                constants["max_bounces"] = self.path_tracer_max_bounces
+                constants["num_directional_lights"] = num_lights
+                constants["camera_position"] = viewport.camera.position()
+                constants["sample_index"] = self.path_tracer.sample_index
+                constants["camera_forward"] = viewport.camera.front()
+                constants["film_dist"] = viewport.camera.film_dist()
+                constants["camera_up"] = viewport.camera.up()
+                constants["max_samples_per_pixel"] = self.path_tracer_max_samples_per_pixel
+                constants["camera_right"] = viewport.camera.right()
+                constants["ambient_light"] = uniform_environment_radiance
+                if environment_light is not None:
+                    constants["has_environment_light"] = 1
+                else:
+                    constants["has_environment_light"] = 0
+                buf.upload(
+                    cmd,
+                    MemoryUsage.NONE,
+                    constants.view(np.uint8),
+                )
             else:
-                constants["has_environment_light"] = 0
-                constants["max_specular_mip"] = 0.0
-            constants["inverse_viewport_size"] = (1.0 / viewport_width, 1.0 / viewport_height)
-            constants["focal"] = (proj[0][0] * 0.5 * viewport_width, proj[1][1] * 0.5 * viewport_height)
+                buf = viewport.scene_uniform_buffers.get_current_and_advance()
+                proj = viewport.camera.projection(viewport_width / viewport_height)
 
-            buf.upload(
-                cmd,
-                MemoryUsage.NONE,  # None because will be synced by after-upload barriers
-                constants.view(np.uint8),
-            )
+                constants = viewport.scene_constants
+                constants["projection"] = proj
+                constants["view"] = viewport.camera.view()
+                constants["world_camera_position"] = viewport.camera.position()
+                constants["num_lights"] = num_lights
+                constants["ambient_light"] = uniform_environment_radiance
+                if environment_light is not None:
+                    constants["has_environment_light"] = 1
+                    constants["max_specular_mip"] = environment_light.gpu_cubemaps.specular_cubemap.mip_levels - 1.0
+                else:
+                    constants["has_environment_light"] = 0
+                    constants["max_specular_mip"] = 0.0
+                constants["inverse_viewport_size"] = (1.0 / viewport_width, 1.0 / viewport_height)
+                constants["focal"] = (proj[0][0] * 0.5 * viewport_width, proj[1][1] * 0.5 * viewport_height)
+
+                buf.upload(
+                    cmd,
+                    MemoryUsage.NONE,  # None because will be synced by after-upload barriers
+                    constants.view(np.uint8),
+                )
 
         self.enabled_gpu_properties = enabled_gpu_properties
 
@@ -696,41 +899,204 @@ class Renderer:
                 image_barriers=f.upload_after_image_barriers,
             )
 
-        # Stage: Render shadows
-        for l in enabled_lights:
-            l.render_shadow_maps(self, f, enabled_objects)
+        # Create and upload path tracing acceleration structures
+        if path_tracing:
+            assert self.path_tracer is not None
 
-        f.before_render_image_barriers.extend(
-            [
-                ImageBarrier(
-                    frame.image,
-                    ImageLayout.UNDEFINED,
-                    ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
-                    PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
-                    AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
-                    PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
-                    AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
-                ),
-                ImageBarrier(
-                    self.depth_buffer,
-                    ImageLayout.UNDEFINED,
-                    ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                    PipelineStageFlags.LATE_FRAGMENT_TESTS,
-                    AccessFlags.DEPTH_STENCIL_ATTACHMENT_READ | AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE,
-                    PipelineStageFlags.EARLY_FRAGMENT_TESTS,
-                    AccessFlags.DEPTH_STENCIL_ATTACHMENT_READ | AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE,
-                    aspect_mask=ImageAspectFlags.DEPTH,
-                ),
-            ]
-        )
+            # Create or resize accumulation buffer
+            if (
+                self.path_tracer.accumulation_image is None
+                or self.render_width != self.path_tracer.accumulation_image.width
+                or self.render_height != self.path_tracer.accumulation_image.height
+            ):
+                # Assume no rendering is in flight if resolution changed
+                if self.path_tracer.accumulation_image is not None:
+                    self.path_tracer.accumulation_image.destroy()
+
+                self.path_tracer.accumulation_image = Image(
+                    self.ctx,
+                    self.render_width,
+                    self.render_height,
+                    Format.R32G32B32A32_SFLOAT,
+                    ImageUsageFlags.STORAGE,
+                    AllocType.DEVICE_DEDICATED,
+                    name="accumulation",
+                )
+                self.path_tracer.descriptor_set.write_image(
+                    self.path_tracer.accumulation_image, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 2
+                )
+
+            # Stage: path tracing structures creation
+            if self.path_tracer.acceleration_structure is None:
+                # Flush commands and re-open per-frame command buffers.
+                #
+                # We need this because acceleration structure creation could use just uploaded positions and indices.
+                # Since we also want to render a frame this frame we ensure that all uploads happened and then reset
+                # command buffers.
+                #
+                # We could skip this if we knew that we don't have any positions or indices uploaded this frame
+                # but there is no simple way to detect that right now.
+                # A better system would have each primitive manage the creation and update of their acceleration
+                # structures and avoid this kind of stall.
+                # Since we are now anyways stalling the pipeline to create acceleration structures this overhead
+                # should be negligible compared to the actual build time and synchronization.
+                f.cmd.end()
+                self.ctx.queue.submit(
+                    f.cmd,
+                    wait_semaphores=[(s.sem, s.wait_value, s.wait_stage) for s in f.additional_semaphores],
+                    signal_semaphores=[(s.sem, s.signal_value, s.signal_stage) for s in f.additional_semaphores],
+                )
+                if f.transfer_semaphores:
+                    assert f.transfer_cmd is not None
+                    f.transfer_cmd.end()
+                    self.ctx.transfer_queue.submit(
+                        f.transfer_cmd,
+                        wait_semaphores=[(s.sem, s.wait_value, s.wait_stage) for s in f.transfer_semaphores],
+                        signal_semaphores=[(s.sem, s.signal_value, s.signal_stage) for s in f.transfer_semaphores],
+                    )
+
+                # Wait for commands to complete
+                self.ctx.wait_idle()
+
+                # Reset commands and semaphores
+                f.cmd.begin()
+                if f.transfer_semaphores:
+                    assert f.transfer_cmd is not None
+                    f.transfer_cmd.begin()
+                f.additional_semaphores.clear()
+                f.transfer_semaphores.clear()
+
+                instances: List[AccelerationStructureInstanceInfo] = []
+                materials: Dict[Material, int] = {}
+                for o in enabled_objects:
+                    if o.material is not None:
+                        if o.material in materials:
+                            material_index = materials[o.material]
+                        else:
+                            material_index = len(materials)
+                            materials[o.material] = material_index
+                        o.append_acceleration_structure_instances(instances, material_index)
+
+                # Instances and acceleration structures
+                acceleration_structure_meshes: List[AccelerationStructureMesh] = []
+                instances_data = np.zeros(len(instances), self.path_tracer_instance_dtype)
+                for i, instance in enumerate(instances):
+                    instances_data[i]["normal_matrix"] = instance.normal_matrix
+                    instances_data[i]["positions"] = instance.positions_address
+                    instances_data[i]["normals"] = instance.normals_address
+                    instances_data[i]["tangents"] = instance.tangents_address
+                    instances_data[i]["uvs"] = instance.uvs_address
+                    instances_data[i]["indices"] = instance.indices_address
+                    instances_data[i]["material_index"] = instance.material_index
+
+                    acceleration_structure_meshes.append(
+                        AccelerationStructureMesh(
+                            instance.positions_address,
+                            12,
+                            instance.positions_count,
+                            Format.R32G32B32_SFLOAT,
+                            instance.indices_address,
+                            IndexType.UINT32,
+                            instance.primitive_count,
+                            tuple(instance.transform),
+                        )
+                    )
+                self.path_tracer.acceleration_structure = AccelerationStructure(
+                    self.ctx, acceleration_structure_meshes, name="acceleration-structure"
+                )
+                self.path_tracer.instances_buf = Buffer.from_data(
+                    self.ctx,
+                    view_bytes(instances_data),
+                    BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
+                    AllocType.DEVICE_MAPPED_WITH_FALLBACK,
+                    name="path-tracer-instances",
+                )
+
+                # Upload materials and write bindless descriptors
+                textures: Dict[Union[Image, ImageView], int] = {}
+                materials_data = np.zeros(len(materials), self.path_tracer_material_dtype)
+
+                def alloc_texture(p: Property) -> int:
+                    if isinstance(p, ImageProperty):
+                        view = p.get_current_gpu().view()
+                        if view in textures:
+                            texture_index = textures[view]
+                        else:
+                            texture_index = len(textures)
+                            textures[view] = texture_index
+                        return texture_index
+                    else:
+                        return 0xFFFFFFFF
+
+                def get_value(p: Property) -> Union[float, PropertyItem]:
+                    if isinstance(p, BufferProperty):
+                        return p.get_current()
+                    else:
+                        return 0.0
+
+                for i, material in enumerate(materials.keys()):
+                    if isinstance(material, DiffuseMaterial):
+                        pass
+                    elif isinstance(material, DiffuseSpecularMaterial):
+                        pass
+                    elif isinstance(material, ColorMaterial):
+                        pass
+                    elif isinstance(material, PBRMaterial):
+                        materials_data[i]["albedo"] = get_value(material.albedo[0].property)
+                        materials_data[i]["albedo_texture"] = alloc_texture(material.albedo[0].property)
+                        materials_data[i]["roughness"] = get_value(material.roughness[0].property)
+                        materials_data[i]["roughness_texture"] = alloc_texture(material.roughness[0].property)
+                        materials_data[i]["metallic"] = get_value(material.metallic[0].property)
+                        materials_data[i]["metallic_texture"] = alloc_texture(material.metallic[0].property)
+                        materials_data[i]["normal_texture"] = alloc_texture(material.normal[0].property)
+                    else:
+                        materials_data[i]["albedo"] = 0.0
+                        materials_data[i]["albedo_texture"] = 0xFFFFFFFF
+                        materials_data[i]["roughness"] = 1.0
+                        materials_data[i]["roughness_texture"] = 0xFFFFFFFF
+                        materials_data[i]["metallic"] = 0.0
+                        materials_data[i]["metallic_texture"] = 0xFFFFFFFF
+                        materials_data[i]["normal_texture"] = 0xFFFFFFFF
+                if self.path_tracer.materials_buf is not None:
+                    self.path_tracer.materials_buf.destroy()
+                self.path_tracer.materials_buf = Buffer.from_data(
+                    self.ctx,
+                    view_bytes(materials_data),
+                    BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
+                    AllocType.DEVICE_MAPPED_WITH_FALLBACK,
+                    name="path-tracer-materials",
+                )
+
+                # Static descriptors
+                self.path_tracer.descriptor_set.write_acceleration_structure(
+                    self.path_tracer.acceleration_structure, 0
+                )
+                self.path_tracer.descriptor_set.write_buffer(
+                    self.path_tracer.instances_buf, DescriptorType.STORAGE_BUFFER, 1
+                )
+                self.path_tracer.descriptor_set.write_buffer(
+                    self.path_tracer.materials_buf, DescriptorType.STORAGE_BUFFER, 2
+                )
+                self.path_tracer.descriptor_set.write_sampler(self.linear_sampler, 3)
+                self.path_tracer.descriptor_set.write_image(
+                    self.path_tracer.accumulation_image, ImageLayout.GENERAL, DescriptorType.STORAGE_BUFFER, 4
+                )
+                for i, image in enumerate(textures):
+                    self.path_tracer.descriptor_set.write_image(
+                        image, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 5, i
+                    )
+
+        # Stage: Render shadows
+        if not path_tracing:
+            for l in enabled_lights:
+                l.render_shadow_maps(self, f, enabled_objects)
 
         before_gui_barriers: List[ImageBarrier] = []
-        if self.multiviewport:
-            for v in viewports:
-                assert v.image is not None
+        if path_tracing:
+            if self.multiviewport:
                 f.before_render_image_barriers.append(
                     ImageBarrier(
-                        v.image,
+                        frame.image,
                         ImageLayout.UNDEFINED,
                         ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
                         PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
@@ -739,30 +1105,116 @@ class Renderer:
                         AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
                     )
                 )
-                before_gui_barriers.append(
+                for v in viewports:
+                    assert v.image is not None
+                    f.before_render_image_barriers.append(
+                        ImageBarrier(
+                            v.image,
+                            ImageLayout.UNDEFINED,
+                            ImageLayout.GENERAL,
+                            PipelineStageFlags.FRAGMENT_SHADER,
+                            AccessFlags.SHADER_SAMPLED_READ,
+                            PipelineStageFlags.COMPUTE_SHADER,
+                            AccessFlags.SHADER_STORAGE_READ | AccessFlags.SHADER_STORAGE_WRITE,
+                        )
+                    )
+                    before_gui_barriers.append(
+                        ImageBarrier(
+                            v.image,
+                            ImageLayout.GENERAL,
+                            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                            PipelineStageFlags.COMPUTE_SHADER,
+                            AccessFlags.SHADER_STORAGE_READ | AccessFlags.SHADER_STORAGE_WRITE,
+                            PipelineStageFlags.FRAGMENT_SHADER,
+                            AccessFlags.SHADER_SAMPLED_READ,
+                        )
+                    )
+            else:
+                f.before_render_image_barriers.append(
                     ImageBarrier(
-                        v.image,
-                        ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
-                        ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                        frame.image,
+                        ImageLayout.UNDEFINED,
+                        ImageLayout.GENERAL,
                         PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
                         AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
-                        PipelineStageFlags.FRAGMENT_SHADER,
-                        AccessFlags.SHADER_SAMPLED_READ | AccessFlags.SHADER_SAMPLED_READ,
+                        PipelineStageFlags.COMPUTE_SHADER,
+                        AccessFlags.SHADER_STORAGE_READ | AccessFlags.SHADER_STORAGE_WRITE,
                     )
                 )
-
-        if self.msaa_target is not None:
-            f.before_render_image_barriers.append(
-                ImageBarrier(
-                    self.msaa_target,
-                    ImageLayout.UNDEFINED,
-                    ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
-                    PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
-                    AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
-                    PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
-                    AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                before_gui_barriers.append(
+                    ImageBarrier(
+                        frame.image,
+                        ImageLayout.GENERAL,
+                        ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                        PipelineStageFlags.COMPUTE_SHADER,
+                        AccessFlags.SHADER_STORAGE_READ | AccessFlags.SHADER_STORAGE_WRITE,
+                        PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                        AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                    )
                 )
+        else:
+            f.before_render_image_barriers.extend(
+                [
+                    ImageBarrier(
+                        frame.image,
+                        ImageLayout.UNDEFINED,
+                        ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                        PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                        AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                        AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                    ),
+                    ImageBarrier(
+                        self.depth_buffer,
+                        ImageLayout.UNDEFINED,
+                        ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                        PipelineStageFlags.LATE_FRAGMENT_TESTS,
+                        AccessFlags.DEPTH_STENCIL_ATTACHMENT_READ | AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE,
+                        PipelineStageFlags.EARLY_FRAGMENT_TESTS,
+                        AccessFlags.DEPTH_STENCIL_ATTACHMENT_READ | AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE,
+                        aspect_mask=ImageAspectFlags.DEPTH,
+                    ),
+                ]
             )
+
+            if self.multiviewport:
+                for v in viewports:
+                    assert v.image is not None
+                    f.before_render_image_barriers.append(
+                        ImageBarrier(
+                            v.image,
+                            ImageLayout.UNDEFINED,
+                            ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                            PipelineStageFlags.FRAGMENT_SHADER,
+                            AccessFlags.SHADER_SAMPLED_READ,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        )
+                    )
+                    before_gui_barriers.append(
+                        ImageBarrier(
+                            v.image,
+                            ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                            PipelineStageFlags.FRAGMENT_SHADER,
+                            AccessFlags.SHADER_SAMPLED_READ | AccessFlags.SHADER_SAMPLED_READ,
+                        )
+                    )
+
+            if self.msaa_target is not None:
+                f.before_render_image_barriers.append(
+                    ImageBarrier(
+                        self.msaa_target,
+                        ImageLayout.UNDEFINED,
+                        ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                        PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                        AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                        AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                    )
+                )
 
         # Sync: before-render barriers
         cmd.barriers(
@@ -782,103 +1234,124 @@ class Renderer:
                 continue
             viewport_bit = 1 << viewport_index
 
-            descriptor_set = viewport.scene_descriptor_sets.get_current_and_advance()
-
-            shadow_map_index = 0
-            for l in enabled_lights:
-                if l.viewport_mask is None or l.viewport_mask & (1 << viewport_index):
-                    if isinstance(l, DirectionalLight) and l.shadow_map is not None:
-                        descriptor_set.write_image(
-                            l.shadow_map,
-                            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-                            DescriptorType.SAMPLED_IMAGE,
-                            6 + len(LIGHT_TYPES_INFO),
-                            shadow_map_index,
-                        )
-                        shadow_map_index += 1
-                    elif isinstance(l, EnvironmentLight):
-                        descriptor_set.write_image(
-                            l.gpu_cubemaps.irradiance_cubemap,
-                            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-                            DescriptorType.SAMPLED_IMAGE,
-                            3,
-                        )
-                        descriptor_set.write_image(
-                            l.gpu_cubemaps.specular_cubemap,
-                            ImageLayout.SHADER_READ_ONLY_OPTIMAL,
-                            DescriptorType.SAMPLED_IMAGE,
-                            4,
-                        )
-
-            if viewport_index > 0 and f.between_viewport_render_src_pipeline_stages:
-                cmd.barriers(
-                    memory_barriers=[
-                        MemoryBarrier(
-                            f.between_viewport_render_src_pipeline_stages,
-                            AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
-                            f.between_viewport_render_dst_pipeline_stages,
-                            AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
-                        ),
-                    ],
+            if path_tracing:
+                assert self.path_tracer is not None
+                assert viewport.path_tracer_viewport is not None
+                descriptor_set = viewport.path_tracer_viewport.descriptor_sets.get_current_and_advance()
+                for l in enabled_lights:
+                    if l.viewport_mask is None or l.viewport_mask & (1 << viewport_index):  # noqa: SIM102
+                        if isinstance(l, EnvironmentLight):
+                            descriptor_set.write_image(
+                                l.gpu_cubemaps.specular_cubemap,
+                                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                                DescriptorType.SAMPLED_IMAGE,
+                                3,
+                            )
+                descriptor_set.write_image(
+                    frame.image if viewport.image is None else viewport.image,
+                    ImageLayout.GENERAL,
+                    DescriptorType.STORAGE_IMAGE,
+                    2,
                 )
+                cmd.bind_compute_pipeline(self.path_tracer.pipeline, [self.path_tracer.descriptor_set, descriptor_set])
+                cmd.dispatch(div_round_up(viewport.rect.width, 8), div_round_up(viewport.rect.height, 8), 1)
+            else:
+                descriptor_set = viewport.scene_descriptor_sets.get_current_and_advance()
+                shadow_map_index = 0
+                for l in enabled_lights:
+                    if l.viewport_mask is None or l.viewport_mask & (1 << viewport_index):
+                        if isinstance(l, DirectionalLight) and l.shadow_map is not None:
+                            descriptor_set.write_image(
+                                l.shadow_map,
+                                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                                DescriptorType.SAMPLED_IMAGE,
+                                6 + len(LIGHT_TYPES_INFO),
+                                shadow_map_index,
+                            )
+                            shadow_map_index += 1
+                        elif isinstance(l, EnvironmentLight):
+                            descriptor_set.write_image(
+                                l.gpu_cubemaps.irradiance_cubemap,
+                                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                                DescriptorType.SAMPLED_IMAGE,
+                                3,
+                            )
+                            descriptor_set.write_image(
+                                l.gpu_cubemaps.specular_cubemap,
+                                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                                DescriptorType.SAMPLED_IMAGE,
+                                4,
+                            )
 
-            # Stage: pre-render
-            for o in enabled_objects:
-                if o.viewport_mask is None or (o.viewport_mask & viewport_bit):
-                    o.pre_render(self, f, viewport, descriptor_set)
-
-            # Sync: before-render barriers
-            if f.before_render_src_pipeline_stages:
-                cmd.barriers(
-                    memory_barriers=[
-                        MemoryBarrier(
-                            f.before_render_src_pipeline_stages,
-                            AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
-                            f.before_render_dst_pipeline_stages,
-                            AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
-                        ),
-                    ],
-                )
-
-            viewport_rect = (
-                0,
-                viewport.rect.height,
-                viewport.rect.width,
-                -viewport.rect.height,
-            )
-            rect = (
-                0,
-                0,
-                viewport.rect.width,
-                viewport.rect.height,
-            )
-
-            # Stage: render
-            cmd.set_viewport(viewport_rect)
-            cmd.set_scissors(rect)
-
-            image = frame.image if viewport.image is None else viewport.image
-            with cmd.rendering(
-                rect,
-                color_attachments=[
-                    (
-                        RenderingAttachment(
-                            self.msaa_target,
-                            load_op=LoadOp.CLEAR,
-                            store_op=StoreOp.STORE,
-                            clear=self.background_color,
-                            resolve_mode=ResolveMode.AVERAGE,
-                            resolve_image=image,
-                        )
-                        if self.msaa_target is not None
-                        else RenderingAttachment(image, LoadOp.CLEAR, StoreOp.STORE, self.background_color)
+                if viewport_index > 0 and f.between_viewport_render_src_pipeline_stages:
+                    cmd.barriers(
+                        memory_barriers=[
+                            MemoryBarrier(
+                                f.between_viewport_render_src_pipeline_stages,
+                                AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                                f.between_viewport_render_dst_pipeline_stages,
+                                AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                            ),
+                        ],
                     )
-                ],
-                depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
-            ):
+
+                # Stage: pre-render
                 for o in enabled_objects:
                     if o.viewport_mask is None or (o.viewport_mask & viewport_bit):
-                        o.render(self, f, viewport, descriptor_set)
+                        o.pre_render(self, f, viewport, descriptor_set)
+
+                # Sync: before-render barriers
+                if f.before_render_src_pipeline_stages:
+                    cmd.barriers(
+                        memory_barriers=[
+                            MemoryBarrier(
+                                f.before_render_src_pipeline_stages,
+                                AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                                f.before_render_dst_pipeline_stages,
+                                AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
+                            ),
+                        ],
+                    )
+
+                viewport_rect = (
+                    0,
+                    viewport.rect.height,
+                    viewport.rect.width,
+                    -viewport.rect.height,
+                )
+                rect = (
+                    0,
+                    0,
+                    viewport.rect.width,
+                    viewport.rect.height,
+                )
+
+                # Stage: render
+                cmd.set_viewport(viewport_rect)
+                cmd.set_scissors(rect)
+
+                image = frame.image if viewport.image is None else viewport.image
+                with cmd.rendering(
+                    rect,
+                    color_attachments=[
+                        (
+                            RenderingAttachment(
+                                self.msaa_target,
+                                load_op=LoadOp.CLEAR,
+                                store_op=StoreOp.STORE,
+                                clear=self.background_color,
+                                resolve_mode=ResolveMode.AVERAGE,
+                                resolve_image=image,
+                            )
+                            if self.msaa_target is not None
+                            else RenderingAttachment(image, LoadOp.CLEAR, StoreOp.STORE, self.background_color)
+                        )
+                    ],
+                    depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
+                ):
+                    for o in enabled_objects:
+                        if o.viewport_mask is None or (o.viewport_mask & viewport_bit):
+                            o.render(self, f, viewport, descriptor_set)
 
         if before_gui_barriers:
             cmd.barriers(image_barriers=before_gui_barriers)
@@ -926,3 +1399,14 @@ class Renderer:
             for resource in resources:
                 resource.destroy()
         self.destruction_queue.clear()
+
+    def toggle_path_tracer(self) -> None:
+        if self.render_mode == RenderMode.RASTER:
+            if self.supports_path_tracing:
+                self.render_mode = RenderMode.PATH_TRACER
+            else:
+                logger.warning(
+                    "Path tracing cannot be enabled because DeviceFeatures.RAY_QUERY is not supported. Falling back to raster mode."
+                )
+        else:
+            self.render_mode = RenderMode.RASTER

@@ -33,6 +33,9 @@ class KeyMap:
     next_frame: KeyBinding = KeyBinding(Key.PERIOD)
     previous_frame: KeyBinding = KeyBinding(Key.COMMA)
 
+    # Renderer
+    toggle_path_tracer: KeyBinding = KeyBinding(Key.R, Modifiers.CTRL)
+
     # Camera control
     camera_rotate: MouseButtonBinding = MouseButtonBinding(MouseButton.LEFT)
     camera_pan: MouseButtonBinding = MouseButtonBinding(MouseButton.RIGHT)

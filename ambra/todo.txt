@@ -369,6 +369,51 @@ Tools:
 
 Notes:
 
+Raytracing:
+- Only used for final render / high quality preview.
+- No real-time raytracing thing (for now at least) -> too stochastic / scene dependent quality
+    - In the future we could do something like LTC area lights with ratio tracking shadows but not full GI
+- camera:
+    - DoF, distortion and vignetting could be useful for picture quality
+- Caching and invalidation:
+    - Reset accumulation
+        - camera movement
+        - user triggered (e.g. custom scene update)
+    - Rebuild scene
+        Theoretically:
+            - change any mesh -> acceleration structures
+            - change any material -> reupload materials
+            - change any light -> reupload lights
+        Practically:
+            - any frame change
+            - user triggered
+- Scene build:
+    - create acceleration structures for all meshes
+    - upload instance data for each mesh instance
+        - fixed vertex layout with pointers
+        - few flags for normals / no normals etc..
+        - material index and material type -> not sure if we want different materials or uber-material yet
+            - transmission / refraction would help
+    - if different materials:
+        - upload all materials
+    - create descriptor set with all textures
+    - upload lights (can we reuse the buffer from the raster pipeline or needs to be new ?)
+        - If we expect scenes to have low number of lights we can eval all lights at each path vertex
+            -> No need for light picking strategy / acceleration
+            -> does not scale well to many small lights (which could be useful), can implement alias tables or light BVH later
+        - Directional lights can potentially reuse buffer (but there is extra unused information)
+        - Environment lights use equirectangular in shader and need sampling table:
+            -> cannot do this if environment light is created from cubemaps (or need to convert back from highest specular level)
+        - Uniform environment can just be float3 in constans
+        - Area lights still not entirely clear how they would be represented
+- Accumulation and compositing:
+    - during interactive mode: user configurable number of accumulations per render iteration
+        - becomes spp in non-interactive mode
+    - store depth on first hit and composite by drawing rest of the scene on top with this as starting depth buffer
+    - denoiser:
+        - return AOVs on demand (accumulated or first hit) for offline denoising
+        - Real-time denoiser for preview (maybe later or pluggable)
+
 Live streaming implementation notes:
 - ListBufferProperty + UploadSettings(batched=False or streaming=True) are needed to avoid awful perf
 - Editing frame in on_gui (e.g. clear button) is trick because scene.update() already happened. Maybe we could have a before_update gui

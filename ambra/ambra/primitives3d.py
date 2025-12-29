@@ -38,7 +38,7 @@ from pyxpg import (
     VertexInputRate,
 )
 
-from .geometry import concatenate_meshes, create_arrow, create_cone, create_sphere, transform_mesh
+from .geometry import concatenate_meshes, create_arrow, create_sphere, transform_mesh
 from .gpu_sorting import GpuSortingPipeline, SortDataType, SortOptions
 from .materials import ColorMaterial, DiffuseMaterial, Material
 from .property import BufferProperty, ImageProperty, as_image_property
@@ -46,7 +46,7 @@ from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object, Object3D
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
-from .utils.gpu import cull_mode_opposite_face, div_round_up, view_bytes
+from .utils.gpu import AccelerationStructureInstanceInfo, cull_mode_opposite_face, div_round_up, view_bytes
 from .viewport import Viewport
 
 
@@ -512,6 +512,66 @@ class Mesh(Object3D):
             ],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype["transform"].itemsize)],
         )
+
+    def append_acceleration_structure_instances(
+        self, instances: List[AccelerationStructureInstanceInfo], material_index: int
+    ) -> None:
+        # NOTE: acceleration structure build only supports triangle list. Other triangle topologies could
+        # be supported if we were to manually expand the index buffer.
+        if self.primitive_topology != PrimitiveTopology.TRIANGLE_LIST:
+            return
+
+        def buffer_address_or_null(p: Optional[BufferProperty]) -> int:
+            if p is None:
+                return 0
+            view = p.get_current_gpu()
+            return view.buffer.address + view.offset
+
+        positions = self.positions.get_current_gpu()
+        positions_count = positions.size // 12
+
+        indices_addr = 0
+        primitive_count = 0
+        if self.indices is not None:
+            indices = self.indices.get_current_gpu()
+            indices_addr = indices.buffer.address + indices.size
+            primitive_count = indices.size // 12
+
+        # TODO: proper instances without duplicating blases
+        if self.instance_positions is not None:
+            instance_positions = self.instance_positions.get_current()
+            for pos in instance_positions:
+                transform = self.constants["transform"]
+                transform[:3, 3] += pos
+                instances.append(
+                    AccelerationStructureInstanceInfo(
+                        transform,
+                        self.constants["normal_matrix"],
+                        positions_count,
+                        positions.buffer.address + positions.offset,
+                        buffer_address_or_null(self.normals),
+                        buffer_address_or_null(self.tangents),
+                        buffer_address_or_null(self.uvs),
+                        primitive_count,
+                        indices_addr,
+                        material_index,
+                    )
+                )
+        else:
+            instances.append(
+                AccelerationStructureInstanceInfo(
+                    self.constants["transform"],
+                    self.constants["normal_matrix"],
+                    positions_count,
+                    positions.buffer.address + positions.offset,
+                    buffer_address_or_null(self.normals),
+                    buffer_address_or_null(self.tangents),
+                    buffer_address_or_null(self.uvs),
+                    primitive_count,
+                    indices_addr,
+                    material_index,
+                )
+            )
 
     def update_transform(self, parent: Optional[Object]) -> None:
         super().update_transform(parent)
@@ -1000,8 +1060,8 @@ class Voxels(Object3D):
         self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
     ) -> None:
         self.constants["object_camera_position"] = vec3(
-            inverse(self.current_transform_matrix) * vec4(viewport.camera.position(), 1.0)
-        )  # type: ignore
+            inverse(self.current_transform_matrix) * vec4(viewport.camera.position(), 1.0)  # type: ignore
+        )
         self.constants["size"] = self.size
         self.constants["border_size"] = self.border_size
         self.constants["border_factor"] = self.border_factor

@@ -4959,8 +4959,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("UINT16",    VK_INDEX_TYPE_UINT16)
         .value("UINT32",    VK_INDEX_TYPE_UINT32)
         .value("UINT8",     VK_INDEX_TYPE_UINT8)
-        .value("NONE_KHR",  VK_INDEX_TYPE_NONE_KHR)
-        .value("UINT8_KHR", VK_INDEX_TYPE_UINT8_KHR)
+        .value("NONE",      VK_INDEX_TYPE_NONE)
     ;
 
     nb::class_<MemoryBarrier>(m, "MemoryBarrier",

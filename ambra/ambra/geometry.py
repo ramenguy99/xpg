@@ -117,7 +117,7 @@ def create_cone(
 
 def create_arrow(
     radius: float = 0.1, height: float = 0.8, tip_radius: float = 0.2, tip_height: float = 0.2, sectors: int = 8
-):
+) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
     bottom_lid_v, bottom_lid_n, bottom_lid_f = create_disk(radius, sectors)
     top_lid_v, top_lid_n, top_lid_f = create_disk(tip_radius, sectors)
     top_lid_v[:, 2] = height
@@ -281,9 +281,11 @@ def create_cube_edges(min_p: Tuple[float, float, float], max_p: Tuple[float, flo
     return lines
 
 
-def create_normal_lines(positions: NDArray[np.float32], normals: NDArray[np.float32], length: float = 0.01):
+def create_normal_lines(
+    positions: NDArray[np.float32], normals: NDArray[np.float32], length: float = 0.01
+) -> NDArray[np.float32]:
     n = positions.shape[0]
-    lines = np.zeros([n * 2, 3])
+    lines = np.zeros((n * 2, 3), np.float32)
     lines[::2] = positions
     lines[1::2] = positions + normals * length
     return lines
