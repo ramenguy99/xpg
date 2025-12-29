@@ -18,6 +18,7 @@ from .property import (
 from .renderer_frame import RendererFrame
 from .transform2d import Transform2D
 from .transform3d import Transform3D
+from .utils.gpu import AccelerationStructureInstanceInfo
 
 if TYPE_CHECKING:
     from .materials import Material
@@ -105,6 +106,11 @@ class Object:
         pass
 
     def upload(self, renderer: "Renderer", frame: RendererFrame) -> None:
+        pass
+
+    def append_acceleration_structure_instances(
+        self, instances: List[AccelerationStructureInstanceInfo], material_index: int
+    ) -> None:
         pass
 
     def pre_render(

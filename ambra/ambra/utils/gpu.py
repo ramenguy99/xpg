@@ -65,6 +65,23 @@ class ImageUploadInfo:
 
 
 @dataclass
+class AccelerationStructureInstanceInfo:
+    transform: NDArray[np.float32]
+    normal_matrix: NDArray[np.float32]
+
+    positions_count: int
+    positions_address: int
+    normals_address: int
+    tangents_address: int
+    uvs_address: int
+
+    primitive_count: int
+    indices_address: int
+
+    material_index: int
+
+
+@dataclass
 class BulkUploadState:
     buffer: Buffer
     cmd: CommandBuffer

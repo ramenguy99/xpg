@@ -3,7 +3,7 @@
 
 import math
 from dataclasses import dataclass
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional
 
 from numpy.typing import NDArray
 from pyglm.glm import (
@@ -28,7 +28,7 @@ from pyglm.glm import (
 )
 from pyxpg import DescriptorSet, Image, imgui
 
-from .camera import CameraDepth, OrthographicCamera, PerspectiveCamera
+from .camera import Camera, CameraDepth, OrthographicCamera, PerspectiveCamera
 from .config import CameraConfig, CameraControlMode, CameraProjection, Handedness, PlaybackConfig
 from .transform3d import RigidTransform3D
 from .utils.gpu import UploadableBuffer
@@ -79,6 +79,13 @@ class Rect:
     height: int
 
 
+@dataclass
+class PathTracerViewport:
+    descriptor_sets: RingBuffer[DescriptorSet]
+    uniform_buffers: RingBuffer[UploadableBuffer]
+    constants: NDArray[Any]
+
+
 class Viewport:
     def __init__(
         self,
@@ -102,7 +109,7 @@ class Viewport:
             handedness,
         )
 
-        camera: Union[PerspectiveCamera, OrthographicCamera]
+        camera: Camera
         if camera_config.projection == CameraProjection.PERSPECTIVE:
             camera = PerspectiveCamera(
                 camera_from_world,
@@ -129,6 +136,9 @@ class Viewport:
         self.image = image
         self.imgui_texture = imgui_texture
         self.name = name
+
+        # Path tracer
+        self.path_tracer_viewport: Optional[PathTracerViewport] = None
 
         # Config
         self.handedness = handedness

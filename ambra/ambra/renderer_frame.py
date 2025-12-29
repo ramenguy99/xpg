@@ -29,6 +29,7 @@ class SemaphoreInfo:
 class RendererFrame:
     index: int
     total_index: int
+    path_tracing: bool
 
     cmd: CommandBuffer
 

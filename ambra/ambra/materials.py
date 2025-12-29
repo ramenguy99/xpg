@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from enum import Flag, auto
-from typing import List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -25,12 +25,14 @@ from pyxpg import (
     get_format_info,
 )
 
-from . import renderer
 from .property import BufferProperty, ImageProperty, as_buffer_property, as_image_property
 from .renderer_frame import RendererFrame
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import UploadableBuffer, align_up, view_bytes
 from .utils.ring_buffer import RingBuffer
+
+if TYPE_CHECKING:
+    from .renderer import Renderer
 
 
 class MaterialPropertyFlags(Flag):
@@ -147,7 +149,7 @@ class Material:
             p.property.update_callbacks.append(lambda _: self.reupload())
         self.need_upload = True
 
-    def create(self, r: "renderer.Renderer") -> None:
+    def create(self, r: "Renderer") -> None:
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
                 r.ctx,
@@ -192,7 +194,7 @@ class Material:
 
         self.constants = np.zeros((1,), self.dtype)
 
-    def create_if_needed(self, r: "renderer.Renderer") -> None:
+    def create_if_needed(self, r: "Renderer") -> None:
         if not self.created:
             self.create(r)
             self.created = True
@@ -200,7 +202,7 @@ class Material:
     def reupload(self) -> None:
         self.need_upload = True
 
-    def upload(self, r: "renderer.Renderer", frame: RendererFrame) -> None:
+    def upload(self, r: "Renderer", frame: RendererFrame) -> None:
         if not self.need_upload:
             return
 

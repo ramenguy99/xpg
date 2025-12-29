@@ -227,7 +227,7 @@ class DirectionalLight(Light):
         buffer.upload(frame.cmd, MemoryUsage.NONE, view_bytes(self.light_info), offset)
 
     def upload(self, renderer: "Renderer", frame: RendererFrame) -> None:
-        if not self.shadow_settings.casts_shadow:
+        if not self.shadow_settings.casts_shadow or frame.path_tracing:
             return
 
         assert self.shadow_map is not None

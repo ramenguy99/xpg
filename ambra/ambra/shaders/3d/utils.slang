@@ -3,7 +3,12 @@
 
 module utils;
 
-public static const float PI = 3.1415926535897932384626433832795f;
+public static const float PI           = 3.14159265358979323846f;
+public static const float INV_PI       = 0.31830988618379067154f;
+public static const float INV_TWOPI    = 0.15915494309189533577f;
+public static const float INV_FOURPI   = 0.07957747154594766788f;
+public static const float SQRT_TWO     = 1.41421356237309504880f;
+public static const float INV_SQRT_TWO = 0.70710678118654752440f;
 
 public uint murmur_mix(uint Hash)
 {
@@ -150,7 +155,7 @@ public float radical_inverse_vdc(uint bits)
     bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
     return float(bits) * 2.3283064365386963e-10; // / 0x100000000
 }
-// ----------------------------------------------------------------------------
+
 public float2 hammersley(uint i, uint N)
 {
     return float2(float(i) / float(N), radical_inverse_vdc(i));

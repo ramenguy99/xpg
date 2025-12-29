@@ -4,7 +4,7 @@
 from dataclasses import dataclass
 from typing import Tuple
 
-from pyglm.glm import mat3_cast, mat4, orthoRH_ZO, perspectiveRH_ZO, row, vec2, vec3
+from pyglm.glm import mat3_cast, mat4, orthoRH_ZO, perspectiveRH_ZO, radians, row, tan, vec2, vec3
 
 from .config import Handedness
 from .transform3d import RigidTransform3D
@@ -54,6 +54,9 @@ class Camera:
     def right_up_front(self) -> Tuple[vec3, vec3, vec3]:
         r = mat3_cast(self.camera_from_world.rotation)
         return vec3(row(r, 0)), vec3(row(r, 1)), vec3(row(r, 2))
+
+    def film_dist(self) -> float:
+        return 0.0
 
 
 @dataclass
@@ -118,3 +121,6 @@ class PerspectiveCamera(Camera):
 
     def projection(self, ar: float) -> mat4:
         return perspectiveRH_ZO(self.fov, ar, self.depth.z_near, self.depth.z_far)
+
+    def film_dist(self) -> float:
+        return 1 / (2 * tan(radians(self.fov) * 0.5))
