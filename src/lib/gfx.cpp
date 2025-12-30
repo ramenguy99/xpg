@@ -989,6 +989,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                 info.supported_features = info.supported_features | DeviceFeatures(((features.features.shaderStorageImageReadWithoutFormat && features.features.shaderStorageImageWriteWithoutFormat) ? DeviceFeatures::STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT : 0));
             if (features_to_check & DeviceFeatures::SHADER_INT16)
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.shaderInt16 ? DeviceFeatures::SHADER_INT16 : 0));
+            if (features_to_check & DeviceFeatures::SHADER_INT64)
+                info.supported_features = info.supported_features | DeviceFeatures((features.features.shaderInt16 ? DeviceFeatures::SHADER_INT64 : 0));
 
             logging::trace("gfx/debug", "Supported features: 0x%zx", info.supported_features.flags);
 
@@ -1173,6 +1175,9 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     if (picked_info.supported_features & DeviceFeatures::SHADER_INT16) {
         enabled_physical_device_features.shaderInt16 = true;
     }
+    if (picked_info.supported_features & DeviceFeatures::SHADER_INT64) {
+        enabled_physical_device_features.shaderInt64 = true;
+    }
 
     // Create a physical device.
     VkDevice device = 0;
@@ -1217,7 +1222,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
     // FEATURE: enable VMA extensions if supported
     VmaAllocatorCreateInfo vma_info = {};
-    vma_info.flags = desc.required_features & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_TRACING_PIPELINE) ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT : 0; // Optionally set here that we externally synchronize.
+    vma_info.flags = picked_info.supported_features.flags & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_TRACING_PIPELINE) ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT : 0; // Optionally set here that we externally synchronize.
     vma_info.instance = instance;
     vma_info.physicalDevice = physical_devices[picked_index];
     vma_info.device = device;
