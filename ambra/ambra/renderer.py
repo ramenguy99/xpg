@@ -44,6 +44,7 @@ from pyxpg import (
     MemoryUsage,
     PhysicalDeviceType,
     PipelineStageFlags,
+    PushConstantsRange,
     RenderingAttachment,
     ResolveMode,
     Sampler,
@@ -126,7 +127,6 @@ class FrameInputs:
 class PathTracer:
     # Static
     pipeline: ComputePipeline
-    accumulation_image: Optional[Image]
     descriptor_set: DescriptorSet
     descriptor_pool: DescriptorPool
     descriptor_set_layout: DescriptorSetLayout
@@ -140,9 +140,6 @@ class PathTracer:
     instances_buf: Optional[Buffer]
     materials_buf: Optional[Buffer]
 
-    # Config
-    sample_index: int
-
 
 class Renderer:
     def __init__(
@@ -153,12 +150,14 @@ class Renderer:
         num_frames_in_flight: int,
         output_format: Format,
         multiviewport: bool,
+        max_viewports: int,
         config: RendererConfig,
     ):
         self.ctx = ctx
         self.num_frames_in_flight = num_frames_in_flight
         self.output_format = output_format
         self.multiviewport = multiviewport
+        self.max_viewports = max_viewports
         self.shadow_map_format = Format.D32_SFLOAT
 
         # Config
@@ -175,8 +174,10 @@ class Renderer:
         # Path tracing
         self.path_tracer: Optional[PathTracer] = None
         self.path_tracer_max_bounces = config.path_tracer_max_bounces
+        self.path_tracer_samples_per_frame = config.path_tracer_samples_per_frame
         self.path_tracer_max_samples_per_pixel = config.path_tracer_max_samples_per_pixel
         self.path_tracer_max_textures = config.path_tracer_max_textures
+        self.path_tracer_clip_value = config.path_tracer_clip_value
         self.path_tracer_instance_dtype = np.dtype(
             {
                 "normal_matrix": (np.dtype((np.float32, (3, 4))), 0),
@@ -199,6 +200,8 @@ class Renderer:
                 "metallic_texture": (np.uint32, 28),
                 "normal_texture": (np.uint32, 32),
                 "_padding": (np.uint32, 36),
+                "_padding1": (np.uint32, 40),
+                "_padding2": (np.uint32, 44),
             }
         )  # type: ignore
         self.path_tracer_constants_dtype = np.dtype(
@@ -208,17 +211,23 @@ class Renderer:
                 "max_bounces": (np.uint32, 8),
                 "num_directional_lights": (np.uint32, 12),
                 "camera_position": (np.dtype((np.float32, (3,))), 16),
-                "sample_index": (np.uint32, 28),
-                "camera_front": (np.dtype((np.float32, (3,))), 32),
+                "_padding": (np.uint32, 28),
+                "camera_forward": (np.dtype((np.float32, (3,))), 32),
                 "film_dist": (np.float32, 44),
                 "camera_up": (np.dtype((np.float32, (3,))), 48),
                 "max_samples_per_pixel": (np.uint32, 60),
                 "camera_right": (np.dtype((np.float32, (3,))), 64),
-                "_padding": (np.uint32, 76),
+                "clip_value": (np.float32, 76),
                 "ambient_light": (np.dtype((np.float32, (3,))), 80),
                 "has_environment_light": (np.uint32, 92),
             }
         )  # type: ignore
+        self.path_tracer_push_constants_dtype = np.dtype(
+            {
+                "sample_index": (np.uint32, 0),
+            }
+        )  # type: ignore
+        self.path_tracer_push_constants = np.zeros(1, self.path_tracer_push_constants_dtype)
 
         # Scene descriptors
         self.max_shadow_maps = config.max_shadow_maps
@@ -272,6 +281,9 @@ class Renderer:
             array_layers=6,
             is_cube=True,
         )
+        self.zero_triangle: Optional[Buffer] = None
+        self.zero_material: Optional[Material] = None
+
         with ctx.sync_commands() as cmd:
             cmd.image_barrier(
                 self.zero_cubemap,
@@ -587,13 +599,13 @@ class Renderer:
                         DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),
                         DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),
                         DescriptorSetBinding(1, DescriptorType.SAMPLER),
-                        DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),
                         DescriptorSetBinding(
                             self.path_tracer_max_textures,
                             DescriptorType.SAMPLED_IMAGE,
                             DescriptorBindingFlags.VARIABLE_DESCRIPTOR_COUNT | DescriptorBindingFlags.PARTIALLY_BOUND,
                         ),
                     ],
+                    self.path_tracer_max_textures,
                     name="path-tracer",
                 )
             )
@@ -604,10 +616,11 @@ class Renderer:
                     *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in LIGHT_TYPES_INFO],  # 1 - Lights
                     DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),  # 2 - Output
                     DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),  # 3 - Environment light
+                    DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),  # 4 - Accumulation
                 ],
                 name="path-tracer-viewport-descriptor-layout",
             )
-            shader = self.compile_builtin_shader("path_tracer/ray.slang")
+            shader = self.compile_builtin_shader(Path("3d", "path_tracer", "path_tracer.slang"))
             path_tracer_pipeline = ComputePipeline(
                 self.ctx,
                 Shader(self.ctx, shader.code),
@@ -615,17 +628,15 @@ class Renderer:
                     path_tracer_descriptor_set_layout,
                     path_tracer_viewport_descriptor_set_layout,
                 ],
+                push_constants_ranges=[PushConstantsRange(self.path_tracer_push_constants_dtype.itemsize)],
                 name="pathtracer",
             )
 
             # TODO: dynamic viewport creation
-
-            # TODO: currently renderer does not know this, but we anyway planned to move this stuff in at some point
-            max_viewports = 1
             viewport_descriptor_pool, viewport_descriptor_sets = create_descriptor_pool_and_sets(
                 self.ctx,
                 path_tracer_viewport_descriptor_set_layout,
-                max_viewports * self.num_frames_in_flight,
+                self.max_viewports * self.num_frames_in_flight,
                 name="pathtracer-viewport-scene-descriptor-sets",
             )
             self.viewports: List[Viewport] = []
@@ -645,16 +656,18 @@ class Renderer:
                 for s, buf, light_bufs in zip(descriptor_sets, uniform_buffers, v.scene_light_buffers):
                     s.write_buffer(buf, DescriptorType.UNIFORM_BUFFER, 0)
                     for i, light_buf in enumerate(light_bufs):
-                        s.write_buffer(light_buf, DescriptorType.UNIFORM_BUFFER, 1, i)
+                        s.write_buffer(light_buf, DescriptorType.STORAGE_BUFFER, 1, i)
                 v.path_tracer_viewport = PathTracerViewport(
                     descriptor_sets,
                     uniform_buffers,
                     constants,
+                    0,
+                    v.camera.camera_from_world.copy(),
+                    None,
                 )
 
             self.path_tracer = PathTracer(
                 pipeline=path_tracer_pipeline,
-                accumulation_image=None,
                 descriptor_set=path_tracer_descriptor_set,
                 descriptor_pool=path_tracer_descriptor_pool,
                 descriptor_set_layout=path_tracer_descriptor_set_layout,
@@ -665,8 +678,6 @@ class Renderer:
                 acceleration_structure=None,
                 instances_buf=None,
                 materials_buf=None,
-                # State
-                sample_index=0,
             )
 
         cmd = frame.command_buffer
@@ -795,17 +806,22 @@ class Renderer:
                 buf = viewport.path_tracer_viewport.uniform_buffers.get_current_and_advance()
                 constants = viewport.path_tracer_viewport.constants
 
+                if viewport.camera.camera_from_world != viewport.path_tracer_viewport.last_camera_transform:
+                    viewport.path_tracer_viewport.sample_index = 0
+                    viewport.path_tracer_viewport.last_camera_transform = viewport.camera.camera_from_world.copy()
+
+                # TODO: pass in camera stuff without this whole restructuring with 5 casts from quat to rotation matrix
                 constants["width"] = viewport_width
                 constants["height"] = viewport_height
                 constants["max_bounces"] = self.path_tracer_max_bounces
                 constants["num_directional_lights"] = num_lights
                 constants["camera_position"] = viewport.camera.position()
-                constants["sample_index"] = self.path_tracer.sample_index
                 constants["camera_forward"] = viewport.camera.front()
                 constants["film_dist"] = viewport.camera.film_dist()
                 constants["camera_up"] = viewport.camera.up()
                 constants["max_samples_per_pixel"] = self.path_tracer_max_samples_per_pixel
                 constants["camera_right"] = viewport.camera.right()
+                constants["clip_value"] = self.path_tracer_clip_value
                 constants["ambient_light"] = uniform_environment_radiance
                 if environment_light is not None:
                     constants["has_environment_light"] = 1
@@ -904,27 +920,39 @@ class Renderer:
             assert self.path_tracer is not None
 
             # Create or resize accumulation buffer
-            if (
-                self.path_tracer.accumulation_image is None
-                or self.render_width != self.path_tracer.accumulation_image.width
-                or self.render_height != self.path_tracer.accumulation_image.height
-            ):
-                # Assume no rendering is in flight if resolution changed
-                if self.path_tracer.accumulation_image is not None:
-                    self.path_tracer.accumulation_image.destroy()
+            for v in viewports:
+                assert v.path_tracer_viewport is not None
+                if (
+                    v.path_tracer_viewport.accumulation_image is None
+                    or self.render_width != v.path_tracer_viewport.accumulation_image.width
+                    or self.render_height != v.path_tracer_viewport.accumulation_image.height
+                ):
+                    # Assume no rendering is in flight if resolution changed
+                    if v.path_tracer_viewport.accumulation_image is not None:
+                        v.path_tracer_viewport.accumulation_image.destroy()
 
-                self.path_tracer.accumulation_image = Image(
-                    self.ctx,
-                    self.render_width,
-                    self.render_height,
-                    Format.R32G32B32A32_SFLOAT,
-                    ImageUsageFlags.STORAGE,
-                    AllocType.DEVICE_DEDICATED,
-                    name="accumulation",
-                )
-                self.path_tracer.descriptor_set.write_image(
-                    self.path_tracer.accumulation_image, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 2
-                )
+                    v.path_tracer_viewport.accumulation_image = Image(
+                        self.ctx,
+                        self.render_width,
+                        self.render_height,
+                        Format.R32G32B32A32_SFLOAT,
+                        ImageUsageFlags.STORAGE,
+                        AllocType.DEVICE_DEDICATED,
+                        name="accumulation",
+                    )
+                    cmd.image_barrier(
+                        v.path_tracer_viewport.accumulation_image,
+                        ImageLayout.GENERAL,
+                        MemoryUsage.NONE,
+                        MemoryUsage.COMPUTE_SHADER,
+                    )
+                    for s in v.path_tracer_viewport.descriptor_sets:
+                        s.write_image(
+                            v.path_tracer_viewport.accumulation_image,
+                            ImageLayout.GENERAL,
+                            DescriptorType.STORAGE_IMAGE,
+                            4,
+                        )
 
             # Stage: path tracing structures creation
             if self.path_tracer.acceleration_structure is None:
@@ -977,6 +1005,36 @@ class Renderer:
                             materials[o.material] = material_index
                         o.append_acceleration_structure_instances(instances, material_index)
 
+                if not instances:
+                    if self.zero_triangle is None:
+                        self.zero_triangle = Buffer.from_data(
+                            self.ctx,
+                            np.array([0.0, 0.0, 0.0], np.float32),
+                            BufferUsageFlags.SHADER_DEVICE_ADDRESS
+                            | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
+                            | BufferUsageFlags.TRANSFER_DST,
+                            AllocType.DEVICE_MAPPED_WITH_FALLBACK,
+                            "zero-triangle",
+                        )
+                    instances.append(
+                        AccelerationStructureInstanceInfo(
+                            np.zeros((3, 4), np.float32),
+                            np.zeros((3, 4), np.float32),
+                            3,
+                            self.zero_triangle.address,
+                            0,
+                            0,
+                            0,
+                            1,
+                            0,
+                            0,
+                        )
+                    )
+                if not materials:
+                    if self.zero_material is None:
+                        self.zero_material = ColorMaterial((0, 0, 0))
+                    materials[self.zero_material] = 0
+
                 # Instances and acceleration structures
                 acceleration_structure_meshes: List[AccelerationStructureMesh] = []
                 instances_data = np.zeros(len(instances), self.path_tracer_instance_dtype)
@@ -996,9 +1054,9 @@ class Renderer:
                             instance.positions_count,
                             Format.R32G32B32_SFLOAT,
                             instance.indices_address,
-                            IndexType.UINT32,
+                            IndexType.UINT32 if instance.indices_address else IndexType.NONE,
                             instance.primitive_count,
-                            tuple(instance.transform),
+                            tuple(instance.transform.T.flatten()),
                         )
                     )
                 self.path_tracer.acceleration_structure = AccelerationStructure(
@@ -1036,11 +1094,31 @@ class Renderer:
 
                 for i, material in enumerate(materials.keys()):
                     if isinstance(material, DiffuseMaterial):
-                        pass
+                        materials_data[i]["albedo"] = get_value(material.diffuse[0].property)
+                        materials_data[i]["albedo_texture"] = alloc_texture(material.diffuse[0].property)
+                        materials_data[i]["roughness"] = 1.0
+                        materials_data[i]["roughness_texture"] = 0xFFFFFFFF
+                        materials_data[i]["metallic"] = 0.0
+                        materials_data[i]["metallic_texture"] = 0xFFFFFFFF
+                        materials_data[i]["normal_texture"] = alloc_texture(material.normal[0].property)
                     elif isinstance(material, DiffuseSpecularMaterial):
-                        pass
+                        # TODO: better mapping or remove
+                        materials_data[i]["albedo"] = get_value(material.diffuse[0].property)
+                        materials_data[i]["albedo_texture"] = alloc_texture(material.diffuse[0].property)
+                        materials_data[i]["roughness"] = 1 - min(get_value(material.specular_exponent[0].property), 64.0) / 64.0
+                        materials_data[i]["roughness_texture"] = 0xFFFFFFFF
+                        materials_data[i]["metallic"] = 0.0
+                        materials_data[i]["metallic_texture"] = 0xFFFFFFFF
+                        materials_data[i]["normal_texture"] = 0xFFFFFFFF
                     elif isinstance(material, ColorMaterial):
-                        pass
+                        # TODO: use emissive instead
+                        materials_data[i]["albedo"] = get_value(material.color[0].property)
+                        materials_data[i]["albedo_texture"] = alloc_texture(material.color[0].property)
+                        materials_data[i]["roughness"] = 1.0
+                        materials_data[i]["roughness_texture"] = 0xFFFFFFFF
+                        materials_data[i]["metallic"] = 0.0
+                        materials_data[i]["metallic_texture"] = 0xFFFFFFFF
+                        materials_data[i]["normal_texture"] = 0xFFFFFFFF
                     elif isinstance(material, PBRMaterial):
                         materials_data[i]["albedo"] = get_value(material.albedo[0].property)
                         materials_data[i]["albedo_texture"] = alloc_texture(material.albedo[0].property)
@@ -1078,12 +1156,9 @@ class Renderer:
                     self.path_tracer.materials_buf, DescriptorType.STORAGE_BUFFER, 2
                 )
                 self.path_tracer.descriptor_set.write_sampler(self.linear_sampler, 3)
-                self.path_tracer.descriptor_set.write_image(
-                    self.path_tracer.accumulation_image, ImageLayout.GENERAL, DescriptorType.STORAGE_BUFFER, 4
-                )
                 for i, image in enumerate(textures):
                     self.path_tracer.descriptor_set.write_image(
-                        image, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 5, i
+                        image, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 4, i
                     )
 
         # Stage: Render shadows
@@ -1238,6 +1313,7 @@ class Renderer:
                 assert self.path_tracer is not None
                 assert viewport.path_tracer_viewport is not None
                 descriptor_set = viewport.path_tracer_viewport.descriptor_sets.get_current_and_advance()
+                written_environment = False
                 for l in enabled_lights:
                     if l.viewport_mask is None or l.viewport_mask & (1 << viewport_index):  # noqa: SIM102
                         if isinstance(l, EnvironmentLight):
@@ -1247,6 +1323,14 @@ class Renderer:
                                 DescriptorType.SAMPLED_IMAGE,
                                 3,
                             )
+                            written_environment = True
+                if not written_environment:
+                    descriptor_set.write_image(
+                        self.zero_cubemap,
+                        ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                        DescriptorType.SAMPLED_IMAGE,
+                        3,
+                    )
                 descriptor_set.write_image(
                     frame.image if viewport.image is None else viewport.image,
                     ImageLayout.GENERAL,
@@ -1254,7 +1338,15 @@ class Renderer:
                     2,
                 )
                 cmd.bind_compute_pipeline(self.path_tracer.pipeline, [self.path_tracer.descriptor_set, descriptor_set])
-                cmd.dispatch(div_round_up(viewport.rect.width, 8), div_round_up(viewport.rect.height, 8), 1)
+                for _ in range(self.path_tracer_samples_per_frame):
+                    self.path_tracer_push_constants["sample_index"] = viewport.path_tracer_viewport.sample_index
+                    cmd.push_constants(self.path_tracer.pipeline, self.path_tracer_push_constants.tobytes())
+                    cmd.dispatch(div_round_up(viewport.rect.width, 8), div_round_up(viewport.rect.height, 8), 1)
+                    cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+                    if viewport.path_tracer_viewport.sample_index < self.path_tracer_max_samples_per_pixel:
+                        viewport.path_tracer_viewport.sample_index += 1
+                    if viewport.path_tracer_viewport.sample_index >= self.path_tracer_max_samples_per_pixel:
+                        break
             else:
                 descriptor_set = viewport.scene_descriptor_sets.get_current_and_advance()
                 shadow_map_index = 0

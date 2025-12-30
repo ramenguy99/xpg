@@ -362,32 +362,38 @@ class Mesh(Object3D):
 
         # Add properties
         self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
-            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+            BufferUsageFlags.VERTEX
+            | BufferUsageFlags.SHADER_DEVICE_ADDRESS
+            | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT,
+            PipelineStageFlags.VERTEX_INPUT,
         )
         self.normals = (
             self.add_buffer_property(normals, np.float32, (-1, 3), name="normals").use_gpu(
-                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+                BufferUsageFlags.VERTEX | BufferUsageFlags.SHADER_DEVICE_ADDRESS, PipelineStageFlags.VERTEX_INPUT
             )
             if normals is not None
             else None
         )
         self.tangents = (
             self.add_buffer_property(tangents, np.float32, (-1, 3), name="tangents").use_gpu(
-                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+                BufferUsageFlags.VERTEX | BufferUsageFlags.SHADER_DEVICE_ADDRESS, PipelineStageFlags.VERTEX_INPUT
             )
             if tangents is not None
             else None
         )
         self.uvs = (
             self.add_buffer_property(uvs, np.float32, (-1, 2), name="uvs").use_gpu(
-                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+                BufferUsageFlags.VERTEX | BufferUsageFlags.SHADER_DEVICE_ADDRESS, PipelineStageFlags.VERTEX_INPUT
             )
             if uvs is not None
             else None
         )
         self.indices = (
             self.add_buffer_property(indices, np.uint32, (-1,), name="indices").use_gpu(
-                BufferUsageFlags.INDEX, PipelineStageFlags.VERTEX_INPUT
+                BufferUsageFlags.INDEX
+                | BufferUsageFlags.SHADER_DEVICE_ADDRESS
+                | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT,
+                PipelineStageFlags.VERTEX_INPUT,
             )
             if indices is not None
             else None
@@ -531,17 +537,18 @@ class Mesh(Object3D):
         positions_count = positions.size // 12
 
         indices_addr = 0
-        primitive_count = 0
         if self.indices is not None:
             indices = self.indices.get_current_gpu()
-            indices_addr = indices.buffer.address + indices.size
+            indices_addr = indices.buffer.address + indices.offset
             primitive_count = indices.size // 12
+        else:
+            primitive_count = positions_count // 3
 
         # TODO: proper instances without duplicating blases
         if self.instance_positions is not None:
             instance_positions = self.instance_positions.get_current()
             for pos in instance_positions:
-                transform = self.constants["transform"]
+                transform = self.constants["transform"][0].copy()
                 transform[:3, 3] += pos
                 instances.append(
                     AccelerationStructureInstanceInfo(

@@ -32,8 +32,10 @@ class RendererConfig:
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
     render_mode: RenderMode = RenderMode.RASTER
     path_tracer_max_bounces: int = 4
+    path_tracer_samples_per_frame: int = 4
     path_tracer_max_samples_per_pixel: int = 1024
     path_tracer_max_textures: int = 32 * 1024
+    path_tracer_clip_value: float = 10.0
     msaa_samples: int = 1
     uniform_pool_block_size: int = 4 * 1024 * 1024
     upload_buffer_size: int = 32 * 1024 * 1024

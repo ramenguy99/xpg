@@ -70,6 +70,9 @@ class RigidTransform3D:
             translation=self.rotation * other.translation + self.translation,
         )
 
+    def copy(self) -> "RigidTransform3D":
+        return RigidTransform3D(translation=vec3(self.translation), rotation=quat(self.rotation))
+
 
 @dataclass
 class Transform3D:
@@ -102,3 +105,6 @@ class Transform3D:
         m[3, 1] = self.translation.y
         m[3, 2] = self.translation.z
         return m
+
+    def copy(self) -> "RigidTransform3D":
+        return Transform3D(translation=vec3(self.translation), rotation=quat(self.rotation), scale=vec3(self.scale))

@@ -181,6 +181,7 @@ class Viewer:
             num_frames_in_flight,
             output_format,
             self.multiviewport,
+            config.gui.max_viewport_count,
             config.renderer,
         )
 
@@ -586,12 +587,16 @@ class Viewer:
                 for viewport_index, viewport in enumerate(self.viewports):
                     assert viewport.image is not None
                     viewport.image.destroy()
+
+                    usage_flags = ImageUsageFlags.SAMPLED | ImageUsageFlags.COLOR_ATTACHMENT
+                    if self.renderer.supports_path_tracing:
+                        usage_flags |= ImageUsageFlags.STORAGE
                     img = Image(
                         self.ctx,
                         width,
                         height,
                         self.renderer.output_format,
-                        ImageUsageFlags.SAMPLED | ImageUsageFlags.COLOR_ATTACHMENT,
+                        usage_flags,
                         AllocType.DEVICE,
                         name=f"viewport-{viewport_index}",
                     )
@@ -943,8 +948,7 @@ class Viewer:
                     size = ivec2(avail.x, avail.y)
                     v.rect.x = pos.x
                     v.rect.y = pos.y
-                    v.rect.width = min(size.x, output_width)
-                    v.rect.height = min(size.y, output_height)
+                    v.resize(min(size.x, output_width), min(size.y, output_height))
                     imgui.image(
                         v.imgui_texture, avail, imgui.Vec2(0, 0), imgui.Vec2(size.x / fb_width, size.y / fb_height)
                     )
@@ -1001,7 +1005,14 @@ class Viewer:
 
         self.running = True
         while self.running:
-            process_events(self.wait_events)
+            should_wait = self.wait_events
+            if self.renderer.path_tracer:
+                should_wait = should_wait and not any(
+                    v.path_tracer_viewport.sample_index < self.renderer.path_tracer_max_samples_per_pixel
+                    for v in self.viewports
+                    if v.path_tracer_viewport
+                )
+            process_events(should_wait)
 
             if self.server is not None:
                 while True:

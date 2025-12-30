@@ -230,7 +230,11 @@ class SPDPipeline:
 
         number_of_sets = r.num_frames_in_flight if not single_set else 1
         pool, descriptor_sets = create_descriptor_pool_and_sets_ringbuffer(
-            r.ctx, self.descriptor_set_layout, number_of_sets, DescriptorPoolCreateFlags.UPDATE_AFTER_BIND, "hello"
+            r.ctx,
+            self.descriptor_set_layout,
+            number_of_sets,
+            pool_flags=DescriptorPoolCreateFlags.UPDATE_AFTER_BIND,
+            name="spd-instance",
         )
 
         for s in descriptor_sets:
