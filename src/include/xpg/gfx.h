@@ -89,12 +89,13 @@ struct DeviceFeatures {
         STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT = 1ull << 12,
         SHADER_FLOAT16_INT8                     = 1ull << 13,
         SHADER_INT16                            = 1ull << 14,
-        SHADER_SUBGROUP_EXTENDED_TYPES          = 1ull << 15,
-        STORAGE_8BIT                            = 1ull << 16,
-        STORAGE_16BIT                           = 1ull << 17,
-        DRAW_INDIRECT_COUNT                     = 1ull << 18,
-        MESH_SHADER                             = 1ull << 19,
-        FRAGMENT_SHADER_BARYCENTRIC            = 1ull << 20,
+        SHADER_INT64                            = 1ull << 15,
+        SHADER_SUBGROUP_EXTENDED_TYPES          = 1ull << 16,
+        STORAGE_8BIT                            = 1ull << 17,
+        STORAGE_16BIT                           = 1ull << 18,
+        DRAW_INDIRECT_COUNT                     = 1ull << 19,
+        MESH_SHADER                             = 1ull << 20,
+        FRAGMENT_SHADER_BARYCENTRIC             = 1ull << 21,
     };
 
     DeviceFeatures() {};
@@ -179,8 +180,8 @@ struct ContextDesc {
 
     u32 force_physical_device_index = ~0U;
     bool prefer_discrete_gpu = true;
-    DeviceFeatures required_features = 0;
-    DeviceFeatures optional_features = 0;
+    DeviceFeatures required_features = DeviceFeatures::NONE;
+    DeviceFeatures optional_features = DeviceFeatures::NONE;
 
     // Only used if presentation is requested
     bool require_presentation = true;

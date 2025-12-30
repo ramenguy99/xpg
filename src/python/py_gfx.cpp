@@ -3771,6 +3771,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT", gfx::DeviceFeatures::STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT)
         .value("SHADER_FLOAT16_INT8",                     gfx::DeviceFeatures::SHADER_FLOAT16_INT8)
         .value("SHADER_INT16",                            gfx::DeviceFeatures::SHADER_INT16)
+        .value("SHADER_INT64",                            gfx::DeviceFeatures::SHADER_INT64)
         .value("SHADER_SUBGROUP_EXTENDED_TYPES",          gfx::DeviceFeatures::SHADER_SUBGROUP_EXTENDED_TYPES)
         .value("STORAGE_8BIT",                            gfx::DeviceFeatures::STORAGE_8BIT)
         .value("STORAGE_16BIT",                           gfx::DeviceFeatures::STORAGE_16BIT)
@@ -4959,7 +4960,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("UINT16",    VK_INDEX_TYPE_UINT16)
         .value("UINT32",    VK_INDEX_TYPE_UINT32)
         .value("UINT8",     VK_INDEX_TYPE_UINT8)
-        .value("NONE",      VK_INDEX_TYPE_NONE)
+        .value("NONE",      VK_INDEX_TYPE_NONE_KHR)
     ;
 
     nb::class_<MemoryBarrier>(m, "MemoryBarrier",

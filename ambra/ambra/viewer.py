@@ -97,6 +97,7 @@ class Viewer:
             | DeviceFeatures.SHADER_DRAW_PARAMETERS
             | DeviceFeatures.SHADER_FLOAT16_INT8
             | DeviceFeatures.SHADER_INT16
+            | DeviceFeatures.SHADER_INT64
             | DeviceFeatures.SHADER_SUBGROUP_EXTENDED_TYPES
             | DeviceFeatures.STORAGE_8BIT
             | DeviceFeatures.STORAGE_16BIT
