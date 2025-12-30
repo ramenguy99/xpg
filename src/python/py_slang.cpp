@@ -57,6 +57,20 @@ struct Reflection_Array: Reflection_Obj {
     }
 };
 
+struct Reflection_Pointer: Reflection_Obj {
+    nb::ref<Reflection_Obj> type;
+
+    static nb::ref<Reflection_Obj> __getstate__(const Reflection_Pointer& obj ) {
+        return obj.type;
+    }
+
+    static void __setstate__(Reflection_Pointer& obj, nb::ref<Reflection_Obj> type) {
+        new (&obj) Reflection_Pointer();
+
+        obj.type = type;
+    }
+};
+
 struct Reflection_Vector: Reflection_Obj {
     slang::TypeReflection::ScalarType base;
     u32 count;
@@ -246,6 +260,11 @@ nb::ref<Reflection_Obj> parse_type(slang::TypeLayoutReflection* type) {
             v->type = parse_type(type->getElementTypeLayout());
             v->count = type->getElementCount();
             return v.release();
+        } break;
+        case slang::TypeReflection::Kind::Pointer: {
+            std::unique_ptr<Reflection_Pointer> s = std::make_unique<Reflection_Pointer>();
+            s->type = parse_type(type->getElementTypeLayout());
+            return s.release();
         } break;
         case slang::TypeReflection::Kind::Struct: {
             std::unique_ptr<Reflection_Struct> s = std::make_unique<Reflection_Struct>();
@@ -565,6 +584,12 @@ void slang_create_bindings(nb::module_& mod_slang)
        .def_ro("count", &Reflection_Array::count)
        .def("__getstate__", Reflection_Array::__getstate__)
        .def("__setstate__", Reflection_Array::__setstate__)
+    ;
+
+    nb::class_<Reflection_Pointer, Reflection_Obj>(mod_slang, "Pointer")
+       .def_ro("type", &Reflection_Pointer::type)
+       .def("__getstate__", Reflection_Pointer::__getstate__)
+       .def("__setstate__", Reflection_Pointer::__setstate__)
     ;
 
     nb::class_<Reflection_Vector, Reflection_Obj>(mod_slang, "Vector")
