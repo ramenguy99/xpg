@@ -12,6 +12,42 @@ Priority:
     - [ ] Dynamic logging experiments
 
 TODO:
+- [ ] Path tracer:
+    - [ ] Features:
+        - [x] Samples per frame
+        - [x] Do not wait for events if any viewport still has samples to render
+        - [ ] All invalidation cases (at least camera and handling of playback + user provided)
+            - [ ] Camera projection changes (only looking at transform atm)
+            - [ ] Playback now freezes scene but continues (at least stop on trace and switch back to raster on resume)
+        - [ ] Path tracer UI with stats (e.g. samples and config)
+        - [ ] Viewport masks (using instance masks in acceleration structures)
+        - [ ] Environment map sampling (reconstruct equirect from skybox) -> likely do cumsum stuff in numpy for LUT
+        - [ ] Pure specular hits (and maybe keep track for regularization -> see path_tracer.slang)
+        - [ ] Viewport cleanup and dynamic viewport add / remove
+        - [ ] Proper mesh instancing (requires better bindings)
+        - [ ] Better conversion from other material types to unified (or ditch other materials)
+        - [ ] More renderables
+        - [ ] Compositing with raster primitives
+    - [x] Bugs:
+        - [x] issue with normals
+        - [x] slight camera misalignment when toggling raster and path tracer
+        - [x] camera_transform comparison is now instance not value (implement eq or maybe dataclass already doing the right thing?)
+        - [x] empty acceleration structure crashes
+        - [x] Invalidate accumulation on viewport resize
+        - [ ] Small difference between raster and raytraced in diffuse + delta light case (likely material difference or tonemapping)
+    - [x] Testing:
+        - [x] multiviewport
+        - [x] directional lights and shadows
+        - [x] light viewport mask mask
+        - [x] mesh instancing
+    - [x] Cleanup:
+        - [x] remove prints (also buffer address logs)
+        - [x] fix gpu buffer usage assignment for device address and acc struct input
+        - [x] Basic from other material types to unified
+    - [ ] Upstream:
+        - [ ] Mixing indexed and non-indexed geometry triggers (apparently false positive validation layer error)
+            -> see https://github.com/KhronosGroup/Vulkan-ValidationLayers/pull/10870)
+            -> Check if still wrong with latest validation layer
 - [ ] Primitives
     - [ ] Objects:
         - [ ] thin points 2D

@@ -89,6 +89,7 @@ class PointLight(Light):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
         super().__init__(name, translation, rotation, scale, enabled=enabled)
         self.intensity = self.add_buffer_property(intensity, np.float32, (-1, 3), name="intensity")
@@ -105,6 +106,7 @@ class SpotLight(Light):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
         super().__init__(name, translation, rotation, scale, enabled=enabled)
         self.intensity = self.add_buffer_property(intensity, np.float32, (-1, 3), name="intensity")
@@ -134,8 +136,9 @@ class DirectionalLight(Light):
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
-        super().__init__(name, translation, rotation, scale, enabled=enabled)
+        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
         self.radiance = self.add_buffer_property(radiance, np.float32, (3,), name="radiance")
         self.shadow_settings = shadow_settings if shadow_settings is not None else DirectionalShadowSettings()
         self.shadow_map: Optional[Image] = None
@@ -150,6 +153,8 @@ class DirectionalLight(Light):
         shadow_settings: Optional[DirectionalShadowSettings] = None,
         name: Optional[str] = None,
         scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ) -> "DirectionalLight":
         rotation = quatLookAtRH(normalize(target - position), world_up)
         return cls(
@@ -159,6 +164,8 @@ class DirectionalLight(Light):
             translation=np.asarray(position),  # type: ignore
             rotation=np.asarray(rotation),  # type: ignore
             scale=scale,
+            enabled=enabled,
+            viewport_mask=viewport_mask,
         )
 
     def create(self, r: "Renderer") -> None:
@@ -290,8 +297,9 @@ class UniformEnvironmentLight(Light):
         radiance: BufferProperty,
         name: Optional[str] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
-        super().__init__(name, enabled=enabled)
+        super().__init__(name, enabled=enabled, viewport_mask=viewport_mask)
         self.radiance = self.add_buffer_property(radiance, np.float32, (3,), name="radiance")
 
 
@@ -744,6 +752,7 @@ class EnvironmentLight(Light):
         ibl_params: Optional[IBLParams] = None,
         name: Optional[str] = None,
         enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ):
         if not ((equirectangular is None) ^ (cubemaps is None)):
             raise RuntimeError('Exactly one of "equirectangular" and "cubemaps" must not be None')
@@ -761,7 +770,7 @@ class EnvironmentLight(Light):
         self.equirectangular = equirectangular
         self.cubemaps = cubemaps
         self.ibl_params = ibl_params
-        super().__init__(name, enabled=enabled)
+        super().__init__(name, enabled=enabled, viewport_mask=viewport_mask)
 
     def create(self, r: "Renderer") -> None:
         if self.equirectangular is not None:
@@ -786,12 +795,26 @@ class EnvironmentLight(Light):
         cls,
         equirectangular: NDArray[np.float32],
         ibl_params: Optional[IBLParams] = None,
+        name: Optional[str] = None,
+        enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
     ) -> "EnvironmentLight":
-        return cls(equirectangular=equirectangular, ibl_params=ibl_params)
+        return cls(
+            equirectangular=equirectangular,
+            ibl_params=ibl_params,
+            name=name,
+            enabled=enabled,
+            viewport_mask=viewport_mask,
+        )
 
     @classmethod
-    def from_cubemaps(cls, cubemaps: EnvironmentCubemaps) -> "EnvironmentLight":
-        return cls(cubemaps=cubemaps)
+    def from_cubemaps(
+        cls,
+        cubemaps: EnvironmentCubemaps,
+        enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
+    ) -> "EnvironmentLight":
+        return cls(cubemaps=cubemaps, enabled=enabled, viewport_mask=viewport_mask)
 
 
 # class AreaLight(Light):

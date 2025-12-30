@@ -10,6 +10,7 @@ import numpy as np
 from numpy.typing import ArrayLike, DTypeLike, NDArray
 from pyxpg import (
     BufferUsageFlags,
+    DeviceFeatures,
     Format,
     ImageLayout,
     ImageUsageFlags,
@@ -467,6 +468,12 @@ class BufferProperty(Property):
     # Renderer API
     def create(self, r: "Renderer") -> None:
         if self.gpu_usage and self.gpu_property is None:
+            # HACK: disable shader device address and acceleration structure usages if not supported.
+            if not (r.ctx.device_features & DeviceFeatures.RAY_QUERY):
+                self.gpu_usage &= ~(
+                    BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
+                )
+
             if self.upload.preupload:
                 self.gpu_property = gpu_property_mod.GpuBufferPreuploadedProperty(r, self, self.name)
             else:
@@ -581,6 +588,12 @@ class ArrayBufferProperty(BufferProperty):
     # Renderer API
     def create(self, r: "Renderer") -> None:
         if self.gpu_usage and self.gpu_property is None:
+            # HACK: disable shader device address and acceleration structure usages if not supported.
+            if not (r.ctx.device_features & DeviceFeatures.RAY_QUERY):
+                self.gpu_usage &= ~(
+                    BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
+                )
+
             if self.upload.preupload:
                 if self.upload.batched:
                     self.gpu_property = gpu_property_mod.GpuBufferPreuploadedArrayProperty(

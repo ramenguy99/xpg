@@ -84,6 +84,9 @@ class PathTracerViewport:
     descriptor_sets: RingBuffer[DescriptorSet]
     uniform_buffers: RingBuffer[UploadableBuffer]
     constants: NDArray[Any]
+    sample_index: int
+    last_camera_transform: RigidTransform3D
+    accumulation_image: Optional[Image]
 
 
 class Viewport:
@@ -166,6 +169,9 @@ class Viewport:
         self.drag_start_camera_pitch = 0.0
 
     def resize(self, width: int, height: int) -> None:
+        if self.path_tracer_viewport is not None and (self.rect.width != width or self.rect.height != height):
+            # Invalidate accumulation after resize
+            self.path_tracer_viewport.sample_index = 0
         self.rect.width = width
         self.rect.height = height
 
@@ -279,6 +285,8 @@ class Viewport:
         )
 
     def zoom(self, scroll: dvec2, move: bool) -> None:
+        if scroll.y == 0:
+            return
         position = self.camera.position()
         dist = distance(position, self.camera_target)
         speed_scale = max(dist * self.camera_zoom_distance_speed_scale, self.camera_zoom_min_speed_scale)
