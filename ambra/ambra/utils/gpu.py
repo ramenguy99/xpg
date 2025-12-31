@@ -79,6 +79,7 @@ class AccelerationStructureInstanceInfo:
     indices_address: int
 
     material_index: int
+    viewport_mask: int
 
 
 @dataclass

@@ -1207,6 +1207,8 @@ struct AccelerationStructureMeshDesc {
     u32 primitive_count;
 
     glm::mat4x3 transform;
+
+    u8 instance_mask = 0xFF;
 };
 
 struct AccelerationStructureDesc {

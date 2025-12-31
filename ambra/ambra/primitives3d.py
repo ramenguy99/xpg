@@ -562,6 +562,7 @@ class Mesh(Object3D):
                         primitive_count,
                         indices_addr,
                         material_index,
+                        self.viewport_mask if self.viewport_mask is not None else 0xFF,
                     )
                 )
         else:
@@ -577,6 +578,7 @@ class Mesh(Object3D):
                     primitive_count,
                     indices_addr,
                     material_index,
+                    self.viewport_mask if self.viewport_mask is not None else 0xFF,
                 )
             )
 

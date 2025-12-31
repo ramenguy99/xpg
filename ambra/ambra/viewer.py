@@ -472,6 +472,10 @@ class Viewer:
         return width, height
 
     def render_image(self) -> NDArray[np.uint8]:
+        # Set max time if not set
+        if self.playback.max_time is None:
+            self.playback.set_max_time(self.scene.end_animation_time(self.playback.frames_per_second))
+
         # Update scene
         self.scene.update(self.playback.current_time, self.playback.current_frame)
 

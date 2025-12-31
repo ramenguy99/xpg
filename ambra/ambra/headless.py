@@ -12,6 +12,7 @@ from pyxpg import (
     BufferUsageFlags,
     CommandBuffer,
     Context,
+    DeviceFeatures,
     Fence,
     Format,
     Image,
@@ -86,13 +87,17 @@ class HeadlessSwapchain:
         pitch, rows, _ = get_image_pitch_rows_and_texel_size(width, height, self.format)
         size = pitch * rows
 
+        usage_flags = ImageUsageFlags.TRANSFER_SRC | ImageUsageFlags.TRANSFER_DST | ImageUsageFlags.COLOR_ATTACHMENT
+        if self.ctx.device_features & DeviceFeatures.RAY_QUERY:
+            usage_flags |= ImageUsageFlags.STORAGE
+
         for i, f in enumerate(self.frames):
             f.image = Image(
                 self.ctx,
                 width,
                 height,
                 self.format,
-                ImageUsageFlags.TRANSFER_SRC | ImageUsageFlags.TRANSFER_DST | ImageUsageFlags.COLOR_ATTACHMENT,
+                usage_flags,
                 AllocType.DEVICE,
                 name=f"windowless-swapchain-image-{i}",
             )
