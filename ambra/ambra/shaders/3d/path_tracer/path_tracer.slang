@@ -46,7 +46,7 @@ struct Constants {
     uint num_directional_lights;
 
     float3 camera_position;
-    uint _padding;
+    uint viewport_mask;
     float3 camera_forward;
     float film_dist;
     float3 camera_up;
@@ -55,7 +55,10 @@ struct Constants {
     float clip_value;
 
     float3 ambient_light;
-    uint32_t has_environment_light;
+    uint has_environment_light;
+
+    float3 background_color;
+    uint use_background_color;
 };
 
 
@@ -175,7 +178,7 @@ void main(uint3 thread_idx : SV_DispatchThreadID)
         float3 throughput = 1.0;
 
         for(uint bounce = 0; bounce < max_bounces; bounce++) {
-            q.TraceRayInline(acceleration_structure, rayFlags, 0xff, ray);
+            q.TraceRayInline(acceleration_structure, rayFlags, constants.viewport_mask, ray);
             q.Proceed();
 
             if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
@@ -332,7 +335,7 @@ void main(uint3 thread_idx : SV_DispatchThreadID)
                         uint shadow_ray_flags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
                         shadow_ray.Direction = -light.direction;
 
-                        shadow_q.TraceRayInline(acceleration_structure, shadow_ray_flags, 0xff, shadow_ray);
+                        shadow_q.TraceRayInline(acceleration_structure, shadow_ray_flags, constants.viewport_mask, shadow_ray);
                         shadow_q.Proceed();
                         shadow = shadow_q.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
                     }
@@ -357,12 +360,16 @@ void main(uint3 thread_idx : SV_DispatchThreadID)
                 ray.Origin = position;// + N * 0.001;
                 ray.Direction = to_world(frame, sampled_dir);
             } else {
-                // TODO: MIS with BRDF sample environment light hit (once light sampling is implemented)
-                float3 ambient_radiance = constants.ambient_light;
-                if (constants.has_environment_light != 0) {
-                    ambient_radiance += specular_cubemap.SampleLevel(sampler, ray.Direction, 0.0).rgb;
+                if (bounce == 0 && constants.use_background_color != 0) {
+                    color = constants.background_color;
+                } else {
+                    // TODO: MIS with BRDF sample environment light hit (once light sampling is implemented)
+                    float3 ambient_radiance = constants.ambient_light;
+                    if (constants.has_environment_light != 0) {
+                        ambient_radiance += specular_cubemap.SampleLevel(sampler, ray.Direction, 0.0).rgb;
+                    }
+                    color += throughput * ambient_radiance;
                 }
-                color += throughput * ambient_radiance;
 
                 break;
             }

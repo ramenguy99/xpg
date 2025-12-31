@@ -3444,7 +3444,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
         memcpy(instance.transform.matrix[1], &transform[1][0], sizeof(float) * 4);
         memcpy(instance.transform.matrix[2], &transform[2][0], sizeof(float) * 4);
         instance.instanceCustomIndex = i;
-        instance.mask = 0xFF;
+        instance.mask = desc.meshes[i].instance_mask;
         instance.flags = VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
         instance.accelerationStructureReference = address;
 

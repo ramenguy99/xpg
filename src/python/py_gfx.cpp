@@ -3022,7 +3022,8 @@ struct AccelerationStructureMesh: gfx::AccelerationStructureMeshDesc {
         VkDeviceAddress indices_address,
         VkIndexType indices_type,
         u32 primitive_count,
-        std::array<float, 12> transform)
+        std::array<float, 12> transform,
+        u8 instance_mask)
         : gfx::AccelerationStructureMeshDesc {
               .vertices_address = vertices_address,
               .vertices_stride = vertices_stride,
@@ -3036,7 +3037,8 @@ struct AccelerationStructureMesh: gfx::AccelerationStructureMeshDesc {
                 transform[3], transform[ 4], transform[ 5],
                 transform[6], transform[ 7], transform[ 8],
                 transform[9], transform[10], transform[11]
-            ),
+              ),
+              .instance_mask = instance_mask,
         }
     {
     }
@@ -6037,7 +6039,8 @@ void gfx_create_bindings(nb::module_& m)
             VkDeviceAddress,
             VkIndexType,
             u32,
-            std::array<float, 12>
+            std::array<float, 12>,
+            u8
         >(),
             nb::arg("vertices_address"),
             nb::arg("vertices_stride"),
@@ -6046,7 +6049,8 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("indices_address"),
             nb::arg("indices_type"),
             nb::arg("primitive_count"),
-            nb::arg("transform")
+            nb::arg("transform"),
+            nb::arg("instance_mask") = 0xFF
         )
     ;
 

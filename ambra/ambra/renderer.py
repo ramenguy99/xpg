@@ -178,6 +178,7 @@ class Renderer:
         self.path_tracer_max_samples_per_pixel = config.path_tracer_max_samples_per_pixel
         self.path_tracer_max_textures = config.path_tracer_max_textures
         self.path_tracer_clip_value = config.path_tracer_clip_value
+        self.path_tracer_use_background_color = config.path_tracer_use_background_color
         self.path_tracer_instance_dtype = np.dtype(
             {
                 "normal_matrix": (np.dtype((np.float32, (3, 4))), 0),
@@ -211,7 +212,7 @@ class Renderer:
                 "max_bounces": (np.uint32, 8),
                 "num_directional_lights": (np.uint32, 12),
                 "camera_position": (np.dtype((np.float32, (3,))), 16),
-                "_padding": (np.uint32, 28),
+                "viewport_mask": (np.uint32, 28),
                 "camera_forward": (np.dtype((np.float32, (3,))), 32),
                 "film_dist": (np.float32, 44),
                 "camera_up": (np.dtype((np.float32, (3,))), 48),
@@ -220,6 +221,8 @@ class Renderer:
                 "clip_value": (np.float32, 76),
                 "ambient_light": (np.dtype((np.float32, (3,))), 80),
                 "has_environment_light": (np.uint32, 92),
+                "background_color": (np.dtype((np.float32, (3,))), 96),
+                "use_background_color": (np.uint32, 108),
             }
         )  # type: ignore
         self.path_tracer_push_constants_dtype = np.dtype(
@@ -816,6 +819,7 @@ class Renderer:
                 constants["max_bounces"] = self.path_tracer_max_bounces
                 constants["num_directional_lights"] = num_lights
                 constants["camera_position"] = viewport.camera.position()
+                constants["viewport_mask"] = 1 << viewport_index
                 constants["camera_forward"] = viewport.camera.front()
                 constants["film_dist"] = viewport.camera.film_dist()
                 constants["camera_up"] = viewport.camera.up()
@@ -827,6 +831,8 @@ class Renderer:
                     constants["has_environment_light"] = 1
                 else:
                     constants["has_environment_light"] = 0
+                constants["background_color"] = self.background_color[:3]
+                constants["use_background_color"] = self.path_tracer_use_background_color
                 buf.upload(
                     cmd,
                     MemoryUsage.NONE,
@@ -1028,6 +1034,7 @@ class Renderer:
                             1,
                             0,
                             0,
+                            0,
                         )
                     )
                 if not materials:
@@ -1057,6 +1064,7 @@ class Renderer:
                             IndexType.UINT32 if instance.indices_address else IndexType.NONE,
                             instance.primitive_count,
                             tuple(instance.transform.T.flatten()),
+                            instance.viewport_mask,
                         )
                     )
                 self.path_tracer.acceleration_structure = AccelerationStructure(
@@ -1105,7 +1113,9 @@ class Renderer:
                         # TODO: better mapping or remove
                         materials_data[i]["albedo"] = get_value(material.diffuse[0].property)
                         materials_data[i]["albedo_texture"] = alloc_texture(material.diffuse[0].property)
-                        materials_data[i]["roughness"] = 1 - min(get_value(material.specular_exponent[0].property), 64.0) / 64.0
+                        materials_data[i]["roughness"] = (
+                            1 - min(get_value(material.specular_exponent[0].property), 64.0) / 64.0
+                        )
                         materials_data[i]["roughness_texture"] = 0xFFFFFFFF
                         materials_data[i]["metallic"] = 0.0
                         materials_data[i]["metallic_texture"] = 0xFFFFFFFF
