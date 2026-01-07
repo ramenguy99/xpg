@@ -109,7 +109,7 @@ sudo apt install libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-d
 
 The following packages are required for building XPG with Wayland support:
 ```
-sudo apt install wayland-dev libxkbcommon-dev wayland-protocols
+sudo apt install libwayland-dev libxkbcommon-dev wayland-protocols
 ```
 
 The following packages are required for building PyXPG:

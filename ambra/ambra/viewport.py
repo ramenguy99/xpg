@@ -277,7 +277,7 @@ class Viewport:
             self.camera_pan_min_speed_scale,
         )
         movement = vec2(delta) * self.camera_pan_speed * speed_scale
-        delta_position = -movement.x * self.drag_start_camera_right + movement.y * self.drag_start_camera_up
+        delta_position = movement.x * self.drag_start_camera_right + movement.y * self.drag_start_camera_up
 
         self.camera_target = self.drag_start_camera_target + delta_position
         self.camera.camera_from_world = RigidTransform3D.look_at(
@@ -293,13 +293,13 @@ class Viewport:
         movement = scroll.y * speed_scale * self.camera_zoom_speed
         if move:
             # If moving, also move target
-            delta_position = self.camera.front() * -movement
+            delta_position = self.camera.front() * movement
             self.camera_target += delta_position
         else:
             # If target not moving, clamp movement to keep a minimum distance to the target
             max_movement = max(dist - self.camera_zoom_min_target_distance, 0.0)
             movement = min(movement, max_movement)
-            delta_position = self.camera.front() * -movement
+            delta_position = self.camera.front() * movement
 
         self.camera.camera_from_world = RigidTransform3D.look_at(
             self.camera.position() + delta_position, self.camera_target, self.camera_world_up, self.handedness
@@ -317,7 +317,7 @@ class Viewport:
         #
         # This also works for arbitrary world up, not just axis aligned
         new_pitch = clamp(
-            self.drag_start_camera_pitch + delta.y * self.camera_rotation_speed.y, math.pi * 0.01, math.pi * 0.99
+            self.drag_start_camera_pitch - delta.y * self.camera_rotation_speed.y, math.pi * 0.01, math.pi * 0.99
         )
         delta_pitch = self.drag_start_camera_pitch - new_pitch
         rot_y = rotate(delta_pitch, self.drag_start_camera_right)

@@ -36,6 +36,7 @@ TODO:
         - [x] camera_transform comparison is now instance not value (implement eq or maybe dataclass already doing the right thing?)
         - [x] empty acceleration structure crashes
         - [x] Invalidate accumulation on viewport resize
+        - [x] Zoom is broken (backwards) due to change in camera forward (double check with pbr_model?)
         - [ ] Small difference between raster and raytraced in diffuse + delta light case (likely material difference or tonemapping)
         - [ ] Difference in specular reflection between raster and raytraced
     - [x] Testing:

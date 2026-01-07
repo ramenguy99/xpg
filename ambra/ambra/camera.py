@@ -53,7 +53,7 @@ class Camera:
 
     def right_up_front(self) -> Tuple[vec3, vec3, vec3]:
         r = mat3_cast(self.camera_from_world.rotation)
-        return vec3(row(r, 0)), vec3(row(r, 1)), vec3(row(r, 2))
+        return vec3(-row(r, 0)), vec3(row(r, 1)), vec3(-row(r, 2))
 
     def film_dist(self) -> float:
         return 0.0

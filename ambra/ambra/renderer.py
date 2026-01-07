@@ -813,18 +813,18 @@ class Renderer:
                     viewport.path_tracer_viewport.sample_index = 0
                     viewport.path_tracer_viewport.last_camera_transform = viewport.camera.camera_from_world.copy()
 
-                # TODO: pass in camera stuff without this whole restructuring with 5 casts from quat to rotation matrix
+                camera_right, camera_up, camera_front = viewport.camera.right_up_front()
                 constants["width"] = viewport_width
                 constants["height"] = viewport_height
                 constants["max_bounces"] = self.path_tracer_max_bounces
                 constants["num_directional_lights"] = num_lights
                 constants["camera_position"] = viewport.camera.position()
                 constants["viewport_mask"] = 1 << viewport_index
-                constants["camera_forward"] = viewport.camera.front()
+                constants["camera_forward"] = camera_front
                 constants["film_dist"] = viewport.camera.film_dist()
-                constants["camera_up"] = viewport.camera.up()
+                constants["camera_up"] = camera_up
                 constants["max_samples_per_pixel"] = self.path_tracer_max_samples_per_pixel
-                constants["camera_right"] = viewport.camera.right()
+                constants["camera_right"] = camera_right
                 constants["clip_value"] = self.path_tracer_clip_value
                 constants["ambient_light"] = uniform_environment_radiance
                 if environment_light is not None:
