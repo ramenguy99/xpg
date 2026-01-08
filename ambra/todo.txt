@@ -1,6 +1,5 @@
 Priority:
 - [x] Load URDF (can already do with object tree, but maybe want to do skinned object? Maybe start with tree)
-- [ ] Simple raytracer
 - [ ] Add missing primitives:
     - [x] cones and arrows
     - [ ] 3D lines

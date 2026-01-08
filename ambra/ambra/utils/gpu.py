@@ -14,6 +14,7 @@ from pyxpg import (
     CommandBuffer,
     Context,
     CullMode,
+    DeviceFeatures,
     Fence,
     Format,
     Image,
@@ -21,11 +22,15 @@ from pyxpg import (
     ImageUsageFlags,
     ImageView,
     MemoryUsage,
+    Stage,
     get_format_info,
 )
 
 from .ring_buffer import RingBuffer
 
+
+def is_pow_2(n: int) -> int:
+    return n != 0 and (n & (n-1) == 0)
 
 def align_up(v: int, a: int) -> int:
     return (v + a - 1) & ~(a - 1)
@@ -681,3 +686,22 @@ def to_srgb_format(format: Format) -> Format:
         return _format_to_srgb_format_table[format]
     except KeyError:
         raise RuntimeError(f"{format} does not have a corresponding sRGB format") from KeyError
+
+def get_min_max_and_required_subgroup_size(ctx: Context, stage: Stage, preferred_size: int, group_size: Optional[int] = None) -> Tuple[int, Optional[int]]:
+    if not is_pow_2(preferred_size):
+        raise RuntimeError(f"Preferred size must be a power of 2. Got: {preferred_size}")
+
+    control_props = ctx.device_properties.subgroup_size_control_properties
+    if ctx.device_features & DeviceFeatures.SUBGROUP_SIZE_CONTROL:
+        if ctx.subgroup_size_control and control_props.required_subgroup_size_stages & stage:
+            min_subgroup_size = control_props.min_subgroup_size
+            if group_size is not None:
+                min_subgroup_size = group_size // control_props.max_compute_workgroup_subgroups
+                if min_subgroup_size > control_props.max_subgroup_size:
+                    raise RuntimeError(f"Minimum subgroup size ({min_subgroup_size}) due to max compute workgroup subgroups ({control_props.max_compute_workgroup_subgroups}) for requested group size {group_size} is larger than maximum allowed subgroup size {control_props.max_subgroup_size}.")
+            subgroup_size = np.clip(preferred_size, min_subgroup_size, control_props.max_subgroup_size)
+            return subgroup_size, subgroup_size, subgroup_size
+        else:
+            return control_props.min_subgroup_size, control_props.max_subgroup_size, None
+    else:
+        return ctx.device_properties.subgroup_properties.subgroup_size, ctx.device_properties.subgroup_properties.subgroup_size, None

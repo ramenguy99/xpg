@@ -790,6 +790,7 @@ struct PipelineStageDesc {
     Shader shader;
     VkShaderStageFlagBits stage;
     const char* entry = "main";
+    u32 required_subgroup_size = 0;
 };
 
 // NOTE: struct layout of this must exactly match vulkan struct
@@ -879,6 +880,7 @@ struct ComputePipelineDesc {
     const char* entry = "main";
     Span<PushConstantsRangeDesc> push_constants;
     Span<VkDescriptorSetLayout> descriptor_sets;
+    u32 required_subgroup_size = 0;
 };
 
 VkResult CreateComputePipeline(ComputePipeline* compute_pipeline, const Context& vk, const ComputePipelineDesc&& desc);

@@ -3289,15 +3289,18 @@ struct Shader: GfxObject {
 };
 
 struct PipelineStage: nb::intrusive_base {
-    PipelineStage(nb::ref<Shader> shader, VkShaderStageFlagBits stage, std::string entry)
+    PipelineStage(nb::ref<Shader> shader, VkShaderStageFlagBits stage, std::string entry, std::optional<u32> required_subgroup_size)
         : shader(shader)
         , stage(stage)
-        , entry(std::move(entry)) {
+        , entry(std::move(entry))
+        , required_subgroup_size(required_subgroup_size)
+    {
     };
 
     nb::ref<Shader> shader;
     VkShaderStageFlagBits stage;
     std::string entry;
+    std::optional<u32> required_subgroup_size;
 };
 
 struct VertexBinding: gfx::VertexBindingDesc {
@@ -3417,6 +3420,7 @@ struct ComputePipeline: GfxObject {
         nb::str entry,
         const std::vector<PushConstantsRange>& push_constant_ranges,
         const std::vector<nb::ref<DescriptorSetLayout>>& descriptor_set_layouts,
+        std::optional<u32> required_subgroup_size,
         std::optional<nb::str> name
         )
         : GfxObject(ctx, true, std::move(name))
@@ -3431,6 +3435,7 @@ struct ComputePipeline: GfxObject {
         VkResult vkr = gfx::CreateComputePipeline(&pipeline, ctx->vk, {
             .shader = shader->shader,
             .entry = entry.c_str(),
+            .required_subgroup_size = required_subgroup_size.value_or(0),
             .push_constants = ArrayView((gfx::PushConstantsRangeDesc*)push_constant_ranges.data(), push_constant_ranges.size()),
             .descriptor_sets = ArrayView(d),
         });
@@ -3479,6 +3484,7 @@ struct GraphicsPipeline: GfxObject {
             s[i].shader = stages[i]->shader->shader;
             s[i].stage = (VkShaderStageFlagBits)stages[i]->stage;
             s[i].entry = stages[i]->entry.c_str();
+            s[i].required_subgroup_size = stages[i]->required_subgroup_size.value_or(0);
         }
 
         Array<VkDescriptorSetLayout> d(descriptor_set_layouts.size());
@@ -5430,7 +5436,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<PipelineStage>(m, "PipelineStage",
         nb::intrusive_ptr<PipelineStage>([](PipelineStage *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<nb::ref<Shader>, VkShaderStageFlagBits, std::string>(), nb::arg("shader"), nb::arg("stage"), nb::arg("entry") = "main")
+        .def(nb::init<nb::ref<Shader>, VkShaderStageFlagBits, std::string, std::optional<u32>>(), nb::arg("shader"), nb::arg("stage"), nb::arg("entry") = "main", nb::arg("required_subgroup_size") = nb::none())
     ;
 
     nb::enum_<VkVertexInputRate>(m, "VertexInputRate")
@@ -6103,6 +6109,7 @@ void gfx_create_bindings(nb::module_& m)
                 nb::str,
                 const std::vector<PushConstantsRange>&,
                 const std::vector<nb::ref<DescriptorSetLayout>>&,
+                std::optional<u32>,
                 std::optional<nb::str>
             >(),
             nb::arg("ctx"),
@@ -6110,6 +6117,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("entry") = "main",
             nb::arg("push_constants_ranges") = std::vector<PushConstantsRange>(),
             nb::arg("descriptor_set_layouts") = std::vector<nb::ref<DescriptorSetLayout>>(),
+            nb::arg("required_subgroup_size") = nb::none(),
             nb::arg("name") = nb::none()
         )
         .def("__repr__", [](ComputePipeline& pipeline) {

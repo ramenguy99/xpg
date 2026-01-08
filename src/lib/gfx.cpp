@@ -2593,12 +2593,19 @@ VkResult
 CreateGraphicsPipeline(GraphicsPipeline* graphics_pipeline, const Context& vk, const GraphicsPipelineDesc&& desc)
 {
     Array<VkPipelineShaderStageCreateInfo> stages(desc.stages.length);
+    Array<VkPipelineShaderStageRequiredSubgroupSizeCreateInfo> required_subgroup_sizes(desc.stages.length);
+
     for (usize i = 0; i < stages.length; i++) {
         stages[i] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
         stages[i].flags = 0;
         stages[i].stage = desc.stages[i].stage;
         stages[i].pName = desc.stages[i].entry;
         stages[i].module = desc.stages[i].shader.shader;
+        if (desc.stages[i].required_subgroup_size > 0) {
+            required_subgroup_sizes[i] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO };
+            required_subgroup_sizes[i].requiredSubgroupSize = desc.stages[i].required_subgroup_size;
+            stages[i].pNext = &required_subgroup_sizes[i];
+        }
     }
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
@@ -2755,6 +2762,13 @@ CreateComputePipeline(ComputePipeline* compute_pipeline, const Context& vk, cons
     pipeline_create_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT ;
     pipeline_create_info.stage.pName = desc.entry;
     pipeline_create_info.stage.module = desc.shader.shader;
+
+    VkPipelineShaderStageRequiredSubgroupSizeCreateInfo required_subgroup_size;
+    if (desc.required_subgroup_size > 0) {
+        required_subgroup_size = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO };
+        required_subgroup_size.requiredSubgroupSize = desc.required_subgroup_size;
+        pipeline_create_info.stage.pNext = &required_subgroup_size;
+    }
 
     VkPipeline pipeline = 0;
     vkr = vkCreateComputePipelines(vk.device, VK_NULL_HANDLE, 1, &pipeline_create_info, 0, &pipeline);
