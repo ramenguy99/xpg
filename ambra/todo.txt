@@ -10,8 +10,23 @@ Priority:
     - [ ] More GUI
 - [ ] Server:
     - [ ] Dynamic logging experiments
+- [ ] Full headless:
+    - [ ] Skip GLFW init if no presentation requested (fails if no compositor found)
 
 TODO:
+- [ ] Subgroups:
+    - [ ] Allow forcing subgroup size (if supported) when creating compute pipelines (or maybe arbitrary shaders too)
+- [ ] Marching cubes:
+    - [ ] Start with algorithm broken down in steps
+    - [ ] Allow dry run with readback of actual triangle and vertex count
+    - [ ] Allow direct run with preallocated buffers
+- [ ] Gpu-generated properties:
+    - Very general approach with dependency graph and task run etc..
+        - Not sure yet how to make this general and useful enough
+        - Issues with things like GPU-only counts, preallocations, invalidation, CPU access -> maybe current property API is just not a good fit because it assumes too much
+    - Case specific escape hatch approach by subclassing Property / GpuProperty with limited subset of functionality
+    - GpuOnlyProperty (no CPU access without readback) + DrawIndirect for Mesh -> mesh has a lot of stuff now, not sure if should add more or somehow split / refactor
+        - This seems like a generally useful thing / escape hatch to have
 - [ ] Path tracer:
     - [ ] Features:
         - [x] Samples per frame
@@ -52,7 +67,7 @@ TODO:
         - [ ] Verify order of transform elements in AccelerationStructureMesh
         - [ ] Ensure all meshes returned in geometry have consistent winding order (check what is considered canonical)
     - [ ] Upstream:
-        - [ ] Mixing indexed and non-indexed geometry triggers (apparently false positive validation layer error)
+        - [ ] Mixing indexed and non-indexed geometry triggers (apparently false positive) validation layer error
             -> see https://github.com/KhronosGroup/Vulkan-ValidationLayers/pull/10870)
             -> Check if still wrong with latest validation layer
 - [ ] Primitives
@@ -411,6 +426,25 @@ Tools:
 
 
 Notes:
+
+Subgroups:
+- Max subgroup size is device_properties.subgroup_size, unless vulkan 1.3 or subgroup_size_control extension is supported.
+  If it is need to use max_subgroup_size or force a required subgroup size (if supported for that shader stage)
+- When forcing a subgroup size there is an additional constraint on group size in terms of maximum number of subgroups
+- Device check for support:
+    - check extension support normally
+    - assume VK_TRUE for both features (this we don't support atm)
+    - allow either feature to be missing and store results in context struct (also don't support yet)
+- Decision tree:
+    if extension not supported:
+        use subgroup_size from device limits
+    else
+        retrieve min max from device features (at context creation time)
+        if has control:
+            set max when creating compute pipeline (expose this) (not sure if ideal for perf everywhere)
+            assume max
+        else:
+            assume max
 
 Raytracing:
 - Only used for final render / high quality preview.

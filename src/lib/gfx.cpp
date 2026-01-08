@@ -4,6 +4,8 @@
 #define VOLK_IMPLEMENTATION
 #define VMA_IMPLEMENTATION
 
+#include <inttypes.h>
+
 #include <xpg/gfx.h>
 #include <xpg/log.h>
 #include <xpg/platform.h>
@@ -254,6 +256,9 @@ struct PhysicalDeviceInfo {
     bool compute_queue_timestamp_queries = false;
     bool copy_queue_timestamp_queries = false;
     bool require_portability_subset_extension = false;
+
+    bool subgroup_size_control = false;
+    bool compute_full_subgroups = false;
 };
 
 template <typename T>
@@ -604,10 +609,15 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     mesh_shader_features.meshShader = VK_TRUE;
     CHAIN(mesh_shader_features, DeviceFeatures::MESH_SHADER);
 
-    // Mesh shader
+    // Fragment shader barycentrics
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR fragment_shader_barycentric_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR };
     fragment_shader_barycentric_features.fragmentShaderBarycentric = VK_TRUE;
     CHAIN(fragment_shader_barycentric_features, DeviceFeatures::FRAGMENT_SHADER_BARYCENTRIC);
+
+    VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_size_control_features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES };
+    subgroup_size_control_features.subgroupSizeControl = VK_TRUE;
+    subgroup_size_control_features.computeFullSubgroups = VK_TRUE;
+    CHAIN(subgroup_size_control_features, DeviceFeatures::SUBGROUP_SIZE_CONTROL);
 
     // Feature dependencies
     FeatureAndExtensionDependencies<1, 3> dynamic_rendering_deps = {
@@ -746,6 +756,13 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         .features_req = { (GenericFeatureStruct*)&fragment_shader_barycentric_features },
         .features_sup = { (GenericFeatureStruct*)&fragment_shader_barycentric_features_sup },
         .extensions = { VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME },
+    };
+
+    FeatureAndExtensionDependencies<1, 1> subgroup_size_control_deps = {
+        .flag = DeviceFeatures::SUBGROUP_SIZE_CONTROL,
+        .features_req = { (GenericFeatureStruct*)&subgroup_size_control_features },
+        .features_sup = { (GenericFeatureStruct*)&subgroup_size_control_features_sup },
+        .extensions = { VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME },
     };
 
 
@@ -982,6 +999,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             CHECK_SUPPORTED_EXTENSIONS(draw_indirect_count);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(mesh_shader);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(fragment_shader_barycentric);
+            CHECK_SUPPORTED_EXTENSIONS(subgroup_size_control);
 
             if (features_to_check & DeviceFeatures::WIDE_LINES)
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.wideLines ? DeviceFeatures::WIDE_LINES : 0));
@@ -992,7 +1010,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             if (features_to_check & DeviceFeatures::SHADER_INT64)
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.shaderInt16 ? DeviceFeatures::SHADER_INT64 : 0));
 
-            logging::trace("gfx/debug", "Supported features: 0x%zx", info.supported_features.flags);
+            logging::trace("gfx/debug", "Supported features: 0x%" PRIx64, info.supported_features.flags);
 
             // We clear the supported flags here. It's not obvious if the spec requires this, but I assume that if
             // a device does not know about a feature struct, it might also not know how large it is and might not
@@ -1014,6 +1032,24 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             CLEAR(timeline_semaphore_features, DeviceFeatures::TIMELINE_SEMAPHORES);
             CLEAR(shader_float16_int8_features, DeviceFeatures::SHADER_FLOAT16_INT8);
             CLEAR(shader_subgroup_extended_types_features, DeviceFeatures::SHADER_SUBGROUP_EXTENDED_TYPES);
+            CLEAR(storage_8bit_features, DeviceFeatures::STORAGE_8BIT);
+            CLEAR(storage_16bit_features, DeviceFeatures::STORAGE_16BIT);
+            CLEAR(mesh_shader_features, DeviceFeatures::MESH_SHADER);
+            CLEAR(fragment_shader_barycentric_features, DeviceFeatures::FRAGMENT_SHADER_BARYCENTRIC);
+
+            // Special handling of subgroup size control.
+            //
+            // The idea here is to consider the feature supported if the extension
+            // is present and store additional feature support information in the context.
+            if (info.supported_features & DeviceFeatures::SUBGROUP_SIZE_CONTROL) {
+                // Store information about supported features
+                info.subgroup_size_control = subgroup_size_control_features.subgroupSizeControl;
+                info.compute_full_subgroups = subgroup_size_control_features.computeFullSubgroups;
+
+                // Reset features for next device
+                subgroup_size_control_features_sup.subgroupSizeControl = VK_TRUE;
+                subgroup_size_control_features_sup.computeFullSubgroups = VK_TRUE;
+            }
         }
 
         if (properties.apiVersion < desc.minimum_api_version) {
@@ -1027,7 +1063,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             continue;
         }
         if ((info.supported_features & desc.required_features) != desc.required_features) {
-            logging::info("gfx/device", "Discarded because does not support all required features. Missing features: 0x%zx", (~info.supported_features & desc.required_features).flags);
+            logging::info("gfx/device", "Discarded because does not support all required features. Missing features: 0x%" PRIx64, (~info.supported_features & desc.required_features).flags);
             continue;
         }
 
@@ -1158,6 +1194,11 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     ENABLE_EXTENSIONS_IF_SUPPORTED(draw_indirect_count);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(mesh_shader);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(fragment_shader_barycentric);
+
+    // Request only what we know is supported
+    subgroup_size_control_features.subgroupSizeControl = picked_info.subgroup_size_control;
+    subgroup_size_control_features.computeFullSubgroups = picked_info.compute_full_subgroups;
+    ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(subgroup_size_control);
 
     void* enabled_next = 0;
     for (usize i = 0; i < enabled_features.length; i++) {
@@ -1305,6 +1346,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     vk->copy_queue_timestamp_queries = picked_info.copy_queue_timestamp_queries;
     vk->preferred_frames_in_flight = desc.preferred_frames_in_flight;
     vk->preferred_swapchain_usage_flags = desc.preferred_swapchain_usage_flags;
+    vk->subgroup_size_control = picked_info.subgroup_size_control;
+    vk->compute_full_subgroups = picked_info.compute_full_subgroups;
     vk->vsync = desc.vsync;
     vk->vma = vma;
     vk->sync_command_pool = sync_command_pool;

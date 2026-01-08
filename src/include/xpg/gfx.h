@@ -96,6 +96,7 @@ struct DeviceFeatures {
         DRAW_INDIRECT_COUNT                     = 1ull << 19,
         MESH_SHADER                             = 1ull << 20,
         FRAGMENT_SHADER_BARYCENTRIC             = 1ull << 21,
+        SUBGROUP_SIZE_CONTROL                   = 1ull << 22,
     };
 
     DeviceFeatures() {};
@@ -163,6 +164,8 @@ struct Context
     VmaAllocator vma;
     u32 preferred_frames_in_flight;
     VkImageUsageFlags preferred_swapchain_usage_flags;
+    bool subgroup_size_control;
+    bool compute_full_subgroups;
     bool vsync;
 
     // Sync command submission

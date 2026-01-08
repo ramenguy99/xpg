@@ -98,6 +98,11 @@ struct DeviceSubgroupProperties: nb::intrusive_base {
     VkPhysicalDeviceSubgroupProperties subgroup_properties;
 };
 
+struct DeviceSubgroupSizeControlProperties: nb::intrusive_base {
+    DeviceSubgroupSizeControlProperties(const VkPhysicalDeviceSubgroupSizeControlProperties& subgroup_size_control_properties): subgroup_size_control_properties(subgroup_size_control_properties) {}
+    VkPhysicalDeviceSubgroupSizeControlProperties subgroup_size_control_properties;
+};
+
 struct DeviceMeshShaderProperties: nb::intrusive_base {
     DeviceMeshShaderProperties(const VkPhysicalDeviceMeshShaderPropertiesEXT& mesh_shader_properties): mesh_shader_properties(mesh_shader_properties) {}
     VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties;
@@ -131,7 +136,12 @@ struct HeapStatistics: nb::intrusive_base {
 
 // Wrapper around VkPhysicalDeviceProperties
 struct DeviceProperties: nb::intrusive_base {
-    DeviceProperties(const VkPhysicalDeviceProperties& properties, const VkPhysicalDeviceSubgroupProperties& subgroup_properties, const VkPhysicalDeviceMeshShaderPropertiesEXT& mesh_shader_properties)
+    DeviceProperties(
+        const VkPhysicalDeviceProperties& properties,
+        const VkPhysicalDeviceSubgroupProperties& subgroup_properties,
+        const VkPhysicalDeviceSubgroupSizeControlProperties& subgroup_size_control,
+        const VkPhysicalDeviceMeshShaderPropertiesEXT& mesh_shader_properties
+    )
         : api_version(properties.apiVersion)
         , driver_version(properties.driverVersion)
         , vendor_id(properties.vendorID)
@@ -143,6 +153,7 @@ struct DeviceProperties: nb::intrusive_base {
         limits = new DeviceLimits(properties.limits);
         sparse_properties = new DeviceSparseProperties(properties.sparseProperties);
         this->subgroup_properties = new DeviceSubgroupProperties(subgroup_properties);
+        this->subgroup_size_control_properties = new DeviceSubgroupSizeControlProperties(subgroup_size_control);
         this->mesh_shader_properties = new DeviceMeshShaderProperties(mesh_shader_properties);
     }
 
@@ -156,6 +167,7 @@ struct DeviceProperties: nb::intrusive_base {
     nb::ref<DeviceLimits> limits;
     nb::ref<DeviceSparseProperties> sparse_properties;
     nb::ref<DeviceSubgroupProperties> subgroup_properties;
+    nb::ref<DeviceSubgroupSizeControlProperties> subgroup_size_control_properties;
     nb::ref<DeviceMeshShaderProperties> mesh_shader_properties;
 };
 
@@ -203,11 +215,17 @@ struct Context: nb::intrusive_base {
         }
 
         VkPhysicalDeviceProperties2 properties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
-        VkPhysicalDeviceSubgroupProperties subgroup_properties { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES };
+        VkPhysicalDeviceSubgroupProperties subgroup_properties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES };
         properties.pNext = &subgroup_properties;
+        VkPhysicalDeviceSubgroupSizeControlProperties subgroup_size_control_properties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES };
+        if (vk.device_features & gfx::DeviceFeatures::SUBGROUP_SIZE_CONTROL) {
+            subgroup_size_control_properties.pNext = properties.pNext;
+            properties.pNext = &subgroup_size_control_properties;
+        }
+
         VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT };
         if (vk.device_features & gfx::DeviceFeatures::MESH_SHADER) {
-            mesh_shader_properties.pNext = &subgroup_properties;
+            mesh_shader_properties.pNext = properties.pNext;
             properties.pNext = &mesh_shader_properties;
         }
 
@@ -216,7 +234,7 @@ struct Context: nb::intrusive_base {
         } else {
             vkGetPhysicalDeviceProperties(vk.physical_device, &properties.properties);
         }
-        device_properties = new DeviceProperties(properties.properties, subgroup_properties, mesh_shader_properties);
+        device_properties = new DeviceProperties(properties.properties, subgroup_properties, subgroup_size_control_properties, mesh_shader_properties);
 
         VkPhysicalDeviceMemoryProperties vk_memory_properties;
         vkGetPhysicalDeviceMemoryProperties(vk.physical_device, &vk_memory_properties);
@@ -3780,6 +3798,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("DRAW_INDIRECT_COUNT",                     gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)
         .value("MESH_SHADER",                             gfx::DeviceFeatures::MESH_SHADER)
         .value("FRAGMENT_SHADER_BARYCENTRIC",             gfx::DeviceFeatures::FRAGMENT_SHADER_BARYCENTRIC)
+        .value("SUBGROUP_SIZE_CONTROL",                   gfx::DeviceFeatures::SUBGROUP_SIZE_CONTROL)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")
@@ -3820,6 +3839,14 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("supported_stages", [](DeviceSubgroupProperties& subgroup_properties) { return subgroup_properties.subgroup_properties.supportedStages; })
         .def_prop_ro("supported_operations", [](DeviceSubgroupProperties& subgroup_properties) { return (VkSubgroupFeatureFlagBits)subgroup_properties.subgroup_properties.supportedOperations; })
         .def_prop_ro("quad_operations_in_all_stages", [](DeviceSubgroupProperties& subgroup_properties) { return (bool)subgroup_properties.subgroup_properties.quadOperationsInAllStages; })
+    ;
+
+    nb::class_<DeviceSubgroupSizeControlProperties>(m, "DeviceSubgroupSizeControlProperties",
+        nb::intrusive_ptr<DeviceSubgroupSizeControlProperties>([](DeviceSubgroupSizeControlProperties *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def_prop_ro("min_subgroup_size", [](DeviceSubgroupSizeControlProperties& subgroup_size_control_properties) { return subgroup_size_control_properties.subgroup_size_control_properties.minSubgroupSize; })
+        .def_prop_ro("max_subgroup_size", [](DeviceSubgroupSizeControlProperties& subgroup_size_control_properties) { return subgroup_size_control_properties.subgroup_size_control_properties.maxSubgroupSize; })
+        .def_prop_ro("max_compute_workgroup_subgroups", [](DeviceSubgroupSizeControlProperties& subgroup_size_control_properties) { return subgroup_size_control_properties.subgroup_size_control_properties.maxComputeWorkgroupSubgroups; })
+        .def_prop_ro("required_subgroup_size_stages", [](DeviceSubgroupSizeControlProperties& subgroup_size_control_properties) { return (VkShaderStageFlagBits)subgroup_size_control_properties.subgroup_size_control_properties.requiredSubgroupSizeStages; })
     ;
 
     nb::class_<DeviceMeshShaderProperties>(m, "DeviceMeshShaderProperties",
@@ -3969,6 +3996,7 @@ void gfx_create_bindings(nb::module_& m)
         .def_ro("limits", &DeviceProperties::limits)
         .def_ro("sparse_properties", &DeviceProperties::sparse_properties)
         .def_ro("subgroup_properties", &DeviceProperties::subgroup_properties)
+        .def_ro("subgroup_size_control_properties", &DeviceProperties::subgroup_size_control_properties)
         .def_ro("mesh_shader_properties", &DeviceProperties::mesh_shader_properties)
         .def_ro("api_version", &DeviceProperties::api_version)
         .def_ro("driver_version", &DeviceProperties::driver_version)
@@ -4079,6 +4107,12 @@ void gfx_create_bindings(nb::module_& m)
                 throw std::runtime_error("Transfer queue not supported by device");
             }
             return ctx.vk.copy_queue_family_index;
+        })
+        .def_prop_ro("subgroup_size_control", [](Context& ctx) {
+            return ctx.vk.subgroup_size_control;
+        })
+        .def_prop_ro("compute_full_subgroups", [](Context& ctx) {
+            return ctx.vk.compute_full_subgroups;
         })
         .def_prop_ro("timestamp_period_ns", [](Context& ctx) {
             return ctx.vk.timestamp_period_ns;
