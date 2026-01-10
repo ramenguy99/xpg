@@ -186,7 +186,7 @@ class MarchingCubesPipeline:
 
         self.sync_instance = self.alloc_instance(r, single_set=True)
 
-    def alloc_instance(self, r: "Renderer", single_set: bool = False):
+    def alloc_instance(self, r: "Renderer", single_set: bool = False) -> MarchingCubesPipelineInstance:
         # Initialize constants
         check_constants = np.zeros((1,), self.check_constants_dtype)
         compact_constants = np.zeros((1,), self.compact_constants_dtype)
@@ -264,7 +264,14 @@ class MarchingCubesPipeline:
             indices_counter_buf,
         )
 
-    def run_sync(self, r: "Renderer", sdf: Image, size: Tuple[float, float, float], level: float = 0.0, invert_normals: bool = False):
+    def run_sync(
+        self,
+        r: "Renderer",
+        sdf: Image,
+        size: Tuple[float, float, float],
+        level: float = 0.0,
+        invert_normals: bool = False,
+    ) -> MarchingCubesResult:
         width, height, depth = sdf.width, sdf.height, sdf.depth
         blocks_x = div_ceil(width, BLOCK_SIZE_X - 1)
         blocks_y = div_ceil(height, BLOCK_SIZE_Y - 1)

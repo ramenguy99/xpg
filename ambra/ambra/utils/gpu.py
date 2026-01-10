@@ -704,7 +704,7 @@ def to_srgb_format(format: Format) -> Format:
 
 def get_min_max_and_required_subgroup_size(
     ctx: Context, stage: Stage, preferred_size: int, group_size: Optional[int] = None
-) -> Tuple[int, Optional[int]]:
+) -> Tuple[int, int, Optional[int]]:
     if not is_pow_2(preferred_size):
         raise RuntimeError(f"Preferred size must be a power of 2. Got: {preferred_size}")
 
