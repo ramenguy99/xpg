@@ -2085,6 +2085,7 @@ struct CommandBuffer: GfxObject {
             .image_layout = image.current_layout,
             .image_width = image.width,
             .image_height = image.height,
+            .image_depth = image.depth,
             .buffer = buf.buffer.buffer,
             .buffer_offset_in_bytes = buffer_offset_in_bytes,
         });
@@ -2138,6 +2139,7 @@ struct CommandBuffer: GfxObject {
             .image_layout = image.current_layout,
             .image_width = image.width,
             .image_height = image.height,
+            .image_depth = image.depth,
             .buffer = buf.buffer.buffer,
             .buffer_offset_in_bytes = buffer_offset_in_bytes,
         });
