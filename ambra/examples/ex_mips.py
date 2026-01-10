@@ -5,7 +5,7 @@ import PIL.Image
 from pyxpg import *
 
 from ambra.config import Config
-from ambra.utils.gpu import MipGenerationFilter, readback_mips
+from ambra.utils.gpu import MipGenerationFilter, readback_image_mips
 from ambra.viewer import Viewer
 
 if False:
@@ -91,7 +91,7 @@ img = Image.from_data(
 
 v.renderer.spd_pipeline.run_sync(v.renderer, img, ImageLayout.TRANSFER_SRC_OPTIMAL, MipGenerationFilter.AVERAGE)
 
-mips = readback_mips(v.ctx, img, ImageLayout.SHADER_READ_ONLY_OPTIMAL)
+mips = readback_image_mips(v.ctx, img, ImageLayout.SHADER_READ_ONLY_OPTIMAL)
 for m in mips:
     print(m.shape)
     print(m)

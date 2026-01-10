@@ -8,38 +8,35 @@
 RWTexture3D<float> in_volume;
 
 [vk::binding(1, 0)]
-StructuredBuffer<uint32_t> in_valid_block_count;
-
-[vk::binding(2, 0)]
 StructuredBuffer<uint32_t> in_blocks;
 
-[vk::binding(3, 0)]
+[vk::binding(2, 0)]
 StructuredBuffer<uint32_t> in_tri_table;
 
-[vk::binding(4, 0)]
+[vk::binding(3, 0)]
 RWStructuredBuffer<float> out_positions;
 
-[vk::binding(5, 0)]
+[vk::binding(4, 0)]
 RWStructuredBuffer<float> out_normals;
 
-[vk::binding(6, 0)]
+[vk::binding(5, 0)]
 RWStructuredBuffer<uint32_t> out_indices;
 
-[vk::binding(7, 0)]
+[vk::binding(6, 0)]
 RWStructuredBuffer<uint32_t> out_num_vertices;
 
-[vk::binding(8, 0)]
+[vk::binding(7, 0)]
 RWStructuredBuffer<uint32_t> out_num_indices;
 
 struct Constants {
-	// Level set for which to check for surface.
+    // Level set for which to check for surface.
     float level;
 
     // Number of blocks in the X directions.
-	uint32_t num_blocks_x;
+    uint32_t num_blocks_x;
 
     // Number of blocks in the Y direction.
-	uint32_t num_blocks_y;
+    uint32_t num_blocks_y;
 
     // Boolean flag for inverting normals.
     bool invert_normals;
@@ -59,9 +56,6 @@ ConstantBuffer<Constants> g_constants;
 
 // OPT: Can reduce shared memory usage by overlapping some of these arrays that are not used at the same time.
 groupshared float s_volume_data[BLOCK_SIZE_Z + 1][BLOCK_SIZE_Y + 1][BLOCK_SIZE_X + 1];
-groupshared float3 s_gradient[BLOCK_SIZE_Z][BLOCK_SIZE_Y][BLOCK_SIZE_X];
-
-groupshared uint s_scan_block[BLOCK_SIZE_Z][BLOCK_SIZE_Y][BLOCK_SIZE_X];
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 groupshared uint s_scan_vertices[MAX(MAX_WAVES_IN_GROUP, MAX_WAVE_SIZE)];
@@ -69,6 +63,12 @@ groupshared uint s_scan_triangles[MAX(MAX_WAVES_IN_GROUP, MAX_WAVE_SIZE)];
 
 groupshared uint s_vertices_base;
 groupshared uint s_triangles_base;
+
+#ifndef COUNT_ONLY
+groupshared float3 s_gradient[BLOCK_SIZE_Z][BLOCK_SIZE_Y][BLOCK_SIZE_X];
+
+groupshared uint s_scan_block[BLOCK_SIZE_Z][BLOCK_SIZE_Y][BLOCK_SIZE_X];
+#endif
 
 // Lookup block index in volume from the compacted index.
 uint3 getBlockIdx(uint idx) {
@@ -80,6 +80,7 @@ uint3 getBlockIdx(uint idx) {
     return block_idx;
 }
 
+#ifndef COUNT_ONLY
 // Return t such that a * (1 - t) + b * t = v
 float inverse_lerp(float v, float a, float b) {
     return (v - a) / (b - a);
@@ -115,18 +116,19 @@ float3 getNormal(uint3 idx_a, uint3 idx_b, float t) {
 
     return n;
 }
+#endif
 
 [shader("compute")]
 [numthreads(BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z)]
 void main(
-    uint3  group_id        : SV_GroupID,
-	uint3  cell_idx        : SV_GroupThreadID,
-	uint   thread_idx      : SV_GroupIndex,
+    uint3 group_id: SV_GroupID,
+    uint3 cell_idx: SV_GroupThreadID,
+    uint thread_idx: SV_GroupIndex,
 ) {
     // Index of the block inside the volume.
     uint3 block_idx = getBlockIdx(group_id.x);
 
-	// Index of the cell inside the volume.
+    // Index of the cell inside the volume.
     uint3 volume_idx = get_volume_idx(block_idx, cell_idx);
 
     uint width, height, depth;
@@ -134,12 +136,12 @@ void main(
     uint3 volume_size = uint3(width, height, depth);
 
     float value;
-	if(all(volume_idx < volume_size)) {
-		// Load volume data if inside the volume.
-		value = in_volume[volume_idx];
-	} else {
+    if(all(volume_idx < volume_size)) {
+        // Load volume data if inside the volume.
+        value = in_volume[volume_idx];
+    } else {
         value = g_constants.level;
-	}
+    }
 
     // Store sdf value of this thread in shared memory.
     s_volume_data[cell_idx.z][cell_idx.y][cell_idx.x] = value;
@@ -149,13 +151,13 @@ void main(
 
     // Extract sdf values from neighbours for vertices of this cell.
     float f000 = s_volume_data[cell_idx.z    ][cell_idx.y    ][cell_idx.x    ];
-	float f001 = s_volume_data[cell_idx.z    ][cell_idx.y    ][cell_idx.x + 1];
+    float f001 = s_volume_data[cell_idx.z    ][cell_idx.y    ][cell_idx.x + 1];
     float f010 = s_volume_data[cell_idx.z    ][cell_idx.y + 1][cell_idx.x    ];
-	float f011 = s_volume_data[cell_idx.z    ][cell_idx.y + 1][cell_idx.x + 1];
-	float f100 = s_volume_data[cell_idx.z + 1][cell_idx.y    ][cell_idx.x    ];
-	float f101 = s_volume_data[cell_idx.z + 1][cell_idx.y    ][cell_idx.x + 1];
-	float f110 = s_volume_data[cell_idx.z + 1][cell_idx.y + 1][cell_idx.x    ];
-	float f111 = s_volume_data[cell_idx.z + 1][cell_idx.y + 1][cell_idx.x  +1];
+    float f011 = s_volume_data[cell_idx.z    ][cell_idx.y + 1][cell_idx.x + 1];
+    float f100 = s_volume_data[cell_idx.z + 1][cell_idx.y    ][cell_idx.x    ];
+    float f101 = s_volume_data[cell_idx.z + 1][cell_idx.y    ][cell_idx.x + 1];
+    float f110 = s_volume_data[cell_idx.z + 1][cell_idx.y + 1][cell_idx.x    ];
+    float f111 = s_volume_data[cell_idx.z + 1][cell_idx.y + 1][cell_idx.x  +1];
 
     // Check if border cells.
     bool3 cell_border_low = cell_idx == uint3(0);
@@ -165,6 +167,7 @@ void main(
     bool3 volume_border_low = volume_idx == uint3(0);
     bool3 volume_border_high = volume_idx >= volume_size - uint3(1);
 
+#ifndef COUNT_ONLY
     // Lookup neighbours for computing gradient with finite differences.
     float f00n, f0n0, fn00;
 
@@ -226,6 +229,7 @@ void main(
 
     // Store gradient in shared memory.
     s_gradient[cell_idx.z][cell_idx.y][cell_idx.x] = g;
+#endif
 
     // Classify cell comparing with surface level value.
     uint field[8];
@@ -258,16 +262,16 @@ void main(
     // Discard vertices that go outside the cell or outside the volume.
     bool3 border = cell_border_high || volume_border_high;
 
-	if(border.x) {
-		edge_index.x = 0;
+    if(border.x) {
+        edge_index.x = 0;
     }
 
-	if(border.y) {
-		edge_index.y = 0;
+    if(border.y) {
+        edge_index.y = 0;
     }
 
-	if(border.z) {
-		edge_index.z = 0;
+    if(border.z) {
+        edge_index.z = 0;
     }
 
     // Compute number of vertices and triangles required by this cell.
@@ -315,32 +319,34 @@ void main(
                 sum_triangles = s_scan_triangles[i + lane_index];
             }
 
-            // TODO: try to change this to an exclusive scan (don't sum sum_vertices here but do it later when computing prev_sum_vertices)
-            uint inclusive_sum_vertices = WavePrefixSum(sum_vertices) + sum_vertices + prev_sum_vertices;
-            s_scan_vertices[i + lane_index] = inclusive_sum_vertices;
+            uint exclusive_sum_vertices = WavePrefixSum(sum_vertices) + prev_sum_vertices;
+            s_scan_vertices[i + lane_index] = exclusive_sum_vertices;
 
-            uint inclusive_sum_triangles = WavePrefixSum(sum_triangles) + sum_triangles + prev_sum_triangles;
-            s_scan_triangles[i + lane_index] = inclusive_sum_triangles;
+            uint exclusive_sum_triangles = WavePrefixSum(sum_triangles)+ prev_sum_triangles;
+            s_scan_triangles[i + lane_index] = exclusive_sum_triangles;
 
-            prev_sum_vertices = WaveActiveMax(inclusive_sum_vertices);
-            prev_sum_triangles = WaveActiveMax(inclusive_sum_triangles);
+            prev_sum_vertices = WaveActiveMax(exclusive_sum_vertices + sum_vertices);
+            prev_sum_triangles = WaveActiveMax(exclusive_sum_triangles + sum_triangles);
         }
     }
 
     GroupMemoryBarrierWithGroupSync();
 
-    // Add scan of previous subgroup to all values. Subgroup 0 skips this because has no previous subgroup.
-    if(wave_index > 0) {
-        vertex_index += s_scan_vertices[wave_index - 1];
-        triangle_index += s_scan_triangles[wave_index - 1];
-    }
+    // Add scan of previous subgroup to vertex and triangle index.
+    vertex_index += s_scan_vertices[wave_index];
+    triangle_index += s_scan_triangles[wave_index];
 
     // Last thread in the block increments atomic counters for triangles and vertices;
-    if(thread_idx == (BLOCK_TOTAL_SIZE - 1)) {
-        InterlockedAdd(out_num_vertices[0], vertex_index + num_vertices, s_vertices_base);
-        InterlockedAdd(out_num_indices[0], (triangle_index + num_triangles) * 3, s_triangles_base);
+    if (thread_idx == (BLOCK_TOTAL_SIZE - 1)) {
+        uint vertices_base = 0;
+        uint triangles_base = 0;
+        InterlockedAdd(out_num_vertices[0], vertex_index + num_vertices, vertices_base);
+        InterlockedAdd(out_num_indices[0], (triangle_index + num_triangles) * 3, triangles_base);
+        s_vertices_base = vertices_base;
+        s_triangles_base = triangles_base;
     }
 
+#ifndef COUNT_ONLY
     // Write out vertex information for other threads in the group.
     s_scan_block[cell_idx.z][cell_idx.y][cell_idx.x] = (edge_index.z << 15) | (edge_index.y << 14) | (edge_index.x << 13) | vertex_index;
 
@@ -355,8 +361,8 @@ void main(
     uint global_triangle_index = triangles_base + triangle_index * 3;
 
     // Return early if out of bounds in the vertices or indices array.
-    if(global_vertex_index + num_vertices >= g_constants.max_vertices ||
-       global_triangle_index + num_triangles * 3 >= g_constants.max_indices) {
+    if(global_vertex_index + num_vertices > g_constants.max_vertices ||
+       global_triangle_index + num_triangles * 3 > g_constants.max_indices) {
         return;
     }
 
@@ -418,4 +424,5 @@ void main(
         out_indices[global_triangle_index + 2] = i2;
         global_triangle_index += 3;
     }
+#endif
 }

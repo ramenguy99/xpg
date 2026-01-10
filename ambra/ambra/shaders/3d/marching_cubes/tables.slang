@@ -3,20 +3,20 @@
 
 static const uint4 table_edge_mapping[12] =
 {
-	uint4(0,0,0,0), //x edge
-	uint4(1,0,0,1), //y edge
-	uint4(0,1,0,0), //x edge
-	uint4(0,0,0,1), //y edge
+    uint4(0,0,0,0), //x edge
+    uint4(1,0,0,1), //y edge
+    uint4(0,1,0,0), //x edge
+    uint4(0,0,0,1), //y edge
 
-	uint4(0,0,1,0), //x edge
-	uint4(1,0,1,1), //y edge
-	uint4(0,1,1,0), //x edge
-	uint4(0,0,1,1), //y edge
+    uint4(0,0,1,0), //x edge
+    uint4(1,0,1,1), //y edge
+    uint4(0,1,1,0), //x edge
+    uint4(0,0,1,1), //y edge
 
-	uint4(0,0,0,2), //z edge
-	uint4(1,0,0,2), //z edge
-	uint4(1,1,0,2), //z edge
-	uint4(0,1,0,2), //z edge
+    uint4(0,0,0,2), //z edge
+    uint4(1,0,0,2), //z edge
+    uint4(1,1,0,2), //z edge
+    uint4(0,1,0,2), //z edge
 };
 
 static const uint table_num_vertices[256] =

@@ -12,7 +12,7 @@ RWStructuredBuffer<uint32_t> out_blocks;
 
 struct Constants {
     // Number of input blocks.
-	uint32_t num_blocks;
+    uint32_t num_blocks;
 };
 
 [vk::push_constant]
@@ -21,8 +21,10 @@ ConstantBuffer<Constants> g_constants;
 [shader("compute")]
 [numthreads(COMPACT_GROUP_SIZE, 1, 1)]
 void main(
-    uint thread_idx : SV_GroupIndex,
+    uint3 thread_id: SV_DispatchThreadID,
 ) {
+    uint thread_idx = thread_id.x;
+
     // Check if block valid.
     uint valid = 0;
     if(thread_idx < g_constants.num_blocks) {

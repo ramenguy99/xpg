@@ -30,7 +30,8 @@ from .ring_buffer import RingBuffer
 
 
 def is_pow_2(n: int) -> int:
-    return n != 0 and (n & (n-1) == 0)
+    return n != 0 and (n & (n - 1) == 0)
+
 
 def align_up(v: int, a: int) -> int:
     return (v + a - 1) & ~(a - 1)
@@ -642,7 +643,17 @@ def cull_mode_opposite_face(mode: CullMode) -> CullMode:
         return mode
 
 
-def readback(ctx: Context, img: Image, new_layout: ImageLayout) -> NDArray[Any]:
+def readback_buffer(ctx: Context, buf: Buffer) -> NDArray[np.uint8]:
+    host_buffer = Buffer(ctx, buf.size, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
+    with ctx.sync_commands() as cmd:
+        cmd.copy_buffer(buf, host_buffer)
+        cmd.memory_barrier(MemoryUsage.TRANSFER_SRC, MemoryUsage.HOST_READ)
+    array = np.frombuffer(host_buffer, np.uint8).copy()
+    host_buffer.destroy()
+    return array
+
+
+def readback_image(ctx: Context, img: Image, new_layout: ImageLayout) -> NDArray[Any]:
     channels, dtype, _ = _format_to_channels_dtype_int_table[img.format]
     shape = (img.height, img.width, channels)
 
@@ -652,14 +663,16 @@ def readback(ctx: Context, img: Image, new_layout: ImageLayout) -> NDArray[Any]:
         cmd.copy_image_to_buffer(img, buffer)
         cmd.image_barrier(img, new_layout, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY)
         cmd.memory_barrier(MemoryUsage.TRANSFER_SRC, MemoryUsage.HOST_READ)
+    array = np.frombuffer(buffer, dtype).copy().reshape(shape)
+    buffer.destroy()
 
-    return np.frombuffer(buffer, dtype).copy().reshape(shape)
+    return array
 
 
-def readback_mips(ctx: Context, img: Image, new_layout: ImageLayout) -> List[NDArray[Any]]:
+def readback_image_mips(ctx: Context, img: Image, new_layout: ImageLayout) -> List[NDArray[Any]]:
     channels, dtype, _ = _format_to_channels_dtype_int_table[img.format]
 
-    buffers = []
+    buffers: List[Buffer] = []
     for m in range(img.mip_levels):
         w, h = max(img.width >> m, 1), max(img.height >> m, 1)
         buffers.append(Buffer(ctx, w * h * channels * dtype.itemsize, BufferUsageFlags.TRANSFER_DST, AllocType.HOST))
@@ -677,6 +690,7 @@ def readback_mips(ctx: Context, img: Image, new_layout: ImageLayout) -> List[NDA
         w, h = max(img.width >> m, 1), max(img.height >> m, 1)
         shape = (h, w, channels)
         arrays.append(np.frombuffer(b, dtype).copy().reshape(shape))
+        b.destroy()
 
     return arrays
 
@@ -687,7 +701,10 @@ def to_srgb_format(format: Format) -> Format:
     except KeyError:
         raise RuntimeError(f"{format} does not have a corresponding sRGB format") from KeyError
 
-def get_min_max_and_required_subgroup_size(ctx: Context, stage: Stage, preferred_size: int, group_size: Optional[int] = None) -> Tuple[int, Optional[int]]:
+
+def get_min_max_and_required_subgroup_size(
+    ctx: Context, stage: Stage, preferred_size: int, group_size: Optional[int] = None
+) -> Tuple[int, Optional[int]]:
     if not is_pow_2(preferred_size):
         raise RuntimeError(f"Preferred size must be a power of 2. Got: {preferred_size}")
 
@@ -698,10 +715,16 @@ def get_min_max_and_required_subgroup_size(ctx: Context, stage: Stage, preferred
             if group_size is not None:
                 min_subgroup_size = group_size // control_props.max_compute_workgroup_subgroups
                 if min_subgroup_size > control_props.max_subgroup_size:
-                    raise RuntimeError(f"Minimum subgroup size ({min_subgroup_size}) due to max compute workgroup subgroups ({control_props.max_compute_workgroup_subgroups}) for requested group size {group_size} is larger than maximum allowed subgroup size {control_props.max_subgroup_size}.")
+                    raise RuntimeError(
+                        f"Minimum subgroup size ({min_subgroup_size}) due to max compute workgroup subgroups ({control_props.max_compute_workgroup_subgroups}) for requested group size {group_size} is larger than maximum allowed subgroup size {control_props.max_subgroup_size}."
+                    )
             subgroup_size = np.clip(preferred_size, min_subgroup_size, control_props.max_subgroup_size)
             return subgroup_size, subgroup_size, subgroup_size
         else:
             return control_props.min_subgroup_size, control_props.max_subgroup_size, None
     else:
-        return ctx.device_properties.subgroup_properties.subgroup_size, ctx.device_properties.subgroup_properties.subgroup_size, None
+        return (
+            ctx.device_properties.subgroup_properties.subgroup_size,
+            ctx.device_properties.subgroup_properties.subgroup_size,
+            None,
+        )
