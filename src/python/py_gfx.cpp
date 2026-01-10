@@ -3437,9 +3437,9 @@ struct ComputePipeline: GfxObject {
         VkResult vkr = gfx::CreateComputePipeline(&pipeline, ctx->vk, {
             .shader = shader->shader,
             .entry = entry.c_str(),
-            .required_subgroup_size = required_subgroup_size.value_or(0),
             .push_constants = ArrayView((gfx::PushConstantsRangeDesc*)push_constant_ranges.data(), push_constant_ranges.size()),
             .descriptor_sets = ArrayView(d),
+            .required_subgroup_size = required_subgroup_size.value_or(0),
         });
 
         if (vkr != VK_SUCCESS) {
