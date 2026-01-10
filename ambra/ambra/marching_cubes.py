@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Tuple
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -18,7 +18,9 @@ from pyxpg import (
     DescriptorType,
     Image,
     ImageLayout,
+    MemoryBarrier,
     MemoryUsage,
+    PipelineStageFlags,
     PushConstantsRange,
     Shader,
     Stage,
@@ -55,6 +57,8 @@ class MarchingCubesPipelineInstance:
     valid_blocks_counter_buf: Buffer
     vertices_counter_buf: Buffer
     indices_counter_buf: Buffer
+    vertices_counter_readback_buf: Optional[Buffer]
+    indices_counter_readback_buf: Optional[Buffer]
 
 
 @dataclass
@@ -217,7 +221,6 @@ class MarchingCubesPipeline:
         valid_blocks_counter_buf = Buffer.from_data(
             r.ctx,
             view_bytes(np.array([0, 1, 1], np.uint32)),  # Alloc 3 elements to allow using this for indirect dispatch
-            # BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.INDIRECT,
             BufferUsageFlags.STORAGE
             | BufferUsageFlags.TRANSFER_DST
             | BufferUsageFlags.INDIRECT
@@ -225,20 +228,42 @@ class MarchingCubesPipeline:
             AllocType.DEVICE,
             name="marching-cubes-valid-blocks-counter",
         )
+
         vertices_counter_buf = Buffer.from_data(
             r.ctx,
             view_bytes(np.zeros((1,), np.uint32)),
-            BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
+            BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.TRANSFER_SRC,
             AllocType.DEVICE_MAPPED_WITH_FALLBACK,
             name="marching-cubes-vertices-counter",
         )
+        if not vertices_counter_buf.is_mapped:
+            vertices_counter_readback_buf = Buffer.from_data(
+                r.ctx,
+                view_bytes(np.zeros((1,), np.uint32)),
+                BufferUsageFlags.TRANSFER_DST,
+                AllocType.HOST,
+                name="marching-cubes-vertices-counter-readback",
+            )
+        else:
+            vertices_counter_readback_buf = None
+
         indices_counter_buf = Buffer.from_data(
             r.ctx,
             view_bytes(np.zeros((1,), np.uint32)),
-            BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
+            BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.TRANSFER_SRC,
             AllocType.DEVICE_MAPPED_WITH_FALLBACK,
             name="marching-cubes-indices-counter",
         )
+        if not indices_counter_buf.is_mapped:
+            indices_counter_readback_buf = Buffer.from_data(
+                r.ctx,
+                view_bytes(np.zeros((1,), np.uint32)),
+                BufferUsageFlags.TRANSFER_DST,
+                AllocType.HOST,
+                name="marching-cubes-indices-counter-readback",
+            )
+        else:
+            indices_counter_readback_buf = None
 
         # Write static descriptors
         for s in compact_descriptor_sets:
@@ -262,6 +287,8 @@ class MarchingCubesPipeline:
             valid_blocks_counter_buf,
             vertices_counter_buf,
             indices_counter_buf,
+            vertices_counter_readback_buf,
+            indices_counter_readback_buf,
         )
 
     def run_sync(
@@ -338,8 +365,12 @@ class MarchingCubesPipeline:
             )
             cmd.dispatch(div_ceil(total_blocks, COMPACT_GROUP_SIZE), 1, 1)
 
-            cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
-            cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.INDIRECT)
+            cmd.memory_barrier_full(
+                MemoryBarrier(
+                    src_stage=PipelineStageFlags.COMPUTE_SHADER,
+                    dst_stage=PipelineStageFlags.COMPUTE_SHADER | PipelineStageFlags.DRAW_INDIRECT,
+                )
+            )
 
             cmd.bind_compute_pipeline(
                 self.march_count_pipeline,
@@ -348,20 +379,55 @@ class MarchingCubesPipeline:
             )
             cmd.dispatch_indirect(instance.valid_blocks_counter_buf, 0)
 
-            cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.HOST_READ)
+            readback_src_stage = PipelineStageFlags.NONE
+            if instance.vertices_counter_readback_buf is None or instance.indices_counter_readback_buf is None:
+                readback_src_stage |= PipelineStageFlags.COMPUTE_SHADER
+            if instance.vertices_counter_readback_buf is not None or instance.indices_counter_readback_buf is not None:
+                # Ensure compute is done before issuing copy for readback
+                readback_src_stage |= PipelineStageFlags.TRANSFER
+                cmd.memory_barrier_full(
+                    MemoryBarrier(src_stage=PipelineStageFlags.COMPUTE_SHADER, dst_stage=PipelineStageFlags.TRANSFER)
+                )
 
-        if instance.vertices_counter_buf.is_mapped:
-            vertices_arr = np.frombuffer(instance.vertices_counter_buf.data, np.uint32)
-            vertices_count = vertices_arr[0]
-            vertices_arr[0] = 0
-        else:
-            raise RuntimeError
-        if instance.indices_counter_buf.is_mapped:
-            indices_arr = np.frombuffer(instance.indices_counter_buf.data, np.uint32)
-            indices_count = indices_arr[0]
-            indices_arr[0] = 0
-        else:
-            raise RuntimeError
+            # Copy to readback buffer
+            if instance.vertices_counter_readback_buf is not None:
+                cmd.copy_buffer(instance.vertices_counter_buf, instance.vertices_counter_readback_buf)
+            if instance.indices_counter_readback_buf is not None:
+                cmd.copy_buffer(instance.indices_counter_buf, instance.indices_counter_readback_buf)
+
+            # Ensure copy is done before clearing counter
+            if instance.vertices_counter_readback_buf is not None or instance.indices_counter_readback_buf is not None:
+                cmd.memory_barrier_full(
+                    MemoryBarrier(src_stage=PipelineStageFlags.TRANSFER, dst_stage=PipelineStageFlags.TRANSFER)
+                )
+
+            # Clear GPU counter buffer. If the buffer is mapped we do this from the CPU later instead
+            if instance.vertices_counter_readback_buf is not None:
+                cmd.fill_buffer(instance.vertices_counter_buf, 0, 4)
+            if instance.indices_counter_readback_buf is not None:
+                cmd.fill_buffer(instance.indices_counter_buf, 0, 4)
+
+            # Ensure copy is visible to host (either written form compute or from copy)
+            cmd.memory_barrier_full(MemoryBarrier(src_stage=readback_src_stage, dst_stage=PipelineStageFlags.HOST))
+
+        vertices_counter_readback_buf = (
+            instance.vertices_counter_readback_buf
+            if instance.vertices_counter_readback_buf is not None
+            else instance.vertices_counter_buf
+        )
+        indices_counter_readback_buf = (
+            instance.indices_counter_readback_buf
+            if instance.indices_counter_readback_buf is not None
+            else instance.indices_counter_buf
+        )
+
+        vertices_arr = np.frombuffer(vertices_counter_readback_buf.data, np.uint32)
+        vertices_count = vertices_arr[0]
+        vertices_arr[0] = 0
+
+        indices_arr = np.frombuffer(indices_counter_readback_buf.data, np.uint32)
+        indices_count = indices_arr[0]
+        indices_arr[0] = 0
 
         positions_buf = Buffer(
             r.ctx,

@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +11,6 @@ from ambra.marching_cubes import MarchingCubesPipeline
 from ambra.primitives3d import Grid, GridType, Mesh
 from ambra.utils.gpu import readback_buffer, view_bytes
 from ambra.viewer import Viewer
-import sys
 
 if False:
     x, y, z = 128, 128, 128
