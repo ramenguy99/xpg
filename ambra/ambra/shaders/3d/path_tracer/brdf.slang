@@ -1,3 +1,6 @@
+// Copyright Dario Mylonopoulos
+// SPDX-License-Identifier: MIT
+
 import "../utils";
 
 module brdf;
