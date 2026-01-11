@@ -23,6 +23,33 @@ else:
     size = np.array(sdf.shape[::-1], np.float32) / max(sdf.shape)
     z, y, x = sdf.shape
 
+    if True:
+        # (A, Z, Y, X, C)
+        sdf = sdf.reshape((1, z, y, x, 1))
+
+        N = 32
+        sdf = np.repeat(sdf, N, axis=0)
+        for i in range(N):
+            sdf[i] += i / N
+
+    if False:
+        # Dragon big
+        # 1662892 positions
+        # 7638876 primitives
+        #
+        # 1654432 area
+        #
+        # expected_positions = max(area * 2, 1024)
+        # expected_triangles = max(area * 10, 5 * 1024)
+        #
+        # Dragon small
+        #  65248
+        # 300216
+        #
+        # 102634 area
+        area = (x * y + x * z + y * z) * 2
+        print(x, y, z, area)
+
 
 class CustomViewer(Viewer):
     @hook
@@ -32,7 +59,7 @@ class CustomViewer(Viewer):
             if imgui.begin("MC")[0]:
                 u, m.level = imgui.slider_float("Level", m.level, -5, 5)
                 if u:
-                    m._need_marching = True
+                    m.invalidate_surface()
             imgui.end()
 
 
@@ -78,7 +105,7 @@ if False:
     print(indices.shape)
     m = Mesh(positions, indices, normals)
 else:
-    m = MarchingCubesMesh(sdf[:, :, :], size, max_vertices=16 * 1024 * 1024, max_indices=16 * 1024 * 1024)
+    m = MarchingCubesMesh(sdf[:, :, :], size)
 
 l1 = DirectionalLight.look_at(
     vec3(5, 6, 7) * 4.0,

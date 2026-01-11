@@ -369,13 +369,34 @@ class MarchingCubesPipeline:
         )
         cmd.dispatch_indirect(instance.valid_blocks_counter_buf, 0)
 
-        cmd.memory_barrier_full(
-            MemoryBarrier(
-                src_stage=PipelineStageFlags.COMPUTE_SHADER,
-                dst_stage=PipelineStageFlags.DRAW_INDIRECT
-                | PipelineStageFlags.VERTEX_INPUT
-                | PipelineStageFlags.INDEX_INPUT,
+        # Prepare for readback of vertices and indices count
+        readback_src_stage = PipelineStageFlags.NONE
+        if instance.vertices_counter_readback_buf is None or instance.indices_counter_readback_buf is None:
+            readback_src_stage |= PipelineStageFlags.COMPUTE_SHADER
+        if instance.vertices_counter_readback_buf is not None or instance.indices_counter_readback_buf is not None:
+            # Ensure compute is done before issuing copy for readback
+            readback_src_stage |= PipelineStageFlags.TRANSFER
+            cmd.memory_barrier_full(
+                MemoryBarrier(src_stage=PipelineStageFlags.COMPUTE_SHADER, dst_stage=PipelineStageFlags.TRANSFER)
             )
+            if instance.vertices_counter_readback_buf is not None:
+                cmd.copy_buffer(instance.vertices_counter_buf, instance.vertices_counter_readback_buf)
+            if instance.indices_counter_readback_buf is not None:
+                cmd.copy_buffer_range(instance.indices_counter_buf, instance.indices_counter_readback_buf, 4)
+
+        cmd.barriers(
+            memory_barriers=[
+                MemoryBarrier(
+                    src_stage=PipelineStageFlags.COMPUTE_SHADER,
+                    dst_stage=PipelineStageFlags.DRAW_INDIRECT
+                    | PipelineStageFlags.VERTEX_INPUT
+                    | PipelineStageFlags.INDEX_INPUT,
+                ),
+                MemoryBarrier(
+                    src_stage=readback_src_stage,
+                    dst_stage=PipelineStageFlags.HOST,
+                ),
+            ]
         )
 
     def run_sync(

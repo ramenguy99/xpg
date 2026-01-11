@@ -49,7 +49,14 @@ from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object, Object3D
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
-from .utils.gpu import AccelerationStructureInstanceInfo, cull_mode_opposite_face, div_ceil, div_round_up, view_bytes
+from .utils.gpu import (
+    AccelerationStructureInstanceInfo,
+    align_up,
+    cull_mode_opposite_face,
+    div_ceil,
+    div_round_up,
+    view_bytes,
+)
 from .viewport import Viewport
 
 
@@ -184,9 +191,6 @@ class Points(Object3D):
             ],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
-
-    def create_acceleration_structure(self, r: Renderer) -> None:
-        pass
 
     def update_transform(self, parent: Optional[Object]) -> None:
         super().update_transform(parent)
@@ -717,16 +721,19 @@ class MarchingCubesMesh(Object3D):
         self.blocks_z = div_ceil(depth, BLOCK_SIZE_Z - 1)
         self.total_blocks = self.blocks_x * self.blocks_y * self.blocks_z
 
-        # TODO: implement an heurstic based on SDF area + some headroom
+        # Compute reasonable upper bounds on number of vertices and indices based on sdf area
+        area = (width * height + width * depth + height * depth) * 2
         if max_vertices is None:
-            max_vertices = 0
+            max_vertices = max(align_up(area * 2, 64), 1024)
         if max_indices is None:
-            max_indices = 0
+            max_indices = max(align_up(area * 8, 64), 4096)
 
         self.max_vertices = max_vertices
         self.max_indices = max_indices
 
         self._need_marching = True
+
+        self.sdf.update_callbacks.append(lambda _: self.invalidate_surface())
 
     def create(self, r: Renderer) -> None:
         assert self.material is not None
@@ -811,21 +818,39 @@ class MarchingCubesMesh(Object3D):
         self.positions_buf = Buffer(
             r.ctx,
             self.max_vertices * 12,
-            (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC | BufferUsageFlags.VERTEX),
+            (
+                BufferUsageFlags.STORAGE
+                | BufferUsageFlags.TRANSFER_SRC
+                | BufferUsageFlags.VERTEX
+                | BufferUsageFlags.SHADER_DEVICE_ADDRESS
+                | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
+            ),
             AllocType.DEVICE,
             name="marching-cubes-mesh-positions",
         )
         self.normals_buf = Buffer(
             r.ctx,
             self.max_vertices * 12,
-            (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC | BufferUsageFlags.VERTEX),
+            (
+                BufferUsageFlags.STORAGE
+                | BufferUsageFlags.TRANSFER_SRC
+                | BufferUsageFlags.VERTEX
+                | BufferUsageFlags.SHADER_DEVICE_ADDRESS
+                | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
+            ),
             AllocType.DEVICE,
             name="marching-cubes-mesh-normals",
         )
         self.indices_buf = Buffer(
             r.ctx,
             self.max_indices * 4,
-            (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC | BufferUsageFlags.INDEX),
+            (
+                BufferUsageFlags.STORAGE
+                | BufferUsageFlags.TRANSFER_SRC
+                | BufferUsageFlags.INDEX
+                | BufferUsageFlags.SHADER_DEVICE_ADDRESS
+                | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
+            ),
             AllocType.DEVICE,
             name="marching-cubes-mesh-indices",
         )
@@ -847,6 +872,44 @@ class MarchingCubesMesh(Object3D):
             march_set.write_buffer(self.positions_buf, DescriptorType.STORAGE_BUFFER, 3)
             march_set.write_buffer(self.normals_buf, DescriptorType.STORAGE_BUFFER, 4)
             march_set.write_buffer(self.indices_buf, DescriptorType.STORAGE_BUFFER, 5)
+
+    def append_acceleration_structure_instances(
+        self, instances: List[AccelerationStructureInstanceInfo], material_index: int
+    ) -> None:
+        # Assume marching cube results are available for readback.
+        mc_instance = self.marching_cubes_instance
+
+        vertices_counter_readback_buf = (
+            mc_instance.vertices_counter_readback_buf
+            if mc_instance.vertices_counter_readback_buf is not None
+            else mc_instance.vertices_counter_buf
+        )
+        vertices_arr = np.frombuffer(vertices_counter_readback_buf.data, np.uint32)
+        positions_count = vertices_arr[0]
+
+        indices_counter_readback_buf = (
+            mc_instance.indices_counter_readback_buf
+            if mc_instance.indices_counter_readback_buf is not None
+            else mc_instance.indices_counter_buf
+        )
+        indices_arr = np.frombuffer(indices_counter_readback_buf.data, np.uint32)
+        primitive_count = indices_arr[0] // 3
+
+        instances.append(
+            AccelerationStructureInstanceInfo(
+                self.constants["transform"],
+                self.constants["normal_matrix"],
+                positions_count,
+                self.positions_buf.address,
+                self.normals_buf.address,
+                0,
+                0,
+                primitive_count,
+                self.indices_buf.address,
+                material_index,
+                self.viewport_mask if self.viewport_mask is not None else 0xFF,
+            )
+        )
 
     def update_transform(self, parent: Optional[Object]) -> None:
         super().update_transform(parent)
@@ -879,6 +942,9 @@ class MarchingCubesMesh(Object3D):
             self.level,
             self.invert_normals,
         )
+
+    def invalidate_surface(self) -> None:
+        self._need_marching = True
 
     def post_upload(self, r: Renderer, frame: RendererFrame) -> None:
         if self._need_marching:
