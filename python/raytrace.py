@@ -29,7 +29,7 @@ window = Window(ctx, "Raytrace", 1280, 720)
 gui = Gui(window)
 
 # Pipeline
-SHADERS = Path(__file__).parent.parent.joinpath("shaders")
+SHADERS = Path(__file__).parent.parent.joinpath("apps", "shaders")
 class RaytracePipeline(Pipeline):
     rt_prog = Path(SHADERS, "raytrace.comp.slang")
 
@@ -119,7 +119,7 @@ for i, m in enumerate(scene.meshes):
         indices_address = indices_address + index_offset * 4,
         indices_type = IndexType.UINT32,
         primitive_count = m.indices.shape[0] // 3,
-        transform = tuple(sum(mat4x3(rot @ to_z_up @ m.transform).to_tuple(), ())),
+        transform = tuple(np.array(mat4x3(rot @ to_z_up @ m.transform), np.float32).flatten()),
     ))
 
     def mat_index(p: MaterialParameter):

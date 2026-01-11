@@ -1067,7 +1067,7 @@ class Renderer:
                             instance.indices_address,
                             IndexType.UINT32 if instance.indices_address else IndexType.NONE,
                             instance.primitive_count,
-                            tuple(instance.transform.T.flatten()),
+                            tuple(instance.transform.flatten()),
                             instance.viewport_mask,
                         )
                     )

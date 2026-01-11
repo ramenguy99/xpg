@@ -73,7 +73,7 @@ TODO:
         - [x] remove prints (also buffer address logs)
         - [x] fix gpu buffer usage assignment for device address and acc struct input
         - [x] Basic from other material types to unified
-        - [ ] Verify order of transform elements in AccelerationStructureMesh
+        - [x] Verify order of transform elements in AccelerationStructureMesh
         - [ ] Ensure all meshes returned in geometry have consistent winding order (check what is considered canonical)
     - [ ] Upstream:
         - [ ] Mixing indexed and non-indexed geometry triggers (apparently false positive) validation layer error
