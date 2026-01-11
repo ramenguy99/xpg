@@ -124,6 +124,7 @@ def _create_image_view(
     ctx: Context,
     width: int,
     height: int,
+    depth: int,
     format: Format,
     usage_flags: ImageUsageFlags,
     srgb: bool,
@@ -136,6 +137,7 @@ def _create_image_view(
 
     mip_levels = 1
     if mips:
+        assert depth == 1
         mip_levels = max(width.bit_length(), height.bit_length())
         usage_flags |= ImageUsageFlags.STORAGE
 
@@ -146,6 +148,7 @@ def _create_image_view(
         format,
         usage_flags,
         AllocType.DEVICE,
+        depth=depth,
         mip_levels=mip_levels,
         create_flags=image_create_flags,
         name=name,
@@ -155,7 +158,7 @@ def _create_image_view(
         srgb_view = ImageView(
             ctx,
             img,
-            ImageViewType.TYPE_2D,
+            ImageViewType.TYPE_2D if depth == 1 else ImageViewType.TYPE_3D,
             to_srgb_format(format),
             usage_flags=ImageUsageFlags.SAMPLED,
             name=f"{name}-srgb",
@@ -818,6 +821,7 @@ class GpuImagePreuploadedProperty(GpuPreuploadedProperty[Image, GpuImageView]):
 
         self.width = property.width
         self.height = property.height
+        self.depth = property.depth if property.depth is not None else 1
         self.format = property.format
         self.layout = property.gpu_layout
         self.pipeline_stage_flags = property.gpu_stage
@@ -830,7 +834,7 @@ class GpuImagePreuploadedProperty(GpuPreuploadedProperty[Image, GpuImageView]):
         self.pitch, self.rows, _ = get_image_pitch_rows_and_texel_size(self.width, self.height, self.format)
 
         super().__init__(
-            self.pitch * self.rows,
+            self.depth * self.pitch * self.rows,
             False,  # batching is not supported for images
             renderer,
             renderer.image_upload_method,
@@ -863,7 +867,15 @@ class GpuImagePreuploadedProperty(GpuPreuploadedProperty[Image, GpuImageView]):
 
     def _create_preuploaded_resource_and_view_for_frame(self, frame: NDArray[Any]) -> Tuple[Image, GpuImageView]:
         view = _create_image_view(
-            self.renderer.ctx, self.width, self.height, self.format, self.usage_flags, self.srgb, self.mips, self.name
+            self.renderer.ctx,
+            self.width,
+            self.height,
+            self.depth,
+            self.format,
+            self.usage_flags,
+            self.srgb,
+            self.mips,
+            self.name,
         )
         img = view.image
 
@@ -1444,6 +1456,7 @@ class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
 
         self.width = property.width
         self.height = property.height
+        self.depth = property.depth if property.depth is not None else 1
         self.format = property.format
         self.layout = property.gpu_layout
         self.srgb = property.gpu_srgb
@@ -1451,6 +1464,7 @@ class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
 
         self.spd_pipeline_instance = None
         if self.mips:
+            assert self.depth == 1
             mip_levels = max(self.width.bit_length(), self.height.bit_length())
             self.spd_pipeline_instance = renderer.spd_pipeline.alloc_instance(renderer, False) if self.mips else None
             self.spd_pipeline_instance.set_image_extents(self.width, self.height, mip_levels)
@@ -1467,11 +1481,21 @@ class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
 
     # Private API
     def _create_cpu_buffer(self, name: str) -> Buffer:
-        return Buffer(self.renderer.ctx, self.pitch * self.rows, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST, name)
+        return Buffer(
+            self.renderer.ctx, self.depth * self.pitch * self.rows, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST, name
+        )
 
     def _create_gpu_resource(self, name: str) -> GpuImageView:
         return _create_image_view(
-            self.renderer.ctx, self.width, self.height, self.format, self.usage_flags, self.srgb, self.mips, name
+            self.renderer.ctx,
+            self.width,
+            self.height,
+            self.depth,
+            self.format,
+            self.usage_flags,
+            self.srgb,
+            self.mips,
+            name,
         )
 
     def _append_mip_generation_request(self, frame: RendererFrame, resource: GpuImageView) -> None:

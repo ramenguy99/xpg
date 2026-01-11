@@ -24,6 +24,8 @@ from pyxpg import (
     Format,
     FrontFace,
     GraphicsPipeline,
+    ImageLayout,
+    ImageUsageFlags,
     InputAssembly,
     MemoryUsage,
     PipelineStage,
@@ -40,13 +42,14 @@ from pyxpg import (
 
 from .geometry import concatenate_meshes, create_arrow, create_sphere, transform_mesh
 from .gpu_sorting import GpuSortingPipeline, SortDataType, SortOptions
+from .marching_cubes import BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z, MarchingCubesPipeline
 from .materials import ColorMaterial, DiffuseMaterial, Material
 from .property import BufferProperty, ImageProperty, as_image_property
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object, Object3D
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
-from .utils.gpu import AccelerationStructureInstanceInfo, cull_mode_opposite_face, div_round_up, view_bytes
+from .utils.gpu import AccelerationStructureInstanceInfo, cull_mode_opposite_face, div_ceil, div_round_up, view_bytes
 from .viewport import Viewport
 
 
@@ -654,6 +657,264 @@ class Mesh(Object3D):
             frame.cmd.draw_indexed(indices.size // 4, num_instances)
         else:
             frame.cmd.draw(positions.size // 12, num_instances)
+
+
+class MarchingCubesMesh(Object3D):
+    def __init__(
+        self,
+        sdf: ImageProperty,
+        size: Tuple[float, float, float],
+        level: float = 0.0,
+        invert_normals: bool = False,
+        max_vertices: Optional[int] = None,
+        max_indices: Optional[int] = None,
+        material: Optional[Material] = None,
+        name: Optional[str] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
+    ):
+        self.constants_dtype = np.dtype(
+            {
+                "transform": (np.dtype((np.float32, (3, 4))), 0),
+                "normal_matrix": (np.dtype((np.float32, (3, 4))), 48),
+            }
+        )  # type: ignore
+        self.constants = np.zeros((1,), self.constants_dtype)
+
+        if material is None:
+            material = DiffuseMaterial((0.5, 0.5, 0.5))
+
+        super().__init__(
+            name,
+            translation,
+            rotation,
+            scale,
+            material,
+            enabled,
+            viewport_mask,
+        )
+
+        self.size = size
+        self.level = level
+        self.invert_normals = invert_normals
+
+        # Add properties
+        self.sdf = self.add_image_property(sdf, is_3d=True, name="sdf").use_gpu(
+            ImageUsageFlags.STORAGE,
+            ImageLayout.GENERAL,
+            PipelineStageFlags.COMPUTE_SHADER,
+        )
+
+        if self.sdf.depth is None:
+            raise RuntimeError("sdf must be a 3D image")
+
+        width, height, depth = self.sdf.width, self.sdf.height, self.sdf.depth
+        self.blocks_x = div_ceil(width, BLOCK_SIZE_X - 1)
+        self.blocks_y = div_ceil(height, BLOCK_SIZE_Y - 1)
+        self.blocks_z = div_ceil(depth, BLOCK_SIZE_Z - 1)
+        self.total_blocks = self.blocks_x * self.blocks_y * self.blocks_z
+
+        # TODO: implement an heurstic based on SDF area + some headroom
+        if max_vertices is None:
+            max_vertices = 0
+        if max_indices is None:
+            max_indices = 0
+
+        self.max_vertices = max_vertices
+        self.max_indices = max_indices
+
+        self._need_marching = True
+
+    def create(self, r: Renderer) -> None:
+        assert self.material is not None
+        defines: List[Tuple[str, str]] = [
+            ("VERTEX_NORMALS", "1"),
+        ]
+        defines.extend(self.material.shader_defines)
+
+        depth_defines: List[Tuple[str, str]] = []
+        vertex_bindings = [
+            VertexBinding(0, 12, VertexInputRate.VERTEX),
+            VertexBinding(1, 12, VertexInputRate.VERTEX),
+        ]
+        vertex_attributes = [
+            VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
+            VertexAttribute(1, 1, Format.R32G32B32_SFLOAT),
+        ]
+
+        depth_vertex_bindings = [
+            VertexBinding(0, 12, VertexInputRate.VERTEX),
+        ]
+        depth_vertex_attributes = [
+            VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
+        ]
+
+        vert = r.compile_builtin_shader("3d/mesh.slang", "vertex_main", defines=defines)
+        frag = r.compile_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
+
+        self.pipeline = GraphicsPipeline(
+            r.ctx,
+            stages=[
+                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+            ],
+            vertex_bindings=vertex_bindings,
+            vertex_attributes=vertex_attributes,
+            rasterization=Rasterization(cull_mode=CullMode.NONE),
+            input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
+            samples=r.msaa_samples,
+            attachments=[Attachment(format=r.output_format)],
+            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+                self.material.descriptor_set_layout,
+            ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
+        )
+
+        depth_vert = r.compile_builtin_shader("3d/mesh_depth.slang", "vertex_main", defines=depth_defines)
+        self.depth_pipeline = GraphicsPipeline(
+            r.ctx,
+            stages=[
+                PipelineStage(Shader(r.ctx, depth_vert.code), Stage.VERTEX),
+            ],
+            vertex_bindings=depth_vertex_bindings,
+            vertex_attributes=depth_vertex_attributes,
+            rasterization=Rasterization(cull_mode=CullMode.NONE),
+            input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
+            attachments=[],
+            depth=Depth(r.shadow_map_format, True, True, r.depth_compare_op),
+            descriptor_set_layouts=[
+                r.scene_depth_descriptor_set_layout,
+            ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype["transform"].itemsize)],
+        )
+
+        self.blocks_buf = Buffer(
+            r.ctx,
+            self.total_blocks * 4,
+            (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC),
+            AllocType.DEVICE,
+            name="marching-cubes-mesh-blocks",
+        )
+        self.valid_blocks_buf = Buffer(
+            r.ctx,
+            self.total_blocks * 4,
+            (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC),
+            AllocType.DEVICE,
+            name="marching-cubes-mesh-valid-blocks",
+        )
+
+        self.positions_buf = Buffer(
+            r.ctx,
+            self.max_vertices * 12,
+            (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC | BufferUsageFlags.VERTEX),
+            AllocType.DEVICE,
+            name="marching-cubes-mesh-positions",
+        )
+        self.normals_buf = Buffer(
+            r.ctx,
+            self.max_vertices * 12,
+            (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC | BufferUsageFlags.VERTEX),
+            AllocType.DEVICE,
+            name="marching-cubes-mesh-normals",
+        )
+        self.indices_buf = Buffer(
+            r.ctx,
+            self.max_indices * 4,
+            (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC | BufferUsageFlags.INDEX),
+            AllocType.DEVICE,
+            name="marching-cubes-mesh-indices",
+        )
+
+        self.marching_cubes_pipeline = MarchingCubesPipeline(r)
+        self.marching_cubes_instance = self.marching_cubes_pipeline.alloc_instance(r)
+
+        instance = self.marching_cubes_instance
+
+        for check_set, compact_set, march_set in zip(
+            instance.check_descriptor_sets, instance.compact_descriptor_sets, instance.march_descriptor_sets
+        ):
+            check_set.write_buffer(self.blocks_buf, DescriptorType.STORAGE_BUFFER, 1)
+
+            compact_set.write_buffer(self.blocks_buf, DescriptorType.STORAGE_BUFFER, 0)
+            compact_set.write_buffer(self.valid_blocks_buf, DescriptorType.STORAGE_BUFFER, 2)
+
+            march_set.write_buffer(self.valid_blocks_buf, DescriptorType.STORAGE_BUFFER, 1)
+            march_set.write_buffer(self.positions_buf, DescriptorType.STORAGE_BUFFER, 3)
+            march_set.write_buffer(self.normals_buf, DescriptorType.STORAGE_BUFFER, 4)
+            march_set.write_buffer(self.indices_buf, DescriptorType.STORAGE_BUFFER, 5)
+
+    def update_transform(self, parent: Optional[Object]) -> None:
+        super().update_transform(parent)
+        self.constants["transform"] = mat4x3(self.current_transform_matrix)
+        self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3(self.current_transform_matrix)))
+
+    def _march(self, r: Renderer, frame: RendererFrame) -> None:
+        sdf_view = self.sdf.get_current_gpu().view()
+        self.marching_cubes_instance.check_descriptor_sets.get_current().write_image(
+            sdf_view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0
+        )
+        self.marching_cubes_instance.march_descriptor_sets.get_current().write_image(
+            sdf_view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0
+        )
+
+        assert self.sdf.depth is not None
+        self.marching_cubes_pipeline.run(
+            frame.cmd,
+            self.sdf.width,
+            self.sdf.height,
+            self.sdf.depth,
+            self.blocks_x,
+            self.blocks_y,
+            self.blocks_z,
+            self.total_blocks,
+            self.max_vertices,
+            self.max_indices,
+            self.marching_cubes_instance,
+            self.size,
+            self.level,
+            self.invert_normals,
+        )
+
+    def post_upload(self, r: Renderer, frame: RendererFrame) -> None:
+        if self._need_marching:
+            self._march(r, frame)
+            self._need_marching = False
+
+    def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        frame.cmd.bind_graphics_pipeline(
+            self.depth_pipeline,
+            vertex_buffers=[self.positions_buf],
+            index_buffer=self.indices_buf,
+            descriptor_sets=[
+                scene_descriptor_set,
+            ],
+            push_constants=self.constants["transform"].tobytes(),
+        )
+
+        frame.cmd.draw_indexed_indirect(self.marching_cubes_instance.indices_counter_buf, 0, 1, 20)
+
+    def render(
+        self, r: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
+        assert self.material is not None
+
+        frame.cmd.bind_graphics_pipeline(
+            self.pipeline,
+            vertex_buffers=[self.positions_buf, self.normals_buf],
+            index_buffer=self.indices_buf,
+            descriptor_sets=[
+                scene_descriptor_set,
+                self.material.descriptor_set,
+            ],
+            push_constants=self.constants.tobytes(),
+        )
+
+        frame.cmd.draw_indexed_indirect(self.marching_cubes_instance.indices_counter_buf, 0, 1, 20)
 
 
 class Sphere(Mesh):

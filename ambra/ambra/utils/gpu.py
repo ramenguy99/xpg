@@ -137,6 +137,7 @@ class BulkUploader:
         pitch_alignment = max(self.ctx.device_properties.limits.optimal_buffer_copy_row_pitch_alignment, 16)
 
         # State of current upload
+        start_image_plane = 0
         start_image_row = 0
         start_buffer_offset = 0
 
@@ -190,15 +191,18 @@ class BulkUploader:
                         input_pitch, total_rows, texel_size = get_image_pitch_rows_and_texel_size(
                             info.image.width, info.image.height, info.image.format
                         )
-                        if input_pitch * total_rows != len(info.data):
+                        total_planes = info.image.depth
+                        if input_pitch * total_rows * total_planes != len(info.data):
                             # print(type(info.data), info.data.shape)
                             raise ValueError(
-                                f"ImageUploadInfo data size ({len(info.data)}) does not match pitch and rows ({input_pitch} x {total_rows} = {input_pitch * total_rows})"
+                                f"ImageUploadInfo data size ({len(info.data)}) does not match pitch and rows ({input_pitch} x {total_rows} x {total_planes} = {input_pitch * total_rows * total_planes})"
                             )
 
                         # Adjust rows by number of rows already uploaded and align pitch
                         rows = total_rows - start_image_row
                         pitch = align_up(input_pitch, pitch_alignment)
+                        plane_size = pitch * rows
+                        planes = total_planes - start_image_plane
 
                         if pitch > state.buffer.size:
                             raise RuntimeError(
@@ -210,28 +214,39 @@ class BulkUploader:
                             break
 
                         # Compute how many rows we are actually uploading in this command
-                        fitting_rows = min(rows, remaining_size // pitch)
-                        fitting_size = fitting_rows * pitch
 
-                        # print(f"    Image  {i:3} - offset {offset:12} - pitch {pitch:12} - rows {rows:12} - remaining_size {remaining_size:12} - fitting_rows {fitting_rows:12} - fitting_size {fitting_size:12} - start_image_row {start_image_row:12} - pitch alignment {pitch_alignment}")
+                        # Do 2D copy if we are in middle of a plane or less than one plane fits in the buffer
+                        if start_image_row != 0 or remaining_size <= plane_size:
+                            fitting_rows = min(rows, remaining_size // pitch)
+                            fitting_planes = 1
+                        else:
+                            fitting_rows = total_rows
+                            fitting_planes = min(planes, remaining_size // plane_size)
+
+                        fitting_size = fitting_planes * fitting_rows * pitch
+                        # print(f"    Image  {i:3} - offset {offset:12} - pitch {pitch:12} - rows {rows:12} - planes {planes:12} - remaining_size {remaining_size:12} - fitting_rows {fitting_rows:12} - fitting planes {fitting_planes:12} - fitting_size {fitting_size:12} - start_image_row {start_image_row:12} - start_image_plane {start_image_plane} - pitch alignment {pitch_alignment}")
 
                         # Copy image data to staging buffer expanding to correct pitch
                         upload_buffer_range = state.buffer.data[offset : offset + fitting_size]
                         # print(upload_buffer_range.shape, info.data.shape)
-                        upload_buffer_2d_view = np.frombuffer(upload_buffer_range, np.uint8).reshape(
-                            (fitting_rows, pitch)
+                        upload_buffer_3d_view = np.frombuffer(upload_buffer_range, np.uint8).reshape(
+                            (fitting_planes, fitting_rows, pitch)
                         )
-                        data_buffer_2d_view = np.frombuffer(info.data, np.uint8).reshape((total_rows, input_pitch))
+                        data_buffer_3d_view = np.frombuffer(info.data, np.uint8).reshape(
+                            (total_planes, total_rows, input_pitch)
+                        )
 
-                        # print(upload_buffer_2d_view.shape, data_buffer_2d_view.shape)
+                        # print(upload_buffer_3d_view.shape, data_buffer_3d_view.shape)
 
                         # TODO: correctly handle block formats here, need to think about data shape looks for those
-                        upload_buffer_2d_view[:, :input_pitch] = data_buffer_2d_view[
-                            start_image_row : start_image_row + fitting_rows, :input_pitch
+                        upload_buffer_3d_view[:, :input_pitch] = data_buffer_3d_view[
+                            start_image_plane : start_image_plane + fitting_planes,
+                            start_image_row : start_image_row + fitting_rows,
+                            :input_pitch,
                         ]
 
                         # Tranisition to TRANSFER_DST_OPTIMAL if first upload
-                        if start_image_row == 0:
+                        if start_image_plane == 0 and start_image_row == 0:
                             cmd.image_barrier(
                                 info.image,
                                 ImageLayout.TRANSFER_DST_OPTIMAL,
@@ -250,9 +265,15 @@ class BulkUploader:
                             start_image_row,
                             offset,
                             pitch // texel_size,
+                            0,
+                            fitting_planes,
+                            start_image_plane,
                         )
 
-                        if start_image_row + fitting_rows == total_rows:
+                        if (
+                            start_image_plane + fitting_planes == total_planes
+                            and start_image_row + fitting_rows == total_rows
+                        ):
                             # Transition to final layout if last upload
                             final_layout = info.layout
 
@@ -263,8 +284,15 @@ class BulkUploader:
 
                             cmd.image_barrier(info.image, final_layout, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE)
                             i += 1
+                            start_image_plane = 0
                             start_image_row = 0
                             total_bytes_uploaded += total_rows * pitch
+                        elif start_image_row + fitting_rows == total_rows:
+                            start_image_row = 0
+                            start_image_plane += fitting_planes
+                            # If we are uploading full planes and the image is not done break to not upload a partial plane
+                            if start_image_plane < total_planes:
+                                break
                         else:
                             start_image_row += fitting_rows
                     else:

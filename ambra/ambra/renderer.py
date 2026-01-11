@@ -921,6 +921,10 @@ class Renderer:
                 image_barriers=f.upload_after_image_barriers,
             )
 
+        # Stage: post upload
+        for o in enabled_objects:
+            o.post_upload(self, f)
+
         # Create and upload path tracing acceleration structures
         if path_tracing:
             assert self.path_tracer is not None

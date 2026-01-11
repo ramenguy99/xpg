@@ -13,12 +13,16 @@ Priority:
     - [ ] Skip GLFW init if no presentation requested (fails if no compositor found)
 
 TODO:
-- [ ] Subgroups:
-    - [ ] Allow forcing subgroup size (if supported) when creating compute pipelines (or maybe arbitrary shaders too)
+- [x] Subgroups:
+    - [x] Allow forcing subgroup size (if supported) when creating compute pipelines (or maybe arbitrary shaders too)
 - [ ] Marching cubes:
-    - [ ] Start with algorithm broken down in steps
-    - [ ] Allow dry run with readback of actual triangle and vertex count
-    - [ ] Allow direct run with preallocated buffers
+    - [x] Start with algorithm broken down in steps
+    - [x] Allow dry run with readback of actual triangle and vertex count
+    - [x] Allow direct run with preallocated buffers
+    - [ ] MarchingCubeMesh primitive:
+        - [x] Need support for 3D image property (might be good to add anyway)
+        - [ ] Invalidation of vertices on volume / level change
+        - [ ] Path tracer support (likely need synchronous readback of number of vertices / indices)
 - [ ] Gpu-generated properties:
     - Very general approach with dependency graph and task run etc..
         - Not sure yet how to make this general and useful enough
@@ -26,6 +30,8 @@ TODO:
     - Case specific escape hatch approach by subclassing Property / GpuProperty with limited subset of functionality
     - GpuOnlyProperty (no CPU access without readback) + DrawIndirect for Mesh -> mesh has a lot of stuff now, not sure if should add more or somehow split / refactor
         - This seems like a generally useful thing / escape hatch to have
+    - Somehow related (but kind of opposite) to Cpu-only property where there is only a single copy of the data but on the CPU that
+      the GPU can also use (might have to limit CPU usage of this / make this read-only to ensure synchronization between CPU/GPU).
 - [ ] Path tracer:
     - [ ] Features:
         - [x] Samples per frame

@@ -10,6 +10,7 @@ from pyxpg import (
     AllocType,
     Buffer,
     BufferUsageFlags,
+    CommandBuffer,
     ComputePipeline,
     DescriptorPool,
     DescriptorSet,
@@ -247,10 +248,14 @@ class MarchingCubesPipeline:
         else:
             vertices_counter_readback_buf = None
 
+        # Allocate additional elements for use as draw indexed indirect argument
         indices_counter_buf = Buffer.from_data(
             r.ctx,
-            view_bytes(np.zeros((1,), np.uint32)),
-            BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.TRANSFER_SRC,
+            view_bytes(np.array([0, 1, 0, 0, 0], np.uint32)),
+            BufferUsageFlags.STORAGE
+            | BufferUsageFlags.TRANSFER_DST
+            | BufferUsageFlags.TRANSFER_SRC
+            | BufferUsageFlags.INDIRECT,
             AllocType.DEVICE_MAPPED_WITH_FALLBACK,
             name="marching-cubes-indices-counter",
         )
@@ -289,6 +294,88 @@ class MarchingCubesPipeline:
             indices_counter_buf,
             vertices_counter_readback_buf,
             indices_counter_readback_buf,
+        )
+
+    def run(
+        self,
+        cmd: CommandBuffer,
+        width: int,
+        height: int,
+        depth: int,
+        blocks_x: int,
+        blocks_y: int,
+        blocks_z: int,
+        total_blocks: int,
+        max_vertices: int,
+        max_indices: int,
+        instance: MarchingCubesPipelineInstance,
+        size: Tuple[float, float, float],
+        level: float = 0.0,
+        invert_normals: bool = False,
+    ) -> None:
+        instance.check_constants["level"] = level
+        instance.check_constants["num_blocks_x"] = blocks_x
+        instance.check_constants["num_blocks_y"] = blocks_y
+
+        instance.compact_constants["num_blocks"] = total_blocks
+
+        instance.march_constants["level"] = level
+        instance.march_constants["num_blocks_x"] = blocks_x
+        instance.march_constants["num_blocks_y"] = blocks_y
+        instance.march_constants["invert_normals"] = invert_normals
+        instance.march_constants["volume_spacing"] = (size[0] / width, size[1] / height, size[2] / depth)
+        instance.march_constants["max_vertices"] = max_vertices
+        instance.march_constants["max_indices"] = max_indices
+
+        check_set = instance.check_descriptor_sets.get_current_and_advance()
+        compact_set = instance.compact_descriptor_sets.get_current_and_advance()
+        march_set = instance.march_descriptor_sets.get_current_and_advance()
+
+        cmd.bind_compute_pipeline(
+            self.check_pipeline, descriptor_sets=[check_set], push_constants=instance.check_constants.tobytes()
+        )
+        cmd.dispatch(blocks_x, blocks_y, blocks_z)
+
+        cmd.fill_buffer(instance.valid_blocks_counter_buf, 0, 4)
+
+        cmd.memory_barrier_full(
+            MemoryBarrier(
+                src_stage=PipelineStageFlags.COMPUTE_SHADER | PipelineStageFlags.TRANSFER,
+                dst_stage=PipelineStageFlags.COMPUTE_SHADER,
+            )
+        )
+
+        cmd.bind_compute_pipeline(
+            self.compact_pipeline,
+            descriptor_sets=[compact_set],
+            push_constants=instance.compact_constants.tobytes(),
+        )
+        cmd.dispatch(div_ceil(total_blocks, COMPACT_GROUP_SIZE), 1, 1)
+
+        cmd.fill_buffer(instance.vertices_counter_buf, 0, 4)
+        cmd.fill_buffer(instance.indices_counter_buf, 0, 4)
+
+        cmd.memory_barrier_full(
+            MemoryBarrier(
+                src_stage=PipelineStageFlags.COMPUTE_SHADER | PipelineStageFlags.TRANSFER,
+                dst_stage=PipelineStageFlags.COMPUTE_SHADER | PipelineStageFlags.DRAW_INDIRECT,
+            )
+        )
+
+        cmd.bind_compute_pipeline(
+            self.march_pipeline,
+            descriptor_sets=[march_set],
+            push_constants=instance.march_constants.tobytes(),
+        )
+        cmd.dispatch_indirect(instance.valid_blocks_counter_buf, 0)
+
+        cmd.memory_barrier_full(
+            MemoryBarrier(
+                src_stage=PipelineStageFlags.COMPUTE_SHADER,
+                dst_stage=PipelineStageFlags.DRAW_INDIRECT
+                | PipelineStageFlags.VERTEX_INPUT
+                | PipelineStageFlags.INDEX_INPUT,
+            )
         )
 
     def run_sync(
@@ -356,7 +443,14 @@ class MarchingCubesPipeline:
             )
             cmd.dispatch(blocks_x, blocks_y, blocks_z)
 
-            cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+            cmd.fill_buffer(instance.valid_blocks_counter_buf, 0, 4)
+
+            cmd.memory_barrier_full(
+                MemoryBarrier(
+                    src_stage=PipelineStageFlags.COMPUTE_SHADER | PipelineStageFlags.TRANSFER,
+                    dst_stage=PipelineStageFlags.COMPUTE_SHADER,
+                )
+            )
 
             cmd.bind_compute_pipeline(
                 self.compact_pipeline,
@@ -393,7 +487,7 @@ class MarchingCubesPipeline:
             if instance.vertices_counter_readback_buf is not None:
                 cmd.copy_buffer(instance.vertices_counter_buf, instance.vertices_counter_readback_buf)
             if instance.indices_counter_readback_buf is not None:
-                cmd.copy_buffer(instance.indices_counter_buf, instance.indices_counter_readback_buf)
+                cmd.copy_buffer_range(instance.indices_counter_buf, instance.indices_counter_readback_buf, 4)
 
             # Ensure copy is done before clearing counter
             if instance.vertices_counter_readback_buf is not None or instance.indices_counter_readback_buf is not None:

@@ -72,9 +72,10 @@ class Object:
     def add_image_property(
         self,
         prop: Union[ImageProperty, List[ArrayLike], ArrayLike],
+        is_3d: bool = False,
         name: str = "",
     ) -> ImageProperty:
-        property = as_image_property(prop, name)
+        property = as_image_property(prop, is_3d, name=name)
         self.properties.append(property)
         return property
 
@@ -106,6 +107,9 @@ class Object:
         pass
 
     def upload(self, renderer: "Renderer", frame: RendererFrame) -> None:
+        pass
+
+    def post_upload(self, renderer: "Renderer", frame: RendererFrame) -> None:
         pass
 
     def append_acceleration_structure_instances(

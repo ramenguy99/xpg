@@ -487,6 +487,7 @@ class ImageProperty(Property):
         height: int,
         format: Format,
         num_frames: int,
+        depth: Optional[int] = None,
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
         name: str = "",
@@ -494,6 +495,7 @@ class ImageProperty(Property):
         super().__init__(num_frames, animation, upload, name)
         self.width = width
         self.height = height
+        self.depth = depth
         self.format = format
 
         self.gpu_property: Optional[gpu_property_mod.GpuProperty[gpu_property_mod.GpuImageView]] = None
@@ -530,6 +532,9 @@ class ImageProperty(Property):
     # Renderer API
     def create(self, r: "Renderer") -> None:
         if self.gpu_usage and self.gpu_property is None:
+            if self.gpu_mips and self.depth is not None:
+                raise RuntimeError("mips are not supported on 3D ImageProperty")
+
             if self.upload.preupload:
                 self.gpu_property = gpu_property_mod.GpuImagePreuploadedProperty(r, self, self.name)
             else:
@@ -764,17 +769,23 @@ class ArrayImageProperty(ImageProperty):
         name: str = "",
     ):
         data = np.asarray(in_data, order="C")
-        if len(data.shape) != 4:
+
+        if len(data.shape) == 4:
+            height, width, channels = data.shape[1:4]
+            depth = None
+            if format is None:
+                format = format_from_channels_dtype(channels, data.dtype)
+            else:
+                # TODO: check that format is compatible with data (maybe allow some conversions?)
+                pass
+        elif len(data.shape) == 5:
+            depth, height, width, channels = data.shape[1:5]
+            if format is None:
+                format = format_from_channels_dtype(channels, data.dtype)
+        else:
             raise ShapeError((-1, -1, -1), data.shape)
 
-        height, width, channels = data.shape[1:4]
-        if format is None:
-            format = format_from_channels_dtype(channels, data.dtype)
-        else:
-            # TODO: check that format is compatible with data (maybe allow some conversions?)
-            pass
-
-        super().__init__(width, height, format, len(data), animation, upload, name)
+        super().__init__(width, height, format, len(data), depth, animation, upload, name)
         self.data = data
 
     # Public API
@@ -850,7 +861,7 @@ class ListImageProperty(ImageProperty):
         property_dtype: DTypeLike = None
         for i in range(len(data)):
             a = np.asarray(data[i], property_dtype, order="C")
-            if len(a.shape) != 3:
+            if len(a.shape) != 3 or len(a.shape) != 4:
                 raise ShapeError((-1, -1, -1), a.shape)
             if property_shape is None:
                 property_shape = a.shape
@@ -863,14 +874,21 @@ class ListImageProperty(ImageProperty):
                 property_dtype = a.dtype
             property_data.append(a)
 
-        height, width, channels = property_data[0].shape[:3]
-        if format is None:
-            format = format_from_channels_dtype(channels, property_data[0].dtype)
+        if len(property_data[0].shape) == 3:
+            height, width, channels = property_data[0].shape
+            depth = None
+            if format is None:
+                format = format_from_channels_dtype(channels, property_data[0].dtype)
+            else:
+                # TODO: check that format is compatible with data (maybe allow some conversions?)
+                pass
         else:
-            # TODO: check that format is compatible with data (maybe allow some conversions?)
-            pass
+            assert len(property_data[0].shape) == 4
+            depth, height, width, channels = property_data[0].shape
+            if format is None:
+                format = format_from_channels_dtype(channels, property_data[0].dtype)
 
-        super().__init__(width, height, format, len(property_data), animation, upload, name)
+        super().__init__(width, height, format, len(property_data), depth, animation, upload, name)
         self.data = property_data
 
     # Public API
@@ -974,6 +992,7 @@ def as_buffer_property(
 
 def as_image_property(
     value: Union[ImageProperty, List[ArrayLike], ArrayLike],
+    is_3d: bool = False,
     name: str = "",
 ) -> ImageProperty:
     if isinstance(value, ImageProperty):
@@ -984,13 +1003,20 @@ def as_image_property(
         return ListImageProperty(value, None, name=name)
     else:
         data = np.asarray(value)
-        if data.ndim == 3:
+        if is_3d:
+            dims = 3
+        else:
+            dims = 2
+
+        if data.ndim == dims:
+            # Implicitly add animation and channel dimension
+            data = data[np.newaxis, ..., np.newaxis]
+        elif data.ndim == dims + 1:
             # Implicitly add animation dimension
             data = data[np.newaxis]
-        elif data.ndim == 4:
+        elif data.ndim == dims + 2:
             # Shape already matches
             pass
         else:
             raise ShapeError((-1, -1, -1), data.shape)
-
         return ArrayImageProperty(data, None, name=name)
