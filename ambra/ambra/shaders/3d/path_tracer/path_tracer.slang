@@ -307,8 +307,8 @@ void main(uint3 thread_idx : SV_DispatchThreadID)
                     metallic = material.metallic;
                 }
 
-                // TODO: special case roughness < threshold (0.05) as full specular hit (with albedo)
-                roughness = max(roughness, 0.05);
+                // TODO: special case roughness < threshold as full specular hit (with albedo)
+                roughness = max(roughness, 0.03);
 
                 float alpha = square(roughness);
                 float3 wo = to_local(frame, -ray.Direction);
@@ -392,7 +392,15 @@ void main(uint3 thread_idx : SV_DispatchThreadID)
     }
 
     if (final_color.w > 0) {
-        output[thread_idx.xy] = float4(linear_to_srgb(final_color.rgb / final_color.w), 1.0);
+        float3 c = final_color.rgb / final_color.w;
+
+        // Tonemapping
+        c = c / (c + 1.0);
+
+        // Linear to srgb
+        c = linear_to_srgb(c);
+
+        output[thread_idx.xy] = float4(c, 1.0);
     } else {
         output[thread_idx.xy] = float4(0.0, 0.0, 0.0, 1.0);
     }

@@ -40,6 +40,8 @@ TODO:
         - [x] Do not wait for events if any viewport still has samples to render
         - [x] Viewport masks (using instance masks in acceleration structures)
         - [x] Maybe rethink inconsistencies with background / environment between raster and ray (maybe even user selectable, sometimes good uses for both)
+        - [ ] No simple way to distinguish background or not background when doing tonemapping. Now we get tonemapped background.
+              The best solution would be to do proper alpha and apply background only depending on transparency.
         - [ ] All invalidation cases (at least camera and handling of playback + user provided)
             - [ ] Camera projection changes (only looking at transform atm)
             - [ ] Playback now freezes scene but continues (at least stop on trace and switch back to raster on resume)
@@ -52,15 +54,15 @@ TODO:
         - [ ] More renderables
         - [ ] Compositing with raster primitives
         - [ ] Add denoising using oidn -> requires HDR output and could use AOVs
-    - [ ] Bugs:
+    - [x] Bugs:
         - [x] issue with normals
         - [x] slight camera misalignment when toggling raster and path tracer
         - [x] camera_transform comparison is now instance not value (implement eq or maybe dataclass already doing the right thing?)
         - [x] empty acceleration structure crashes
         - [x] Invalidate accumulation on viewport resize
         - [x] Zoom is broken (backwards) due to change in camera forward (double check with pbr_model?)
-        - [ ] Small difference between raster and raytraced in diffuse + delta light case (likely material difference or tonemapping)
-        - [ ] Difference in specular reflection between raster and raytraced
+        - [x] Small difference between raster and raytraced in diffuse + delta light case (likely material difference or tonemapping)
+        - [x] Difference in specular reflection between raster and raytraced
     - [x] Testing:
         - [x] multiviewport
         - [x] directional lights and shadows

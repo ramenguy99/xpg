@@ -4,6 +4,7 @@
 module scene;
 
 public static const float PI = 3.1415926535897932384626433832795f;
+public static const float INV_PI = 0.31830988618379067154f;
 
 public struct LightEvaluation {
     public float3 L;
@@ -154,7 +155,7 @@ public struct DiffuseMaterial : IMaterial
         for (uint32_t i = 0; i < g_constants.directional_lights_count; i++) {
             LightEvaluation light = g_directional_lights[i].eval(world_position, N);
             float cosine = max(dot(light.direction, N), 0.0);
-            outgoing_radiance += cosine * diffuse * light.L;
+            outgoing_radiance += cosine * INV_PI * diffuse * light.L;
         }
 
         float3 irradiance = 0.0;
@@ -229,7 +230,7 @@ public struct DiffuseSpecularMaterial : IMaterial
             float specular = pow(max(dot(N, half), 0.0f), specular_exponent) * specular_strength;
             float cosine = max(dot(light.direction, N), 0.0);
 
-            outgoing_radiance += ((cosine * diffuse) + lerp(1.0, diffuse, specular_tint) * specular) * light.L;
+            outgoing_radiance += ((cosine * INV_PI * diffuse) + lerp(1.0, diffuse, specular_tint) * specular) * light.L;
         }
 
         float3 irradiance = 0.0;
@@ -311,10 +312,10 @@ float3 eval_roughness_metallic_brdf(float3 N, float3 V, float3 L, float3 Albedo,
 
     float3 kS = F;
     float3 kD = float3(1.0f, 1.0f, 1.0f) - kS;
-    kD *= 1.0f - Metallic;
+    kD *= (1.0f - Metallic) * INV_PI;
 
     float NdotL = max(dot(N, L), 0.0f);
-    float3 brdf = (kD * Albedo / PI + Specular) * NdotL;
+    float3 brdf = (kD * Albedo + Specular) * NdotL;
 
     return brdf;
 }
