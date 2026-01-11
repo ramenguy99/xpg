@@ -815,6 +815,14 @@ class MarchingCubesMesh(Object3D):
             name="marching-cubes-mesh-valid-blocks",
         )
 
+        acceleration_structure_flags = 0
+        address_flags = 0
+        if r.supports_path_tracing:
+            acceleration_structure_flags |= (
+                BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
+            )
+            address_flags |= BufferUsageFlags.SHADER_DEVICE_ADDRESS
+
         self.positions_buf = Buffer(
             r.ctx,
             self.max_vertices * 12,
@@ -822,8 +830,7 @@ class MarchingCubesMesh(Object3D):
                 BufferUsageFlags.STORAGE
                 | BufferUsageFlags.TRANSFER_SRC
                 | BufferUsageFlags.VERTEX
-                | BufferUsageFlags.SHADER_DEVICE_ADDRESS
-                | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
+                | acceleration_structure_flags
             ),
             AllocType.DEVICE,
             name="marching-cubes-mesh-positions",
@@ -831,13 +838,7 @@ class MarchingCubesMesh(Object3D):
         self.normals_buf = Buffer(
             r.ctx,
             self.max_vertices * 12,
-            (
-                BufferUsageFlags.STORAGE
-                | BufferUsageFlags.TRANSFER_SRC
-                | BufferUsageFlags.VERTEX
-                | BufferUsageFlags.SHADER_DEVICE_ADDRESS
-                | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
-            ),
+            (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC | BufferUsageFlags.VERTEX | address_flags),
             AllocType.DEVICE,
             name="marching-cubes-mesh-normals",
         )
@@ -848,8 +849,7 @@ class MarchingCubesMesh(Object3D):
                 BufferUsageFlags.STORAGE
                 | BufferUsageFlags.TRANSFER_SRC
                 | BufferUsageFlags.INDEX
-                | BufferUsageFlags.SHADER_DEVICE_ADDRESS
-                | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
+                | acceleration_structure_flags
             ),
             AllocType.DEVICE,
             name="marching-cubes-mesh-indices",
