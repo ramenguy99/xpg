@@ -1462,6 +1462,7 @@ class GaussianSplats(Object3D):
         covariances: BufferProperty,
         flags: GaussianSplatsRenderFlags = GaussianSplatsRenderFlags.NONE,
         cull_at_dist: bool = True,
+        deterministic_cull_at_dist: bool = True,
         mip_splatting_antialiasing: bool = False,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
@@ -1515,6 +1516,7 @@ class GaussianSplats(Object3D):
         self.mip_splatting_antialiasing = mip_splatting_antialiasing
         self.flags = flags
         self.cull_at_dist = cull_at_dist
+        self.deterministic_cull_at_dist = deterministic_cull_at_dist
         self.alpha_cull_threshold = 1.0 / 255.0
         self.frustum_dilation = 0.2
         self.splat_scale = 1.0
@@ -1651,6 +1653,17 @@ class GaussianSplats(Object3D):
             ),
         )
 
+        if self.cull_at_dist and self.deterministic_cull_at_dist:
+            self.instance_sort_pipeline = GpuSortingPipeline(
+                r,
+                SortOptions(
+                    key_type=SortDataType.UINT32,
+                    payload_type=SortDataType.UINT32,
+                    indirect=True,
+                    unsafe_has_forward_thread_progress_guarantee=False,
+                ),
+            )
+
         if not self.use_mesh_shader:
             vert = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.vert.slang", defines=defines)
             frag = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.frag.slang", defines=defines)
@@ -1738,6 +1751,16 @@ class GaussianSplats(Object3D):
             else:
                 count_buf = self.draw_parameters_buf
 
+            if self.deterministic_cull_at_dist:
+                self.instance_sort_pipeline.upload(
+                    r,
+                    self.sorted_indices_buf,
+                    self.sorted_indices_alt_buf,
+                    self.dists_buf,
+                    self.dists_alt_buf,
+                    count_buf,
+                )
+
         self.sort_pipeline.upload(
             r,
             self.dists_buf,
@@ -1782,6 +1805,14 @@ class GaussianSplats(Object3D):
                 count_offset = 12
             else:
                 count_offset = 4
+
+            if self.deterministic_cull_at_dist:
+                self.instance_sort_pipeline.run_indirect(
+                    renderer,
+                    frame.cmd,
+                    count_offset,
+                )
+                frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
 
             self.sort_pipeline.run_indirect(
                 renderer,
