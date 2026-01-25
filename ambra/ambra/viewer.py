@@ -685,6 +685,17 @@ class Viewer:
 
     def gui_inspector(self) -> None:
         if imgui.begin("Inspector")[0]:
+            for i, v in enumerate(self.viewports):
+                if imgui.tree_node_ex(f"Camera - {v.name}##{i}" if self.multiviewport else "Camera"):
+                    imgui.begin_disabled()
+                    imgui.drag_float3(f"Position##{i}", tuple(v.camera.position()))
+                    right, up, front = v.camera.right_up_front()
+                    imgui.drag_float3(f"Right##{i}", tuple(right))
+                    imgui.drag_float3(f"Up##{i}", tuple(up))
+                    imgui.drag_float3(f"Front##{i}", tuple(front))
+                    imgui.end_disabled()
+                    imgui.tree_pop()
+            imgui.separator()
 
             def pre(o: Object) -> bool:
                 flags = imgui.TreeNodeFlags.OPEN_ON_ARROW | imgui.TreeNodeFlags.FRAME_PADDING
