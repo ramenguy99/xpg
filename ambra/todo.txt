@@ -313,6 +313,7 @@ TODO:
             - [ ] Automatic initial layout / docking? Also need this in general for all UIs
 - [ ] Windowless viewer
     - [x] Screenshots
+    - [x] Handle BGRA headless swapchain when window is also BGRA
     - [ ] Video, maybe using av? Maybe just user callback? Make PoC then decide
         - [x] PoC with PyAV
         - [x] Do pipelinening and check speedup

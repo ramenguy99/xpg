@@ -22,7 +22,7 @@ from pyxpg import (
 )
 
 from .renderer import FrameInputs
-from .utils.gpu import _format_to_channels_dtype_int_table, get_image_pitch_rows_and_texel_size
+from .utils.gpu import _format_to_channels_dtype_int_bgra_table, get_image_pitch_rows_and_texel_size
 from .utils.ring_buffer import RingBuffer
 
 
@@ -50,9 +50,12 @@ class HeadlessSwapchainFrame:
 
         self.fence.wait()
 
-        channels, dtype, _ = _format_to_channels_dtype_int_table[self.image.format]
+        channels, dtype, _, bgra = _format_to_channels_dtype_int_bgra_table[self.image.format]
         shape = (self.image.height, self.image.width, channels)
-        return np.frombuffer(self.readback_buffer.data, dtype).copy().reshape(shape)
+        img = np.frombuffer(self.readback_buffer.data, dtype).copy().reshape(shape)
+        if bgra:
+            img[:, :, (0, 2)] = img[:, :, (2, 0)]
+        return img
 
 
 class HeadlessSwapchain:

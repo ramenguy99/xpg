@@ -583,66 +583,76 @@ class UniformPool:
             b.advance()
 
 
-_channels_dtype_int_to_format_table: Dict[Tuple[int, np.dtype, bool], Format] = {
+_channels_dtype_int_bgra_to_format_table: Dict[Tuple[int, np.dtype, bool, bool], Format] = {
     # normalized formats
-    (1, np.dtype(np.uint8), False): Format.R8_UNORM,
-    (2, np.dtype(np.uint8), False): Format.R8G8_UNORM,
-    (3, np.dtype(np.uint8), False): Format.R8G8B8_UNORM,
-    (4, np.dtype(np.uint8), False): Format.R8G8B8A8_UNORM,
-    (1, np.dtype(np.int8), False): Format.R8_SNORM,
-    (2, np.dtype(np.int8), False): Format.R8G8_SNORM,
-    (3, np.dtype(np.int8), False): Format.R8G8B8_SNORM,
-    (4, np.dtype(np.int8), False): Format.R8G8B8A8_SNORM,
-    (1, np.dtype(np.uint16), False): Format.R16_UNORM,
-    (2, np.dtype(np.uint16), False): Format.R16G16_UNORM,
-    (3, np.dtype(np.uint16), False): Format.R16G16B16_UNORM,
-    (4, np.dtype(np.uint16), False): Format.R16G16B16A16_UNORM,
-    (1, np.dtype(np.int16), False): Format.R16_SNORM,
-    (2, np.dtype(np.int16), False): Format.R16G16_SNORM,
-    (3, np.dtype(np.int16), False): Format.R16G16B16_SNORM,
-    (4, np.dtype(np.int16), False): Format.R16G16B16A16_SNORM,
+    (1, np.dtype(np.uint8), False, False): Format.R8_UNORM,
+    (2, np.dtype(np.uint8), False, False): Format.R8G8_UNORM,
+    (3, np.dtype(np.uint8), False, False): Format.R8G8B8_UNORM,
+    (4, np.dtype(np.uint8), False, False): Format.R8G8B8A8_UNORM,
+    (1, np.dtype(np.int8), False, False): Format.R8_SNORM,
+    (2, np.dtype(np.int8), False, False): Format.R8G8_SNORM,
+    (3, np.dtype(np.int8), False, False): Format.R8G8B8_SNORM,
+    (4, np.dtype(np.int8), False, False): Format.R8G8B8A8_SNORM,
+    (1, np.dtype(np.uint16), False, False): Format.R16_UNORM,
+    (2, np.dtype(np.uint16), False, False): Format.R16G16_UNORM,
+    (3, np.dtype(np.uint16), False, False): Format.R16G16B16_UNORM,
+    (4, np.dtype(np.uint16), False, False): Format.R16G16B16A16_UNORM,
+    (1, np.dtype(np.int16), False, False): Format.R16_SNORM,
+    (2, np.dtype(np.int16), False, False): Format.R16G16_SNORM,
+    (3, np.dtype(np.int16), False, False): Format.R16G16B16_SNORM,
+    (4, np.dtype(np.int16), False, False): Format.R16G16B16A16_SNORM,
+    # normalized formats BGR
+    (3, np.dtype(np.uint8), False, True): Format.B8G8R8_UNORM,
+    (4, np.dtype(np.uint8), False, True): Format.B8G8R8A8_UNORM,
+    (3, np.dtype(np.int8), False, True): Format.B8G8R8_SNORM,
+    (4, np.dtype(np.int8), False, True): Format.B8G8R8A8_SNORM,
     # integer formats
-    (1, np.dtype(np.uint8), True): Format.R8_UINT,
-    (2, np.dtype(np.uint8), True): Format.R8G8_UINT,
-    (3, np.dtype(np.uint8), True): Format.R8G8B8_UINT,
-    (4, np.dtype(np.uint8), True): Format.R8G8B8A8_UINT,
-    (1, np.dtype(np.int8), True): Format.R8_SINT,
-    (2, np.dtype(np.int8), True): Format.R8G8_SINT,
-    (3, np.dtype(np.int8), True): Format.R8G8B8_SINT,
-    (4, np.dtype(np.int8), True): Format.R8G8B8A8_SINT,
-    (1, np.dtype(np.uint16), True): Format.R16_UINT,
-    (2, np.dtype(np.uint16), True): Format.R16G16_UINT,
-    (3, np.dtype(np.uint16), True): Format.R16G16B16_UINT,
-    (4, np.dtype(np.uint16), True): Format.R16G16B16A16_UINT,
-    (1, np.dtype(np.int16), True): Format.R16_SINT,
-    (2, np.dtype(np.int16), True): Format.R16G16_SINT,
-    (3, np.dtype(np.int16), True): Format.R16G16B16_SINT,
-    (4, np.dtype(np.int16), True): Format.R16G16B16A16_SINT,
-    (1, np.dtype(np.uint32), True): Format.R32_UINT,
-    (2, np.dtype(np.uint32), True): Format.R32G32_UINT,
-    (3, np.dtype(np.uint32), True): Format.R32G32B32_UINT,
-    (4, np.dtype(np.uint32), True): Format.R32G32B32A32_UINT,
-    (1, np.dtype(np.int32), True): Format.R32_SINT,
-    (2, np.dtype(np.int32), True): Format.R32G32_SINT,
-    (3, np.dtype(np.int32), True): Format.R32G32B32_SINT,
-    (4, np.dtype(np.int32), True): Format.R32G32B32A32_SINT,
+    (1, np.dtype(np.uint8), True, False): Format.R8_UINT,
+    (2, np.dtype(np.uint8), True, False): Format.R8G8_UINT,
+    (3, np.dtype(np.uint8), True, False): Format.R8G8B8_UINT,
+    (4, np.dtype(np.uint8), True, False): Format.R8G8B8A8_UINT,
+    (1, np.dtype(np.int8), True, False): Format.R8_SINT,
+    (2, np.dtype(np.int8), True, False): Format.R8G8_SINT,
+    (3, np.dtype(np.int8), True, False): Format.R8G8B8_SINT,
+    (4, np.dtype(np.int8), True, False): Format.R8G8B8A8_SINT,
+    (1, np.dtype(np.uint16), True, False): Format.R16_UINT,
+    (2, np.dtype(np.uint16), True, False): Format.R16G16_UINT,
+    (3, np.dtype(np.uint16), True, False): Format.R16G16B16_UINT,
+    (4, np.dtype(np.uint16), True, False): Format.R16G16B16A16_UINT,
+    (1, np.dtype(np.int16), True, False): Format.R16_SINT,
+    (2, np.dtype(np.int16), True, False): Format.R16G16_SINT,
+    (3, np.dtype(np.int16), True, False): Format.R16G16B16_SINT,
+    (4, np.dtype(np.int16), True, False): Format.R16G16B16A16_SINT,
+    (1, np.dtype(np.uint32), True, False): Format.R32_UINT,
+    (2, np.dtype(np.uint32), True, False): Format.R32G32_UINT,
+    (3, np.dtype(np.uint32), True, False): Format.R32G32B32_UINT,
+    (4, np.dtype(np.uint32), True, False): Format.R32G32B32A32_UINT,
+    (1, np.dtype(np.int32), True, False): Format.R32_SINT,
+    (2, np.dtype(np.int32), True, False): Format.R32G32_SINT,
+    (3, np.dtype(np.int32), True, False): Format.R32G32B32_SINT,
+    (4, np.dtype(np.int32), True, False): Format.R32G32B32A32_SINT,
+    # integer formats BGR
+    (3, np.dtype(np.uint8), True, True): Format.B8G8R8_UINT,
+    (4, np.dtype(np.uint8), True, True): Format.B8G8R8A8_UINT,
+    (3, np.dtype(np.int8), True, True): Format.B8G8R8_SINT,
+    (4, np.dtype(np.int8), True, True): Format.B8G8R8A8_SINT,
     # float formats
-    (1, np.dtype(np.float16), False): Format.R16_SFLOAT,
-    (2, np.dtype(np.float16), False): Format.R16G16_SFLOAT,
-    (3, np.dtype(np.float16), False): Format.R16G16B16_SFLOAT,
-    (4, np.dtype(np.float16), False): Format.R16G16B16A16_SFLOAT,
-    (1, np.dtype(np.float32), False): Format.R32_SFLOAT,
-    (2, np.dtype(np.float32), False): Format.R32G32_SFLOAT,
-    (3, np.dtype(np.float32), False): Format.R32G32B32_SFLOAT,
-    (4, np.dtype(np.float32), False): Format.R32G32B32A32_SFLOAT,
-    (1, np.dtype(np.float64), False): Format.R64_SFLOAT,
-    (2, np.dtype(np.float64), False): Format.R64G64_SFLOAT,
-    (3, np.dtype(np.float64), False): Format.R64G64B64_SFLOAT,
-    (4, np.dtype(np.float64), False): Format.R64G64B64A64_SFLOAT,
+    (1, np.dtype(np.float16), False, False): Format.R16_SFLOAT,
+    (2, np.dtype(np.float16), False, False): Format.R16G16_SFLOAT,
+    (3, np.dtype(np.float16), False, False): Format.R16G16B16_SFLOAT,
+    (4, np.dtype(np.float16), False, False): Format.R16G16B16A16_SFLOAT,
+    (1, np.dtype(np.float32), False, False): Format.R32_SFLOAT,
+    (2, np.dtype(np.float32), False, False): Format.R32G32_SFLOAT,
+    (3, np.dtype(np.float32), False, False): Format.R32G32B32_SFLOAT,
+    (4, np.dtype(np.float32), False, False): Format.R32G32B32A32_SFLOAT,
+    (1, np.dtype(np.float64), False, False): Format.R64_SFLOAT,
+    (2, np.dtype(np.float64), False, False): Format.R64G64_SFLOAT,
+    (3, np.dtype(np.float64), False, False): Format.R64G64B64_SFLOAT,
+    (4, np.dtype(np.float64), False, False): Format.R64G64B64A64_SFLOAT,
 }
 
-_format_to_channels_dtype_int_table: Dict[Format, Tuple[int, np.dtype, bool]] = {
-    v: k for k, v in _channels_dtype_int_to_format_table.items()
+_format_to_channels_dtype_int_bgra_table: Dict[Format, Tuple[int, np.dtype, bool, bool]] = {
+    v: k for k, v in _channels_dtype_int_bgra_to_format_table.items()
 }
 
 _format_to_srgb_format_table: Dict[Format, Format] = {
@@ -653,9 +663,9 @@ _format_to_srgb_format_table: Dict[Format, Format] = {
 }
 
 
-def format_from_channels_dtype(channels: int, dtype: np.dtype, integer: bool = False) -> Format:
+def format_from_channels_dtype(channels: int, dtype: np.dtype, integer: bool = False, bgra: bool = False) -> Format:
     try:
-        return _channels_dtype_int_to_format_table[(channels, dtype, integer)]
+        return _channels_dtype_int_bgra_to_format_table[(channels, dtype, integer, bgra)]
     except KeyError:
         raise RuntimeError(
             f"Channels ({channels}) and dtype ({dtype}) combination does not match any format"
@@ -682,7 +692,7 @@ def readback_buffer(ctx: Context, buf: Buffer) -> NDArray[np.uint8]:
 
 
 def readback_image(ctx: Context, img: Image, new_layout: ImageLayout) -> NDArray[Any]:
-    channels, dtype, _ = _format_to_channels_dtype_int_table[img.format]
+    channels, dtype, _, _ = _format_to_channels_dtype_int_bgra_table[img.format]
     shape = (img.height, img.width, channels)
 
     buffer = Buffer(ctx, int(np.prod(shape)) * dtype.itemsize, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
@@ -698,7 +708,7 @@ def readback_image(ctx: Context, img: Image, new_layout: ImageLayout) -> NDArray
 
 
 def readback_image_mips(ctx: Context, img: Image, new_layout: ImageLayout) -> List[NDArray[Any]]:
-    channels, dtype, _ = _format_to_channels_dtype_int_table[img.format]
+    channels, dtype, _, _ = _format_to_channels_dtype_int_bgra_table[img.format]
 
     buffers: List[Buffer] = []
     for m in range(img.mip_levels):

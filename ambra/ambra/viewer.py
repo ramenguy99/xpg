@@ -120,9 +120,6 @@ class Viewer:
             enable_gpu_based_validation=config.enable_gpu_based_validation,
         )
 
-        # Headless swapchain for screenshots and videos
-        self.headless_swapchain = HeadlessSwapchain(self.ctx, 2, Format.R8G8B8A8_UNORM)
-
         # Window
         self.window: Optional[Window] = None
         if config.window:
@@ -143,15 +140,19 @@ class Viewer:
                 mouse_move_event=lambda pos: self.on_mouse_move(ivec2(pos)),
                 mouse_scroll_event=lambda pos, scroll: self.on_scroll(ivec2(pos), dvec2(scroll)),
             )
+
+        # Headless swapchain for screenshots and videos
+        output_format = Format.R8G8B8A8_UNORM if self.window is None else self.window.swapchain_format
+        self.headless_swapchain = HeadlessSwapchain(self.ctx, 2, output_format)
+
+        if self.window is not None:
             render_width, render_height = self.window.fb_width, self.window.fb_height
-            output_format = self.window.swapchain_format
             num_frames_in_flight = self.window.num_frames
 
             # GUI
             self.gui = Gui(self.window)
         else:
             render_width, render_height = config.window_width, config.window_height
-            output_format = self.headless_swapchain.format
             num_frames_in_flight = self.headless_swapchain.num_frames_in_flight
 
             # GUI
