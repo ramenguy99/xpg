@@ -118,6 +118,7 @@ class CameraConfig:
     zoom_distance_speed_scale: float = 1.0
     zoom_min_speed_scale: float = 2.0
     zoom_min_target_distance: float = 0.01
+    zoom_ortho_speed: float = 0.04
 
 
 @dataclass

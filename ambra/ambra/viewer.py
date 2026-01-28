@@ -384,9 +384,9 @@ class Viewer:
             modifiers = self.window.get_modifiers_state()
 
             if modifiers == self.key_map.camera_zoom_modifiers:
-                self.active_viewport.zoom(scroll, False)
+                self.active_viewport.on_zoom(scroll)
             if modifiers == self.key_map.camera_zoom_move_modifiers:
-                self.active_viewport.zoom(scroll, True)
+                self.active_viewport.on_zoom_with_movement(scroll)
 
     def on_resize(self, width: int, height: int) -> None:
         pass
@@ -977,9 +977,9 @@ class Viewer:
                     # Zoom
                     if imgui.is_item_hovered():
                         if mapped_mods == self.key_map.camera_zoom_modifiers:
-                            v.zoom(dvec2(0, io.mouse_wheel), False)
+                            v.on_zoom(dvec2(0, io.mouse_wheel))
                         elif mapped_mods == self.key_map.camera_zoom_move_modifiers:
-                            v.zoom(dvec2(0, io.mouse_wheel), True)
+                            v.on_zoom_with_movement(dvec2(0, io.mouse_wheel))
 
                     # If pan or rotate is happening on just left click, prevent imgui window move
                     # by creating an invisible button on the whole window content area.

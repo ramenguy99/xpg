@@ -156,6 +156,7 @@ class Viewport:
         self.camera_zoom_distance_speed_scale = camera_config.zoom_distance_speed_scale
         self.camera_zoom_min_speed_scale = camera_config.zoom_min_speed_scale
         self.camera_zoom_min_target_distance = camera_config.zoom_min_target_distance
+        self.camera_zoom_ortho_speed = camera_config.zoom_ortho_speed
 
         # State
         self.rotate_pressed = False
@@ -222,11 +223,17 @@ class Viewport:
 
     def on_zoom(self, scroll: dvec2) -> None:
         if not self.pan_pressed and not self.rotate_pressed:
-            self.zoom(scroll, False)
+            if isinstance(self.camera, OrthographicCamera):
+                self.camera.half_extents -= self.camera.half_extents * self.camera_zoom_ortho_speed * scroll.y
+            else:
+                self.zoom(scroll, False)
 
     def on_zoom_with_movement(self, scroll: dvec2) -> None:
         if not self.pan_pressed and not self.rotate_pressed:
-            self.zoom(scroll, True)
+            if isinstance(self.camera, OrthographicCamera):
+                self.camera.half_extents -= self.camera.half_extents * self.camera_zoom_ortho_speed * scroll.y
+            else:
+                self.zoom(scroll, True)
 
     def rotate_orbit(self, start_pos: ivec2, pos: ivec2) -> None:
         rot = self._rotation_from_mouse_delta(pos - start_pos, self.camera_target)
