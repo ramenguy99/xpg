@@ -48,7 +48,7 @@ from .property import BufferProperty, ImageProperty, as_image_property
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object, Object3D
-from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
+from .utils.descriptors import create_descriptor_layout_pool_and_set, create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import (
     AccelerationStructureInstanceInfo,
     align_up,
@@ -1154,6 +1154,13 @@ class Grid(Object3D):
     ):
         self.constants_dtype = np.dtype(
             {
+                "transform": (np.dtype((np.float32, (3, 4))), 0),
+            }
+        )  # type: ignore
+        self.constants = np.zeros((1,), self.constants_dtype)
+
+        self.grid_constants_dtype = np.dtype(
+            {
                 "major_line_color": (np.dtype((np.float32, 4)), 0),
                 "minor_line_color": (np.dtype((np.float32, 4)), 16),
                 "base_color": (np.dtype((np.float32, 4)), 32),
@@ -1168,20 +1175,21 @@ class Grid(Object3D):
                 "neg_axis_color_scale": (np.float32, 84),
             }
         )  # type: ignore
+        self.grid_constants = np.zeros((1,), self.constants_dtype)
 
-        self.constants = np.zeros((1,), self.constants_dtype)
-        self.constants["major_line_color"] = major_line_color
-        self.constants["minor_line_color"] = minor_line_color
-        self.constants["base_color"] = base_color
-        self.constants["size"] = size
-        self.constants["grid_type"] = grid_type.value
-        self.constants["inv_grid_scale"] = 1.0 / grid_scale
-        self.constants["major_grid_div"] = major_grid_div
-        self.constants["axis_line_width"] = axis_line_width
-        self.constants["major_line_width"] = major_line_width
-        self.constants["minor_line_width"] = minor_line_width
-        self.constants["pos_axis_color_scale"] = pos_axis_color_scale
-        self.constants["neg_axis_color_scale"] = neg_axis_color_scale
+        self.grid_constants = np.zeros((1,), self.grid_constants_dtype)
+        self.grid_constants["major_line_color"] = major_line_color
+        self.grid_constants["minor_line_color"] = minor_line_color
+        self.grid_constants["base_color"] = base_color
+        self.grid_constants["size"] = size
+        self.grid_constants["grid_type"] = grid_type.value
+        self.grid_constants["inv_grid_scale"] = 1.0 / grid_scale
+        self.grid_constants["major_grid_div"] = major_grid_div
+        self.grid_constants["axis_line_width"] = axis_line_width
+        self.grid_constants["major_line_width"] = major_line_width
+        self.grid_constants["minor_line_width"] = minor_line_width
+        self.grid_constants["pos_axis_color_scale"] = pos_axis_color_scale
+        self.grid_constants["neg_axis_color_scale"] = neg_axis_color_scale
 
         self.is_transparent = base_color[3] < 1.0
 
@@ -1214,6 +1222,19 @@ class Grid(Object3D):
     def create(self, r: Renderer) -> None:
         vert = r.compile_builtin_shader("3d/grid.slang", "vertex_main")
         frag = r.compile_builtin_shader("3d/grid.slang", "pixel_main")
+
+        self.grid_constants_buf = Buffer.from_data(
+            r.ctx,
+            view_bytes(self.grid_constants),
+            BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.UNIFORM,
+            AllocType.DEVICE_MAPPED_WITH_FALLBACK,
+        )
+        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_set = create_descriptor_layout_pool_and_set(
+            r.ctx,
+            [DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER)],
+        )
+        self.descriptor_set.write_buffer(self.grid_constants_buf, DescriptorType.UNIFORM_BUFFER, 0)
+
         self.pipeline = GraphicsPipeline(
             r.ctx,
             stages=[
@@ -1238,9 +1259,14 @@ class Grid(Object3D):
             depth=Depth(r.depth_format, True, not self.is_transparent, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
+                self.descriptor_set_layout,
             ],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
+
+    def update_transform(self, parent: Optional[Object]) -> None:
+        super().update_transform(parent)
+        self.constants["transform"] = mat4x3(self.current_transform_matrix)
 
     def render(
         self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
@@ -1249,6 +1275,7 @@ class Grid(Object3D):
             self.pipeline,
             descriptor_sets=[
                 scene_descriptor_set,
+                self.descriptor_set,
             ],
             push_constants=self.constants.tobytes(),
         )

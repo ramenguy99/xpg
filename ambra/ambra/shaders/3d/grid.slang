@@ -7,6 +7,10 @@ import "scene";
 // https://bgolus.medium.com/the-best-darn-grid-shader-yet-727f9278b9d8
 
 public struct ObjectConstants {
+    public float3x4 transform;
+};
+
+public struct GridConstants {
     float4 major_line_color;     //   0
     float4 minor_line_color;     //  16
     float4 base_color;           //  32
@@ -24,6 +28,9 @@ public struct ObjectConstants {
 [vk::push_constant]
 public ConstantBuffer<ObjectConstants> g_object_constants;
 
+[vk::binding(0, 1)]
+public ConstantBuffer<GridConstants> g_grid_constants;
+
 struct VSOutput
 {
     float4 position: SV_Position;
@@ -39,38 +46,41 @@ VSOutput vertex_main(uint vertex_id: SV_VertexID)
 {
     int x = (vertex_id & 1);
     int y = (vertex_id >> 1);
-    float2 uv = (float2(x, y) - 0.5) * g_object_constants.size;
+    float2 uv = (float2(x, y) - 0.5) * g_grid_constants.size;
     float3 world_position;
 
-    if (g_object_constants.grid_type == 0) {
+    if (g_grid_constants.grid_type == 0) {
         world_position = float3(uv.x, uv.y, 0);
-    } else if (g_object_constants.grid_type == 1) {
+    } else if (g_grid_constants.grid_type == 1) {
         world_position = float3(0, uv.x, uv.y);
     } else {
         world_position = float3(uv.x, 0, uv.y);
     }
 
-    float div = max(2.0, round(g_object_constants.major_grid_div));
+    float div = max(2.0, round(g_grid_constants.major_grid_div));
 
     VSOutput out;
-    out.position = mul(g_constants.projection, mul(g_constants.view, float4(world_position, 1.0)));
+    out.position = mul(g_constants.projection, mul(g_constants.view,
+        float4(mul(g_object_constants.transform, float4(world_position, 1.0)), 1.0))
+        // float4(world_position, 1.0))
+    );
 
     // trick to reduce visual artifacts when far from the world origin
 
     float3 cameraCenteringOffset = floor((g_constants.world_camera_position) / div) * div;
     float3 offset = (world_position - cameraCenteringOffset);
 
-    if (g_object_constants.grid_type == 0) {
+    if (g_grid_constants.grid_type == 0) {
         out.uv.yx = offset.xy;
         out.uv.wz = world_position.xy;
-    } else if (g_object_constants.grid_type == 1) {
+    } else if (g_grid_constants.grid_type == 1) {
         out.uv.yx = offset.yz;
         out.uv.wz = world_position.yz;
     } else {
         out.uv.yx = offset.xz;
         out.uv.wz = world_position.xz;
     }
-    out.uv *= g_object_constants.inv_grid_scale;
+    out.uv *= g_grid_constants.inv_grid_scale;
 
     return out;
 }
@@ -81,15 +91,15 @@ float4 pixel_main(VSOutput i) : SV_Target0
     float4 uvDDXY = float4(ddx(i.uv.xy), ddy(i.uv.xy));
     float2 uvDeriv = float2(length(uvDDXY.xz), length(uvDDXY.yw));
 
-    float axis_line_width = max(g_object_constants.major_line_width, g_object_constants.axis_line_width);
+    float axis_line_width = max(g_grid_constants.major_line_width, g_grid_constants.axis_line_width);
     float2 axisDrawWidth = max(axis_line_width, uvDeriv);
     float2 axisLineAA = uvDeriv * 1.5;
     float2 axisLines2 = smoothstep(axisDrawWidth + axisLineAA, axisDrawWidth - axisLineAA, abs(i.uv.zw * 2.0));
     axisLines2 *= saturate(axis_line_width / axisDrawWidth);
 
-    float div = max(2.0, round(g_object_constants.major_grid_div));
+    float div = max(2.0, round(g_grid_constants.major_grid_div));
     float2 majorUVDeriv = uvDeriv / div;
-    float major_line_width = g_object_constants.major_line_width / div;
+    float major_line_width = g_grid_constants.major_line_width / div;
     float2 majorDrawWidth = clamp(major_line_width, majorUVDeriv, 0.5);
     float2 majorLineAA = majorUVDeriv * 1.5;
     float2 majorGridUV = 1.0 - abs(frac(i.uv.xy / div) * 2.0 - 1.0);
@@ -100,7 +110,7 @@ float4 pixel_main(VSOutput i) : SV_Target0
     majorGrid2 = saturate(majorGrid2 - axisLines2); // hack
     majorGrid2 = lerp(majorGrid2, major_line_width, saturate(majorUVDeriv * 2.0 - 1.0));
 
-    float minor_line_width = min(g_object_constants.minor_line_width, g_object_constants.major_line_width);
+    float minor_line_width = min(g_grid_constants.minor_line_width, g_grid_constants.major_line_width);
     bool minorInvertLine = minor_line_width > 0.5;
     float minorTargetWidth = minorInvertLine ? 1.0 - minor_line_width : minor_line_width;
     float2 minorDrawWidth = clamp(minorTargetWidth, uvDeriv, 0.5);
@@ -119,21 +129,21 @@ float4 pixel_main(VSOutput i) : SV_Target0
     float minorGrid = lerp(minorGrid2.x, 1.0, minorGrid2.y);
     float majorGrid = lerp(majorGrid2.x, 1.0, majorGrid2.y);
 
-    float4 major_line_color = g_object_constants.major_line_color;
-    float4 minor_line_color = g_object_constants.minor_line_color;
-    float4 base_color = g_object_constants.base_color;
+    float4 major_line_color = g_grid_constants.major_line_color;
+    float4 minor_line_color = g_grid_constants.minor_line_color;
+    float4 base_color = g_grid_constants.base_color;
 
     float4 aAxisColor;
     float4 bAxisColor;
-    if (g_object_constants.grid_type == 0) {
-        aAxisColor = float4(i.uv.w >= 0 ? _XAxisColor * g_object_constants.pos_axis_color_scale : _XAxisColor * g_object_constants.neg_axis_color_scale, 1.0);
-        bAxisColor = float4(i.uv.z >= 0 ? _YAxisColor * g_object_constants.pos_axis_color_scale : _YAxisColor * g_object_constants.neg_axis_color_scale, 1.0);
-    } else if (g_object_constants.grid_type == 1) {
-        aAxisColor = float4(i.uv.w >= 0 ? _YAxisColor * g_object_constants.pos_axis_color_scale : _YAxisColor * g_object_constants.neg_axis_color_scale, 1.0);
-        bAxisColor = float4(i.uv.z >= 0 ? _ZAxisColor * g_object_constants.pos_axis_color_scale : _ZAxisColor * g_object_constants.neg_axis_color_scale, 1.0);
+    if (g_grid_constants.grid_type == 0) {
+        aAxisColor = float4(i.uv.w >= 0 ? _XAxisColor * g_grid_constants.pos_axis_color_scale : _XAxisColor * g_grid_constants.neg_axis_color_scale, 1.0);
+        bAxisColor = float4(i.uv.z >= 0 ? _YAxisColor * g_grid_constants.pos_axis_color_scale : _YAxisColor * g_grid_constants.neg_axis_color_scale, 1.0);
+    } else if (g_grid_constants.grid_type == 1) {
+        aAxisColor = float4(i.uv.w >= 0 ? _YAxisColor * g_grid_constants.pos_axis_color_scale : _YAxisColor * g_grid_constants.neg_axis_color_scale, 1.0);
+        bAxisColor = float4(i.uv.z >= 0 ? _ZAxisColor * g_grid_constants.pos_axis_color_scale : _ZAxisColor * g_grid_constants.neg_axis_color_scale, 1.0);
     } else {
-        aAxisColor = float4(i.uv.w >= 0 ? _XAxisColor * g_object_constants.pos_axis_color_scale : _XAxisColor * g_object_constants.neg_axis_color_scale, 1.0);
-        bAxisColor = float4(i.uv.z >= 0 ? _ZAxisColor * g_object_constants.pos_axis_color_scale : _ZAxisColor * g_object_constants.neg_axis_color_scale, 1.0);
+        aAxisColor = float4(i.uv.w >= 0 ? _XAxisColor * g_grid_constants.pos_axis_color_scale : _XAxisColor * g_grid_constants.neg_axis_color_scale, 1.0);
+        bAxisColor = float4(i.uv.z >= 0 ? _ZAxisColor * g_grid_constants.pos_axis_color_scale : _ZAxisColor * g_grid_constants.neg_axis_color_scale, 1.0);
     }
 
     // center
