@@ -74,7 +74,7 @@ TODO:
         - [x] fix gpu buffer usage assignment for device address and acc struct input
         - [x] Basic from other material types to unified
         - [x] Verify order of transform elements in AccelerationStructureMesh
-        - [ ] Ensure all meshes returned in geometry have consistent winding order (check what is considered canonical)
+        - [x] Ensure all meshes returned in geometry have consistent winding order (check what is considered canonical)
     - [ ] Upstream:
         - [ ] Mixing indexed and non-indexed geometry triggers (apparently false positive) validation layer error
             -> see https://github.com/KhronosGroup/Vulkan-ValidationLayers/pull/10870)
@@ -97,8 +97,8 @@ TODO:
         - [x] Voxels
             - [x] Borders -> is there a way to use barycentrics but distinguish sides from center of face edge? e.g. order edges always as side side, cross
             - [x] Colormap -> same as pointcloud could be nice to colormap voxels
-        - [-] Grid floor
-            - [ ] Height control
+        - [x] Grid floor
+            - [x] Transform
         - [x] 2D Images
         - [x] 3D Images (e.g. textured quads)
         - There are multiple types of simple shapes you could want:
@@ -150,7 +150,10 @@ TODO:
     - [ ] Point and spot lights and shadows
     - [ ] Colormap material with user-configurable min-max and colormap (evaluated in shader from R channel)
         - think about how to also maybe support variants like versions dependent on distance to position / plane
-- [ ] Stages presets in config or in helper functions (empty, origin, floor, lights, maybe more?)
+- [x] Stages presets in config or in helper functions
+    - [x] Basic directional + uniform lights
+    - [ ] Lights + grid
+    - [ ] Keylight + fill light with color presets
 - [x] Rethink Animation and how it relates to:
     - [x] property edits -> stays separate because animations can also be reused across different objects
     - [x] Maybe implement DB browser to get more context

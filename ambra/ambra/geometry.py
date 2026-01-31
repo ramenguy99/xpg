@@ -13,6 +13,8 @@ def create_sphere(
     inv_s = 1.0 / (sectors - 1)
 
     vertices = np.zeros((rings * sectors, 3), np.float32)
+    normals = np.zeros((rings * sectors, 3), np.float32)
+
     v, n = 0, 0
     for r in range(rings):
         for s in range(sectors):
@@ -21,11 +23,10 @@ def create_sphere(
             z = np.sin(2 * np.pi * s * inv_s) * np.sin(np.pi * r * inv_r)
 
             vertices[v] = np.array([x, y, z], np.float32) * radius
+            normals[v] = np.array([x, y, z], np.float32)
 
             v += 1
             n += 1
-
-    normals = vertices.copy()
 
     faces = np.zeros([(rings - 1) * (sectors - 1) * 2, 3], dtype=np.uint32)
     i = 0
@@ -52,9 +53,9 @@ def create_disk(
 
     faces = np.zeros((sectors, 3), dtype=np.uint32)
     idxs = np.array(range(1, sectors + 1), dtype=np.uint32)
-    faces[:, 2] = idxs
-    faces[:-1, 1] = idxs[1:]
-    faces[-1, 1] = 1
+    faces[:, 1] = idxs
+    faces[:-1, 2] = idxs[1:]
+    faces[-1, 2] = 1
 
     return vertices, normals, faces.flatten()
 
@@ -72,22 +73,49 @@ def create_cylinder(
 
     normals = np.zeros_like(vertices)
     normals[:, :2] = vertices[:, :2]
+    normals = normals / np.linalg.norm(normals, axis=1)[..., np.newaxis]
 
     idxs_bot = np.arange(0, sectors, dtype=np.uint32)
     idxs_top = idxs_bot + sectors
     faces_top = np.zeros((sectors, 3), dtype=np.uint32)
     faces_top[:, 0] = idxs_top
-    faces_top[:-1, 1] = idxs_top[1:]
-    faces_top[-1, 1] = idxs_top[0]
-    faces_top[:, 2] = idxs_bot
+    faces_top[:, 1] = idxs_bot
+    faces_top[:-1, 2] = idxs_top[1:]
+    faces_top[-1, 2] = idxs_top[0]
     faces_bot = np.zeros((sectors, 3), dtype=np.uint32)
-    faces_bot[:, 0] = faces_top[:, 1]
-    faces_bot[:-1, 1] = idxs_bot[1:]
-    faces_bot[-1, 1] = idxs_bot[0]
-    faces_bot[:, 2] = idxs_bot
+    faces_bot[:, 0] = faces_top[:, 2]
+    faces_bot[:, 1] = idxs_bot
+    faces_bot[:-1, 2] = idxs_bot[1:]
+    faces_bot[-1, 2] = idxs_bot[0]
     faces = np.concatenate([faces_top, faces_bot], axis=0)
 
     return vertices, normals, faces.flatten()
+
+
+def create_capped_cylinder(
+    radius: float = 1.0, height: float = 1.0, sectors: int = 8
+) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
+    cylinder_v, cylinder_n, cylinder_f = create_cylinder(radius, height, sectors)
+    cap_v, cap_n, cap_f = create_disk(radius, sectors)
+
+    # Translate top cap
+    top_cap_v = cap_v + np.array([0.0, 0.0, height], np.float32)
+
+    # Flip bot cap normals and windng order
+    bot_cap_n = -cap_n
+    bot_cap_f = cap_f.copy().reshape((-1, 3))
+    bot_cap_f[:, (2, 1)] = bot_cap_f[:, (1, 2)]
+    bot_cap_f = bot_cap_f.flatten()  # type: ignore
+
+    (v, n), f = concatenate_meshes(
+        [
+            (cap_v, bot_cap_n),
+            (top_cap_v, cap_n),
+            (cylinder_v, cylinder_n),
+        ],
+        [bot_cap_f, cap_f, cylinder_f],
+    )
+    return v, n, f
 
 
 def create_cone(
@@ -115,24 +143,49 @@ def create_cone(
     return vertices, normals, faces.flatten()
 
 
+def create_capped_cone(
+    radius: float = 1.0, height: float = 1.0, sectors: int = 8
+) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
+    cap_v, cap_n, cap_f = create_disk(radius, sectors)
+    cap_n = -cap_n
+    cap_f = cap_f.copy().reshape((-1, 3))
+    cap_f[:, (2, 1)] = cap_f[:, (1, 2)]
+    cap_f = cap_f.flatten()
+
+    cone_v, cone_n, cone_f = create_cone(radius, height, sectors)
+    (v, n), f = concatenate_meshes(
+        [
+            (cap_v, cap_n),
+            (cone_v, cone_n),
+        ],
+        [cap_f, cone_f],
+    )
+    return v, n, f
+
+
 def create_arrow(
     radius: float = 0.1, height: float = 0.8, tip_radius: float = 0.2, tip_height: float = 0.2, sectors: int = 8
 ) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
-    bottom_lid_v, bottom_lid_n, bottom_lid_f = create_disk(radius, sectors)
-    top_lid_v, top_lid_n, top_lid_f = create_disk(tip_radius, sectors)
-    top_lid_v[:, 2] = height
-    top_lid_n[:, 2] = -1.0
+    bot_cap_v, cap_n, cap_f = create_disk(radius, sectors)
+    top_cap_v, _, _ = create_disk(tip_radius, sectors)
+
+    cap_n = -cap_n
+    cap_f = cap_f.copy().reshape((-1, 3))
+    cap_f[:, (2, 1)] = cap_f[:, (1, 2)]
+    cap_f = cap_f.flatten()
+    top_cap_v = top_cap_v + np.array([0.0, 0.0, height], np.float32)
+
     cylinder_v, cylinder_n, cylinder_f = create_cylinder(radius, height, sectors)
     tip_v, tip_n, tip_f = create_cone(tip_radius, tip_height, sectors)
     tip_v[:, 2] += height
     (v, n), f = concatenate_meshes(
         [
-            (bottom_lid_v, bottom_lid_n),
-            (top_lid_v, top_lid_n),
+            (bot_cap_v, cap_n),
+            (top_cap_v, cap_n),
             (cylinder_v, cylinder_n),
             (tip_v, tip_n),
         ],
-        [bottom_lid_f, top_lid_f, cylinder_f, tip_f],
+        [cap_f, cap_f, cylinder_f, tip_f],
     )
     return v, n, f
 
@@ -253,7 +306,11 @@ def create_cube(
     )
 
 
-def create_cube_edges(min_p: Tuple[float, float, float], max_p: Tuple[float, float, float]) -> NDArray[np.float32]:
+def create_cube_edges(
+    min_p: Tuple[float, float, float] = (-0.5, -0.5, -0.5),
+    max_p: Tuple[float, float, float] = (0.5, 0.5, 0.5),
+    color: int = 0xFFFF0000,
+) -> Tuple[NDArray[np.float32], NDArray[np.uint32]]:
     vertices = np.zeros((8, 3), dtype=np.float32)
     vertices[0:4] = min_p
     vertices[1, 0] = max_p[0]
@@ -278,17 +335,87 @@ def create_cube_edges(min_p: Tuple[float, float, float], max_p: Tuple[float, flo
     lines[20:22] = vertices[[2, 6]]
     lines[22:24] = vertices[[3, 7]]
 
-    return lines
+    return lines, np.full(lines.shape[0], color, np.uint32)
 
 
 def create_normal_lines(
-    positions: NDArray[np.float32], normals: NDArray[np.float32], length: float = 0.01
-) -> NDArray[np.float32]:
+    positions: NDArray[np.float32],
+    normals: NDArray[np.float32],
+    length: float = 0.01,
+    color: int = 0xFFFF0000,
+) -> Tuple[NDArray[np.float32], NDArray[np.uint32]]:
     n = positions.shape[0]
     lines = np.zeros((n * 2, 3), np.float32)
     lines[::2] = positions
     lines[1::2] = positions + normals * length
-    return lines
+    return lines, np.full(lines.shape[0], color, np.uint32)
+
+
+def create_axis3d_lines_and_colors(
+    length: float = 1.0,
+    x_color: int = 0xFF0000FF,
+    y_color: int = 0xFF00FF00,
+    z_color: int = 0xFFFF0000,
+) -> Tuple[NDArray[np.float32], NDArray[np.uint32]]:
+    lines = (
+        np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            np.float32,
+        )
+        * length
+    )
+
+    colors = np.array(
+        [
+            x_color,
+            x_color,
+            y_color,
+            y_color,
+            z_color,
+            z_color,
+        ],
+        np.uint32,
+    )
+
+    return lines, colors
+
+
+def create_axis2d_lines_and_colors(
+    length: float = 1.0,
+    x_color: int = 0xFF0000FF,
+    y_color: int = 0xFF00FF00,
+) -> Tuple[NDArray[np.float32], NDArray[np.uint32]]:
+    lines = (
+        np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ],
+            np.float32,
+        )
+        * length
+    )
+
+    colors = np.array(
+        [
+            x_color,
+            x_color,
+            y_color,
+            y_color,
+        ],
+        np.uint32,
+    )
+
+    return lines, colors
 
 
 def concatenate_meshes(
