@@ -7,10 +7,6 @@ Priority:
     - [ ] Ortho views
     - [ ] Images in GUI
     - [ ] More GUI
-- [ ] Server:
-    - [ ] Dynamic logging experiments
-- [ ] Full headless:
-    - [ ] Skip GLFW init if no presentation requested (fails if no compositor found)
 
 TODO:
 - [x] Subgroups:

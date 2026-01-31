@@ -189,7 +189,7 @@ struct Context: nb::intrusive_base {
     )
     {
         gfx::Result result;
-        result = gfx::Init();
+        result = gfx::Init(presentation);
         if (result != gfx::Result::SUCCESS) {
             throw std::runtime_error("Failed to initialize platform");
         }
@@ -2535,6 +2535,9 @@ struct Window: nb::intrusive_base {
     Window(nb::ref<Context> ctx, const std::string& name, u32 width, u32 height, std::optional<u32> x, std::optional<u32> y)
         : ctx(ctx)
     {
+        if (!ctx->vk.has_presentation) {
+            throw std::runtime_error("Cannot create Window if presentation was not requested at context creation time");
+        }
         if (CreateWindowWithSwapchain(&window, ctx->vk, name.c_str(), width, height, x.value_or(xpg::gfx::ANY_POSITION), y.value_or(xpg::gfx::ANY_POSITION)) != gfx::Result::SUCCESS) {
             throw std::runtime_error("Failed to create window");
         }

@@ -148,6 +148,7 @@ struct Context
     VkDevice device;
     DeviceFeatures device_features;
     float timestamp_period_ns;
+    bool has_presentation;
 
     VkQueue queue;
     u32 queue_family_index;
@@ -205,7 +206,7 @@ struct ContextDesc {
     VkBool32 enable_synchronization_validation = false;
 };
 
-Result Init();
+Result Init(bool init_glfw = true);
 Result CreateContext(Context* vk, const ContextDesc&& desc);
 void DestroyContext(Context* vk);
 void WaitIdle(Context& vk);

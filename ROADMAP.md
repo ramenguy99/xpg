@@ -50,6 +50,7 @@ C++:
 - [x] Cleanup gfx wrappers -> do not like alloca / dynamic alloc, maybe should just wrap the vulkan types for defaults?
 - [x] Fix hang during resize on swapchain out of date
 - [x] Debug case where frame count < swapchain frame count.
+- [x] Skip GLFW init if no presentation requested (fails if no compositor found)
 - [x] Expose swapchain image usage flgs
 - [ ] Expose swapchain format / colorspace creation info
     - Read on proper way to do color management / hdr with vulkan

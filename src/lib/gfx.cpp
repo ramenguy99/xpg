@@ -87,15 +87,19 @@ static void Callback_Error(int error, const char* description) {
 }
 
 Result
-Init() {
-    glfwSetErrorCallback(Callback_Error);
+Init(bool init_glfw) {
+    if (init_glfw) {
+        glfwSetErrorCallback(Callback_Error);
 #ifdef XPG_MOLTENVK_STATIC
-    glfwInitVulkanLoader(vkGetInstanceProcAddr);
+        glfwInitVulkanLoader(vkGetInstanceProcAddr);
 #endif
-    if (glfwInit()) {
-        return Result::SUCCESS;
+        if (glfwInit()) {
+            return Result::SUCCESS;
+        } else {
+            return Result::GLFW_INITIALIZATION_FAILED;
+        }
     } else {
-        return Result::GLFW_INITIALIZATION_FAILED;
+        return Result::SUCCESS;
     }
 }
 
@@ -1335,6 +1339,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     vk->device = device;
     vk->device_features = picked_info.supported_features;
     vk->timestamp_period_ns = picked_info.timestamp_period;
+    vk->has_presentation = desc.require_presentation;
     vk->queue = queue;
     vk->queue_family_index = picked_info.queue_family_index;
     vk->queue_timestamp_queries = picked_info.queue_timestamp_queries;
