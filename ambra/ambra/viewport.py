@@ -222,18 +222,18 @@ class Viewport:
                 raise RuntimeError(f"Unhandled control mode {self.camera_control_mode}")
 
     def on_zoom(self, scroll: dvec2) -> None:
+        if scroll.y == 0:
+            return
+
         if not self.pan_pressed and not self.rotate_pressed:
-            if isinstance(self.camera, OrthographicCamera):
-                self.camera.half_extents -= self.camera.half_extents * self.camera_zoom_ortho_speed * scroll.y
-            else:
-                self.zoom(scroll, False)
+            self.zoom(scroll, False)
 
     def on_zoom_with_movement(self, scroll: dvec2) -> None:
+        if scroll.y == 0:
+            return
+
         if not self.pan_pressed and not self.rotate_pressed:
-            if isinstance(self.camera, OrthographicCamera):
-                self.camera.half_extents -= self.camera.half_extents * self.camera_zoom_ortho_speed * scroll.y
-            else:
-                self.zoom(scroll, True)
+            self.zoom(scroll, True)
 
     def rotate_orbit(self, start_pos: ivec2, pos: ivec2) -> None:
         rot = self._rotation_from_mouse_delta(pos - start_pos, self.camera_target)
@@ -279,38 +279,45 @@ class Viewport:
 
     def pan(self, start_pos: ivec2, pos: ivec2) -> None:
         delta = pos - start_pos
-        speed_scale = max(
-            distance(self.camera_target, self.drag_start_camera_position) * self.camera_pan_distance_speed_scale,
-            self.camera_pan_min_speed_scale,
-        )
-        movement = vec2(delta) * self.camera_pan_speed * speed_scale
-        delta_position = movement.x * self.drag_start_camera_right + movement.y * self.drag_start_camera_up
+        if isinstance(self.camera, OrthographicCamera):
+            delta_inv_y = vec2(delta.x, -delta.y)
+            ar_half_extents = self.camera.half_extents * vec2(self.rect.width / self.rect.height, 1)
+            movement = delta_inv_y / vec2(self.rect.width, self.rect.height) * ar_half_extents * 2.0
+        else:
+            speed_scale = max(
+                distance(self.camera_target, self.drag_start_camera_position) * self.camera_pan_distance_speed_scale,
+                self.camera_pan_min_speed_scale,
+            )
+            movement = vec2(delta) * self.camera_pan_speed * speed_scale
 
+        delta_position = movement.x * self.drag_start_camera_right + movement.y * self.drag_start_camera_up
         self.camera_target = self.drag_start_camera_target + delta_position
         self.camera.camera_from_world = RigidTransform3D.look_at(
             self.drag_start_camera_position + delta_position, self.camera_target, self.camera_world_up, self.handedness
         )
 
     def zoom(self, scroll: dvec2, move: bool) -> None:
-        if scroll.y == 0:
-            return
-        position = self.camera.position()
-        dist = distance(position, self.camera_target)
-        speed_scale = max(dist * self.camera_zoom_distance_speed_scale, self.camera_zoom_min_speed_scale)
-        movement = scroll.y * speed_scale * self.camera_zoom_speed
-        if move:
-            # If moving, also move target
-            delta_position = self.camera.front() * movement
-            self.camera_target += delta_position
+        if isinstance(self.camera, OrthographicCamera):
+            self.camera.half_extents -= self.camera.half_extents * self.camera_zoom_ortho_speed * scroll.y
+            # TODO: pan camera to ensure point under cursor stays fixed in screen coordinates
         else:
-            # If target not moving, clamp movement to keep a minimum distance to the target
-            max_movement = max(dist - self.camera_zoom_min_target_distance, 0.0)
-            movement = min(movement, max_movement)
-            delta_position = self.camera.front() * movement
+            position = self.camera.position()
+            dist = distance(position, self.camera_target)
+            speed_scale = max(dist * self.camera_zoom_distance_speed_scale, self.camera_zoom_min_speed_scale)
+            movement = scroll.y * speed_scale * self.camera_zoom_speed
+            if move:
+                # If moving, also move target
+                delta_position = self.camera.front() * movement
+                self.camera_target += delta_position
+            else:
+                # If target not moving, clamp movement to keep a minimum distance to the target
+                max_movement = max(dist - self.camera_zoom_min_target_distance, 0.0)
+                movement = min(movement, max_movement)
+                delta_position = self.camera.front() * movement
 
-        self.camera.camera_from_world = RigidTransform3D.look_at(
-            self.camera.position() + delta_position, self.camera_target, self.camera_world_up, self.handedness
-        )
+            self.camera.camera_from_world = RigidTransform3D.look_at(
+                self.camera.position() + delta_position, self.camera_target, self.camera_world_up, self.handedness
+            )
 
     def _rotation_from_mouse_delta(self, delta: ivec2, center_of_rotation: vec3) -> mat4:
         # Clamp pitch algorithm outline:
