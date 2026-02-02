@@ -37,6 +37,6 @@ def two_directional_lights_and_uniform_environment_light(
         name="Back light",
     )
 
-    uniform = UniformEnvironmentLight(uniform_radiance, name="Uniform light")
+    uniform = UniformEnvironmentLight(uniform_radiance, name="Uniform light")  # type: ignore
 
     return front, back, uniform
