@@ -109,6 +109,11 @@ class GpuImageView:
         else:
             return self.image
 
+    def write_descriptor(
+        self, descriptor_set: DescriptorSet, type: DescriptorType, layout: ImageLayout, binding: int, element: int = 0
+    ) -> None:
+        descriptor_set.write_image(self.image, layout, type, binding, element)
+
     def append_view_to_destroy_list(self, destroy_list: List[Union[Buffer, Image, ImageView]]) -> None:
         if self.srgb_resource_view is not None:
             destroy_list.append(self.srgb_resource_view)

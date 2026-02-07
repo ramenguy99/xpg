@@ -1893,3 +1893,460 @@ class GaussianSplats(Object3D):
             frame.cmd.draw_mesh_tasks_indirect(self.draw_mesh_tasks_buf, 0, 1, 16)
         else:
             frame.cmd.draw_indexed_indirect(self.draw_parameters_buf, 0, 1, 20)
+
+class GaussianSplatsDepthMap(Object3D):
+    DISTANCE_COMPUTE_WORKGROUP_SIZE = 256
+
+    FRUSTUM_CULLING_AT_NONE = 0
+    FRUSTUM_CULLING_AT_DIST = 1
+    FRUSTUM_CULLING_AT_RASTER = 2
+
+    FORMAT_FLOAT32 = 0
+    FORMAT_FLOAT16 = 1
+    FORMAT_UINT8 = 2
+
+    def __init__(
+        self,
+        depth: ImageProperty,
+        colors: ImageProperty,
+        intrinsics: Tuple[float, float, float, float],
+        depth_threshold: float = 0.05,
+        max_standard_deviation: float = 0.01,
+        flags: GaussianSplatsRenderFlags = GaussianSplatsRenderFlags.NONE,
+        cull_at_dist: bool = True,
+        deterministic_cull_at_dist: bool = True,
+        name: Optional[str] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
+    ):
+        self.constants_dtype = np.dtype(
+            {
+                "transform": (np.dtype((np.float32, (3, 4))), 0),
+                "inverse_transform": (np.dtype((np.float32, (3, 4))), 48),
+                "splat_count": (np.uint32, 96),
+                "alpha_cull_threshold": (np.float32, 100),
+                "frustum_dilation": (np.float32, 104),
+                "splat_scale": (np.float32, 108),
+                "flags": (np.uint32, 112),
+            }
+        )  # type: ignore
+        self.constants = np.zeros((1,), self.constants_dtype)
+
+        self.d2g_constants_dtype = np.dtype(
+            {
+                "intrinsics": (np.dtype((np.float32, (4,))), 0),
+                "depth_threshold": (np.float32, 16),
+                "max_variance": (np.float32, 20),
+            }
+        )  # type: ignore
+        self.d2g_constants = np.zeros((1,), self.d2g_constants_dtype)
+        self.d2g_constants["intrinsics"] = intrinsics
+
+        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
+
+        self.depth = self.add_image_property(depth, name="depth-image").use_gpu(
+            ImageUsageFlags.STORAGE,
+            ImageLayout.GENERAL,
+            PipelineStageFlags.COMPUTE_SHADER,
+        )
+        self.colors = self.add_image_property(colors, name="color-image").use_gpu(
+            ImageUsageFlags.STORAGE,
+            ImageLayout.GENERAL,
+            PipelineStageFlags.COMPUTE_SHADER,
+        )
+
+        self.intrinsics = intrinsics
+        self.depth_threshold = depth_threshold
+        self.max_standard_deviation = max_standard_deviation
+        self.flags = flags
+        self.cull_at_dist = cull_at_dist
+        self.deterministic_cull_at_dist = deterministic_cull_at_dist
+        self.alpha_cull_threshold = 1.0 / 255.0
+        self.frustum_dilation = 0.2
+        self.splat_scale = 1.0
+
+    def create(self, r: Renderer) -> None:
+        self.use_barycentric = (r.ctx.device_features & DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC) != 0
+        self.use_mesh_shader = (r.ctx.device_features & DeviceFeatures.MESH_SHADER) != 0
+
+
+        max_splats = self.depth.width * self.depth.height
+        self.max_splats = max_splats
+
+
+        self.positions_buf = Buffer(
+            r.ctx, max_splats * 12, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-positions"
+        )
+        self.colors_buf = Buffer(
+            r.ctx, max_splats * 16, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-colors"
+        )
+        self.covariances_buf = Buffer(
+            r.ctx, max_splats * 24, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-covariances"
+        )
+
+        # Distance sorting
+        self.dists_buf = Buffer(
+            r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-dists"
+        )
+        self.dists_alt_buf = Buffer(
+            r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-dists-alt"
+        )
+        self.sorted_indices_buf = Buffer(
+            r.ctx,
+            max_splats * 4,
+            BufferUsageFlags.STORAGE | BufferUsageFlags.VERTEX,
+            AllocType.DEVICE,
+            name=f"{self.name}-sorted-indices",
+        )
+        self.sorted_indices_alt_buf = Buffer(
+            r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-sorted-indices-alt"
+        )
+
+        if not self.use_mesh_shader:
+            quad_vertices = np.array([-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0], np.float32)
+            quad_indices = np.array([0, 2, 1, 2, 0, 3], np.uint32)
+            self.quad_vertices = Buffer.from_data(
+                r.ctx,
+                quad_vertices,
+                BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST,
+                AllocType.DEVICE,
+                name=f"{self.name}-quad-vertices",
+            )
+            self.quad_indices = Buffer.from_data(
+                r.ctx,
+                quad_indices,
+                BufferUsageFlags.INDEX | BufferUsageFlags.TRANSFER_DST,
+                AllocType.DEVICE,
+                name=f"{self.name}-quad-indices",
+            )
+
+            draw_parameters = np.array([6, max_splats, 0, 0, 0], np.uint32)
+            self.draw_parameters_buf = Buffer.from_data(
+                r.ctx,
+                draw_parameters,
+                BufferUsageFlags.INDIRECT | BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
+                AllocType.DEVICE,
+                name=f"{self.name}-draw-param",
+            )
+            self.draw_parameters_init = np.array([6, 0, 0, 0, 0], np.uint32).tobytes()
+        else:
+            mesh_workgroup_size = min(
+                r.ctx.device_properties.mesh_shader_properties.max_preferred_mesh_work_group_invocations,
+                r.ctx.device_properties.mesh_shader_properties.max_mesh_work_group_count[0],
+            )
+            draw_mesh_tasks_parameters = np.array(
+                [div_round_up(max_splats, mesh_workgroup_size), 1, 1, max_splats], np.uint32
+            )
+            self.draw_mesh_tasks_buf = Buffer.from_data(
+                r.ctx,
+                draw_mesh_tasks_parameters,
+                BufferUsageFlags.INDIRECT | BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
+                AllocType.DEVICE,
+                name=f"{self.name}-draw-mesh-tasks-param",
+            )
+            self.draw_mesh_tasks_init = np.array([0, 1, 1, 0], np.uint32).tobytes()
+
+        defines = [
+            ("DISTANCE_COMPUTE_WORKGROUP_SIZE", str(self.DISTANCE_COMPUTE_WORKGROUP_SIZE)),
+            (
+                "FRUSTUM_CULLING_MODE",
+                str(self.FRUSTUM_CULLING_AT_DIST) if self.cull_at_dist else str(self.FRUSTUM_CULLING_AT_RASTER),
+            ),
+            ("USE_BARYCENTRIC", "1" if self.use_barycentric else "0"),
+            ("MS_ANTIALIASING", "0"),  # Only useful when model comes from mip splatting
+            ("MAX_SH_DEGREE", "0"),
+            ("SH_FORMAT", "0"),
+            # Using this as a flag significantly lowers performance even if disabled.
+            # Likely due to worse occupancy because of higher register pressure or due to some optimization
+            # not kicking in because of to the use of shader derivatives.
+            ("WIREFRAME", "0"),
+        ]
+
+        # Depth-to-gaussians
+        d2g_shader = r.compile_builtin_shader("3d/gaussian_splatting/d2g.comp.slang", defines=defines)
+        self.d2g_descriptor_layout, self.d2g_descriptor_pool, self.d2g_descriptor_sets = (
+            create_descriptor_layout_pool_and_sets_ringbuffer(
+                r.ctx,
+                [
+                    DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE), # Depth
+                    DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE), # Color
+                    DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER), # Positions
+                    DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER), # Colors
+                    DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER), # Covariances
+                ],
+                r.num_frames_in_flight,
+            )
+        )
+        for s in self.d2g_descriptor_sets:
+            s.write_buffer(self.positions_buf, DescriptorType.STORAGE_BUFFER, 2)
+            s.write_buffer(self.colors_buf, DescriptorType.STORAGE_BUFFER, 3)
+            s.write_buffer(self.covariances_buf, DescriptorType.STORAGE_BUFFER, 4)
+
+        self.d2g_pipeline = ComputePipeline(
+            r.ctx,
+            Shader(r.ctx, d2g_shader.code),
+            push_constants_ranges=[PushConstantsRange(self.d2g_constants_dtype.itemsize)],
+            descriptor_set_layouts=[
+                self.d2g_descriptor_layout,
+            ],
+        )
+
+        # Rendering
+        if self.use_mesh_shader:
+            defines.append(("RASTER_MESH_WORKGROUP_SIZE", str(mesh_workgroup_size)))
+
+        dist_shader = r.compile_builtin_shader("3d/gaussian_splatting/dist.comp.slang", defines=defines)
+        self.descriptor_layout, self.descriptor_pool, self.descriptor_sets = (
+            create_descriptor_layout_pool_and_sets_ringbuffer(
+                r.ctx,
+                [DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in range(7)],
+                r.num_frames_in_flight,
+            )
+        )
+
+        for s in self.descriptor_sets:
+            s.write_buffer(self.positions_buf, DescriptorType.STORAGE_BUFFER, 3)
+            s.write_buffer(self.colors_buf, DescriptorType.STORAGE_BUFFER, 4)
+            s.write_buffer(self.covariances_buf, DescriptorType.STORAGE_BUFFER, 5)
+
+            s.write_buffer(self.dists_buf, DescriptorType.STORAGE_BUFFER, 0)
+            s.write_buffer(self.sorted_indices_buf, DescriptorType.STORAGE_BUFFER, 1)
+            if not self.use_mesh_shader:
+                s.write_buffer(self.draw_parameters_buf, DescriptorType.STORAGE_BUFFER, 2)
+            else:
+                s.write_buffer(self.draw_mesh_tasks_buf, DescriptorType.STORAGE_BUFFER, 2)
+
+        self.dist_pipeline = ComputePipeline(
+            r.ctx,
+            Shader(r.ctx, dist_shader.code),
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+                self.descriptor_layout,
+            ],
+        )
+
+        # Keys are UINT32 because we already convert them to being ordered when
+        # interpreted as integers in the dist computation pass.
+        self.sort_pipeline = GpuSortingPipeline(
+            r,
+            SortOptions(
+                key_type=SortDataType.UINT32,
+                payload_type=SortDataType.UINT32,
+                indirect=self.cull_at_dist,
+                unsafe_has_forward_thread_progress_guarantee=False,
+            ),
+        )
+
+        if self.cull_at_dist and self.deterministic_cull_at_dist:
+            self.instance_sort_pipeline = GpuSortingPipeline(
+                r,
+                SortOptions(
+                    key_type=SortDataType.UINT32,
+                    payload_type=SortDataType.UINT32,
+                    indirect=True,
+                    unsafe_has_forward_thread_progress_guarantee=False,
+                ),
+            )
+
+        if not self.use_mesh_shader:
+            vert = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.vert.slang", defines=defines)
+            frag = r.compile_builtin_shader("3d/gaussian_splatting/threedgs_raster.frag.slang", defines=defines)
+        else:
+            mesh = r.compile_builtin_shader(
+                "3d/gaussian_splatting/threedgs_raster.mesh.slang", target="spirv_1_4", defines=defines
+            )
+            frag = r.compile_builtin_shader(
+                "3d/gaussian_splatting/threedgs_raster.frag.slang", entry="main_mesh", defines=defines
+            )
+
+        # Instantiate the pipeline using the compiled shaders
+        self.pipeline = GraphicsPipeline(
+            r.ctx,
+            stages=[
+                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX)
+                if not self.use_mesh_shader
+                else PipelineStage(Shader(r.ctx, mesh.code), Stage.MESH),
+                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+            ],
+            vertex_bindings=[
+                VertexBinding(0, 8, VertexInputRate.VERTEX),
+                VertexBinding(1, 4, VertexInputRate.INSTANCE),
+            ]
+            if not self.use_mesh_shader
+            else [],
+            vertex_attributes=[
+                VertexAttribute(0, 0, Format.R32G32_SFLOAT),
+                VertexAttribute(1, 1, Format.R32_UINT),
+            ]
+            if not self.use_mesh_shader
+            else [],
+            input_assembly=InputAssembly(
+                PrimitiveTopology.TRIANGLE_LIST,
+            ),
+            samples=1,
+            attachments=[
+                Attachment(
+                    format=r.output_format,
+                    blend_enable=True,
+                    src_color_blend_factor=BlendFactor.SRC_ALPHA,
+                    dst_color_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
+                    color_blend_op=BlendOp.ADD,
+                    src_alpha_blend_factor=BlendFactor.ONE,
+                    dst_alpha_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
+                    alpha_blend_op=BlendOp.ADD,
+                )
+            ],
+            depth=Depth(r.depth_format, False, False, r.depth_compare_op),
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+                self.descriptor_layout,
+            ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
+        )
+
+    def update_transform(self, parent: Optional[Object]) -> None:
+        super().update_transform(parent)
+        self.constants["transform"] = mat4x3(self.current_transform_matrix)
+        self.constants["inverse_transform"] = mat4x3(inverse(self.current_transform_matrix))
+
+    def upload(self, r: Renderer, frame: RendererFrame) -> None:
+        self.descriptor_set = self.descriptor_sets.get_current_and_advance()
+
+        # D2G
+        self.d2g_constants["depth_threshold"] = self.depth_threshold
+        self.d2g_constants["max_variance"] = self.max_standard_deviation ** 2
+
+        d2g_descriptor_set = self.d2g_descriptor_sets.get_current_and_advance()
+        self.depth.get_current_gpu().write_descriptor(d2g_descriptor_set, DescriptorType.STORAGE_IMAGE, ImageLayout.GENERAL, 0)
+        self.colors.get_current_gpu().write_descriptor(d2g_descriptor_set, DescriptorType.STORAGE_IMAGE, ImageLayout.GENERAL, 1)
+
+        frame.cmd.bind_compute_pipeline(
+            self.d2g_pipeline,
+            descriptor_sets=[d2g_descriptor_set],
+            push_constants=self.d2g_constants.tobytes(),
+        )
+        frame.cmd.dispatch(div_round_up(self.depth.width, 8), div_round_up(self.depth.height, 8), 1)
+        frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+
+        # Constants
+        num_splats = self.max_splats
+        self.constants["splat_count"] = num_splats
+        self.constants["alpha_cull_threshold"] = self.alpha_cull_threshold
+        self.constants["frustum_dilation"] = self.frustum_dilation
+        self.constants["splat_scale"] = self.splat_scale
+        self.constants["flags"] = self.flags
+
+        self.descriptor_set = self.descriptor_sets.get_current_and_advance()
+
+        count_buf = None
+        if self.cull_at_dist:
+            if self.use_mesh_shader:
+                count_buf = self.draw_mesh_tasks_buf
+            else:
+                count_buf = self.draw_parameters_buf
+
+            if self.deterministic_cull_at_dist:
+                self.instance_sort_pipeline.upload(
+                    r,
+                    self.sorted_indices_buf,
+                    self.sorted_indices_alt_buf,
+                    self.dists_buf,
+                    self.dists_alt_buf,
+                    count_buf,
+                )
+
+        self.sort_pipeline.upload(
+            r,
+            self.dists_buf,
+            self.dists_alt_buf,
+            self.sorted_indices_buf,
+            self.sorted_indices_alt_buf,
+            count_buf,
+        )
+
+        frame.between_viewport_render_src_pipeline_stages |= PipelineStageFlags.COMPUTE_SHADER
+        frame.between_viewport_render_dst_pipeline_stages |= PipelineStageFlags.TRANSFER
+
+    def pre_render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
+        num_splats = self.max_splats
+
+        # Reset counters
+        if self.cull_at_dist:
+            if self.use_mesh_shader:
+                frame.cmd.update_buffer(self.draw_mesh_tasks_buf, self.draw_mesh_tasks_init)
+            else:
+                frame.cmd.fill_buffer(self.draw_parameters_buf, 0, 4, 4)
+            frame.upload_property_pipeline_stages |= PipelineStageFlags.COMPUTE_SHADER
+
+        frame.cmd.memory_barrier(MemoryUsage.TRANSFER_DST, MemoryUsage.COMPUTE_SHADER)
+
+        # Distance
+        frame.cmd.bind_compute_pipeline(
+            self.dist_pipeline,
+            descriptor_sets=[scene_descriptor_set, self.descriptor_set],
+            push_constants=self.constants.tobytes(),
+        )
+        frame.cmd.dispatch(div_round_up(num_splats, self.DISTANCE_COMPUTE_WORKGROUP_SIZE), 1, 1)
+
+        frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+
+        # Sort
+        if self.cull_at_dist:
+            if self.use_mesh_shader:
+                count_offset = 12
+            else:
+                count_offset = 4
+
+            if self.deterministic_cull_at_dist:
+                self.instance_sort_pipeline.run_indirect(
+                    renderer,
+                    frame.cmd,
+                    count_offset,
+                )
+                frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
+
+            self.sort_pipeline.run_indirect(
+                renderer,
+                frame.cmd,
+                count_offset,
+            )
+        else:
+            self.sort_pipeline.run(
+                renderer,
+                frame.cmd,
+                num_splats,
+            )
+
+        frame.before_render_src_pipeline_stages |= PipelineStageFlags.COMPUTE_SHADER
+        frame.before_render_dst_pipeline_stages |= (
+            PipelineStageFlags.MESH_SHADER if self.use_mesh_shader else PipelineStageFlags.VERTEX_SHADER
+        )
+
+    def render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
+        frame.cmd.bind_graphics_pipeline(
+            self.pipeline,
+            vertex_buffers=[
+                self.quad_vertices,
+                self.sorted_indices_buf,
+            ]
+            if not self.use_mesh_shader
+            else [],
+            index_buffer=self.quad_indices if not self.use_mesh_shader else None,
+            descriptor_sets=[
+                scene_descriptor_set,
+                self.descriptor_set,
+            ],
+            push_constants=self.constants.tobytes(),
+        )
+        if self.use_mesh_shader:
+            frame.cmd.draw_mesh_tasks_indirect(self.draw_mesh_tasks_buf, 0, 1, 16)
+        else:
+            frame.cmd.draw_indexed_indirect(self.draw_parameters_buf, 0, 1, 20)
