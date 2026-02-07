@@ -25,6 +25,8 @@ struct PushConstants
     float fx, fy, cx, cy;
     float depth_threshold;
     float max_variance;
+    uint use_eigen_decomposition;
+    float relative_ratio_threshold;
 };
 
 [[vk::push_constant]]
@@ -60,6 +62,280 @@ float projected_sq_dist(float3 p, float3 c, float3 axis) {
 
 static constexpr float NAN = asfloat(0x7FFFFFFF);
 
+float3 ComputeEigenvector0(float3x3 A, float eval0) {
+    float3 row0 = float3(A[0][0] - eval0, A[0][1], A[0][2]);
+    float3 row1 = float3(A[0][1], A[1][1] - eval0, A[1][2]);
+    float3 row2 = float3(A[0][2], A[1][2], A[2][2] - eval0);
+    float3 r0xr1 = cross(row0, row1);
+    float3 r0xr2 = cross(row0, row2);
+    float3 r1xr2 = cross(row1, row2);
+    float d0 = dot(r0xr1, r0xr1);
+    float d1 = dot(r0xr2, r0xr2);
+    float d2 = dot(r1xr2, r1xr2);
+
+    float dmax = d0;
+    int imax = 0;
+    if (d1 > dmax) {
+        dmax = d1;
+        imax = 1;
+    }
+    if (d2 > dmax) {
+        imax = 2;
+    }
+
+    if (imax == 0) {
+        return r0xr1 / sqrt(d0);
+    } else if (imax == 1) {
+        return r0xr2 / sqrt(d1);
+    } else {
+        return r1xr2 / sqrt(d2);
+    }
+}
+
+float3 ComputeEigenvector1(float3x3 A, float3 evec0, float eval1) {
+    float3 U, V;
+    if (abs(evec0[0]) > abs(evec0[1])) {
+        float inv_length =
+                1 / sqrt(evec0[0] * evec0[0] + evec0[2] * evec0[2]);
+        U = float3(-evec0[2] * inv_length, 0, evec0[0] * inv_length);
+    } else {
+        float inv_length =
+                1 / sqrt(evec0[1] * evec0[1] + evec0[2] * evec0[2]);
+        U = float3(0, evec0[2] * inv_length, -evec0[1] * inv_length);
+    }
+    V = cross(evec0, U);
+
+    float3 AU = float3(A[0][0] * U[0] + A[0][1] * U[1] + A[0][2] * U[2],
+                       A[0][1] * U[0] + A[1][1] * U[1] + A[1][2] * U[2],
+                       A[0][2] * U[0] + A[1][2] * U[1] + A[2][2] * U[2]);
+
+    float3 AV = float3(A[0][0] * V[0] + A[0][1] * V[1] + A[0][2] * V[2],
+                       A[0][1] * V[0] + A[1][1] * V[1] + A[1][2] * V[2],
+                       A[0][2] * V[0] + A[1][2] * V[1] + A[2][2] * V[2]);
+
+    float m00 = U[0] * AU[0] + U[1] * AU[1] + U[2] * AU[2] - eval1;
+    float m01 = U[0] * AV[0] + U[1] * AV[1] + U[2] * AV[2];
+    float m11 = V[0] * AV[0] + V[1] * AV[1] + V[2] * AV[2] - eval1;
+
+    float absM00 = abs(m00);
+    float absM01 = abs(m01);
+    float absM11 = abs(m11);
+    float max_abs_comp;
+    if (absM00 >= absM11) {
+        max_abs_comp = max(absM00, absM01);
+        if (max_abs_comp > 0) {
+            if (absM00 >= absM01) {
+                m01 /= m00;
+                m00 = 1 / sqrt(1 + m01 * m01);
+                m01 *= m00;
+            } else {
+                m00 /= m01;
+                m01 = 1 / sqrt(1 + m00 * m00);
+                m00 *= m01;
+            }
+            return m01 * U - m00 * V;
+        } else {
+            return U;
+        }
+    } else {
+        max_abs_comp = max(absM11, absM01);
+        if (max_abs_comp > 0) {
+            if (absM11 >= absM01) {
+                m01 /= m11;
+                m11 = 1 / sqrt(1 + m01 * m01);
+                m01 *= m11;
+            } else {
+                m11 /= m01;
+                m01 = 1 / sqrt(1 + m11 * m11);
+                m11 *= m01;
+            }
+            return m11 * U - m01 * V;
+        } else {
+            return U;
+        }
+    }
+}
+
+float max_coeff(float3x3 m)
+{
+    float3 row_max = float3(
+        max(max(m[0].x, m[0].y), m[0].z),
+        max(max(m[1].x, m[1].y), m[1].z),
+        max(max(m[2].x, m[2].y), m[2].z)
+      );
+    return max(max(row_max.x, row_max.y), row_max.z);
+}
+
+void FastEigen3x3(float3x3 covariance,
+    out float3 eigenvalues,
+    out float3x3 eigenvectors,
+) {
+    // Previous version based on:
+    // https://en.wikipedia.org/wiki/Eigenvalue_algorithm#3.C3.973_matrices
+    // Current version based on
+    // https://www.geometrictools.com/Documentation/RobustEigenSymmetric3x3.pdf
+    // which handles edge cases like points on a plane
+
+    float3x3 A = covariance;
+    float max_coeff = max_coeff(A);
+    if (max_coeff == 0) {
+        eigenvectors = float3x3(
+            1, 0, 0,
+            0, 1, 0,
+            0, 0, 1,
+        );
+        eigenvalues = float3(0);
+        return;
+    }
+
+    A /= max_coeff;
+
+    float norm = A[0][1] * A[0][1] + A[0][2] * A[0][2] + A[1][2] * A[1][2];
+    if (norm > 0) {
+        float3 evals;
+        float3x3 evecs;
+
+        float q = (A[0][0] + A[1][1] + A[2][2]) / 3;
+
+        float b00 = A[0][0] - q;
+        float b11 = A[1][1] - q;
+        float b22 = A[2][2] - q;
+
+        float p = sqrt((b00 * b00 + b11 * b11 + b22 * b22 + norm * 2) / 6);
+
+        float c00 = b11 * b22 - A[1][2] * A[1][2];
+        float c01 = A[0][1] * b22 - A[1][2] * A[0][2];
+        float c02 = A[0][1] * A[1][2] - b11 * A[0][2];
+        float det = (b00 * c00 - A[0][1] * c01 + A[0][2] * c02) / (p * p * p);
+
+        float half_det = det * 0.5;
+        half_det = min(max(half_det, -1.0), 1.0);
+
+        float angle = acos(half_det) / 3.0;
+        float two_thirds_pi = 2.09439510239319549;
+        float beta2 = cos(angle) * 2;
+        float beta0 = cos(angle + two_thirds_pi) * 2;
+        float beta1 = -(beta0 + beta2);
+
+        evals.x = q + p * beta0;
+        evals.y = q + p * beta1;
+        evals.z = q + p * beta2;
+
+        if (half_det >= 0) {
+            evecs[2] = ComputeEigenvector0(A, evals[2]);
+            evecs[1] = ComputeEigenvector1(A, evecs[2], evals[1]);
+            evecs[0] = cross(evecs[1], evecs[2]);
+        } else {
+            evecs[0] = ComputeEigenvector0(A, evals[0]);
+            evecs[1] = ComputeEigenvector1(A, evecs[0], evals[1]);
+            evecs[2] = cross(evecs[0], evecs[1]);
+        }
+        eigenvalues = evals;
+        eigenvectors = evecs;
+    } else {
+        eigenvectors = float3x3(
+            1, 0, 0,
+            0, 1, 0,
+            0, 0, 1,
+        );
+        eigenvalues = float3(0);
+    }
+}
+
+// Eigen decomposition for 3x3 symmetric matrix using Cardano's formula
+void eigen_decomposition_symmetric3x3(
+    float3x3 A,
+    out float3 eigenvalues,
+    out float3x3 eigenvectors
+) {
+    // For a symmetric 3x3 matrix, we use the analytical solution
+    // Based on: https://www.mpi-hd.mpg.de/personalhomes/globes/3x3/
+
+    float m = (A[0][0] + A[1][1] + A[2][2]) / 3.0;
+
+    float3x3 K = A - float3x3(m, 0, 0, 0, m, 0, 0, 0, m);
+
+    float q = determinant(K) / 2.0;
+
+    float p = (K[0][0] * K[0][0] + K[1][1] * K[1][1] + K[2][2] * K[2][2] +
+               2.0 * (K[0][1] * K[0][1] + K[0][2] * K[0][2] + K[1][2] * K[1][2])) / 6.0;
+
+    float phi;
+    if (p < 1e-10) {
+        phi = 0.0;
+    } else {
+        float r = q / (p * sqrt(p));
+        r = clamp(r, -1.0, 1.0);
+        phi = acos(r) / 3.0;
+    }
+
+    float sqrt_p = sqrt(p);
+    eigenvalues[0] = m + 2.0 * sqrt_p * cos(phi);
+    eigenvalues[1] = m + 2.0 * sqrt_p * cos(phi - 2.0 * 3.14159265359 / 3.0);
+    eigenvalues[2] = m + 2.0 * sqrt_p * cos(phi + 2.0 * 3.14159265359 / 3.0);
+
+    // Sort eigenvalues in descending order
+    if (eigenvalues[1] > eigenvalues[0]) {
+        float tmp = eigenvalues[0];
+        eigenvalues[0] = eigenvalues[1];
+        eigenvalues[1] = tmp;
+    }
+    if (eigenvalues[2] > eigenvalues[0]) {
+        float tmp = eigenvalues[0];
+        eigenvalues[0] = eigenvalues[2];
+        eigenvalues[2] = tmp;
+    }
+    if (eigenvalues[2] > eigenvalues[1]) {
+        float tmp = eigenvalues[1];
+        eigenvalues[1] = eigenvalues[2];
+        eigenvalues[2] = tmp;
+    }
+
+    // Compute eigenvectors via (A - lambda*I) null space
+    for (int i = 0; i < 3; i++) {
+        float3x3 B = A - float3x3(eigenvalues[i], 0, 0, 0, eigenvalues[i], 0, 0, 0, eigenvalues[i]);
+
+        // Find the eigenvector as cross product of two rows of B
+        float3 r0 = float3(B[0][0], B[0][1], B[0][2]);
+        float3 r1 = float3(B[1][0], B[1][1], B[1][2]);
+        float3 r2 = float3(B[2][0], B[2][1], B[2][2]);
+
+        float3 c01 = cross(r0, r1);
+        float3 c02 = cross(r0, r2);
+        float3 c12 = cross(r1, r2);
+
+        float len01 = dot(c01, c01);
+        float len02 = dot(c02, c02);
+        float len12 = dot(c12, c12);
+
+        float3 v;
+        if (len01 >= len02 && len01 >= len12) {
+            v = c01;
+        } else if (len02 >= len01 && len02 >= len12) {
+            v = c02;
+        } else {
+            v = c12;
+        }
+
+        float len = length(v);
+        if (len > 1e-10) {
+            v = v / len;
+        } else {
+            // Fallback for degenerate case
+            if (i == 0) v = float3(1, 0, 0);
+            else if (i == 1) v = float3(0, 1, 0);
+            else v = float3(0, 0, 1);
+        }
+
+        eigenvectors[i] = v;
+    }
+
+    // Ensure right-handed coordinate system
+    if (dot(cross(eigenvectors[0], eigenvectors[1]), eigenvectors[2]) < 0) {
+        eigenvectors[2] = -eigenvectors[2];
+    }
+}
+
 [numthreads(8, 8, 1)]
 [shader("compute")]
 void main(uint3 thread_id : SV_DispatchThreadID)
@@ -71,7 +347,8 @@ void main(uint3 thread_id : SV_DispatchThreadID)
     color_img.GetDimensions(width, height);
 
     uint32_t index = y * width + x;
-    if (any(uint2(x, y) >= uint2(width, height))) {
+    if (any(uint2(x, y) <= uint2(1, 1)) || any(uint2(x, y) >= uint2(width - 1, height - 1))) {
+        positions[index * 3 + 0] = NAN;
         return;
     }
 
@@ -102,32 +379,73 @@ void main(uint3 thread_id : SV_DispatchThreadID)
     float3 p_t = unproject(x, y - 1, d_t, fx, fy, cx, cy);
     float3 p_b = unproject(x, y + 1, d_b, fx, fy, cx, cy);
 
-    float3 x_v = p_r - p_l;
-    float3 y_v = p_t - p_b;
+    float3 e1, e2, e3;
+    float var_x, var_y, var_z;
 
-    float3 e1 = normalize(x_v);
-    float3 e2 = normalize(y_v);
-    e2 = normalize(e2 - dot(e2, e1) * e1);
-    float3 e3 = normalize(cross(e1, e2));
+    if (g_constants.use_eigen_decomposition != 0) {
+        // Eigen decomposition method: compute basis from covariance of direction vectors
+        float3 d0 = p_l - p_c;
+        float3 d1 = p_r - p_c;
+        float3 d2 = p_t - p_c;
+        float3 d3 = p_b - p_c;
 
-    float var_x = min(
-        projected_sq_dist(p_l, p_c, e1),
-        projected_sq_dist(p_r, p_c, e1)
-    );
+        // Build covariance matrix from the 4 directions: M = (1/4) * sum(d_i * d_i^T)
+        float3x3 cov_directions = float3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
+        cov_directions[0][0] = d0.x * d0.x + d1.x * d1.x + d2.x * d2.x + d3.x * d3.x;
+        cov_directions[0][1] = d0.x * d0.y + d1.x * d1.y + d2.x * d2.y + d3.x * d3.y;
+        cov_directions[0][2] = d0.x * d0.z + d1.x * d1.z + d2.x * d2.z + d3.x * d3.z;
+        cov_directions[1][0] = cov_directions[0][1];
+        cov_directions[1][1] = d0.y * d0.y + d1.y * d1.y + d2.y * d2.y + d3.y * d3.y;
+        cov_directions[1][2] = d0.y * d0.z + d1.y * d1.z + d2.y * d2.z + d3.y * d3.z;
+        cov_directions[2][0] = cov_directions[0][2];
+        cov_directions[2][1] = cov_directions[1][2];
+        cov_directions[2][2] = d0.z * d0.z + d1.z * d1.z + d2.z * d2.z + d3.z * d3.z;
+        cov_directions = cov_directions * 0.25;
 
-    float var_y = min(
-        projected_sq_dist(p_t, p_c, e2),
-        projected_sq_dist(p_b, p_c, e2)
-    );
+        // Eigen decomposition to get principal axes and variances
+        float3 eigenvalues;
+        float3x3 eigenvectors;
+        eigen_decomposition_symmetric3x3(cov_directions, eigenvalues, eigenvectors);
+        eigenvectors = transpose(eigenvectors);
+        // FastEigen3x3(cov_directions, eigenvalues, eigenvectors);
 
-    // # var_x = np.dot(x_v, x_v) * 0.25
-    // # var_y = np.dot(y_v, y_v) * 0.25
-    // # var_x = min(var_x, 0.05)
-    // # var_y = min(var_y, 0.05)
+        e1 = eigenvectors[0];
+        e2 = eigenvectors[1];
+        e3 = eigenvectors[2];
+
+        // Eigenvalues are the variances along each principal axis
+        var_x = eigenvalues[0];
+        var_y = eigenvalues[1];
+        var_z = eigenvalues[2];
+    } else {
+        // Gram-Schmidt method: compute basis from horizontal/vertical differences
+        float3 x_v = p_r - p_l;
+        float3 y_v = p_t - p_b;
+
+        e1 = normalize(x_v);
+        e2 = normalize(y_v);
+        e2 = normalize(e2 - dot(e2, e1) * e1);
+        e3 = normalize(cross(e1, e2));
+
+        var_x = min(
+            projected_sq_dist(p_l, p_c, e1),
+            projected_sq_dist(p_r, p_c, e1)
+        );
+        var_y = min(
+            projected_sq_dist(p_t, p_c, e2),
+            projected_sq_dist(p_b, p_c, e2)
+        );
+        var_z = 0.0;
+    }
+
+    if (min(var_x, var_y) / max(var_x, var_y) < g_constants.relative_ratio_threshold) {
+        positions[index * 3 + 0] = NAN;
+        return;
+    }
 
     var_x = min(var_x, g_constants.max_variance);
     var_y = min(var_y, g_constants.max_variance);
-    float var_z = 0.0; // z_variance_scale * (var_x + var_y) * 0.5
+    var_z = min(var_z, g_constants.max_variance);
 
     float3x3 R = transpose(float3x3(e1, e2, e3));
     float3x3 D = float3x3(

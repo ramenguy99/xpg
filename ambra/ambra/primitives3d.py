@@ -1912,6 +1912,8 @@ class GaussianSplatsDepthMap(Object3D):
         intrinsics: Tuple[float, float, float, float],
         depth_threshold: float = 0.05,
         max_standard_deviation: float = 0.01,
+        use_eigendec: bool = False,
+        relative_ratio_threshold: float = 0.0,
         flags: GaussianSplatsRenderFlags = GaussianSplatsRenderFlags.NONE,
         cull_at_dist: bool = True,
         deterministic_cull_at_dist: bool = True,
@@ -1940,6 +1942,8 @@ class GaussianSplatsDepthMap(Object3D):
                 "intrinsics": (np.dtype((np.float32, (4,))), 0),
                 "depth_threshold": (np.float32, 16),
                 "max_variance": (np.float32, 20),
+                "use_eigendec": (np.uint32, 24),
+                "relative_ratio_threshold": (np.float32, 28),
             }
         )  # type: ignore
         self.d2g_constants = np.zeros((1,), self.d2g_constants_dtype)
@@ -1961,6 +1965,9 @@ class GaussianSplatsDepthMap(Object3D):
         self.intrinsics = intrinsics
         self.depth_threshold = depth_threshold
         self.max_standard_deviation = max_standard_deviation
+        self.use_eigendec = use_eigendec
+        self.relative_ratio_threshold = relative_ratio_threshold
+
         self.flags = flags
         self.cull_at_dist = cull_at_dist
         self.deterministic_cull_at_dist = deterministic_cull_at_dist
@@ -2219,6 +2226,8 @@ class GaussianSplatsDepthMap(Object3D):
         # D2G
         self.d2g_constants["depth_threshold"] = self.depth_threshold
         self.d2g_constants["max_variance"] = self.max_standard_deviation ** 2
+        self.d2g_constants["use_eigendec"] = self.use_eigendec
+        self.d2g_constants["relative_ratio_threshold"] = self.relative_ratio_threshold
 
         d2g_descriptor_set = self.d2g_descriptor_sets.get_current_and_advance()
         self.depth.get_current_gpu().write_descriptor(d2g_descriptor_set, DescriptorType.STORAGE_IMAGE, ImageLayout.GENERAL, 0)
