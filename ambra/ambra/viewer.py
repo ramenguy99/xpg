@@ -51,7 +51,7 @@ from .headless import HeadlessSwapchain, HeadlessSwapchainFrame
 from .keybindings import KeyMap
 from .lights import LIGHT_TYPES_INFO
 from .renderer import FrameInputs, Renderer
-from .scene import Object, Scene
+from .scene import Object, Scene, Widget
 from .server import Client, Message, RawMessage, Server, parse_builtin_messages
 from .utils.descriptors import (
     create_descriptor_layout_pool_and_sets,
@@ -197,6 +197,9 @@ class Viewer:
 
         # Scene
         self.scene = Scene("scene")
+
+        # Widgets
+        self.widgets: List[Widget] = []
 
         # Viewport
         if self.multiviewport:
@@ -1013,6 +1016,9 @@ class Viewer:
             self.gui_inspector()
         if self.gui_show_renderer:
             self.gui_renderer()
+
+        for w in self.scene.widgets:
+            w.gui()
 
     def run(self) -> None:
         if self.window is None:

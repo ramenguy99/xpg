@@ -245,10 +245,59 @@ class Object3D(Object):
         ) * self.current_relative_transform.as_mat4()  # type: ignore
 
 
+class Widget:
+    def __init__(self, title: str):
+        self.title = title
+
+        self.created = False
+        self.properties: List[Property] = []
+
+    def add_buffer_property(
+        self,
+        prop: Union[BufferProperty, List[ArrayLike], ArrayLike],
+        dtype: Optional[DTypeLike] = None,
+        shape: Tuple[int, ...] = (),
+        name: str = "",
+    ) -> BufferProperty:
+        property = as_buffer_property(prop, dtype, shape, name)
+        self.properties.append(property)
+        return property
+
+    def add_image_property(
+        self,
+        prop: Union[ImageProperty, List[ArrayLike], ArrayLike],
+        is_3d: bool = False,
+        name: str = "",
+    ) -> ImageProperty:
+        property = as_image_property(prop, is_3d, name=name)
+        self.properties.append(property)
+        return property
+
+    def collect_dynamic_properties(self, all_properties: Set[Property]) -> None:
+        for p in self.properties:
+            if p.is_dynamic():
+                all_properties.add(p)
+
+    def create_if_needed(self, renderer: "Renderer") -> None:
+        if not self.created:
+            self.create(renderer)
+            self.created = True
+
+    def create(self, r: "Renderer") -> None:
+        pass
+
+    def upload(self, r: "Renderer", frame: RendererFrame) -> None:
+        pass
+
+    def gui(self) -> None:
+        pass
+
+
 class Scene:
     def __init__(self, name: str):
         self.name = name
         self.objects: List[Object] = []
+        self.widgets: List[Widget] = []
 
     def visit_objects_with_parent(self, function: Callable[[Optional[Object], Object], None]) -> None:
         def visit_recursive(p: Optional[Object], o: Object) -> None:
@@ -288,6 +337,8 @@ class Scene:
             o.collect_dynamic_properties(all_dynamic_properties)
 
         self.visit_objects(visit)
+        for w in self.widgets:
+            w.collect_dynamic_properties(all_dynamic_properties)
 
         for p in all_dynamic_properties:
             t = p.end_animation_time(frames_per_second)
@@ -302,6 +353,8 @@ class Scene:
             o.collect_dynamic_properties(all_dynamic_properties)
 
         self.visit_objects(collect)
+        for w in self.widgets:
+            w.collect_dynamic_properties(all_dynamic_properties)
 
         for p in all_dynamic_properties:
             p.update(time, frame)

@@ -7,6 +7,7 @@ Priority:
     - [ ] Ortho views
     - [ ] Images in GUI
     - [ ] More GUI
+    - [ ] Better timeline with timestamp visualizers
 
 TODO:
 - [x] Subgroups:
@@ -20,16 +21,7 @@ TODO:
         - [x] Vertices / indices count estimation based on SDF area
         - [x] Path tracer support (likely need synchronous readback of number of vertices / indices)
         - [x] Invalidation of vertices on volume / level change
-    - [ ] Should size / level be buffer properties?
-- [ ] Gpu-generated properties:
-    - Very general approach with dependency graph and task run etc..
-        - Not sure yet how to make this general and useful enough
-        - Issues with things like GPU-only counts, preallocations, invalidation, CPU access -> maybe current property API is just not a good fit because it assumes too much
-    - Case specific escape hatch approach by subclassing Property / GpuProperty with limited subset of functionality
-    - GpuOnlyProperty (no CPU access without readback) + DrawIndirect for Mesh -> mesh has a lot of stuff now, not sure if should add more or somehow split / refactor
-        - This seems like a generally useful thing / escape hatch to have
-    - Somehow related (but kind of opposite) to Cpu-only property where there is only a single copy of the data but on the CPU that
-      the GPU can also use (might have to limit CPU usage of this / make this read-only to ensure synchronization between CPU/GPU).
+    - [-] Should size / level be buffer properties?
 - [ ] Path tracer:
     - [ ] Features:
         - [x] Samples per frame
@@ -41,6 +33,7 @@ TODO:
         - [ ] All invalidation cases (at least camera and handling of playback + user provided)
             - [ ] Camera projection changes (only looking at transform atm)
             - [ ] Playback now freezes scene but continues (at least stop on trace and switch back to raster on resume)
+            - [ ] Acceleratin structure is never invalidated (after frame changes for example)
         - [ ] Path tracer UI with stats (e.g. samples and config)
         - [ ] Environment map sampling (reconstruct equirect from skybox) -> likely do cumsum stuff in numpy for LUT
         - [ ] Pure specular hits (and maybe keep track for regularization -> see path_tracer.slang)
@@ -65,16 +58,16 @@ TODO:
         - [x] light viewport mask mask
         - [x] mesh instancing
         - [x] headless rendering
-    - [ ] Cleanup:
+    - [x] Cleanup:
         - [x] remove prints (also buffer address logs)
         - [x] fix gpu buffer usage assignment for device address and acc struct input
         - [x] Basic from other material types to unified
         - [x] Verify order of transform elements in AccelerationStructureMesh
         - [x] Ensure all meshes returned in geometry have consistent winding order (check what is considered canonical)
-    - [ ] Upstream:
-        - [ ] Mixing indexed and non-indexed geometry triggers (apparently false positive) validation layer error
+    - [x] Upstream:
+        - [x] Mixing indexed and non-indexed geometry triggers (apparently false positive) validation layer error
             -> see https://github.com/KhronosGroup/Vulkan-ValidationLayers/pull/10870)
-            -> Check if still wrong with latest validation layer
+            -> Fixed with latest validation layer
 - [ ] Primitives
     - [ ] Objects:
         - [ ] thin points 2D
@@ -83,7 +76,7 @@ TODO:
         - [x] thin lines 2D / 3D
         - [x] Spheres
         - [ ] Cilinders (with/without caps)
-        - [-] Axis -> missing caps / cones
+        - [x] Axis -> missing caps / cones
         - [-] Meshes
             - [ ] Handle optional params for:
                 - [x] normals -> fallback to flat shading with shader derivatives
@@ -110,7 +103,7 @@ TODO:
 - [ ] Properties:
     - [ ] Should we keep update callbacks? Should they be called when update_frame or update_frames are called? Most users of this just want to mark invalidation, maybe that's less powerful but better overall?
 - [ ] Cameras
-    - [ ] Better ortho controls
+    - [x] Better ortho controls
     - [ ] Temporary axis aligned ortho view from all sides
     - [ ] Camera primitives (in scene):
         - [ ] Constructor from opencv intrinsics
@@ -146,7 +139,7 @@ TODO:
     - [ ] Point and spot lights and shadows
     - [ ] Colormap material with user-configurable min-max and colormap (evaluated in shader from R channel)
         - think about how to also maybe support variants like versions dependent on distance to position / plane
-- [x] Stages presets in config or in helper functions
+- [ ] Stages presets in config or in helper functions
     - [x] Basic directional + uniform lights
     - [ ] Lights + grid
     - [ ] Keylight + fill light with color presets
@@ -256,7 +249,7 @@ TODO:
     - [x] Drag start / end detection
     - [x] Camera mode dependent rotate/pan
     - [x] Scroll zoom (how to handle moving the target (or reducing the distance)?)
-    - [ ] 2D controls -> pan only and change zoom mode to modify ortho size?
+    - [x] 2D controls -> pan only and change zoom mode to modify ortho size?
 - [ ] Multi-viewport
     - [x] UI:
         - [x] Reusing surface requires injecting between imgui commands and stopping / resuming render pass
@@ -334,15 +327,16 @@ TODO:
         - We can also allocate those descriptor sets manually, either directly in python or in a Gui wrapper.
         - It might be a bit inefficient to have a DescriptorSet and Pool per image, but we currently don't expose
         descriptor pools anyway. We might want to revisit this once we do this.
-    - [ ] Better default window placement
-    - [ ] Images in UI or viewports:
-        - [ ] Native 2D rendering is maybe not that useful if we anyway have imgui draw API?
-        - [ ] Not an obviously easy way to use GpuProperties (e.g. images for imgui widgets)
+    - [x] Move GUI drawing after rendering for full access to properties
+    - [x] Images in UI or viewports:
+        - [x] Native 2D rendering is maybe not that useful if we anyway have imgui draw API?
+        - [x] Not an obviously easy way to use GpuProperties (e.g. images for imgui widgets)
             - One option is to create some fictitious renderable that has image properties and that draws some gui either on update, on gui or on render
             - Would be nice to also have a way to conditionally not load those properties if they are not visible (e.g. collapsed window, different tab or combo option etc..)
             - The same thing could be applied to renderables if you have some form of conditional rendering (e.g. switch to vertex color, stop streaming material)
                 - One way would be to double command buffers, render before upload, mark used objects as requiring uploads, then later record and submit uploads before render.
-                - Would be nice to find another way that does not require too much complexity but still achieves this
+                - Would be nice to find another way that does not require too much complexity but still achieves this -> trying out widgets now
+    - [ ] Better default window placement
     - [ ] Port built-in profiler
     - [ ] Memory breakdown view -> also plot of usage per-frame to spot mid-frame allocs
 - [ ] Shaders
@@ -387,6 +381,8 @@ TODO:
     - [ ] Customize material / shader for existing primitive (maybe just copy -> edit workflow? Try it to see how easy it is)
 - [x] Shaders / fonts build and packaging into wheel
     - [x] Explore using hatchlings instead of setuptools for better editable builds (read pep 517)
+- [ ] API:
+    - [ ] Rename (or underscore prefix) some of the private APIs and simplify public ones (e.g. update is confusing vs update_frame, modify data in place is also not as easy, currently need todo .gpu_property but this could be null if the gpu property has not yet been created)
 
 Bugs:
 - [x] Fix non-unit world_up results in nans in camera
@@ -404,6 +400,15 @@ Feature ideas:
 - [ ] Better orthographic navigation (e.g. zoom, different panning speed logic from what we have now)
 - [ ] Open3D style oneliner to create a viewer and run it (list of objects + config + other utils?)
 - [ ] Simpler property constructors, e.g. ArrayBufferProperty.streaming()
+- [ ] Gpu-generated properties:
+    - Very general approach with dependency graph and task run etc..
+        - Not sure yet how to make this general and useful enough
+        - Issues with things like GPU-only counts, preallocations, invalidation, CPU access -> maybe current property API is just not a good fit because it assumes too much
+    - Case specific escape hatch approach by subclassing Property / GpuProperty with limited subset of functionality
+    - GpuOnlyProperty (no CPU access without readback) + DrawIndirect for Mesh -> mesh has a lot of stuff now, not sure if should add more or somehow split / refactor
+        - This seems like a generally useful thing / escape hatch to have
+    - Somehow related (but kind of opposite) to Cpu-only property where there is only a single copy of the data but on the CPU that
+      the GPU can also use (might have to limit CPU usage of this / make this read-only to ensure synchronization between CPU/GPU).
 
 Issues found while implementing skeletal animation:
 - if passing [N, 1] instead of [N] we can end up creating LOTS of frames (and therefore LOTS of buffers)
@@ -1083,8 +1088,8 @@ Thoughts:
                 [x] Simplify if statements by precomputing commonly used bools
                 [x] Where do we implement and how do we override / configure upload mode picking (see preferred upload modes above)? We have an ok version of this in renderer (unless overridden by config)
                 [x] Double check if we need the extra array of resource generations for the full array dynamic case
-                [ ] How to handle append, insert, remove -> also need to remove gpu properties from renderer
-                [ ] Improve UI of GPU property depending on various states
+                [x] How to handle append, insert, remove -> also need to remove gpu properties from renderer
+                [x] Improve UI of GPU property depending on various states
 
 User texture for UI stuff, e.g. in imgui window (or tooltip):
     - ImGui uses VkDescriptorSet, must be a single COMBINED_IMAGE_SAMPLER in it

@@ -559,6 +559,14 @@ class Renderer:
 
         scene.visit_objects(visit)
 
+        for w in scene.widgets:
+            w.create_if_needed(self)
+            for wp in w.properties:
+                if wp.current_animation_enabled:
+                    wp.create(self)
+                    if wp.gpu_property is not None:
+                        enabled_gpu_properties.add(wp.gpu_property)
+
         # Stage: synchronous buffer upload after creating new objects
         if len(self.bulk_upload_list) > 0:
             mip_generation_requests: List[ImageUploadInfo] = []
@@ -869,6 +877,9 @@ class Renderer:
             if o.material is not None:
                 o.material.upload(self, f)
             o.upload(self, f)
+
+        for w in scene.widgets:
+            w.upload(self, f)
 
         # Sync: after-upload transfer queue barriers (queue release)
         if frame.transfer_semaphores:
