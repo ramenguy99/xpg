@@ -49,6 +49,7 @@ from .property import BufferProperty, ImageProperty, as_image_property
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object, Object3D
+from .transform3d import RigidTransform3D
 from .utils.descriptors import create_descriptor_layout_pool_and_set, create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import (
     AccelerationStructureInstanceInfo,
@@ -1909,11 +1910,14 @@ class GaussianSplatsDepthMap(Object3D):
         self,
         depth: ImageProperty,
         colors: ImageProperty,
-        intrinsics: Tuple[float, float, float, float],
+        intrinsics: List[Tuple[float, float, float, float]],
+        extrinsics: List[RigidTransform3D],
         depth_threshold: float = 0.05,
         max_standard_deviation: float = 0.01,
         use_eigendec: bool = False,
         relative_ratio_threshold: float = 0.0,
+        var_z: float = 0.0,
+        camera_mask: int = 0xffffffff,
         flags: GaussianSplatsRenderFlags = GaussianSplatsRenderFlags.NONE,
         cull_at_dist: bool = True,
         deterministic_cull_at_dist: bool = True,
@@ -1937,36 +1941,50 @@ class GaussianSplatsDepthMap(Object3D):
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
-        self.d2g_constants_dtype = np.dtype(
+        self.calibration_dtype = np.dtype(
             {
                 "intrinsics": (np.dtype((np.float32, (4,))), 0),
-                "depth_threshold": (np.float32, 16),
-                "max_variance": (np.float32, 20),
-                "use_eigendec": (np.uint32, 24),
-                "relative_ratio_threshold": (np.float32, 28),
+                "extrinsics": (np.dtype((np.float32, (3, 4))), 16),
+            }
+        )  # type: ignore
+
+        self.d2g_constants_dtype = np.dtype(
+            {
+                "depth_threshold": (np.float32, 0),
+                "max_variance": (np.float32, 4),
+                "use_eigendec": (np.uint32, 8),
+                "relative_ratio_threshold": (np.float32, 12),
+                "var_z": (np.float32, 16),
+                "camera_mask": (np.uint32, 20),
             }
         )  # type: ignore
         self.d2g_constants = np.zeros((1,), self.d2g_constants_dtype)
-        self.d2g_constants["intrinsics"] = intrinsics
 
         super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
 
-        self.depth = self.add_image_property(depth, name="depth-image").use_gpu(
+        self.depth = self.add_image_property(depth, is_3d=True, name="depth-image").use_gpu(
             ImageUsageFlags.STORAGE,
             ImageLayout.GENERAL,
             PipelineStageFlags.COMPUTE_SHADER,
         )
-        self.colors = self.add_image_property(colors, name="color-image").use_gpu(
+        self.colors = self.add_image_property(colors, is_3d=True, name="color-image").use_gpu(
             ImageUsageFlags.STORAGE,
             ImageLayout.GENERAL,
             PipelineStageFlags.COMPUTE_SHADER,
         )
 
+        self.num_cameras = self.depth.depth
+        if self.colors.depth != self.num_cameras:
+            raise ValueError(f"Number of cameras in depth ({self.depth.depth}) color ({self.colors.depth}) intrinsics ({len(intrinsics)}) and extrinsics ({len(extrinsics)}) must match.")
+
         self.intrinsics = intrinsics
+        self.extrinsics = extrinsics
         self.depth_threshold = depth_threshold
         self.max_standard_deviation = max_standard_deviation
         self.use_eigendec = use_eigendec
         self.relative_ratio_threshold = relative_ratio_threshold
+        self.var_z = var_z
+        self.camera_mask = camera_mask
 
         self.flags = flags
         self.cull_at_dist = cull_at_dist
@@ -1979,10 +1997,19 @@ class GaussianSplatsDepthMap(Object3D):
         self.use_barycentric = (r.ctx.device_features & DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC) != 0
         self.use_mesh_shader = (r.ctx.device_features & DeviceFeatures.MESH_SHADER) != 0
 
-
-        max_splats = self.depth.width * self.depth.height
+        max_splats = self.depth.width * self.depth.height * self.depth.depth
         self.max_splats = max_splats
 
+        calibration_data = np.zeros(self.num_cameras, self.calibration_dtype)
+        calibration_data[:]["intrinsics"] = self.intrinsics
+        calibration_data[:]["extrinsics"] = [ mat4x3(t.as_mat4()) for t in self.extrinsics ]
+        self.calibration_buf = Buffer.from_data(
+            r.ctx,
+            view_bytes(calibration_data),
+            BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+            name=f"{self.name}-calibration",
+        )
 
         self.positions_buf = Buffer(
             r.ctx, max_splats * 12, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-positions"
@@ -2083,6 +2110,7 @@ class GaussianSplatsDepthMap(Object3D):
                     DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER), # Positions
                     DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER), # Colors
                     DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER), # Covariances
+                    DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER), # Calibration
                 ],
                 r.num_frames_in_flight,
             )
@@ -2091,6 +2119,7 @@ class GaussianSplatsDepthMap(Object3D):
             s.write_buffer(self.positions_buf, DescriptorType.STORAGE_BUFFER, 2)
             s.write_buffer(self.colors_buf, DescriptorType.STORAGE_BUFFER, 3)
             s.write_buffer(self.covariances_buf, DescriptorType.STORAGE_BUFFER, 4)
+            s.write_buffer(self.calibration_buf, DescriptorType.STORAGE_BUFFER, 5)
 
         self.d2g_pipeline = ComputePipeline(
             r.ctx,
@@ -2228,6 +2257,8 @@ class GaussianSplatsDepthMap(Object3D):
         self.d2g_constants["max_variance"] = self.max_standard_deviation ** 2
         self.d2g_constants["use_eigendec"] = self.use_eigendec
         self.d2g_constants["relative_ratio_threshold"] = self.relative_ratio_threshold
+        self.d2g_constants["var_z"] = self.var_z
+        self.d2g_constants["camera_mask"] = self.camera_mask
 
         d2g_descriptor_set = self.d2g_descriptor_sets.get_current_and_advance()
         self.depth.get_current_gpu().write_descriptor(d2g_descriptor_set, DescriptorType.STORAGE_IMAGE, ImageLayout.GENERAL, 0)
@@ -2238,7 +2269,7 @@ class GaussianSplatsDepthMap(Object3D):
             descriptor_sets=[d2g_descriptor_set],
             push_constants=self.d2g_constants.tobytes(),
         )
-        frame.cmd.dispatch(div_round_up(self.depth.width, 8), div_round_up(self.depth.height, 8), 1)
+        frame.cmd.dispatch(div_round_up(self.depth.width, 8), div_round_up(self.depth.height, 8), self.depth.depth)
         frame.cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.COMPUTE_SHADER)
 
         # Constants

@@ -22,22 +22,31 @@
 
 struct PushConstants
 {
-    float fx, fy, cx, cy;
     float depth_threshold;
     float max_variance;
     uint use_eigen_decomposition;
     float relative_ratio_threshold;
+    float var_z;
+    uint z_mask;
 };
 
 [[vk::push_constant]]
 ConstantBuffer<PushConstants> g_constants;
 
-[[vk::binding(0, 0)]] RWTexture2D<uint16_t> depth_img;
-[[vk::binding(1, 0)]] RWTexture2D<float3> color_img;
+[[vk::binding(0, 0)]] RWTexture3D<uint16_t> depth_img;
+[[vk::binding(1, 0)]] RWTexture3D<float3> color_img;
 
 [[vk::binding(2, 0)]] RWStructuredBuffer<float> positions;
 [[vk::binding(3, 0)]] RWStructuredBuffer<float> colors;
 [[vk::binding(4, 0)]] RWStructuredBuffer<float> covariances;
+
+struct Calibration
+{
+    float fx, fy, cx, cy;
+    float3x4 extrinsics;
+};
+
+[[vk::binding(5, 0)]] StructuredBuffer<Calibration> calibration;
 
 float3 unproject(
     float x,
@@ -342,21 +351,22 @@ void main(uint3 thread_id : SV_DispatchThreadID)
 {
     uint32_t x = thread_id.x;
     uint32_t y = thread_id.y;
+    uint32_t z = thread_id.z;
 
-    uint32_t width, height;
-    color_img.GetDimensions(width, height);
+    uint32_t width, height, depth;
+    color_img.GetDimensions(width, height, depth);
 
-    uint32_t index = y * width + x;
-    if (any(uint2(x, y) <= uint2(1, 1)) || any(uint2(x, y) >= uint2(width - 1, height - 1))) {
+    uint32_t index = ((z * height) + y) * width + x;
+    if (any(uint2(x, y) <= uint2(1, 1)) || any(uint2(x, y) >= uint2(width - 1, height - 1)) || ((1 << z) & g_constants.z_mask) == 0) {
         positions[index * 3 + 0] = NAN;
         return;
     }
 
-    float d_c = depth_img[uint2(x, y)] * 1e-3;
-    float d_l = depth_img[uint2(x - 1, y)] * 1e-3;
-    float d_r = depth_img[uint2(x + 1, y)] * 1e-3;
-    float d_t = depth_img[uint2(x, y - 1)] * 1e-3;
-    float d_b = depth_img[uint2(x, y + 1)] * 1e-3;
+    float d_c = depth_img[uint3(x, y, z)] * 1e-3;
+    float d_l = depth_img[uint3(x - 1, y, z)] * 1e-3;
+    float d_r = depth_img[uint3(x + 1, y, z)] * 1e-3;
+    float d_t = depth_img[uint3(x, y - 1, z)] * 1e-3;
+    float d_b = depth_img[uint3(x, y + 1, z)] * 1e-3;
 
     if (
         abs(d_l - d_c) > g_constants.depth_threshold ||
@@ -368,10 +378,10 @@ void main(uint3 thread_id : SV_DispatchThreadID)
         return;
     }
 
-    float fx = g_constants.fx;
-    float fy = g_constants.fy;
-    float cx = g_constants.cx;
-    float cy = g_constants.cy;
+    float fx = calibration[z].fx;
+    float fy = calibration[z].fy;
+    float cx = calibration[z].cx;
+    float cy = calibration[z].cy;
 
     float3 p_c = unproject(x, y, d_c, fx, fy, cx, cy);
     float3 p_l = unproject(x - 1, y, d_l, fx, fy, cx, cy);
@@ -435,7 +445,7 @@ void main(uint3 thread_id : SV_DispatchThreadID)
             projected_sq_dist(p_t, p_c, e2),
             projected_sq_dist(p_b, p_c, e2)
         );
-        var_z = 0.0;
+        var_z = g_constants.var_z * g_constants.var_z;
     }
 
     if (min(var_x, var_y) / max(var_x, var_y) < g_constants.relative_ratio_threshold) {
@@ -447,24 +457,27 @@ void main(uint3 thread_id : SV_DispatchThreadID)
     var_y = min(var_y, g_constants.max_variance);
     var_z = min(var_z, g_constants.max_variance);
 
-    float3x3 R = transpose(float3x3(e1, e2, e3));
+    float3x4 extrinsics = calibration[z].extrinsics;
+
+    float3 world_p = mul(extrinsics, float4(p_c, 1.0));
+    positions[index * 3 + 0] = world_p.x;
+    positions[index * 3 + 1] = world_p.y;
+    positions[index * 3 + 2] = world_p.z;
+
+    float3 color = color_img[uint3(x, y, z)];
+    colors[index * 4 + 0] = color.x;
+    colors[index * 4 + 1] = color.y;
+    colors[index * 4 + 2] = color.z;
+    colors[index * 4 + 3] = 1.0;
+
+    // TODO: check if should be right-multiplied instead
+    float3x3 R = mul(float3x3(extrinsics), transpose(float3x3(e1, e2, e3)));
     float3x3 D = float3x3(
         var_x, 0, 0,
         0, var_y, 0,
         0, 0, var_z,
     );
     float3x3 cov = mul(R, mul(D, transpose(R)));
-
-    positions[index * 3 + 0] = p_c.x;
-    positions[index * 3 + 1] = p_c.y;
-    positions[index * 3 + 2] = p_c.z;
-
-    float3 color = color_img[uint2(x, y)];
-    colors[index * 4 + 0] = color.x;
-    colors[index * 4 + 1] = color.y;
-    colors[index * 4 + 2] = color.z;
-    colors[index * 4 + 3] = 1.0;
-
     covariances[index * 6 + 0] = cov[0][0];
     covariances[index * 6 + 1] = cov[0][1];
     covariances[index * 6 + 2] = cov[0][2];

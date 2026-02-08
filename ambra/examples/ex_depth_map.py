@@ -1,15 +1,15 @@
 import json
 from pathlib import Path
-from ambra.geometry import create_axis3d_lines_and_colors
+
 import numpy as np
+from numba import njit
 from pyxpg import imgui
 
 from ambra.config import CameraConfig, Config, GuiConfig, RendererConfig
+from ambra.geometry import create_axis3d_lines_and_colors
 from ambra.primitives3d import GaussianSplatsDepthMap, GaussianSplatsRenderFlags, Lines, Points
 from ambra.utils.hook import hook
 from ambra.viewer import Viewer
-
-from numba import njit
 
 # Edge filtering
 # - Bilateral filtering
