@@ -30,6 +30,7 @@ from pyxpg import (
     MemoryUsage,
     PipelineStage,
     PipelineStageFlags,
+    PolygonMode,
     PrimitiveTopology,
     PushConstantsRange,
     Rasterization,
@@ -334,6 +335,7 @@ class Mesh(Object3D):
         primitive_topology: PrimitiveTopology = PrimitiveTopology.TRIANGLE_LIST,
         cull_mode: CullMode = CullMode.NONE,
         front_face: FrontFace = FrontFace.COUNTER_CLOCKWISE,
+        polygon_mode: PolygonMode = PolygonMode.FILL,
         material: Optional[Material] = None,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
@@ -345,6 +347,7 @@ class Mesh(Object3D):
         self.primitive_topology = primitive_topology
         self.cull_mode = cull_mode
         self.front_face = front_face
+        self.polygon_mode = polygon_mode
         self.constants_dtype = np.dtype(
             {
                 "transform": (np.dtype((np.float32, (3, 4))), 0),
@@ -496,7 +499,9 @@ class Mesh(Object3D):
             ],
             vertex_bindings=vertex_bindings,
             vertex_attributes=vertex_attributes,
-            rasterization=Rasterization(cull_mode=self.cull_mode, front_face=self.front_face),
+            rasterization=Rasterization(
+                polygon_mode=self.polygon_mode, cull_mode=self.cull_mode, front_face=self.front_face
+            ),
             input_assembly=InputAssembly(self.primitive_topology),
             samples=r.msaa_samples,
             attachments=[Attachment(format=r.output_format)],
@@ -516,7 +521,11 @@ class Mesh(Object3D):
             ],
             vertex_bindings=depth_vertex_bindings,
             vertex_attributes=depth_vertex_attributes,
-            rasterization=Rasterization(cull_mode=cull_mode_opposite_face(self.cull_mode), front_face=self.front_face),
+            rasterization=Rasterization(
+                polygon_mode=self.polygon_mode,
+                cull_mode=cull_mode_opposite_face(self.cull_mode),
+                front_face=self.front_face,
+            ),
             input_assembly=InputAssembly(self.primitive_topology),
             attachments=[],
             depth=Depth(r.shadow_map_format, True, True, r.depth_compare_op),
