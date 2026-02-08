@@ -396,17 +396,6 @@ class Viewer:
         pass
 
     def _render(self, render_to_window: bool) -> None:
-        # GUI
-        with self.gui.frame():
-            self.on_gui()
-
-        # HACK: If not rendering to the window, we draw the GUI twice so that
-        # imgui renders all windows, including those for which the size of the contents hasn't
-        # been computed yet.
-        if not render_to_window:
-            with self.gui.frame():
-                self.on_gui()
-
         # Begin frame
         if render_to_window:
             assert self.window is not None
@@ -423,8 +412,27 @@ class Viewer:
         if frame_inputs.transfer_command_buffer is not None:
             frame_inputs.transfer_command_buffer.begin()
 
-        # Render
-        self.renderer.render(self.scene, self.viewports, frame_inputs, self.gui)
+        # Render scene
+        self.renderer.render(self.scene, self.viewports, frame_inputs)
+
+        # Draw GUI
+        #
+        # This has to happen after rendering for multiple reasons:
+        # - Widgets can rely on properties being already loaded and uploaded
+        #   which happens in render, they also will be created here on first use.
+        # - UI for this frame will be up to date with latest object and property state.
+        with self.gui.frame():
+            self.on_gui()
+
+        # Render GUI
+        self.renderer.render_gui(frame_inputs, self.gui)
+
+        # HACK: If not rendering to the window, we draw the GUI twice so that
+        # imgui renders all windows, including those for which the size of the contents hasn't
+        # been computed yet.
+        if not render_to_window:
+            with self.gui.frame():
+                self.on_gui()
 
         if not render_to_window:
             self.headless_swapchain.get_current().issue_readback()

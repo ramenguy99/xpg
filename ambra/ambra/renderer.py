@@ -515,7 +515,7 @@ class Renderer:
     ) -> slang.Shader:
         return self.compile_shader(SHADERS_PATH.joinpath(SHADERS_PATH, path), entry, target, defines, include_paths)
 
-    def render(self, scene: Scene, viewports: List[Viewport], frame: FrameInputs, gui: Gui) -> None:
+    def render(self, scene: Scene, viewports: List[Viewport], frame: FrameInputs) -> None:
         # Stage: destroy resources enqueued for destruction for this or an earlier frame
         if self.destruction_queue:
             for index, resources in list(self.destruction_queue.items()):
@@ -1473,6 +1473,12 @@ class Renderer:
         if before_gui_barriers:
             cmd.barriers(image_barriers=before_gui_barriers)
 
+        self.uniform_pool.advance()
+        self.total_frame_index += 1
+
+    def render_gui(self, frame: FrameInputs, gui: Gui) -> None:
+        cmd = frame.command_buffer
+
         # Stage: Render GUI
         with cmd.rendering(
             (0, 0, frame.image.width, frame.image.height),
@@ -1499,9 +1505,6 @@ class Renderer:
                 AccessFlags.NONE,
             )
         )
-
-        self.uniform_pool.advance()
-        self.total_frame_index += 1
 
     def prefetch(self) -> None:
         for p in self.enabled_gpu_properties:
