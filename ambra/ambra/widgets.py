@@ -1,4 +1,5 @@
 from typing import Optional
+
 from pyglm.glm import clamp, floor, ivec2, vec2
 from pyxpg import (
     BorderColor,
@@ -149,13 +150,9 @@ class ImageInspector(Widget):
                     imgui.Vec2(*pixel_rect_pos), imgui.Vec2(*pixel_rect_end_pos), 0xFF00FFFF, thickness=2
                 )
 
-                img_data = self.image.get_current()
-
                 imgui.set_next_window_pos(imgui.Vec2(pixel_rect_end_pos.x + 1.0, pixel_rect_end_pos.y + 1.0))
                 imgui.begin_tooltip()
-                values = img_data[pixel_image_coordinates.y, pixel_image_coordinates.x]
-                values_text = ", ".join([str(v) for v in values])
-                imgui.text(f"({pixel_image_coordinates.x}, {pixel_image_coordinates.y}): [{values_text}]")
+                self.tooltip(pixel_image_coordinates)
                 imgui.end_tooltip()
 
                 self.pixel_under_cursor = pixel_image_coordinates
@@ -165,8 +162,14 @@ class ImageInspector(Widget):
         imgui.set_cursor_screen_pos(cursor_pos)
         imgui.invisible_button("###invisible", imgui.Vec2(*view_size))
 
+    def tooltip(self, pixel_image_coordinates: ivec2) -> None:
+        img_data = self.image.get_current()
+        values = img_data[pixel_image_coordinates.y, pixel_image_coordinates.x]
+        values_text = ", ".join([str(v) for v in values])
+        imgui.text(f"({pixel_image_coordinates.x}, {pixel_image_coordinates.y}): [{values_text}]")
+
     def gui(self) -> None:
-        if imgui.begin("Image view")[0]:  # noqa: SIM102
+        if imgui.begin(f"{self.title}###widget-{self.uid}")[0]:  # noqa: SIM102
             # NOTE: widgets are not disabled if their properties are not enabled to avoid UI appearing and disappearing.
             # They are supposed to handle missing properties gracefully in their implementation.
             if self.image.current_animation_enabled:

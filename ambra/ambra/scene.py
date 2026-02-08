@@ -29,6 +29,12 @@ if TYPE_CHECKING:
 _counter = 0
 
 
+def next_id() -> int:
+    global _counter
+    _counter += 1
+    return _counter
+
+
 class Object:
     def __init__(
         self,
@@ -37,7 +43,7 @@ class Object:
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
     ):
-        self.uid = Object.next_id()
+        self.uid = next_id()
         self.name = name or f"{type(self).__name__}<{self.uid}>"
         self.children: List[Object] = []
         self.properties: List[Property] = []
@@ -51,12 +57,6 @@ class Object:
         self.gui_selected_property: Optional[Property] = None
 
         self.enabled = self.add_buffer_property(enabled if enabled is not None else True, bool, name="enabled")
-
-    @staticmethod
-    def next_id() -> int:
-        global _counter
-        _counter += 1
-        return _counter
 
     def add_buffer_property(
         self,
@@ -248,6 +248,7 @@ class Object3D(Object):
 class Widget:
     def __init__(self, title: str):
         self.title = title
+        self.uid = next_id()
 
         self.created = False
         self.properties: List[Property] = []
