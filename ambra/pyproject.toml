@@ -16,6 +16,7 @@ dependencies = [
     "pyglm>=2,<3",
     "platformdirs>=4,<5",
     "pyxpg",
+    "typing_extensions; python_version < '3.9'", # Required for Annotated
 ]
 
 [project.urls]
