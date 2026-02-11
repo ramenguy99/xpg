@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from pyxpg import imgui
 from scipy.spatial.transform import Rotation
 
 from ambra.config import CameraConfig, Config, GuiConfig, RendererConfig
@@ -11,6 +10,8 @@ from ambra.primitives3d import GaussianSplats, GaussianSplatsRenderFlags, Lines
 from ambra.property import ArrayBufferProperty, UploadSettings
 from ambra.utils.hook import hook
 from ambra.viewer import Viewer
+from ambra.widgets import Editor, Annotated, DragFloat, CustomUpdate, Link
+from ambra.geometry import create_axis3d_lines_and_colors
 
 
 @dataclass
@@ -114,41 +115,18 @@ else:
 # )
 gs = GaussianSplats(positions, colors, sh, covariances)
 
+def set_bit(bit: GaussianSplatsRenderFlags, v: bool):
+    gs.flags = (gs.flags & ~bit) | (bit if v else 0)
 
-class CustomViewer(Viewer):
-    @hook
-    def on_gui(self):
-        if imgui.begin("Gaussian splatting")[0]:
-            _, v = imgui.checkbox("Disable opacity", (gs.flags & GaussianSplatsRenderFlags.DISABLE_OPACITY) != 0)
-            if v:
-                gs.flags |= GaussianSplatsRenderFlags.DISABLE_OPACITY
-            else:
-                gs.flags &= ~GaussianSplatsRenderFlags.DISABLE_OPACITY
+@dataclass
+class GSParameters:
+    disable_opacity: Annotated[bool, CustomUpdate(lambda v: set_bit(GaussianSplatsRenderFlags.DISABLE_OPACITY, v))] = False
+    show_sh_only: Annotated[bool, CustomUpdate(lambda v: set_bit(GaussianSplatsRenderFlags.SHOW_SPHERICAL_HARMONICS_ONLY, v))] = False
+    alpha_cull_threshold: Annotated[float, DragFloat(0.01, 0.0, 1.0), Link(gs, "alpha_cull_threshold")] = 1.0 / 255.0
+    frustum_dilation: Annotated[float, DragFloat(0.01, 0.0, 1.0), Link(gs, "frustum_dilation")] = 0.2
+    splat_scale: Annotated[float, DragFloat(0.01, 0.0, 10.0), Link(gs, "splat_scale")] = 1.0
 
-            _, v = imgui.checkbox(
-                "Show SH only", (gs.flags & GaussianSplatsRenderFlags.SHOW_SPHERICAL_HARMONICS_ONLY) != 0
-            )
-            if v:
-                gs.flags |= GaussianSplatsRenderFlags.SHOW_SPHERICAL_HARMONICS_ONLY
-            else:
-                gs.flags &= ~GaussianSplatsRenderFlags.SHOW_SPHERICAL_HARMONICS_ONLY
-
-            _, v = imgui.checkbox("Point cloud mode", (gs.flags & GaussianSplatsRenderFlags.POINT_CLOUD_MODE) != 0)
-            if v:
-                gs.flags |= GaussianSplatsRenderFlags.POINT_CLOUD_MODE
-            else:
-                gs.flags &= ~GaussianSplatsRenderFlags.POINT_CLOUD_MODE
-            _, gs.alpha_cull_threshold = imgui.drag_float(
-                "Alpha cull threshold", gs.alpha_cull_threshold, v_speed=0.01, v_min=0.0, v_max=1.0
-            )
-            _, gs.frustum_dilation = imgui.drag_float(
-                "Frustum dilation", gs.frustum_dilation, v_speed=0.01, v_min=0.0, v_max=1.0
-            )
-            _, gs.splat_scale = imgui.drag_float("Splat scale", gs.splat_scale, v_speed=0.01, v_min=0.0, v_max=10.0)
-        imgui.end()
-
-
-v = CustomViewer(
+v = Viewer(
     config=Config(
         gui=GuiConfig(
             stats=True,
@@ -162,36 +140,9 @@ v = CustomViewer(
         camera=CameraConfig(position=(-1, -1, -1)),
     )
 )
-v.scene.objects.append(gs)
 
-positions = np.array(
-    [
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    ],
-    np.float32,
-)
-
-colors = np.array(
-    [
-        0xFF0000FF,
-        0xFF0000FF,
-        0xFF00FF00,
-        0xFF00FF00,
-        0xFFFF0000,
-        0xFFFF0000,
-    ],
-    np.uint32,
-)
-
-line_width = 1
-
-line = Lines(positions, colors, line_width)
-
-v.scene.objects.extend([line])
+ax3d = Lines(*create_axis3d_lines_and_colors())
+v.scene.objects.extend([gs, ax3d])
+v.scene.widgets.extend([Editor("Gaussian splatting", {"Render parameters": GSParameters()})])
 
 v.run()

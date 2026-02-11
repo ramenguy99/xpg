@@ -448,6 +448,16 @@ Tools:
 
 Notes:
 
+Dataclass-based editor:
+- A bit weird that the UI state is actually the dataclass instance state, and that updates only apply on first edit,
+  but can be weird if the default value of the linked property do not match the default value of the dataclass, maybe
+  there is a better way to have only one?
+- Still a bit annoying that we almost always need a custom update with at least an object and field name in string
+- Would be cool to have an helper reduce boilerplate even further (create class, instantiate class, create editor, create dictionary, add editor)
+-> a lot of these thoughts go in the direction that we don't really want this on a dataclass instance, but more like
+just the linking part to an existing objects, in a way the dataclass is more of a metadata container than a dataclass itself.
+-> maybe this is still useful for other stuff, we are now mostly focusing on the editing existing primitive attributes, but ther might be other uses.
+
 Subgroups:
 - Max subgroup size is device_properties.subgroup_size, unless vulkan 1.3 or subgroup_size_control extension is supported.
   If it is need to use max_subgroup_size or force a required subgroup size (if supported for that shader stage)
