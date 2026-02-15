@@ -183,6 +183,7 @@ class Viewer:
         self.gui_selected_obj: Optional[Object] = None
         self.gui_selected_gpu_property: Optional[GpuProperty[Any]] = None
         self.gui_playback_slider_held = False
+        self.gui_playback_slider_current_num_frames = None
 
         # Disable ImGui asserts
         imgui.get_io().config_error_recovery_enable_assert = False
@@ -711,12 +712,12 @@ class Viewer:
         imgui.end()
 
     def gui_playback(self) -> None:
-        self.gui_playback_slider_held = False
         if imgui.begin("Playback")[0]:
             u, self.playback.playing = imgui.checkbox("Playing", self.playback.playing)
             # If just restarted playing, reset last_frame_timestamp
             if u and self.playback.playing:
                 self.last_frame_timestamp = perf_counter_ns()
+            _, self.playback.lock_to_last_frame = imgui.checkbox("Lock to last", self.playback.lock_to_last_frame)
             _, self.playback.playback_speed_multiplier = imgui.drag_float(
                 "Playback speed", self.playback.playback_speed_multiplier, 0.01, 0.01, 10.0, format="%.2fx"
             )
@@ -724,13 +725,24 @@ class Viewer:
                 "Frame",
                 self.playback.current_frame,
                 0,
-                self.playback.num_frames - 1,
+                self.playback.num_frames - 1
+                if self.gui_playback_slider_current_num_frames is None
+                else self.gui_playback_slider_current_num_frames,
             )
             if imgui.is_item_active():
+                if not self.gui_playback_slider_held:
+                    self.gui_playback_slider_current_num_frames = self.playback.num_frames - 1
                 self.gui_playback_slider_held = True
                 self.playback.set_frame(frame)
+            else:
+                self.gui_playback_slider_current_num_frames = None
+                self.gui_playback_slider_held = False
+
             imgui.text(f"Time (s): {self.playback.current_time:7.3f} / {self.playback.max_time: 7.3f}")
             imgui.text(f"Playback FPS: {self.playback.frames_per_second:7.3f}")
+        else:
+            self.gui_playback_slider_current_num_frames = None
+            self.gui_playback_slider_held = False
         imgui.end()
 
     def gui_inspector(self) -> None:
