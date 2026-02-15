@@ -847,11 +847,19 @@ class ArrayImageProperty(ImageProperty):
         super().remove_frame_range(start, stop)
 
 
+@dataclass
+class ImageSize:
+    width: int
+    height: int
+    depth: Optional[int] = None
+
+
 class ListImageProperty(ImageProperty):
     def __init__(
         self,
         data: List[ArrayLike],
         format: Optional[Format] = None,
+        image_size: Optional[ImageSize] = None,
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
         name: str = "",
@@ -859,34 +867,41 @@ class ListImageProperty(ImageProperty):
         property_data: List[NDArray[Any]] = []
         property_shape: Optional[Tuple[int, int, int]] = None
         property_dtype: DTypeLike = None
-        for i in range(len(data)):
-            a = np.asarray(data[i], property_dtype, order="C")
-            if len(a.shape) != 3 or len(a.shape) != 4:
-                raise ShapeError((-1, -1, -1), a.shape)
-            if property_shape is None:
-                property_shape = a.shape
-            else:
-                if property_shape != a.shape:
-                    raise RuntimeError(
-                        f"ListImageProperty data elements must all have the same shape. First has {property_shape}. Element {i} has {a.shape}"
-                    )
-            if property_dtype is None:
-                property_dtype = a.dtype
-            property_data.append(a)
-
-        if len(property_data[0].shape) == 3:
-            height, width, channels = property_data[0].shape
-            depth = None
+        if len(data) == 0:
+            if image_size is None:
+                raise RuntimeError("image_size must not be None if data is an empty list")
             if format is None:
-                format = format_from_channels_dtype(channels, property_data[0].dtype)
-            else:
-                # TODO: check that format is compatible with data (maybe allow some conversions?)
-                pass
+                raise RuntimeError("format must not be None if data is an empty list")
+            width, height, depth = image_size.width, image_size.height, image_size.depth
         else:
-            assert len(property_data[0].shape) == 4
-            depth, height, width, channels = property_data[0].shape
-            if format is None:
-                format = format_from_channels_dtype(channels, property_data[0].dtype)
+            for i in range(len(data)):
+                a = np.asarray(data[i], property_dtype, order="C")
+                if len(a.shape) != 3 or len(a.shape) != 4:
+                    raise ShapeError((-1, -1, -1), a.shape)
+                if property_shape is None:
+                    property_shape = a.shape
+                else:
+                    if property_shape != a.shape:
+                        raise RuntimeError(
+                            f"ListImageProperty data elements must all have the same shape. First has {property_shape}. Element {i} has {a.shape}"
+                        )
+                if property_dtype is None:
+                    property_dtype = a.dtype
+                property_data.append(a)
+
+            if len(property_data[0].shape) == 3:
+                height, width, channels = property_data[0].shape
+                depth = None
+                if format is None:
+                    format = format_from_channels_dtype(channels, property_data[0].dtype)
+                else:
+                    # TODO: check that format is compatible with data (maybe allow some conversions?)
+                    pass
+            else:
+                assert len(property_data[0].shape) == 4
+                depth, height, width, channels = property_data[0].shape
+                if format is None:
+                    format = format_from_channels_dtype(channels, property_data[0].dtype)
 
         super().__init__(width, height, format, len(property_data), depth, animation, upload, name)
         self.data = property_data
