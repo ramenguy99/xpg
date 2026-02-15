@@ -53,6 +53,7 @@ class RendererConfig:
 @dataclass
 class PlaybackConfig:
     playing: bool = False
+    lock_to_last_frame: bool = False
     frames_per_second: float = 30.0
     playback_speed_multiplier: float = 1.0
     initial_time: float = 0.0
