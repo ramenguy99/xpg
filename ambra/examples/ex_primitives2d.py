@@ -54,7 +54,7 @@ rotation = ArrayBufferProperty(
 translation = ArrayBufferProperty(
     np.linspace(np.array([0, 0]), np.array([1, 1]), 50),
     np.float32,
-    FrameAnimation(AnimationBoundary.MIRROR),
+    FrameAnimation(boundary=AnimationBoundary.MIRROR),
 )
 
 line = Lines(
@@ -69,7 +69,7 @@ line = Lines(
 translation = ArrayBufferProperty(
     np.linspace(np.array([1, 0]), np.array([2, 0]), 50),
     np.float32,
-    FrameAnimation(AnimationBoundary.MIRROR),
+    FrameAnimation(boundary=AnimationBoundary.MIRROR),
 )
 line2 = Lines(positions, colors, line_width, scale=None, translation=translation)
 
