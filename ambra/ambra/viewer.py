@@ -412,20 +412,27 @@ class Viewer:
         if frame_inputs.transfer_command_buffer is not None:
             frame_inputs.transfer_command_buffer.begin()
 
-        # Render scene
-        self.renderer.render(self.scene, self.viewports, frame_inputs)
-
         # Draw GUI
-        #
-        # This has to happen after rendering for multiple reasons:
-        # - Widgets can rely on properties being already loaded and uploaded
-        #   which happens in render, they also will be created here on first use.
-        # - UI for this frame will be up to date with latest object and property state.
         with self.gui.frame():
+            # Pre-render gui with things that can affect the rendering of this frame.
+            # Especially important when running with wait_events set to True because
+            # otherwise we may not see the effect of camera movement and other scene
+            # edits due to events that cause a single frame of rendering
             self.on_gui()
 
-        # Render GUI
-        self.renderer.render_gui(frame_inputs, self.gui)
+            # Render scene
+            self.renderer.render(self.scene, self.viewports, frame_inputs)
+
+            # Other parts of the gui have to happen after rendering for multiple reasons:
+            # - Widgets can rely on properties being already loaded and uploaded
+            #   which happens in render, they also will be created here on first use.
+            # - Renderer UI for this frame will be up to date with latest object and property state.
+            #
+            # TODO: User defined widgets will still have a frame of lag. Also some of the imgui interactions
+            # require multiple frames after an event to take effect. In practice to fully support wait_events
+            # we anyways need to introduce an "animation_playing" or "num_frames_to_render" state to render
+            # more than one frame per event.
+            self.on_gui_after_render()
 
         # HACK: If not rendering to the window, we draw the GUI twice so that
         # imgui renders all windows, including those for which the size of the contents hasn't
@@ -433,6 +440,10 @@ class Viewer:
         if not render_to_window:
             with self.gui.frame():
                 self.on_gui()
+                self.on_gui_after_render()
+
+        # Render GUI
+        self.renderer.render_gui(frame_inputs, self.gui)
 
         if not render_to_window:
             self.headless_swapchain.get_current().issue_readback()
@@ -1022,6 +1033,9 @@ class Viewer:
             self.gui_playback()
         if self.gui_show_inspector:
             self.gui_inspector()
+
+    def on_gui_after_render(self) -> None:
+        # Renderer GUI is drawn after because render state is updated by rendering (read-only in GUI).
         if self.gui_show_renderer:
             self.gui_renderer()
 
