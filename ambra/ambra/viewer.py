@@ -340,6 +340,9 @@ class Viewer:
         if action == Action.PRESS:
             if self.key_map.toggle_play_pause.is_active(key, modifiers):
                 self.playback.toggle_play_pause()
+                # If just restarted playing, reset last_frame_timestamp
+                if self.playback.playing:
+                    self.last_frame_timestamp = perf_counter_ns()
             if self.key_map.exit.is_active(key, modifiers):
                 self.running = False
             if self.key_map.toggle_path_tracer.is_active(key, modifiers):
@@ -688,7 +691,10 @@ class Viewer:
     def gui_playback(self) -> None:
         self.gui_playback_slider_held = False
         if imgui.begin("Playback")[0]:
-            _, self.playback.playing = imgui.checkbox("Playing", self.playback.playing)
+            u, self.playback.playing = imgui.checkbox("Playing", self.playback.playing)
+            # If just restarted playing, reset last_frame_timestamp
+            if u and self.playback.playing:
+                self.last_frame_timestamp = perf_counter_ns()
             _, self.playback.playback_speed_multiplier = imgui.drag_float(
                 "Playback speed", self.playback.playback_speed_multiplier, 0.01, 0.01, 10.0, format="%.2fx"
             )
@@ -1050,7 +1056,7 @@ class Viewer:
 
         self.running = True
         while self.running:
-            should_wait = self.wait_events
+            should_wait = self.wait_events and not (self.playback.playing and self.playback.num_frames > 1)
             if self.renderer.path_tracer:
                 should_wait = should_wait and not any(
                     v.path_tracer_viewport.sample_index < self.renderer.path_tracer_max_samples_per_pixel
