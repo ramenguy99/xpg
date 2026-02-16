@@ -2546,9 +2546,9 @@ struct Window: nb::intrusive_base {
     void set_callbacks(
         Function<void()> draw,
         Function<void(nb::tuple)> mouse_move_event,
-        Function<void(nb::tuple, gfx::MouseButton, gfx::Action, gfx::Modifiers)> mouse_button_event,
+        Function<void(nb::tuple, u32, u32, u32)> mouse_button_event,
         Function<void(nb::tuple, nb::tuple)> mouse_scroll_event,
-        Function<void(gfx::Key, gfx::Action, gfx::Modifiers)> key_event
+        Function<void(s32, u32, u32)> key_event
     )
     {
         this->draw               = std::move(draw);
@@ -2583,7 +2583,7 @@ struct Window: nb::intrusive_base {
 
                     try {
                         if(this->mouse_button_event)
-                            this->mouse_button_event(nb::make_tuple(p.x, p.y), b, a, m);
+                            this->mouse_button_event(nb::make_tuple(p.x, p.y), (u32)b, (u32)a, (u32)m);
                     } catch (nb::python_error &e) {
                         e.restore();
                     }
@@ -2613,7 +2613,7 @@ struct Window: nb::intrusive_base {
 
                     try {
                         if(this->key_event)
-                            this->key_event(k, a, m);
+                            this->key_event((s32)k, (u32)a, (u32)m);
                     } catch (nb::python_error &e) {
                         e.restore();
                     }
@@ -2771,9 +2771,9 @@ struct Window: nb::intrusive_base {
 
     Function<void()> draw;
     Function<void(nb::tuple)> mouse_move_event;
-    Function<void(nb::tuple, gfx::MouseButton, gfx::Action, gfx::Modifiers)> mouse_button_event;
+    Function<void(nb::tuple, u32, u32, u32)> mouse_button_event;
     Function<void(nb::tuple, nb::tuple)> mouse_scroll_event;
-    Function<void(gfx::Key, gfx::Action, gfx::Modifiers)> key_event;
+    Function<void(s32, u32, u32)> key_event;
 
     // Garbage collection:
 
@@ -4275,14 +4275,14 @@ void gfx_create_bindings(nb::module_& m)
         .def("add_font_ttf", &Gui::add_font_ttf, nb::arg("name"), nb::arg("ttf_data"));
     ;
 
-    nb::enum_<gfx::Action>(m, "Action")
+    nb::enum_<gfx::Action>(m, "Action", nb::is_arithmetic())
         .value("NONE", gfx::Action::None)
         .value("RELEASE", gfx::Action::Release)
         .value("PRESS", gfx::Action::Press)
         .value("REPEAT", gfx::Action::Repeat)
     ;
 
-    nb::enum_<gfx::Key>(m, "Key")
+    nb::enum_<gfx::Key>(m, "Key", nb::is_arithmetic())
         .value("SPACE",                 gfx::Key::Space)
         .value("APOSTROPHE",            gfx::Key::Apostrophe)
         .value("COMMA",                 gfx::Key::Comma)
@@ -4406,11 +4406,19 @@ void gfx_create_bindings(nb::module_& m)
         .value("UNKNOWN",               gfx::Key::Unknown)
     ;
 
-    nb::enum_<gfx::MouseButton>(m, "MouseButton")
-        .value("NONE",   gfx::MouseButton::None)
-        .value("LEFT",   gfx::MouseButton::Left)
-        .value("RIGHT",  gfx::MouseButton::Right)
-        .value("MIDDLE", gfx::MouseButton::Middle)
+    nb::enum_<gfx::MouseButton>(m, "MouseButton", nb::is_arithmetic())
+        .value("NONE",     gfx::MouseButton::None)
+        .value("LEFT",     gfx::MouseButton::Left)
+        .value("RIGHT",    gfx::MouseButton::Right)
+        .value("MIDDLE",   gfx::MouseButton::Middle)
+        .value("BUTTON_1", gfx::MouseButton::Button1)
+        .value("BUTTON_2", gfx::MouseButton::Button2)
+        .value("BUTTON_3", gfx::MouseButton::Button3)
+        .value("BUTTON_4", gfx::MouseButton::Button4)
+        .value("BUTTON_5", gfx::MouseButton::Button5)
+        .value("BUTTON_6", gfx::MouseButton::Button6)
+        .value("BUTTON_7", gfx::MouseButton::Button7)
+        .value("BUTTON_8", gfx::MouseButton::Button8)
     ;
 
     nb::enum_<gfx::Modifiers>(m, "Modifiers", nb::is_flag(), nb::is_arithmetic())

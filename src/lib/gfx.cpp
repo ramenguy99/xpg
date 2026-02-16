@@ -1787,6 +1787,10 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
         return Result::WINDOW_CREATION_FAILED;
     }
 
+
+    // Allow mouse button events for mouse button number > 8.
+    glfwSetInputMode(window, GLFW_UNLIMITED_MOUSE_BUTTONS, GLFW_TRUE);
+
     // Create window surface.
     VkSurfaceKHR surface = 0;
     VkResult result = glfwCreateWindowSurface(vk.instance, window, NULL, &surface);
