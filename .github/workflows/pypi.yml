@@ -31,8 +31,8 @@ jobs:
       - name: Download and setup MoltenVK (macOS)
         if: runner.os == 'macOS'
         run: |
-          wget https://github.com/KhronosGroup/MoltenVK/releases/download/v1.3.0/MoltenVK-macos.tar
-          tar xvf MoltenVK-macos.tar
+          wget https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-macos-privateapi.tar
+          tar xvf MoltenVK-macos-privateapi.tar
           echo "CIBW_CONFIG_SETTINGS=\"cmake.define.XPG_MOLTENVK_PATH=\"$(pwd)/MoltenVK\"\"" >> $GITHUB_ENV
 
       - name: Build wheels (Python 3.9 only)

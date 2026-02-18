@@ -49,8 +49,8 @@ jobs:
       - name: Build (macOS)
         if: runner.os == 'macOS'
         run: |
-          wget https://github.com/KhronosGroup/MoltenVK/releases/download/v1.3.0/MoltenVK-macos.tar
-          tar xvf MoltenVK-macos.tar
+          wget https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-macos-privateapi.tar
+          tar xvf MoltenVK-macos-privateapi.tar
           git submodule init
           git config submodule.ext/slang.update none
           git submodule update --init --recursive --depth 1
