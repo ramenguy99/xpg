@@ -29,12 +29,12 @@ void CreateImGuiImplCommon(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat f
     vk_init_info.QueueFamily = vk.queue_family_index;
     vk_init_info.Queue = vk.queue;
     vk_init_info.DescriptorPool = VK_NULL_HANDLE;
-    vk_init_info.RenderPass = VK_NULL_HANDLE;
+    vk_init_info.PipelineInfoMain.RenderPass = VK_NULL_HANDLE;
     vk_init_info.MinImageCount = (u32)num_frames_in_flight,
     vk_init_info.ImageCount = (u32)num_frames_in_flight,
-    vk_init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    vk_init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     vk_init_info.PipelineCache = VK_NULL_HANDLE;
-    vk_init_info.Subpass = 0;
+    vk_init_info.PipelineInfoMain.Subpass = 0;
     vk_init_info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE + 8;
     struct ImGuiCheckResult {
         static void fn(VkResult res) {
@@ -46,9 +46,9 @@ void CreateImGuiImplCommon(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat f
     VkRenderPass render_pass = VK_NULL_HANDLE;
     if(config.dynamic_rendering) {
         vk_init_info.UseDynamicRendering = true;
-        vk_init_info.PipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR };
-        vk_init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-        vk_init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &format;
+        vk_init_info.PipelineInfoMain.PipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR };
+        vk_init_info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+        vk_init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &format;
     } else {
         VkAttachmentDescription attachments[1];
         attachments[0].format = format;
@@ -99,7 +99,7 @@ void CreateImGuiImplCommon(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat f
         VkResult vkr = vkCreateRenderPass(vk.device, &rp_info, NULL, &render_pass);
         assert(vkr == VK_SUCCESS);
 
-        vk_init_info.RenderPass = render_pass;
+        vk_init_info.PipelineInfoMain.RenderPass = render_pass;
     }
 
     if (!ImGui_ImplVulkan_Init(&vk_init_info)) {

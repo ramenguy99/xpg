@@ -160,9 +160,12 @@ for enum in data["enums"]:
                 assert name.startswith("ImGui" + enum_name + "_"), f"{enum_name} {name}"
 
             # Skip mods, we already have these as keys. Never used Shortcut and Mask before
-            if name.startswith("ImGuiMod_"): continue
-
-            elem_name = name[5 + len(enum_name) + 1:]
+            if name.startswith("ImGuiMod_"):
+                if name == "ImGuiMod_Mask_" or name == "ImGuiMod_Shortcut":
+                    continue
+                elem_name = "Mod" + name[5 + len(enum_name) + 1:]
+            else:
+                elem_name = name[5 + len(enum_name) + 1:]
         elif name.startswith("ImDraw") or name.startswith("ImFont") or name.startswith("ImTexture"):
             assert name.startswith("Im" + enum_name + "_"), f"{enum_name} {name}"
             elem_name = name[2 + len(enum_name) + 1:]

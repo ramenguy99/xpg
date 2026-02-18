@@ -72,6 +72,7 @@ nb::enum_<ImPlotLegendFlags_>(mod_implot, "LegendFlags", nb::is_arithmetic() , n
     .value("OUTSIDE", ImPlotLegendFlags_Outside)
     .value("HORIZONTAL", ImPlotLegendFlags_Horizontal)
     .value("SORT", ImPlotLegendFlags_Sort)
+    .value("REVERSE", ImPlotLegendFlags_Reverse)
 ;
 
 
