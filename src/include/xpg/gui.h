@@ -22,9 +22,16 @@ struct Font {
     bool owned_by_atlas = false;
 };
 
+enum class DefaultFontPreference {
+    NONE = 0,
+    BITMAP = 1,
+    VECTOR = 2,
+};
+
 struct Config {
     bool dynamic_rendering = true;
     bool enable_ini_and_log_files = true;
+    DefaultFontPreference default_font_preference = DefaultFontPreference::NONE;
     Span<Font> additional_fonts;
 };
 
