@@ -979,6 +979,10 @@ class Viewer:
                 self.key_map.camera_pan.button == MouseButton.LEFT and self.key_map.camera_pan.mods == Modifiers.NONE
             )
 
+            if prevent_left_button_window_move:
+                old_move_from_title_bar_only_config = io.config_windows_move_from_title_bar_only
+                io.config_windows_move_from_title_bar_only = True
+
             output_width, output_height = self._get_framebuffer_size()
 
             for v in self.viewports:
@@ -1020,17 +1024,14 @@ class Viewer:
                             v.on_zoom(dvec2(0, io.mouse_wheel))
                         elif mapped_mods == self.key_map.camera_zoom_move_modifiers:
                             v.on_zoom_with_movement(dvec2(0, io.mouse_wheel))
-
-                    # If pan or rotate is happening on just left click, prevent imgui window move
-                    # by creating an invisible button on the whole window content area.
-                    # Moving is still possible by dragging the window title bar.
-                    if prevent_left_button_window_move and avail.x > 0 and avail.y > 0:
-                        imgui.set_cursor_screen_pos(cursor_pos)
-                        imgui.invisible_button(v.name, avail)
                 else:
                     v.rect.width = 0
                     v.rect.height = 0
                 imgui.end()
+
+            if prevent_left_button_window_move:
+                io.config_windows_move_from_title_bar_only = old_move_from_title_bar_only_config
+
             imgui.pop_style_var()
 
         if self.gui_show_stats:
