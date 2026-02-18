@@ -75,14 +75,13 @@ VSOutput vertex_main(VSInput in, uint instance_id: SV_InstanceID)
     );
 #else
 #endif
-
     out.point_size = g_object_constants.point_size;
     return out;
 }
 
 
 [shader("pixel")]
-float4 pixel_main(VSOutput in) : SV_Target0
+float4 pixel_main(float4 color) : SV_Target0
 {
-    return in.color;
+    return color;
 }
