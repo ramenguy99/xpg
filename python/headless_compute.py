@@ -34,7 +34,7 @@ set.write_image(img, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0, 0)
 # Shaders
 comp_source = """
 [vk::binding(0, 0)]
-[vk::image_format("rgba8i")]
+[vk::image_format("rgba8")]
 RWTexture2D<float3> r_output;
 
 [shader("compute")]
