@@ -447,16 +447,27 @@ struct Fence: GfxObject {
         return vkr == VK_SUCCESS;
     }
 
-    void wait() {
-        nb::gil_scoped_release gil;
-        vkWaitForFences(device->device.device, 1, &fence, VK_TRUE, ~0U);
+    bool wait(uint64_t timeout) {
+        VkResult vkr;
+        {
+            nb::gil_scoped_release gil;
+            vkr = vkWaitForFences(device->device.device, 1, &fence, VK_TRUE, timeout);
+        }
+
+        if (vkr == VK_SUCCESS) {
+            return true;
+        } else if (vkr == VK_TIMEOUT) {
+            return false;
+        } else {
+            throw VulkanError("Failed to wait for fence", vkr);
+        }
     }
     void reset() {
         vkResetFences(device->device.device, 1, &fence);
     }
 
     void wait_and_reset() {
-        wait();
+        wait(UINT64_MAX);
         reset();
     }
 
@@ -530,7 +541,7 @@ struct TimelineSemaphore: Semaphore {
         }
     }
 
-    void wait(u64 value) {
+    bool wait(u64 value, u64 timeout) {
         VkSemaphoreWaitInfoKHR wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR };
         wait_info.semaphoreCount = 1;
         wait_info.pSemaphores = &semaphore;
@@ -539,10 +550,15 @@ struct TimelineSemaphore: Semaphore {
         VkResult vkr;
         {
             nb::gil_scoped_release gil;
-            vkr = vkWaitSemaphoresKHR(device->device.device, &wait_info, ~0ULL);
+            vkr = vkWaitSemaphoresKHR(device->device.device, &wait_info, timeout);
         }
 
-        if (vkr != VK_SUCCESS) {
+        if (vkr == VK_SUCCESS) {
+            return true;
+        } else if (vkr == VK_TIMEOUT) {
+            return false;
+        }
+        else {
             throw VulkanError("Failed to wait for semaphore", vkr);
         }
     }
@@ -4240,6 +4256,61 @@ void gfx_create_bindings(nb::module_& m)
             }
             return new Queue(device, device->device.transfer_queue);
         })
+        .def("wait_fences", [](nb::ref<Device> device, std::vector<nb::ref<Fence>> fences, bool any, uint64_t timeout) {
+            if (fences.size() > 0) {
+                Array<VkFence> fs(fences.size());
+                for (size_t i = 0; i < fences.size(); i++) {
+                    fs[i] = fences[i]->fence;
+                }
+
+                VkResult vkr;
+                {
+                    nb::gil_scoped_release gil;
+                    vkr = vkWaitForFences(device->device.device, fs.length, fs.data, any ? VK_FALSE : VK_TRUE, timeout);
+                }
+
+                if (vkr == VK_SUCCESS) {
+                    return true;
+                } else if (vkr == VK_TIMEOUT) {
+                    return false;
+                } else {
+                    throw VulkanError("Failed to wait for semaphore", vkr);
+                }
+            }
+            return true;
+        }, nb::arg("fences"), nb::arg("timeout") = UINT64_MAX, nb::arg("any") = false)
+        .def("wait_timeline_semaphores", [](nb::ref<Device> device, std::vector<std::tuple<nb::ref<TimelineSemaphore>, u64>> semaphores, bool any, uint64_t timeout) {
+            if (semaphores.size() > 0) {
+                Array<VkSemaphore> sems(semaphores.size());
+                Array<uint64_t> values(semaphores.size());
+                for (size_t i = 0; i < semaphores.size(); i++) {
+                    sems[i] = std::get<0>(semaphores[i])->semaphore;
+                    values[i] = std::get<1>(semaphores[i]);
+                }
+
+                VkSemaphoreWaitInfoKHR wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR };
+                wait_info.semaphoreCount = semaphores.size();
+                wait_info.pSemaphores = sems.data;
+                wait_info.pValues = values.data;
+                wait_info.flags = any ? VK_SEMAPHORE_WAIT_ANY_BIT : 0;
+
+                VkResult vkr;
+                {
+                    nb::gil_scoped_release gil;
+                    vkr = vkWaitSemaphoresKHR(device->device.device, &wait_info, timeout);
+                }
+
+                if (vkr == VK_SUCCESS) {
+                    return true;
+                } else if (vkr == VK_TIMEOUT) {
+                    return false;
+                } else {
+                    throw VulkanError("Failed to wait for semaphore", vkr);
+                }
+            }
+
+            return true;
+        }, nb::arg("semaphores"), nb::arg("any") = false, nb::arg("timeout") = UINT64_MAX)
     ;
 
     nb::class_<CommandsManager>(m, "CommandsManager",
@@ -4860,8 +4931,8 @@ void gfx_create_bindings(nb::module_& m)
         })
         .def("destroy", &Fence::destroy)
         .def("is_signaled", &Fence::is_signaled)
-        .def("wait", &Fence::wait)
-        .def("resest", &Fence::reset)
+        .def("wait", &Fence::wait, nb::arg("timeout") = UINT64_MAX)
+        .def("reset", &Fence::reset)
         .def("wait_and_reset", &Fence::wait_and_reset)
     ;
 
@@ -4880,7 +4951,7 @@ void gfx_create_bindings(nb::module_& m)
         })
         .def("get_value", &TimelineSemaphore::get_value)
         .def("signal", &TimelineSemaphore::signal, nb::arg("value"))
-        .def("wait", &TimelineSemaphore::wait, nb::arg("value"))
+        .def("wait", &TimelineSemaphore::wait, nb::arg("value"), nb::arg("timeout") = UINT64_MAX)
     ;
 
     nb::class_<ExternalSemaphore, Semaphore>(m, "ExternalSemaphore")
