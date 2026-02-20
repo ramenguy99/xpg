@@ -89,7 +89,7 @@ struct Plot {
 
 struct App {
     // Swapchain frames, index wraps around at the number of frames in flight.
-    gfx::Context* vk;
+    gfx::Device* device;
     gfx::Window* window;
     gui::ImGuiImpl* gui;
     Array<VkFramebuffer> framebuffers; // Currently outside VulkanFrame because it's not needed when using Dyanmic rendering.
@@ -124,12 +124,12 @@ std::string StringPrintf(const char* format, ...) {
 void Draw(App* app) {
     if (app->closed) return;
 
-    auto& vk = *app->vk;
+    auto& device = *app->device;
     auto& window = *app->window;
 
     u64 timestamp = glfwGetTimerValue();
 
-    gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, vk);
+    gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, device);
     if (swapchain_status == gfx::SwapchainStatus::FAILED) {
         printf("Swapchain update failed\n");
         exit(1);
@@ -142,7 +142,7 @@ void Draw(App* app) {
     else if(swapchain_status == gfx::SwapchainStatus::RESIZED) {
         // Resize framebuffer sized elements.
         for(usize i = 0; i < app->framebuffers.length; i++) {
-            vkDestroyFramebuffer(app->vk->device, app->framebuffers[i], 0);
+            vkDestroyFramebuffer(app->device->device, app->framebuffers[i], 0);
             app->framebuffers[i] = VK_NULL_HANDLE;
         }
     }
@@ -159,15 +159,15 @@ void Draw(App* app) {
         framebufferInfo.height = window.fb_height;
         framebufferInfo.layers = 1;
 
-        if (vkCreateFramebuffer(app->vk->device, &framebufferInfo, nullptr, &app->framebuffers[i]) != VK_SUCCESS) {
+        if (vkCreateFramebuffer(app->device->device, &framebufferInfo, nullptr, &app->framebuffers[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create framebuffer!");
         }
     }
     // app->wait_for_events = false;
 
     // Acquire current frame
-    gfx::Frame& frame = gfx::WaitForFrame(&window, vk);
-    gfx::Result ok = gfx::AcquireImage(&frame, &window, vk);
+    gfx::Frame& frame = gfx::WaitForFrame(&window, device);
+    gfx::Result ok = gfx::AcquireImage(&frame, &window, device);
     if (ok != gfx::Result::SUCCESS) {
         return;
     }
@@ -304,7 +304,7 @@ void Draw(App* app) {
 
     // Reset command pool
     VkResult vkr;
-    vkr = vkResetCommandPool(vk.device, frame.command_pool, 0);
+    vkr = vkResetCommandPool(device.device, frame.command_pool, 0);
     assert(vkr == VK_SUCCESS);
 
     // Record commands
@@ -313,7 +313,7 @@ void Draw(App* app) {
     vkr = vkBeginCommandBuffer(frame.command_buffer, &begin_info);
     assert(vkr == VK_SUCCESS);
 
-    vkResetFences(vk.device, 1, &frame.fence);
+    vkResetFences(device.device, 1, &frame.fence);
 
     VkClearColorValue color = { 0.1f, 0.2f, 0.4f, 1.0f };
 
@@ -338,10 +338,10 @@ void Draw(App* app) {
     assert(vkr == VK_SUCCESS);
 
     // Submit commands
-    vkr = gfx::Submit1(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+    vkr = gfx::Submit1(frame, device, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     assert(vkr == VK_SUCCESS);
 
-    vkr = gfx::PresentFrame(&window, &frame, vk);
+    vkr = gfx::PresentFrame(&window, &frame, device);
     assert(vkr == VK_SUCCESS);
 }
 
@@ -1449,23 +1449,32 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    gfx::Context vk = {};
-    result = gfx::CreateContext(&vk, {
+    gfx::Instance instance = {};
+    result = gfx::CreateInstance(&instance, {
         .minimum_api_version = (u32)VK_API_VERSION_1_0,
         .enable_validation_layer = enable_vulkan_validation,
         .enable_synchronization_validation = enable_vulkan_validation,
     });
     if (result != gfx::Result::SUCCESS) {
-        logging::error("plot", "Failed to initialize vulkan\n");
+        logging::error("plot", "Failed to create vulkan instance\n");
+        exit(100);
+    }
+
+    gfx::Device device = {};
+    result = gfx::CreateDevice(&device, instance, {
+        .minimum_api_version = (u32)VK_API_VERSION_1_0,
+    });
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("plot", "Failed to create vulkan device\n");
         exit(100);
     }
 
     gfx::Window window = {};
-    result = gfx::CreateWindowWithSwapchain(&window, vk, "plot", window_width, window_height);
-    if (result != gfx::Result::SUCCESS) {
-        logging::error("plot", "Failed to create vulkan window\n");
-        exit(100);
-    }
+    result = gfx::CreateWindowWithSwapchain(&window, instance, device, {
+        .title = "plot",
+        .width = (u32)window_width,
+        .height = (u32)window_height,
+    });
 
     Array<VkFramebuffer> framebuffers(window.images.length);
 
@@ -1476,7 +1485,7 @@ int main(int argc, char** argv) {
 
     // Initialize ImGui.
     gui::ImGuiImpl imgui_impl;
-    gui::CreateImGuiImpl(&imgui_impl, window, vk, {
+    gui::CreateImGuiImpl(&imgui_impl, window, instance, device, {
         .dynamic_rendering = false,
         .enable_ini_and_log_files = false,
         .additional_fonts = {
@@ -1497,7 +1506,7 @@ int main(int argc, char** argv) {
     App app = {};
     app.framebuffers = move(framebuffers);
     app.window = &window;
-    app.vk = &vk;
+    app.device = &device;
     app.wait_for_events = true;
     app.data = move(data);
     app.plots = move(plots);
@@ -1523,18 +1532,21 @@ int main(int argc, char** argv) {
 
 
     // Wait
-    vkDeviceWaitIdle(vk.device);
+    vkDeviceWaitIdle(device.device);
 
     for(usize i = 0; i < app.framebuffers.length; i++) {
-        vkDestroyFramebuffer(vk.device, app.framebuffers[i], 0);
+        vkDestroyFramebuffer(device.device, app.framebuffers[i], 0);
     }
 
     // Gui
-    gui::DestroyImGuiImpl(&imgui_impl, vk);
+    gui::DestroyImGuiImpl(&imgui_impl, device);
 
     // Window
-    gfx::DestroyWindowWithSwapchain(&window, vk);
+    gfx::DestroyWindowWithSwapchain(&window, instance, device);
 
-    // Context
-    gfx::DestroyContext(&vk);
+    // Device
+    gfx::DestroyDevice(&device);
+
+    // Instance
+    gfx::DestroyInstance(&instance);
 }

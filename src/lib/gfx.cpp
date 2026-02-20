@@ -249,7 +249,7 @@ struct PhysicalDeviceInfo {
 
     DeviceFeatures supported_features = DeviceFeatures::NONE;
 
-    u32 queue_family_index = VK_QUEUE_FAMILY_IGNORED;
+    u32 graphics_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
     u32 compute_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
     u32 transfer_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
 
@@ -861,7 +861,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
             if(prop.queueCount > 0) {
                 logging::trace("gfx/device", "Queue %d | flags: 0x%x", j, prop.queueFlags);
                 if(prop.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                    if(info.queue_family_index == VK_QUEUE_FAMILY_IGNORED) {
+                    if(info.graphics_queue_family_index == VK_QUEUE_FAMILY_IGNORED) {
                         // NOTE: Doing this properly requires a surface, to support this we would need to delay queue choice after creating a window.
                         // Order of dependencies is then: instance -> window -> physical device + queue family -> device -> everthing else
                         // There is actually a platform specific version of this that does not require a window:
@@ -877,7 +877,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
                         int presentation_ok = !desc.require_presentation || glfwGetPhysicalDevicePresentationSupport(instance.instance, physical_devices[i], j);
 
                         if (presentation_ok) {
-                            info.queue_family_index = j;
+                            info.graphics_queue_family_index = j;
                             info.queue_timestamp_queries = info.timestamp_period > 0 && properties.limits.timestampComputeAndGraphics && prop.timestampValidBits > 0;
                             if (desc.require_presentation) {
                                 logging::trace("gfx/device", "    picked for presentation");
@@ -929,7 +929,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
             i, properties.deviceName,
             VK_API_VERSION_MAJOR(properties.apiVersion), VK_API_VERSION_MINOR(properties.apiVersion), VK_API_VERSION_PATCH(properties.apiVersion),
             driver_version, properties.vendorID, properties.deviceID, string_VkPhysicalDeviceType(properties.deviceType),
-            info.queue_family_index, info.compute_queue_family_index, info.transfer_queue_family_index);
+            info.graphics_queue_family_index, info.compute_queue_family_index, info.transfer_queue_family_index);
 
 
         u32 extensions_count = 0;
@@ -1074,7 +1074,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
                 VK_API_VERSION_MAJOR(desc.minimum_api_version), VK_API_VERSION_MINOR(desc.minimum_api_version), VK_API_VERSION_PATCH(desc.minimum_api_version));
             continue;
         }
-        if (info.queue_family_index == VK_QUEUE_FAMILY_IGNORED) {
+        if (info.graphics_queue_family_index == VK_QUEUE_FAMILY_IGNORED) {
             logging::info("gfx/device", "Discarded because no suitable queue found");
             continue;
         }
@@ -1242,7 +1242,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
     float queue_priorities[] = { 1.0f };
     ArrayFixed<VkDeviceQueueCreateInfo, 3> queue_create_info(1);
     queue_create_info[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info[0].queueFamilyIndex = picked_info.queue_family_index;
+    queue_create_info[0].queueFamilyIndex = picked_info.graphics_queue_family_index;
     queue_create_info[0].queueCount = 1;
     queue_create_info[0].pQueuePriorities = queue_priorities;
 
@@ -1292,7 +1292,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
     }
 
     VkQueue queue = VK_NULL_HANDLE;
-    vkGetDeviceQueue(vk_device, picked_info.queue_family_index, 0, &queue);
+    vkGetDeviceQueue(vk_device, picked_info.graphics_queue_family_index, 0, &queue);
 
     VkQueue compute_queue = VK_NULL_HANDLE;
     if (picked_info.compute_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
@@ -1307,7 +1307,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
     // Create sync command
     VkCommandPoolCreateInfo sync_pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     sync_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;// | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    sync_pool_info.queueFamilyIndex = picked_info.queue_family_index;
+    sync_pool_info.queueFamilyIndex = picked_info.graphics_queue_family_index;
 
     VkCommandPool sync_command_pool = {};
     result = vkCreateCommandPool(vk_device, &sync_pool_info, 0, &sync_command_pool);
@@ -1353,7 +1353,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
     device->compute_full_subgroups = picked_info.compute_full_subgroups;
     device->has_presentation = desc.require_presentation;
     device->graphics_queue = queue;
-    device->graphics_queue_family_index = picked_info.queue_family_index;
+    device->graphics_queue_family_index = picked_info.graphics_queue_family_index;
     device->graphics_queue_timestamp_queries = picked_info.queue_timestamp_queries;
     device->compute_queue = compute_queue;
     device->compute_queue_family_index = picked_info.compute_queue_family_index;
@@ -1419,7 +1419,7 @@ GetSwapchainSize(const Window& w, const Device& device, u32* out_width, u32* out
 }
 
 Result
-CreateSwapchain(Window* w, const Instance& instance, const Device& device, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize swapchain_frames, VkPresentModeKHR present_mode, VkImageUsageFlags usage_flags, VkSwapchainKHR old_swapchain)
+CreateSwapchain(Window* w, const Device& device, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize swapchain_frames, VkPresentModeKHR present_mode, VkImageUsageFlags usage_flags, VkSwapchainKHR old_swapchain)
 {
     // Create swapchain.
     u32 queue_family_indices[] = { device.graphics_queue_family_index };
@@ -1498,7 +1498,7 @@ CreateSwapchain(Window* w, const Instance& instance, const Device& device, VkSur
             return Result::API_OUT_OF_MEMORY;
         }
 
-        if (instance.debug_utils_enabled) {
+        if (device.debug_utils_enabled) {
             VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT }; \
             VkDevice vk_device = device.device;
             DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_IMAGE, images[i], "xpg-swapchain-image");
@@ -1515,7 +1515,7 @@ CreateSwapchain(Window* w, const Instance& instance, const Device& device, VkSur
     return Result::SUCCESS;
 }
 
-SwapchainStatus UpdateSwapchain(Window* w, const Instance& instance, const Device& device)
+SwapchainStatus UpdateSwapchain(Window* w, const Device& device)
 {
     u32 new_width = 0, new_height = 0;
     VkResult vkr = GetSwapchainSize(*w, device, &new_width, &new_height);
@@ -1547,7 +1547,7 @@ SwapchainStatus UpdateSwapchain(Window* w, const Instance& instance, const Devic
     logging::trace("gfx/swapchain", "Added stale swapchain. Total: %llu", w->stale_swapchains.length);
 #endif
 
-    Result result = CreateSwapchain(w, instance, device, w->surface, w->swapchain_format, new_width, new_height, w->images.length, w->present_mode, w->swapchain_usage_flags, old_swapchain);
+    Result result = CreateSwapchain(w, device, w->surface, w->swapchain_format, new_width, new_height, w->images.length, w->present_mode, w->swapchain_usage_flags, old_swapchain);
     if (result != Result::SUCCESS) {
         return SwapchainStatus::FAILED;
     }
@@ -1900,7 +1900,7 @@ CreateWindowWithSwapchain(Window* w, const Instance& instance, const Device& dev
     }
     logging::info("gfx/window", "Swapchain present mode: %s", string_VkPresentModeKHR(present_mode));
 
-    Result res = CreateSwapchain(w, instance, device, surface, format, fb_width, fb_height, swapchain_frames, present_mode, usage_flags, VK_NULL_HANDLE);
+    Result res = CreateSwapchain(w, device, surface, format, fb_width, fb_height, swapchain_frames, present_mode, usage_flags, VK_NULL_HANDLE);
     if (res != Result::SUCCESS) {
         logging::error("gfx/window", "CreateSwapchain failed: %d", (s32)res);
         return res;

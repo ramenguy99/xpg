@@ -200,13 +200,16 @@ struct Device
     VkCommandPool sync_command_pool;
     VkCommandBuffer sync_command_buffer;
     VkFence sync_fence;
+
+    // Debug
+    bool debug_utils_enabled;
 };
 
 struct DeviceDesc
 {
     u32 minimum_api_version = VK_API_VERSION_1_1;
 
-    // Add required instance extensions to enable presentation
+    // Check for presentation support on graphics queue and add VK_KHR_swapchain extension.
     bool require_presentation = true;
 
     u32 force_physical_device_index = ~0U;
@@ -244,8 +247,8 @@ enum class SwapchainStatus
     FAILED,
 };
 
-Result CreateSwapchain(Window* w, const Instance& instance, const Device& device, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize frames, VkSwapchainKHR old_swapchain);
-SwapchainStatus UpdateSwapchain(Window* w, const Instance& instance, const Device& device);
+Result CreateSwapchain(Window* w, const Device& device, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize frames, VkSwapchainKHR old_swapchain);
+SwapchainStatus UpdateSwapchain(Window* w, const Device& device);
 
 //- Frame
 struct Frame
@@ -520,8 +523,6 @@ struct WindowDesc {
     u32 x = ANY_POSITION;
     u32 y = ANY_POSITION;
 
-    // Only used if presentation is requested
-    bool require_presentation = true;
     u32 preferred_frames_in_flight = 2;
     VkImageUsageFlags preferred_swapchain_usage_flags = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     bool vsync = true;

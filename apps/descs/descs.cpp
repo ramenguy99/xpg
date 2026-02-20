@@ -10,7 +10,7 @@ using glm::mat4;
 using namespace xpg;
 
 struct App {
-    gfx::Context* vk;
+    gfx::Device* device;
     gfx::Window* window;
 
     // Window stuff
@@ -31,14 +31,14 @@ struct App {
 void Draw(App* app) {
     if (app->closed) return;
 
-    auto& vk = *app->vk;
+    auto& device = *app->device;
     auto& window = *app->window;
 
     u64 timestamp = glfwGetTimerValue();
     float dt = (float)((double)(timestamp - app->last_frame_timestamp) / (double)glfwGetTimerFrequency());
     app->last_frame_timestamp = timestamp;
 
-    gfx::SwapchainStatus swapchain_status = UpdateSwapchain(&window, vk);
+    gfx::SwapchainStatus swapchain_status = UpdateSwapchain(&window, device);
     if (swapchain_status == gfx::SwapchainStatus::FAILED) {
         printf("Swapchain update failed\n");
         exit(1);
@@ -53,8 +53,8 @@ void Draw(App* app) {
     // app->wait_for_events = false;
 
     // Acquire current frame
-    gfx::Frame& frame = gfx::WaitForFrame(&window, vk);
-    gfx::Result ok = gfx::AcquireImage(&frame, &window, vk);
+    gfx::Frame& frame = gfx::WaitForFrame(&window, device);
+    gfx::Result ok = gfx::AcquireImage(&frame, &window, device);
     if (ok != gfx::Result::SUCCESS) {
         return;
     }
@@ -74,7 +74,7 @@ void Draw(App* app) {
 
     // Reset command pool
     VkResult vkr;
-    vkr = vkResetCommandPool(vk.device, frame.command_pool, 0);
+    vkr = vkResetCommandPool(device.device, frame.command_pool, 0);
     assert(vkr == VK_SUCCESS);
 
     // Record commands
@@ -83,7 +83,7 @@ void Draw(App* app) {
     vkr = vkBeginCommandBuffer(frame.command_buffer, &begin_info);
     assert(vkr == VK_SUCCESS);
 
-    vkResetFences(vk.device, 1, &frame.fence);
+    vkResetFences(device.device, 1, &frame.fence);
 
     VkClearColorValue color = { 0.1f, 0.2f, 0.4f, 1.0f };
 
@@ -180,10 +180,10 @@ void Draw(App* app) {
     vkr = vkEndCommandBuffer(frame.command_buffer);
     assert(vkr == VK_SUCCESS);
 
-    vkr = gfx::Submit1(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+    vkr = gfx::Submit1(frame, device, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     assert(vkr == VK_SUCCESS);
 
-    vkr = gfx::PresentFrame(&window, &frame, vk);
+    vkr = gfx::PresentFrame(&window, &frame, device);
     assert(vkr == VK_SUCCESS);
 
     app->current_frame += 1;
@@ -206,33 +206,48 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    gfx::Context vk = {};
-    result = gfx::CreateContext(&vk, {
+    gfx::Instance instance = {};
+    result = gfx::CreateInstance(&instance, {
         .minimum_api_version = (u32)VK_API_VERSION_1_1,
-        .required_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
         .enable_validation_layer = true,
-        //        .enable_gpu_based_validation = true,
+        .enable_synchronization_validation = true,
+        // .enable_gpu_based_validation = true,
     });
     if (result != gfx::Result::SUCCESS) {
-        logging::error("descs", "Failed to initialize vulkan\n");
+        logging::error("descs", "Failed to create vulkan instance\n");
+        exit(100);
+    }
+
+    gfx::Device device = {};
+    result = gfx::CreateDevice(&device, instance, {
+        .minimum_api_version = (u32)VK_API_VERSION_1_1,
+        .required_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
+    });
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("descs", "Failed to create vulkan device\n");
         exit(100);
     }
 
     gfx::Window window = {};
-    result = gfx::CreateWindowWithSwapchain(&window, vk, "XPG", 1600, 900);
+    result = gfx::CreateWindowWithSwapchain(&window, instance, device, {
+        .title = "XPG",
+        .width = 1600,
+        .height = 900,
+    });
     if (result != gfx::Result::SUCCESS) {
-        logging::error("descs", "Failed to create vulkan window\n");
+        logging::error("descs", "Failed to create vulkan device\n");
         exit(100);
     }
 
+
     gui::ImGuiImpl imgui_impl;
-    gui::CreateImGuiImpl(&imgui_impl, window, vk, {});
+    gui::CreateImGuiImpl(&imgui_impl, window, instance, device, {});
 
     // DESCRIPTORS SETUP START
     uint32_t MAX_DESCRIPTOR_COUNT = 100000;
 
     gfx::DescriptorPoolLayoutAndSet pool_layout_set = {};
-    gfx::CreateDescriptorPoolLayoutAndSet(&pool_layout_set, vk, {
+    gfx::CreateDescriptorPoolLayoutAndSet(&pool_layout_set, device, {
         .bindings = {
             {
                 .count = 1000,
@@ -254,25 +269,25 @@ int main(int argc, char** argv) {
     VkResult vkr;
 
     Array<u8> vertex_code;
-    if (platform::ReadEntireFile("res/bindless_slang.vert.spv", &vertex_code) != platform::Result::Success) {
+    if (platform::ReadEntireFile("res/bindless.vert.spirv", &vertex_code) != platform::Result::Success) {
         logging::error("descs", "Failed to read vertex shader\n");
         exit(100);
     }
     gfx::Shader vertex_shader = {};
-    vkr = gfx::CreateShader(&vertex_shader, vk, vertex_code);
+    vkr = gfx::CreateShader(&vertex_shader, device, vertex_code);
     assert(vkr == VK_SUCCESS);
 
     Array<u8> fragment_code;
-    if (platform::ReadEntireFile("res/bindless_slang.frag.spv", &fragment_code) != platform::Result::Success) {
+    if (platform::ReadEntireFile("res/bindless.frag.spirv", &fragment_code) != platform::Result::Success) {
         logging::error("descs", "Failed to read fragment shader\n");
         exit(100);
     }
     gfx::Shader fragment_shader = {};
-    vkr = gfx::CreateShader(&fragment_shader, vk, fragment_code);
+    vkr = gfx::CreateShader(&fragment_shader, device, fragment_code);
     assert(vkr == VK_SUCCESS);
 
     gfx::GraphicsPipeline pipeline = {};
-    vkr = gfx::CreateGraphicsPipeline(&pipeline, vk, {
+    vkr = gfx::CreateGraphicsPipeline(&pipeline, device, {
             .stages = {
                 {
                     .shader = vertex_shader,
@@ -339,7 +354,7 @@ int main(int argc, char** argv) {
     size_t V = vertices.length;
 
     gfx::Buffer vertex_buffer = {};
-    vkr = gfx::CreateBufferFromData(&vertex_buffer, vk, vertices.as_bytes(), {
+    vkr = gfx::CreateBufferFromData(&vertex_buffer, device, vertices.as_bytes(), {
             .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             .alloc = gfx::AllocPresets::DeviceMapped,
         });
@@ -356,7 +371,7 @@ int main(int argc, char** argv) {
 
     Array<gfx::Buffer> color_buffers(colors.length);
     for (size_t i = 0; i < colors.length; i++) {
-        vkr = gfx::CreateBufferFromData(&color_buffers[i], vk, BytesOf(&colors[i]), {
+        vkr = gfx::CreateBufferFromData(&color_buffers[i], device, BytesOf(&colors[i]), {
                 .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                 .alloc = gfx::AllocPresets::DeviceMapped,
             });
@@ -385,14 +400,14 @@ int main(int argc, char** argv) {
         write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 
         // Actually write the descriptor to the GPU visible heap
-        vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
+        vkUpdateDescriptorSets(device.device, 1, &write_descriptor_set, 0, nullptr);
     }
 
     // CREATE A BUFFER AND DESCRIPTOR END
 
     App app = {};
     app.window = &window;
-    app.vk = &vk;
+    app.device = &device;
     app.wait_for_events = true;
     app.last_frame_timestamp = glfwGetTimerValue();
     app.vertex_buffer = vertex_buffer;
@@ -421,24 +436,27 @@ int main(int argc, char** argv) {
 
 
     // Wait
-    vkDeviceWaitIdle(vk.device);
+    vkDeviceWaitIdle(device.device);
 
     // Rendering stuff
     for (size_t i = 0; i < color_buffers.length; i++) {
-        gfx::DestroyBuffer(&color_buffers[i], vk);
+        gfx::DestroyBuffer(&color_buffers[i], device);
     }
-    gfx::DestroyBuffer(&vertex_buffer, vk);
-    gfx::DestroyShader(&vertex_shader, vk);
-    gfx::DestroyShader(&fragment_shader, vk);
-    gfx::DestroyGraphicsPipeline(&pipeline, vk);
-    gfx::DestroyDescriptorPoolLayoutAndSet(&pool_layout_set, vk);
+    gfx::DestroyBuffer(&vertex_buffer, device);
+    gfx::DestroyShader(&vertex_shader, device);
+    gfx::DestroyShader(&fragment_shader, device);
+    gfx::DestroyGraphicsPipeline(&pipeline, device);
+    gfx::DestroyDescriptorPoolLayoutAndSet(&pool_layout_set, device);
 
     // Gui
-    gui::DestroyImGuiImpl(&imgui_impl, vk);
+    gui::DestroyImGuiImpl(&imgui_impl, device);
 
     // Window
-    gfx::DestroyWindowWithSwapchain(&window, vk);
+    gfx::DestroyWindowWithSwapchain(&window, instance, device);
 
-    // Context
-    gfx::DestroyContext(&vk);
+    // Device
+    gfx::DestroyDevice(&device);
+
+    // Instance
+    gfx::DestroyInstance(&instance);
 }

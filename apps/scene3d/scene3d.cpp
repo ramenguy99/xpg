@@ -21,29 +21,41 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    gfx::Context vk = {};
-    result = gfx::CreateContext(&vk, {
+    gfx::Instance instance = {};
+    result = gfx::CreateInstance(&instance, {
         .minimum_api_version = (u32)VK_API_VERSION_1_1,
-        .required_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
         .enable_validation_layer = true,
         .enable_synchronization_validation = true,
-        //        .enable_gpu_based_validation = true,
+        // .enable_gpu_based_validation = true,
     });
-
     if (result != gfx::Result::SUCCESS) {
-        logging::error("scene3d", "Failed to initialize vulkan\n");
+        logging::error("scene3d", "Failed to create vulkan instance\n");
+        exit(100);
+    }
+
+    gfx::Device device = {};
+    result = gfx::CreateDevice(&device, instance, {
+        .minimum_api_version = (u32)VK_API_VERSION_1_1,
+        .required_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
+    });
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("scene3d", "Failed to create vulkan device\n");
         exit(100);
     }
 
     gfx::Window window = {};
-    result = gfx::CreateWindowWithSwapchain(&window, vk, "XPG", 1600, 900);
+    result = gfx::CreateWindowWithSwapchain(&window, instance, device, {
+        .title = "XPG",
+        .width = 1600,
+        .height = 900,
+    });
     if (result != gfx::Result::SUCCESS) {
         logging::error("scene3d", "Failed to create vulkan window\n");
         exit(100);
     }
 
     gui::ImGuiImpl gui;
-    gui::CreateImGuiImpl(&gui, window, vk, {});
+    gui::CreateImGuiImpl(&gui, window, instance, device, {});
 
     // gui::SetDarkTheme();
     ImGuiStyle& style = ImGui::GetStyle();
@@ -119,14 +131,14 @@ int main(int argc, char** argv) {
     viewports[1].color = { .float32 = { 0, 1, 0, 1 } };
     viewports[2].color = { .float32 = { 0, 0, 1, 1 } };
 
-    auto Draw = [&app, &vk, &window, &viewports]() {
+    auto Draw = [&app, &device, &window, &viewports]() {
         if (app.closed) return;
 
         platform::Timestamp timestamp = platform::GetTimestamp();
         float dt = (float)platform::GetElapsed(app.last_frame_timestamp, timestamp);
         app.last_frame_timestamp = timestamp;
 
-        gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, vk);
+        gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, device);
         if (swapchain_status == gfx::SwapchainStatus::FAILED) {
             logging::error("scene3d/draw", "Swapchain update failed\n");
             exit(101);
@@ -142,8 +154,8 @@ int main(int argc, char** argv) {
         }
 
         // Acquire current frame
-        gfx::Frame& frame = gfx::WaitForFrame(&window, vk);
-        gfx::Result ok = gfx::AcquireImage(&frame, &window, vk);
+        gfx::Frame& frame = gfx::WaitForFrame(&window, device);
+        gfx::Result ok = gfx::AcquireImage(&frame, &window, device);
         if (ok != gfx::Result::SUCCESS) {
             return;
         }
@@ -201,7 +213,7 @@ int main(int argc, char** argv) {
             }
 
             // USER: draw commands
-            gfx::BeginCommands(frame.command_pool, frame.command_buffer, vk);
+            gfx::BeginCommands(frame.command_pool, frame.command_buffer, device);
 
             gfx::CmdImageBarrier(frame.command_buffer, {
                 .src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -246,10 +258,10 @@ int main(int argc, char** argv) {
         }
 
         VkResult vkr;
-        vkr = gfx::Submit1(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        vkr = gfx::Submit1(frame, device, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         assert(vkr == VK_SUCCESS);
 
-        vkr = gfx::PresentFrame(&window, &frame, vk);
+        vkr = gfx::PresentFrame(&window, &frame, device);
         assert(vkr == VK_SUCCESS);
 
         app.frame_index = (app.frame_index + 1) % (u32)window.frames.length;
@@ -276,16 +288,19 @@ int main(int argc, char** argv) {
     };
 
     // Wait
-    gfx::WaitIdle(vk);
+    gfx::WaitIdle(device);
 
     // USER: cleanup
 
     // Gui
-    gui::DestroyImGuiImpl(&gui, vk);
+    gui::DestroyImGuiImpl(&gui, device);
 
     // Window
-    gfx::DestroyWindowWithSwapchain(&window, vk);
+    gfx::DestroyWindowWithSwapchain(&window, instance, device);
 
-    // Context
-    gfx::DestroyContext(&vk);
+    // Device
+    gfx::DestroyDevice(&device);
+
+    // Instance
+    gfx::DestroyInstance(&instance);
 }

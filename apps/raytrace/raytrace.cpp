@@ -154,8 +154,20 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    gfx::Context vk = {};
-    result = gfx::CreateContext(&vk, {
+    gfx::Instance instance = {};
+    result = gfx::CreateInstance(&instance, {
+        .minimum_api_version = (u32)VK_API_VERSION_1_1,
+        .enable_validation_layer = true,
+        // .enable_synchronization_validation = true,
+        // .enable_gpu_based_validation = true,
+    });
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("raytrace", "Failed to create vulkan instance\n");
+        exit(100);
+    }
+
+    gfx::Device device = {};
+    result = gfx::CreateDevice(&device, instance, {
         .minimum_api_version = (u32)VK_API_VERSION_1_1,
         .required_features =
             gfx::DeviceFeatures::DYNAMIC_RENDERING |
@@ -163,19 +175,21 @@ int main(int argc, char** argv) {
             gfx::DeviceFeatures::SYNCHRONIZATION_2 |
             gfx::DeviceFeatures::RAY_QUERY |
             gfx::DeviceFeatures::SCALAR_BLOCK_LAYOUT,
-        .enable_validation_layer = true,
-        //        .enable_gpu_based_validation = true,
     });
-
     if (result != gfx::Result::SUCCESS) {
-        logging::error("raytrace", "Failed to initialize vulkan");
+        logging::error("raytrace", "Failed to create vulkan device\n");
         exit(100);
     }
 
     gfx::Window window = {};
-    result = gfx::CreateWindowWithSwapchain(&window, vk, "raytrace", 1600, 900);
+    result = gfx::CreateWindowWithSwapchain(&window, instance, device, {
+        .title = "raytrace",
+        .width = 1600,
+        .height = 900,
+    });
+
     if (result != gfx::Result::SUCCESS) {
-        logging::error("raytrace", "Failed to create vulkan window");
+        logging::error("raytrace", "Failed to create vulkan window\n");
         exit(100);
     }
 
@@ -196,7 +210,7 @@ int main(int argc, char** argv) {
     logging::info("raytrace", "Total indices: %zu | Total vertices: %zu", total_indices, total_vertices);
 
     gfx::Buffer vertex_buffer = {};
-    vkr = gfx::CreateBuffer(&vertex_buffer, vk, total_vertices * sizeof(vec3), {
+    vkr = gfx::CreateBuffer(&vertex_buffer, device, total_vertices * sizeof(vec3), {
         .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         .alloc = gfx::AllocPresets::DeviceMapped,
     });
@@ -206,7 +220,7 @@ int main(int argc, char** argv) {
     }
 
     gfx::Buffer normals_buffer = {};
-    vkr = gfx::CreateBuffer(&normals_buffer, vk, total_vertices * sizeof(vec3), {
+    vkr = gfx::CreateBuffer(&normals_buffer, device, total_vertices * sizeof(vec3), {
         .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         .alloc = gfx::AllocPresets::DeviceMapped,
     });
@@ -216,7 +230,7 @@ int main(int argc, char** argv) {
     }
 
     gfx::Buffer uvs_buffer = {};
-    vkr = gfx::CreateBuffer(&uvs_buffer, vk, total_vertices * sizeof(vec2), {
+    vkr = gfx::CreateBuffer(&uvs_buffer, device, total_vertices * sizeof(vec2), {
         .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         .alloc = gfx::AllocPresets::DeviceMapped,
     });
@@ -226,7 +240,7 @@ int main(int argc, char** argv) {
     }
 
     gfx::Buffer index_buffer = {};
-    vkr = gfx::CreateBuffer(&index_buffer, vk, total_indices * sizeof(u32), {
+    vkr = gfx::CreateBuffer(&index_buffer, device, total_indices * sizeof(u32), {
         .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         .alloc = gfx::AllocPresets::DeviceMapped,
     });
@@ -254,7 +268,7 @@ int main(int argc, char** argv) {
     };
 
     gfx::Buffer instances_buffer = {};
-    vkr = gfx::CreateBuffer(&instances_buffer, vk, scene.meshes.length * sizeof(MeshInstance), {
+    vkr = gfx::CreateBuffer(&instances_buffer, device, scene.meshes.length * sizeof(MeshInstance), {
         .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         .alloc = gfx::AllocPresets::DeviceMapped,
     });
@@ -273,8 +287,8 @@ int main(int argc, char** argv) {
     ArrayView<u32> indices = index_buffer.map.as_view<u32>();
     ArrayView<MeshInstance> instances = instances_buffer.map.as_view<MeshInstance>();
 
-    VkDeviceAddress vertices_address = gfx::GetBufferAddress(vertex_buffer.buffer, vk.device);
-    VkDeviceAddress indices_address = gfx::GetBufferAddress(index_buffer.buffer, vk.device);
+    VkDeviceAddress vertices_address = gfx::GetBufferAddress(vertex_buffer.buffer, device.device);
+    VkDeviceAddress indices_address = gfx::GetBufferAddress(index_buffer.buffer, device.device);
 
     mat4 rotate = glm::rotate(mat4(1.0), 0.75f, vec3(0, 0, 1));
 
@@ -322,7 +336,7 @@ int main(int argc, char** argv) {
 
 
     gfx::AccelerationStructure as = {};
-    vkr = gfx::CreateAccelerationStructure(&as, vk, {
+    vkr = gfx::CreateAccelerationStructure(&as, device, {
         .meshes = Span(meshes),
     });
     if (vkr != VK_SUCCESS) {
@@ -341,7 +355,7 @@ int main(int argc, char** argv) {
             default: assert(false);
         }
 
-        vkr = gfx::CreateAndUploadImage(&images[i], vk, scene.images[i].data, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, {
+        vkr = gfx::CreateAndUploadImage(&images[i], device, scene.images[i].data, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, {
             .width = scene.images[i].width,
             .height = scene.images[i].height,
             .format = format,
@@ -354,7 +368,7 @@ int main(int argc, char** argv) {
         }
     }
     gfx::Sampler sampler = {};
-    vkr = gfx::CreateSampler(&sampler, vk, {
+    vkr = gfx::CreateSampler(&sampler, device, {
         .min_filter = VK_FILTER_LINEAR,
         .mag_filter = VK_FILTER_LINEAR,
     });
@@ -372,7 +386,7 @@ int main(int argc, char** argv) {
     gfx::DescriptorSetLayout scene_descriptor_set_layout;
     gfx::DescriptorPool scene_descriptor_pool;
     gfx::DescriptorSet scene_descriptor_set;
-    vkr = gfx::CreateDescriptorSetLayout(&scene_descriptor_set_layout, vk, {
+    vkr = gfx::CreateDescriptorSetLayout(&scene_descriptor_set_layout, device, {
         .bindings = {
             {
                 .count = 1,
@@ -414,7 +428,7 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    vkr = gfx::CreateDescriptorPool(&scene_descriptor_pool, vk, {
+    vkr = gfx::CreateDescriptorPool(&scene_descriptor_pool, device, {
         .sizes = {
             {
                 .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -456,7 +470,7 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    vkr = gfx::AllocateDescriptorSet(&scene_descriptor_set, vk, {
+    vkr = gfx::AllocateDescriptorSet(&scene_descriptor_set, device, {
         .pool = scene_descriptor_pool,
         .layout = scene_descriptor_set_layout,
         .variable_size_count = (u32)images.length,
@@ -469,37 +483,37 @@ int main(int argc, char** argv) {
 
 
 
-    gfx::WriteBufferDescriptor(scene_descriptor_set, vk, {
+    gfx::WriteBufferDescriptor(scene_descriptor_set, device, {
         .buffer = normals_buffer.buffer,
         .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .binding = 0,
     });
-    gfx::WriteBufferDescriptor(scene_descriptor_set, vk, {
+    gfx::WriteBufferDescriptor(scene_descriptor_set, device, {
         .buffer = uvs_buffer.buffer,
         .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .binding = 1,
     });
-    gfx::WriteBufferDescriptor(scene_descriptor_set, vk, {
+    gfx::WriteBufferDescriptor(scene_descriptor_set, device, {
         .buffer = index_buffer.buffer,
         .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .binding = 2,
     });
-    gfx::WriteBufferDescriptor(scene_descriptor_set, vk, {
+    gfx::WriteBufferDescriptor(scene_descriptor_set, device, {
         .buffer = instances_buffer.buffer,
         .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .binding = 3,
     });
-    gfx::WriteAccelerationStructureDescriptor(scene_descriptor_set, vk, {
+    gfx::WriteAccelerationStructureDescriptor(scene_descriptor_set, device, {
         .acceleration_structure = as.tlas,
         .binding = 4,
     });
-    gfx::WriteSamplerDescriptor(scene_descriptor_set, vk, {
+    gfx::WriteSamplerDescriptor(scene_descriptor_set, device, {
         .sampler = sampler.sampler,
         .binding = 5,
     });
 
     for(usize i = 0; i < images.length; i++) {
-        gfx::WriteImageDescriptor(scene_descriptor_set, vk, {
+        gfx::WriteImageDescriptor(scene_descriptor_set, device, {
             .view = images[i].view,
             .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
@@ -524,7 +538,7 @@ int main(int argc, char** argv) {
     Array<gfx::Buffer> constant_buffers(window.frames.length);
     Array<gfx::DescriptorPoolLayoutAndSet> descriptor_sets(window.frames.length);
     for(usize i = 0; i < descriptor_sets.length; i++) {
-        vkr = gfx::CreateBuffer(&constant_buffers[i], vk, sizeof(Constants), {
+        vkr = gfx::CreateBuffer(&constant_buffers[i], device, sizeof(Constants), {
             .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             .alloc = gfx::AllocPresets::DeviceMapped,
         });
@@ -533,7 +547,7 @@ int main(int argc, char** argv) {
             exit(100);
         }
 
-        vkr = gfx::CreateDescriptorPoolLayoutAndSet(&descriptor_sets[i], vk, {
+        vkr = gfx::CreateDescriptorPoolLayoutAndSet(&descriptor_sets[i], device, {
             .bindings = {
                 {
                     .count = 1,
@@ -547,7 +561,7 @@ int main(int argc, char** argv) {
             exit(100);
         }
 
-        gfx::WriteBufferDescriptor(descriptor_sets[i].set, vk, {
+        gfx::WriteBufferDescriptor(descriptor_sets[i].set, device, {
             .buffer = constant_buffers[0].buffer,
             .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             .binding = 0,
@@ -556,14 +570,14 @@ int main(int argc, char** argv) {
 
 
     gfx::Shader shader;
-    vkr = gfx::CreateShader(&shader, vk, shader_code);
+    vkr = gfx::CreateShader(&shader, device, shader_code);
     if (vkr != VK_SUCCESS) {
         logging::error("raytrace", "Failed to create compute shader");
         exit(100);
     }
 
     gfx::ComputePipeline compute_pipeline;
-    vkr = gfx::CreateComputePipeline(&compute_pipeline, vk, {
+    vkr = gfx::CreateComputePipeline(&compute_pipeline, device, {
         .shader = shader,
         .descriptor_sets = { scene_descriptor_set_layout.layout, descriptor_sets[0].layout.layout },
     });
@@ -635,14 +649,14 @@ int main(int argc, char** argv) {
         }
     };
 
-    auto Draw = [&app, &vk, &window]() {
+    auto Draw = [&app, &device, &window]() {
         if (app.closed) return;
 
         platform::Timestamp timestamp = platform::GetTimestamp();
         float dt = (float)platform::GetElapsed(app.last_frame_timestamp, timestamp);
         app.last_frame_timestamp = timestamp;
 
-        gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, vk);
+        gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, device);
         if (swapchain_status == gfx::SwapchainStatus::FAILED) {
             logging::error("raytrace/draw", "Swapchain update failed\n");
             exit(101);
@@ -654,8 +668,8 @@ int main(int argc, char** argv) {
         if (swapchain_status == gfx::SwapchainStatus::RESIZED || !app.first_frame_done) {
             app.first_frame_done = true;
 
-            gfx::DestroyImage(&app.output_image, vk);
-            VkResult vkr = gfx::CreateImage(&app.output_image, vk, {
+            gfx::DestroyImage(&app.output_image, device);
+            VkResult vkr = gfx::CreateImage(&app.output_image, device, {
                 .width = window.fb_width,
                 .height = window.fb_height,
                 .format = VK_FORMAT_R32G32B32A32_SFLOAT,
@@ -666,7 +680,7 @@ int main(int argc, char** argv) {
                 logging::error("raytrace", "Failed to create output image");
                 exit(100);
             }
-            gfx::WriteImageDescriptor(app.scene_descriptor_set, vk, {
+            gfx::WriteImageDescriptor(app.scene_descriptor_set, device, {
                 .view = app.output_image.view,
                 .layout = VK_IMAGE_LAYOUT_GENERAL,
                 .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -676,8 +690,8 @@ int main(int argc, char** argv) {
         }
 
         // Acquire current frame
-        gfx::Frame& frame = gfx::WaitForFrame(&window, vk);
-        gfx::Result ok = gfx::AcquireImage(&frame, &window, vk);
+        gfx::Frame& frame = gfx::WaitForFrame(&window, device);
+        gfx::Result ok = gfx::AcquireImage(&frame, &window, device);
         if (ok != gfx::Result::SUCCESS) {
             return;
         }
@@ -706,7 +720,7 @@ int main(int argc, char** argv) {
 
 
             // Record commands
-            gfx::BeginCommands(frame.command_pool, frame.command_buffer, vk);
+            gfx::BeginCommands(frame.command_pool, frame.command_buffer, device);
 
             gfx::CmdBarriers(frame.command_buffer, {
                 .image = {
@@ -818,10 +832,10 @@ int main(int argc, char** argv) {
         }
 
         VkResult vkr;
-        vkr = gfx::Submit1(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        vkr = gfx::Submit1(frame, device, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         assert(vkr == VK_SUCCESS);
 
-        vkr = gfx::PresentFrame(&window, &frame, vk);
+        vkr = gfx::PresentFrame(&window, &frame, device);
         assert(vkr == VK_SUCCESS);
 
         app.frame_index = (app.frame_index + 1) % (u32)window.frames.length;
@@ -835,7 +849,7 @@ int main(int argc, char** argv) {
         .draw = Draw,
     });
 
-    gui::CreateImGuiImpl(&app.gui, window, vk, {});
+    gui::CreateImGuiImpl(&app.gui, window, instance, device, {});
 
     while (true) {
         gfx::ProcessEvents(app.wait_for_events);
@@ -851,36 +865,39 @@ int main(int argc, char** argv) {
     };
 
     // Wait
-    gfx::WaitIdle(vk);
+    gfx::WaitIdle(device);
 
     // USER: cleanup
-    gfx::DestroyAccelerationStructure(&app.as, vk);
-    gfx::DestroyBuffer(&vertex_buffer, vk);
-    gfx::DestroyBuffer(&normals_buffer, vk);
-    gfx::DestroyBuffer(&uvs_buffer, vk);
-    gfx::DestroyBuffer(&index_buffer, vk);
-    gfx::DestroyBuffer(&instances_buffer, vk);
-    gfx::DestroySampler(&sampler, vk);
+    gfx::DestroyAccelerationStructure(&app.as, device);
+    gfx::DestroyBuffer(&vertex_buffer, device);
+    gfx::DestroyBuffer(&normals_buffer, device);
+    gfx::DestroyBuffer(&uvs_buffer, device);
+    gfx::DestroyBuffer(&index_buffer, device);
+    gfx::DestroyBuffer(&instances_buffer, device);
+    gfx::DestroySampler(&sampler, device);
     for(usize i = 0; i < app.images.length; i++) {
-        gfx::DestroyImage(&app.images[i], vk);
+        gfx::DestroyImage(&app.images[i], device);
     }
 
-    gfx::DestroyShader(&shader, vk);
-    gfx::DestroyComputePipeline(&app.compute_pipeline, vk);
-    gfx::DestroyImage(&app.output_image, vk);
+    gfx::DestroyShader(&shader, device);
+    gfx::DestroyComputePipeline(&app.compute_pipeline, device);
+    gfx::DestroyImage(&app.output_image, device);
     for(usize i = 0; i < app.descriptor_sets.length; i++) {
-        gfx::DestroyBuffer(&app.constant_buffers[i], vk);
-        gfx::DestroyDescriptorPoolLayoutAndSet(&app.descriptor_sets[i], vk);
+        gfx::DestroyBuffer(&app.constant_buffers[i], device);
+        gfx::DestroyDescriptorPoolLayoutAndSet(&app.descriptor_sets[i], device);
     }
-    gfx::DestroyDescriptorSetLayout(&scene_descriptor_set_layout, vk);
-    gfx::DestroyDescriptorPool(&scene_descriptor_pool, vk);
+    gfx::DestroyDescriptorSetLayout(&scene_descriptor_set_layout, device);
+    gfx::DestroyDescriptorPool(&scene_descriptor_pool, device);
 
     // Gui
-    gui::DestroyImGuiImpl(&app.gui, vk);
+    gui::DestroyImGuiImpl(&app.gui, device);
 
     // Window
-    gfx::DestroyWindowWithSwapchain(&window, vk);
+    gfx::DestroyWindowWithSwapchain(&window, instance, device);
 
-    // Context
-    gfx::DestroyContext(&vk);
+    // Device
+    gfx::DestroyDevice(&device);
+
+    // Instance
+    gfx::DestroyInstance(&instance);
 }

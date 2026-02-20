@@ -6,7 +6,7 @@
 using namespace xpg;
 
 ChunkCache::ChunkCache(const ZMipFile& zmip, usize cache_size, usize upload_buffers_count, usize num_workers, usize num_frames_in_flight,
-               const gfx::Context& vk, gfx::DescriptorSet descriptor_set)
+               const gfx::Device& device, gfx::DescriptorSet descriptor_set)
                : zmip(zmip)
                , lru(cache_size)
                , upload_buffers(num_frames_in_flight)
@@ -27,21 +27,21 @@ ChunkCache::ChunkCache(const ZMipFile& zmip, usize cache_size, usize upload_buff
     sync_load_context = AllocChunkLoadContext(zmip);
 
     // Resize the cache with the starting size
-    resize(cache_size, upload_buffers_count, vk, descriptor_set);
+    resize(cache_size, upload_buffers_count, device, descriptor_set);
 }
 
-void ChunkCache::destroy_resources(const gfx::Context& vk) {
+void ChunkCache::destroy_resources(const gfx::Device& device) {
     for (usize i = 0; i < images.length; i++) {
-        gfx::DestroyImage(&images[i], vk);
+        gfx::DestroyImage(&images[i], device);
     }
     for (usize frame_index = 0; frame_index < upload_buffers.length; frame_index++) {
         for (usize i = 0; i < upload_buffers[frame_index].length; i++) {
-            gfx::DestroyBuffer(&upload_buffers[frame_index][i], vk);
+            gfx::DestroyBuffer(&upload_buffers[frame_index][i], device);
         }
     }
 }
 
-void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx::Context& vk, gfx::DescriptorSet descriptor_set) {
+void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx::Device& device, gfx::DescriptorSet descriptor_set) {
     // The cache does not shrink
     if (images.length < cache_size) {
         // Add missing images
@@ -50,7 +50,7 @@ void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx:
         images.resize(cache_size);
         for (usize i = old_length; i < images.length; i++) {
             // Alloc image
-            gfx::CreateImage(&images[i], vk, {
+            gfx::CreateImage(&images[i], device, {
                 .width = zmip.header.chunk_width,
                 .height = zmip.header.chunk_height,
                 .format = VK_FORMAT_R8G8B8A8_UNORM,
@@ -59,7 +59,7 @@ void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx:
             });
 
             // Write descriptor
-            gfx::WriteImageDescriptor(descriptor_set, vk, {
+            gfx::WriteImageDescriptor(descriptor_set, device, {
                 .view = images[i].view,
                 .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
@@ -76,7 +76,7 @@ void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx:
         }
         if(images.length > 0) {
             VmaAllocationInfo info;
-            vmaGetAllocationInfo(vk.vma, images[0].allocation, &info);
+            vmaGetAllocationInfo(device.vma, images[0].allocation, &info);
             chunk_memory_size = info.size;
         } else {
             chunk_memory_size = 0;
@@ -92,7 +92,7 @@ void ChunkCache::resize(usize cache_size, usize upload_buffers_count, const gfx:
             upload_buffers[frame_index].resize(upload_buffers_count);
 
             for (usize i = old_length; i < upload_buffers[frame_index].length; i++) {
-                CreateBuffer(&upload_buffers[frame_index][i], vk, zmip.header.chunk_width * zmip.header.chunk_height * 4, {
+                CreateBuffer(&upload_buffers[frame_index][i], device, zmip.header.chunk_width * zmip.header.chunk_height * 4, {
                     .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                     .alloc = gfx::AllocPresets::HostWriteCombining,
                 });
@@ -130,7 +130,7 @@ void ChunkCache::worker_func(WorkerPool::WorkerInfo* worker_info, void* user_dat
     work.work_done_counter->signal();
 }
 
-void ChunkCache::request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32> output_descriptors, const gfx::Context& vk, gfx::DescriptorSet descriptor_set, VkCommandBuffer cmd, u32 frame_index) {
+void ChunkCache::request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32> output_descriptors, const gfx::Device& device, gfx::DescriptorSet descriptor_set, VkCommandBuffer cmd, u32 frame_index) {
     // Debug check that the same chunk is not requested twice
     for (usize i = 0; i < chunk_ids.length; i++) {
         for (usize j = i + 1; j < chunk_ids.length; j++) {
@@ -282,7 +282,7 @@ void ChunkCache::request_chunk_batch(ArrayView<ChunkId> chunk_ids, ArrayView<u32
     // logging::info("bigimage/cache/batch", "Chunks: %4llu / %4llu | Load: %12.6f | Commands: %12.6f",  uploaded_chunks, chunk_ids.length, platform::GetElapsed(begin, mid) * 1000.0, platform::GetElapsed(end, end) * 1000.0);
 }
 
-u32 ChunkCache::request_chunk_sync(ChunkId c, const gfx::Context& vk, gfx::DescriptorSet descriptor_set) {
+u32 ChunkCache::request_chunk_sync(ChunkId c, const gfx::Device& device, gfx::DescriptorSet descriptor_set) {
     usize chunk_index = GetChunkIndex(zmip, c);
 
     // Lookup state in cache
@@ -314,7 +314,7 @@ u32 ChunkCache::request_chunk_sync(ChunkId c, const gfx::Context& vk, gfx::Descr
         platform::Timestamp mid = platform::GetTimestamp();
 
         // Upload to GPU
-        gfx::UploadImage(images[e->value.image_index], vk, sync_load_context.deinterleaved, {
+        gfx::UploadImage(images[e->value.image_index], device, sync_load_context.deinterleaved, {
             .width = zmip.header.chunk_width,
             .height = zmip.header.chunk_height,
             .format = VK_FORMAT_R8G8B8A8_UNORM,

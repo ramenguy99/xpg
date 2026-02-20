@@ -51,30 +51,45 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    gfx::Context vk = {};
-    result = gfx::CreateContext(&vk, {
+    gfx::Instance instance = {};
+    result = gfx::CreateInstance(&instance, {
         .minimum_api_version = (u32)VK_API_VERSION_1_1,
-        .required_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
         .enable_validation_layer = true,
-        //        .enable_gpu_based_validation = true,
+        .enable_synchronization_validation = true,
+        // .enable_gpu_based_validation = true,
     });
     if (result != gfx::Result::SUCCESS) {
-        logging::error("bigimage", "Failed to initialize vulkan\n");
+        logging::error("bigimage", "Failed to create vulkan instance\n");
+        exit(100);
+    }
+
+    gfx::Device device = {};
+    result = gfx::CreateDevice(&device, instance, {
+        .minimum_api_version = (u32)VK_API_VERSION_1_1,
+        .required_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
+    });
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("bigimage", "Failed to create vulkan device\n");
         exit(100);
     }
 
     gfx::Window window = {};
-    result = gfx::CreateWindowWithSwapchain(&window, vk, "XPG", 1600, 900);
+    result = gfx::CreateWindowWithSwapchain(&window, instance, device, {
+        .title = "XPG",
+        .width = 1600,
+        .height = 900,
+    });
     if (result != gfx::Result::SUCCESS) {
         logging::error("bigimage", "Failed to create vulkan window\n");
         exit(100);
     }
 
+
     VkResult vkr;
 
     // Descriptors
     gfx::DescriptorPoolLayoutAndSet descriptor_pool_layout_and_set = {};
-    vkr = gfx::CreateDescriptorPoolLayoutAndSet(&descriptor_pool_layout_and_set, vk, {
+    vkr = gfx::CreateDescriptorPoolLayoutAndSet(&descriptor_pool_layout_and_set, device, {
         .bindings = {
             {
                 .count = (u32)window.frames.length,
@@ -100,7 +115,7 @@ int main(int argc, char** argv) {
     }
 
     gfx::Sampler sampler;
-    vkr = gfx::CreateSampler(&sampler, vk, {
+    vkr = gfx::CreateSampler(&sampler, device, {
         .min_filter = VK_FILTER_NEAREST,
         .mag_filter = VK_FILTER_NEAREST,
         .mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
@@ -110,7 +125,7 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    gfx::WriteSamplerDescriptor(descriptor_pool_layout_and_set.set, vk, {
+    gfx::WriteSamplerDescriptor(descriptor_pool_layout_and_set.set, device, {
         .sampler = sampler.sampler,
         .binding = 1,
         .element = 0,
@@ -123,7 +138,7 @@ int main(int argc, char** argv) {
         exit(100);
     }
     gfx::Shader vert_shader = {};
-    vkr = gfx::CreateShader(&vert_shader, vk, vert_code);
+    vkr = gfx::CreateShader(&vert_shader, device, vert_code);
     if (result != gfx::Result::SUCCESS) {
         logging::error("bigimage", "Failed to create vertex shader\n");
         exit(100);
@@ -135,14 +150,14 @@ int main(int argc, char** argv) {
         exit(100);
     }
     gfx::Shader frag_shader = {};
-    vkr = gfx::CreateShader(&frag_shader, vk, frag_code);
+    vkr = gfx::CreateShader(&frag_shader, device, frag_code);
     if (result != gfx::Result::SUCCESS) {
         logging::error("bigimage", "Failed to create fragment shader\n");
         exit(100);
     }
 
     gfx::GraphicsPipeline pipeline = {};
-    vkr = gfx::CreateGraphicsPipeline(&pipeline, vk, {
+    vkr = gfx::CreateGraphicsPipeline(&pipeline, device, {
         .stages = {
             {
                 .shader = vert_shader,
@@ -197,7 +212,7 @@ int main(int argc, char** argv) {
     size_t V = vertices.length;
 
     gfx::Buffer vertex_buffer = {};
-    vkr = gfx::CreateBufferFromData(&vertex_buffer, vk, vertices.as_bytes(), {
+    vkr = gfx::CreateBufferFromData(&vertex_buffer, device, vertices.as_bytes(), {
             .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             .alloc = gfx::AllocPresets::DeviceMapped,
         });
@@ -254,7 +269,7 @@ int main(int argc, char** argv) {
     app.vertex_buffer = vertex_buffer;
     app.max_zoom = (s32)(zmip.levels.length - 1);
 
-    ChunkCache cache(zmip, 0, 0, 8, window.frames.length, vk, descriptor_pool_layout_and_set.set);
+    ChunkCache cache(zmip, 0, 0, 8, window.frames.length, device, descriptor_pool_layout_and_set.set);
 
     auto MouseMoveEvent = [&app](ivec2 pos) {
         if (app.dragging) {
@@ -289,14 +304,14 @@ int main(int argc, char** argv) {
         app.offset += (new_image_pos - old_image_pos) >> app.zoom;
     };
 
-    auto Draw = [&app, &vk, &window, &descriptor_pool_layout_and_set, &zmip, &cache]() {
+    auto Draw = [&app, &device, &window, &descriptor_pool_layout_and_set, &zmip, &cache]() {
         if (app.closed) return;
 
         platform::Timestamp timestamp = platform::GetTimestamp();
         float dt = (float)platform::GetElapsed(app.last_frame_timestamp, timestamp);
         app.last_frame_timestamp = timestamp;
 
-        gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, vk);
+        gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, device);
         if (swapchain_status == gfx::SwapchainStatus::FAILED) {
             logging::error("bigimage/draw", "Swapchain update failed\n");
             exit(101);
@@ -317,12 +332,12 @@ int main(int argc, char** argv) {
                 app.total_max_chunks = total_max_chunks;
 
                 for (usize i = 0; i < app.chunks_buffers.length; i++) {
-                    gfx::DestroyBuffer(&app.chunks_buffers[i], vk);
-                    gfx::CreateBuffer(&app.chunks_buffers[i], vk, app.total_max_chunks * sizeof(GpuChunk), {
+                    gfx::DestroyBuffer(&app.chunks_buffers[i], device);
+                    gfx::CreateBuffer(&app.chunks_buffers[i], device, app.total_max_chunks * sizeof(GpuChunk), {
                         .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                         .alloc = gfx::AllocPresets::DeviceMapped,
                     });
-                    gfx::WriteBufferDescriptor(descriptor_pool_layout_and_set.set, vk, {
+                    gfx::WriteBufferDescriptor(descriptor_pool_layout_and_set.set, device, {
                         .buffer = app.chunks_buffers[i].buffer,
                         .binding = 0,
                         .element = (u32)i,
@@ -346,15 +361,15 @@ int main(int argc, char** argv) {
                 }
 
                 // Resize cache
-                cache.resize(total_max_chunks * window.frames.length, total_max_chunks, vk, descriptor_pool_layout_and_set.set);
+                cache.resize(total_max_chunks * window.frames.length, total_max_chunks, device, descriptor_pool_layout_and_set.set);
                 app.batch_inputs.resize(total_max_chunks);
                 app.batch_outputs.resize(total_max_chunks);
             }
         }
 
         // Acquire current frame
-        gfx::Frame& frame = gfx::WaitForFrame(&window, vk);
-        gfx::Result ok = gfx::AcquireImage(&frame, &window, vk);
+        gfx::Frame& frame = gfx::WaitForFrame(&window, device);
+        gfx::Result ok = gfx::AcquireImage(&frame, &window, device);
         if (ok != gfx::Result::SUCCESS) {
             return;
         }
@@ -401,7 +416,7 @@ int main(int argc, char** argv) {
                     app.batch_inputs.add(id);
                 }
                 else {
-                    desc_index = cache.request_chunk_sync(id, vk, descriptor_pool_layout_and_set.set);
+                    desc_index = cache.request_chunk_sync(id, device, descriptor_pool_layout_and_set.set);
                 }
                 GpuChunk c = {
                     .position = offset + chunk * chunk_size,
@@ -418,14 +433,14 @@ int main(int argc, char** argv) {
         }
 
         {
-            gfx::BeginCommands(frame.command_pool, frame.command_buffer, vk);
+            gfx::BeginCommands(frame.command_pool, frame.command_buffer, device);
 
             // USER: pre-gui, but with frame
 
             // Upload chunks
             if (app.batched_chunk_upload) {
                 app.batch_outputs.resize(app.batch_inputs.length);
-                cache.request_chunk_batch(app.batch_inputs, app.batch_outputs, vk, descriptor_pool_layout_and_set.set, frame.command_buffer, app.frame_index);
+                cache.request_chunk_batch(app.batch_inputs, app.batch_outputs, device, descriptor_pool_layout_and_set.set, frame.command_buffer, app.frame_index);
                 for (usize i = 0; i < app.batch_outputs.length; i++) {
                     app.gpu_chunks[i].desc_index = app.batch_outputs[i];
 
@@ -441,7 +456,7 @@ int main(int argc, char** argv) {
                 gfx::Buffer& buffer = app.chunks_buffers[app.frame_index];
 
                 void* addr = 0;
-                VkResult vkr = vmaMapMemory(vk.vma, buffer.allocation, &addr);
+                VkResult vkr = vmaMapMemory(device.vma, buffer.allocation, &addr);
                 if (vkr != VK_SUCCESS) {
                     logging::error("bigimage/draw", "Failed to map chunk buffer memory");
                     exit(102);
@@ -450,7 +465,7 @@ int main(int argc, char** argv) {
                 ArrayView<u8> map((u8*)addr, app.gpu_chunks.size_in_bytes());
                 map.copy_exact(app.gpu_chunks.as_bytes());
 
-                vmaUnmapMemory(vk.vma, buffer.allocation);
+                vmaUnmapMemory(device.vma, buffer.allocation);
             }
 
             {
@@ -606,10 +621,10 @@ int main(int argc, char** argv) {
         }
 
         VkResult vkr;
-        vkr = gfx::Submit1(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        vkr = gfx::Submit1(frame, device, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         assert(vkr == VK_SUCCESS);
 
-        vkr = gfx::PresentFrame(&window, &frame, vk);
+        vkr = gfx::PresentFrame(&window, &frame, device);
         assert(vkr == VK_SUCCESS);
 
         app.frame_index = (app.frame_index + 1) % (u32)window.frames.length;
@@ -623,7 +638,7 @@ int main(int argc, char** argv) {
     });
 
     gui::ImGuiImpl imgui_impl;
-    gui::CreateImGuiImpl(&imgui_impl, window, vk, {});
+    gui::CreateImGuiImpl(&imgui_impl, window, instance, device, {});
 
     while (true) {
         gfx::ProcessEvents(app.wait_for_events);
@@ -639,28 +654,31 @@ int main(int argc, char** argv) {
     };
 
     // Wait
-    gfx::WaitIdle(vk);
+    gfx::WaitIdle(device);
 
     // USER: cleanup
-    cache.destroy_resources(vk);
+    cache.destroy_resources(device);
 
     for (usize i = 0; i < app.chunks_buffers.length; i++) {
-        gfx::DestroyBuffer(&app.chunks_buffers[i], vk);
+        gfx::DestroyBuffer(&app.chunks_buffers[i], device);
     }
-    gfx::DestroyBuffer(&vertex_buffer, vk);
+    gfx::DestroyBuffer(&vertex_buffer, device);
 
-    gfx::DestroySampler(&sampler, vk);
-    gfx::DestroyShader(&vert_shader, vk);
-    gfx::DestroyShader(&frag_shader, vk);
-    gfx::DestroyGraphicsPipeline(&pipeline, vk);
-    gfx::DestroyDescriptorPoolLayoutAndSet(&descriptor_pool_layout_and_set, vk);
+    gfx::DestroySampler(&sampler, device);
+    gfx::DestroyShader(&vert_shader, device);
+    gfx::DestroyShader(&frag_shader, device);
+    gfx::DestroyGraphicsPipeline(&pipeline, device);
+    gfx::DestroyDescriptorPoolLayoutAndSet(&descriptor_pool_layout_and_set, device);
 
     // Gui
-    gui::DestroyImGuiImpl(&imgui_impl, vk);
+    gui::DestroyImGuiImpl(&imgui_impl, device);
 
     // Window
-    gfx::DestroyWindowWithSwapchain(&window, vk);
+    gfx::DestroyWindowWithSwapchain(&window, instance, device);
 
-    // Context
-    gfx::DestroyContext(&vk);
+    // Device
+    gfx::DestroyDevice(&device);
+
+    // Instance
+    gfx::DestroyInstance(&instance);
 }

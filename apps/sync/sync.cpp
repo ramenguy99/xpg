@@ -11,23 +11,38 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    gfx::Context vk = {};
-    result = gfx::CreateContext(&vk, {
+    gfx::Instance instance = {};
+    result = gfx::CreateInstance(&instance, {
         .minimum_api_version = (u32)VK_API_VERSION_1_1,
-        .required_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
-        .preferred_frames_in_flight = 2,
         .enable_validation_layer = true,
         .enable_synchronization_validation = true,
+        // .enable_gpu_based_validation = true,
     });
-
     if (result != gfx::Result::SUCCESS) {
-        logging::error("sync", "Failed to initialize vulkan\n");
+        logging::error("sync", "Failed to create vulkan instance\n");
         exit(100);
     }
+
+    gfx::Device device = {};
+    result = gfx::CreateDevice(&device, instance, {
+        .minimum_api_version = (u32)VK_API_VERSION_1_1,
+        .required_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
+    });
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("sync", "Failed to create vulkan device\n");
+        exit(100);
+    }
+
     gfx::Window window = {};
-    if (gfx::CreateWindowWithSwapchain(&window, vk, "XPG - sync", 1600, 900) != gfx::Result::SUCCESS) {
-        logging::error("sync", "Failed to create window\n");
-        return 1;
+    result = gfx::CreateWindowWithSwapchain(&window, instance, device, {
+        .title = "XPG",
+        .width = 1600,
+        .height = 900,
+        .preferred_frames_in_flight = 2,
+    });
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("sync", "Failed to create vulkan window\n");
+        exit(100);
     }
 
     struct App {
@@ -46,10 +61,10 @@ int main(int argc, char** argv) {
     App app = {};
     app.wait_for_events = false;
 
-    auto Draw = [&app, &vk, &window] () {
+    auto Draw = [&app, &device, &window] () {
         if (app.closed) return;
 
-        gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, vk);
+        gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, device);
         if (swapchain_status == gfx::SwapchainStatus::FAILED) {
             printf("Swapchain update failed\n");
             exit(1);
@@ -66,13 +81,13 @@ int main(int argc, char** argv) {
 
 
         // Acquire current frame
-        gfx::Frame& frame = gfx::WaitForFrame(&window, vk);
-        gfx::Result ok = gfx::AcquireImage(&frame, &window, vk);
+        gfx::Frame& frame = gfx::WaitForFrame(&window, device);
+        gfx::Result ok = gfx::AcquireImage(&frame, &window, device);
         if (ok != gfx::Result::SUCCESS) {
             return;
         }
 
-        gfx::BeginCommands(frame.command_pool, frame.command_buffer, vk);
+        gfx::BeginCommands(frame.command_pool, frame.command_buffer, device);
 
         // Invalidate caches on the GPU (make visible)
         // NOTE: I dont' think any memory barrier is needed here,
@@ -132,12 +147,12 @@ int main(int argc, char** argv) {
         gfx::EndCommands(frame.command_buffer);
 
         VkResult vkr;
-        vkr = gfx::Submit1(frame, vk,
+        vkr = gfx::Submit1(frame, device,
             // VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
         );
         assert(vkr == VK_SUCCESS);
-        vkr = gfx::PresentFrame(&window, &frame, vk);
+        vkr = gfx::PresentFrame(&window, &frame, device);
         assert(vkr == VK_SUCCESS);
 
         app.frame_index = (app.frame_index + 1) % window.images.length;
@@ -163,11 +178,14 @@ int main(int argc, char** argv) {
     };
 
     // Wait
-    gfx::WaitIdle(vk);
+    gfx::WaitIdle(device);
 
     // Window
-    gfx::DestroyWindowWithSwapchain(&window, vk);
+    gfx::DestroyWindowWithSwapchain(&window, instance, device);
 
-    // Context
-    gfx::DestroyContext(&vk);
+    // Device
+    gfx::DestroyDevice(&device);
+
+    // Instance
+    gfx::DestroyInstance(&instance);
 }

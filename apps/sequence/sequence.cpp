@@ -42,28 +42,43 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    gfx::Context vk = {};
-    result = gfx::CreateContext(&vk, {
+    gfx::Instance instance = {};
+    result = gfx::CreateInstance(&instance, {
         .minimum_api_version = (u32)VK_API_VERSION_1_1,
-        .required_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
-        .preferred_frames_in_flight = 2,
         .enable_validation_layer = true,
-        // .enable_gpu_based_validation = false,
+        .enable_synchronization_validation = true,
+        // .enable_gpu_based_validation = true,
     });
-
-#if SYNC_QUEUE
-    vk.copy_queue = VK_NULL_HANDLE;
-#endif
-
     if (result != gfx::Result::SUCCESS) {
-        logging::error("sequence", "Failed to initialize vulkan\n");
+        logging::error("sequence", "Failed to create vulkan instance\n");
         exit(100);
     }
+
+    gfx::Device device = {};
+    result = gfx::CreateDevice(&device, instance, {
+        .minimum_api_version = (u32)VK_API_VERSION_1_1,
+        .required_features = gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::DESCRIPTOR_INDEXING | gfx::DeviceFeatures::SYNCHRONIZATION_2,
+    });
+    if (result != gfx::Result::SUCCESS) {
+        logging::error("sequence", "Failed to create vulkan device\n");
+        exit(100);
+    }
+
     gfx::Window window = {};
-    if (gfx::CreateWindowWithSwapchain(&window, vk, "XPG", 1600, 900) != gfx::Result::SUCCESS) {
+    result = gfx::CreateWindowWithSwapchain(&window, instance, device, {
+        .title = "XPG",
+        .width = 1600,
+        .height = 900,
+        .preferred_frames_in_flight = 2,
+    });
+    if (result != gfx::Result::SUCCESS) {
         logging::error("sequence", "Failed to create vulkan window\n");
         exit(100);
     }
+
+#if SYNC_QUEUE
+    device.transfer_queue = VK_NULL_HANDLE;
+#endif
 
     struct App {
         // Swapchain frames, index wraps around at the number of frames in flight.
@@ -116,19 +131,19 @@ int main(int argc, char** argv) {
     Array<gfx::Buffer> vertex_buffers_upload(BUFFER_SIZE);
 #if !DIRECT_UPLOAD
     for(usize i = 0; i < BUFFER_SIZE; i++) {
-        vkr = gfx::CreateBuffer(&vertex_buffers_upload[i], vk, sizeof(vec3) * V, {
+        vkr = gfx::CreateBuffer(&vertex_buffers_upload[i], device, sizeof(vec3) * V, {
             .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             .alloc = gfx::AllocPresets::Host,
         });
         assert(vkr == VK_SUCCESS);
         VkMemoryPropertyFlags upload_properties = {};
-        vmaGetAllocationMemoryProperties(vk.vma, vertex_buffers_upload[i].allocation, &upload_properties);
+        vmaGetAllocationMemoryProperties(device.vma, vertex_buffers_upload[i].allocation, &upload_properties);
     }
 #endif
 
     Array<gfx::Buffer> vertex_buffers_gpu(window.frames.length);
     for(usize i = 0; i < window.frames.length; i++) {
-        vkr = gfx::CreateBuffer(&vertex_buffers_gpu[i], vk, sizeof(vec3) * V, {
+        vkr = gfx::CreateBuffer(&vertex_buffers_gpu[i], device, sizeof(vec3) * V, {
             .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
     #if !DIRECT_UPLOAD
                 | VK_BUFFER_USAGE_TRANSFER_DST_BIT
@@ -147,7 +162,7 @@ int main(int argc, char** argv) {
         });
         assert(vkr == VK_SUCCESS);
         VkMemoryPropertyFlags gpu_properties = {};
-        vmaGetAllocationMemoryProperties(vk.vma, vertex_buffers_gpu[i].allocation, &gpu_properties);
+        vmaGetAllocationMemoryProperties(device.vma, vertex_buffers_gpu[i].allocation, &gpu_properties);
     }
 
 #if DIRECT_UPLOAD
@@ -192,7 +207,7 @@ int main(int argc, char** argv) {
 
 
     gfx::Buffer index_buffer = {};
-    vkr = gfx::CreateBufferFromData(&index_buffer, vk, indices.as_bytes(), {
+    vkr = gfx::CreateBufferFromData(&index_buffer, device, indices.as_bytes(), {
         .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
         .alloc = gfx::AllocPresets::DeviceMapped,
     });
@@ -215,14 +230,14 @@ int main(int argc, char** argv) {
     }
 
     gfx::Shader vertex_shader = {};
-    vkr = gfx::CreateShader(&vertex_shader, vk, vertex_code);
+    vkr = gfx::CreateShader(&vertex_shader, device, vertex_code);
     if (vkr != VK_SUCCESS) {
         logging::error("sequence", "Failed to create vertex shader");
         exit(100);
     }
 
     gfx::Shader fragment_shader = {};
-    vkr = gfx::CreateShader(&fragment_shader, vk, fragment_code);
+    vkr = gfx::CreateShader(&fragment_shader, device, fragment_code);
     if (vkr != VK_SUCCESS) {
         logging::error("sequence", "Failed to create fragment shader");
         exit(100);
@@ -235,7 +250,7 @@ int main(int argc, char** argv) {
     gfx::DescriptorSetLayout descriptor_set_layout = {};
     Array<gfx::DescriptorSet> descriptor_sets(window.frames.length);
 
-    vkr = gfx::CreateDescriptorSetLayout(&descriptor_set_layout, vk, {
+    vkr = gfx::CreateDescriptorSetLayout(&descriptor_set_layout, device, {
         .bindings = {
             {
                 .count = 1,
@@ -248,7 +263,7 @@ int main(int argc, char** argv) {
         exit(100);
     }
 
-    vkr = gfx::CreateDescriptorPool(&descriptor_pool, vk, {
+    vkr = gfx::CreateDescriptorPool(&descriptor_pool, device, {
         .sizes = {
             {
                 .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -259,7 +274,7 @@ int main(int argc, char** argv) {
     });
 
     for(usize i = 0; i < window.frames.length; i++) {
-        vkr = gfx::AllocateDescriptorSet(&descriptor_sets[i], vk, {
+        vkr = gfx::AllocateDescriptorSet(&descriptor_sets[i], device, {
             .pool = descriptor_pool,
             .layout = descriptor_set_layout,
         });
@@ -270,7 +285,7 @@ int main(int argc, char** argv) {
     }
 
     gfx::GraphicsPipeline pipeline = {};
-    vkr = gfx::CreateGraphicsPipeline(&pipeline, vk, {
+    vkr = gfx::CreateGraphicsPipeline(&pipeline, device, {
         .stages = {
             {
                 .shader = vertex_shader,
@@ -313,13 +328,13 @@ int main(int argc, char** argv) {
 
     Array<gfx::Buffer> uniform_buffers(window.frames.length);
     for (usize i = 0; i < uniform_buffers.length; i++) {
-        vkr = gfx::CreateBuffer(&uniform_buffers[i], vk, sizeof(Constants), {
+        vkr = gfx::CreateBuffer(&uniform_buffers[i], device, sizeof(Constants), {
             .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             .alloc = gfx::AllocPresets::DeviceMapped,
         });
         assert(vkr == VK_SUCCESS);
 
-        gfx::WriteBufferDescriptor(descriptor_sets[i], vk, {
+        gfx::WriteBufferDescriptor(descriptor_sets[i], device, {
             .buffer = uniform_buffers[i].buffer,
             .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             .binding = 0,
@@ -328,7 +343,7 @@ int main(int argc, char** argv) {
     }
 
     gfx::Image depth_buffer;
-    vkr = gfx::CreateImage(&depth_buffer, vk, {
+    vkr = gfx::CreateImage(&depth_buffer, device, {
         .width = window.fb_width,
         .height = window.fb_height,
         .format = VK_FORMAT_D32_SFLOAT,
@@ -340,8 +355,8 @@ int main(int argc, char** argv) {
     Array<VkSemaphore> copy_done_semaphores(window.frames.length);
     Array<VkSemaphore> render_done_semaphores(window.frames.length);
     for(usize i = 0; i < window.frames.length; i++) {
-        gfx::CreateGPUSemaphore(vk.device, &copy_done_semaphores[i]);
-        gfx::CreateGPUSemaphore(vk.device, &render_done_semaphores[i]);
+        gfx::CreateGPUSemaphore(device.device, &copy_done_semaphores[i]);
+        gfx::CreateGPUSemaphore(device.device, &render_done_semaphores[i]);
     }
 
     App app = {};
@@ -366,7 +381,7 @@ int main(int argc, char** argv) {
     app.copy_done_semaphores = move(copy_done_semaphores);
     app.render_done_semaphores = move(render_done_semaphores);
 
-    auto Draw = [&app, &vk, &window] () {
+    auto Draw = [&app, &device, &window] () {
         if (app.closed) return;
 
         platform::Timestamp timestamp = platform::GetTimestamp();
@@ -383,7 +398,7 @@ int main(int argc, char** argv) {
         }
         avg_frame_time /= (f32)app.frame_times.length;
 
-        gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, vk);
+        gfx::SwapchainStatus swapchain_status = gfx::UpdateSwapchain(&window, device);
         if (swapchain_status == gfx::SwapchainStatus::FAILED) {
             printf("Swapchain update failed\n");
             exit(1);
@@ -396,8 +411,8 @@ int main(int argc, char** argv) {
         }
         else if(swapchain_status == gfx::SwapchainStatus::RESIZED) {
             // Resize framebuffer sized elements.
-            gfx::DestroyImage(&app.depth_buffer, vk);
-            VkResult vkr = gfx::CreateImage(&app.depth_buffer, vk, {
+            gfx::DestroyImage(&app.depth_buffer, device);
+            VkResult vkr = gfx::CreateImage(&app.depth_buffer, device, {
                 .width = window.fb_width,
                 .height = window.fb_height,
                 .format = VK_FORMAT_D32_SFLOAT,
@@ -413,8 +428,8 @@ int main(int argc, char** argv) {
         app.wait_for_events = false;
 
         // Acquire current frame
-        gfx::Frame& frame = gfx::WaitForFrame(&window, vk);
-        gfx::Result ok = gfx::AcquireImage(&frame, &window, vk);
+        gfx::Frame& frame = gfx::WaitForFrame(&window, device);
+        gfx::Result ok = gfx::AcquireImage(&frame, &window, device);
         if (ok != gfx::Result::SUCCESS) {
             return;
         }
@@ -501,7 +516,7 @@ int main(int argc, char** argv) {
         gui::EndFrame();
 
         // Reset command pool
-        gfx::BeginCommands(frame.command_pool, frame.command_buffer, vk);
+        gfx::BeginCommands(frame.command_pool, frame.command_buffer, device);
 
         //u32 animation_frame = app.current_frame % app.num_frames;
         u32 size = app.num_vertices * sizeof(vec3);
@@ -529,58 +544,58 @@ int main(int argc, char** argv) {
 #if DIRECT_UPLOAD
         // Flush caches on the CPU if the memory is not coherent (make available)
         VkMemoryPropertyFlags properties = {};
-        vmaGetAllocationMemoryProperties(vk.vma, app.vertex_buffers_gpu[app.frame_index].allocation, &properties);
+        vmaGetAllocationMemoryProperties(device.vma, app.vertex_buffers_gpu[app.frame_index].allocation, &properties);
         if(!(properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
             VmaAllocationInfo info = {};
-            vmaGetAllocationInfo(vk.vma, app.vertex_buffers_gpu[app.frame_index].allocation, &info);
+            vmaGetAllocationInfo(device.vma, app.vertex_buffers_gpu[app.frame_index].allocation, &info);
 
             VkMappedMemoryRange range = { VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE };
             range.memory = info.deviceMemory;
             range.offset = 0;
             range.size = VK_WHOLE_SIZE;
-            vkFlushMappedMemoryRanges(vk.device, 1, &range);
+            vkFlushMappedMemoryRanges(device.device, 1, &range);
         }
 #else
-        if(vk.copy_queue != VK_NULL_HANDLE) {
-            gfx::BeginCommands(frame.copy_command_pool, frame.copy_command_buffer, vk);
+        if(device.transfer_queue != VK_NULL_HANDLE) {
+            gfx::BeginCommands(frame.transfer_command_pool, frame.transfer_command_buffer, device);
             VkBufferCopy region;
             region.srcOffset = 0;
             region.dstOffset = 0;
             region.size = size;
-            vkCmdCopyBuffer(frame.copy_command_buffer, app.vertex_buffers_upload[app.frame_index].buffer, app.vertex_buffers_gpu[app.frame_index].buffer, 1, &region);
+            vkCmdCopyBuffer(frame.transfer_command_buffer, app.vertex_buffers_upload[app.frame_index].buffer, app.vertex_buffers_gpu[app.frame_index].buffer, 1, &region);
 
             // Queue transfer on copy queue
-            gfx::CmdBufferBarrier(frame.copy_command_buffer, {
+            gfx::CmdBufferBarrier(frame.transfer_command_buffer, {
                 .src_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
                 .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                .src_queue = vk.copy_queue_family_index,
-                .dst_queue = vk.queue_family_index,
+                .src_queue = device.transfer_queue_family_index,
+                .dst_queue = device.graphics_queue_family_index,
                 .buffer = app.vertex_buffers_gpu[app.frame_index].buffer,
                 .offset = 0,
                 .size = VK_WHOLE_SIZE,
             });
 
-            gfx::EndCommands(frame.copy_command_buffer);
+            gfx::EndCommands(frame.transfer_command_buffer);
 
             VkPipelineStageFlags stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
 
             VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
             submit_info.commandBufferCount = 1;
-            submit_info.pCommandBuffers = &frame.copy_command_buffer;
+            submit_info.pCommandBuffers = &frame.transfer_command_buffer;
             submit_info.waitSemaphoreCount = app.current_frame >= app.render_done_semaphores.length ? 1 : 0;
             submit_info.pWaitSemaphores = &app.render_done_semaphores[app.frame_index];
             submit_info.pWaitDstStageMask = &stage_mask;
             submit_info.signalSemaphoreCount = 1;
             submit_info.pSignalSemaphores = &app.copy_done_semaphores[app.frame_index];
-            VkResult vkr = vkQueueSubmit(vk.copy_queue, 1, &submit_info, VK_NULL_HANDLE);
+            VkResult vkr = vkQueueSubmit(device.transfer_queue, 1, &submit_info, VK_NULL_HANDLE);
             assert(vkr == VK_SUCCESS);
 
             // Queue transfer on Graphics queue
             gfx::CmdBufferBarrier(frame.command_buffer, {
                 .dst_stage = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
                 .dst_access = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,
-                .src_queue = vk.copy_queue_family_index,
-                .dst_queue = vk.queue_family_index,
+                .src_queue = device.transfer_queue_family_index,
+                .dst_queue = device.graphics_queue_family_index,
                 .buffer = app.vertex_buffers_gpu[app.frame_index].buffer,
             });
         } else {
@@ -707,10 +722,10 @@ int main(int argc, char** argv) {
 
         VkResult vkr;
 #if DIRECT_UPLOAD
-        vkr = gfx::Submit1(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        vkr = gfx::Submit1(frame, device, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 #else
-        if(vk.copy_queue == VK_NULL_HANDLE) {
-            vkr = gfx::Submit1(frame, vk, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        if(device.transfer_queue == VK_NULL_HANDLE) {
+            vkr = gfx::Submit1(frame, device, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         } else {
             VkSemaphore wait_semaphores[] = {
                 frame.acquire_semaphore,
@@ -735,15 +750,15 @@ int main(int argc, char** argv) {
             submit_info.pWaitDstStageMask = wait_stages;
             submit_info.signalSemaphoreCount = 2;
             submit_info.pSignalSemaphores = signal_semaphores;
-            vkr = vkQueueSubmit(vk.queue, 1, &submit_info, frame.fence);
+            vkr = vkQueueSubmit(device.graphics_queue, 1, &submit_info, frame.fence);
         }
         assert(vkr == VK_SUCCESS);
 #endif
 
-        vkr = gfx::PresentFrame(&window, &frame, vk);
+        vkr = gfx::PresentFrame(&window, &frame, device);
         assert(vkr == VK_SUCCESS);
 
-        app.frame_index = (app.frame_index + 1) % window.images.length;
+        app.frame_index = (app.frame_index + 1) % window.frames.length;
         app.current_frame += 1;
     };
 
@@ -777,7 +792,7 @@ int main(int argc, char** argv) {
 
 
     gui::ImGuiImpl imgui_impl;
-    gui::CreateImGuiImpl(&imgui_impl, window, vk, {});
+    gui::CreateImGuiImpl(&imgui_impl, window, instance, device, {});
 
     while (true) {
         gfx::ProcessEvents(app.wait_for_events);
@@ -793,43 +808,46 @@ int main(int argc, char** argv) {
     };
 
     // Wait
-    gfx::WaitIdle(vk);
+    gfx::WaitIdle(device);
 
     pool.destroy();
 
-    gfx::DestroyImage(&app.depth_buffer, vk);
+    gfx::DestroyImage(&app.depth_buffer, device);
 
-    gfx::DestroyDescriptorSetLayout(&descriptor_set_layout, vk);
-    gfx::DestroyDescriptorPool(&descriptor_pool, vk);
+    gfx::DestroyDescriptorSetLayout(&descriptor_set_layout, device);
+    gfx::DestroyDescriptorPool(&descriptor_pool, device);
 
     for (usize i = 0; i < app.uniform_buffers.length; i++) {
-        gfx::DestroyBuffer(&app.uniform_buffers[i], vk);
+        gfx::DestroyBuffer(&app.uniform_buffers[i], device);
     }
 
     for (usize i = 0; i < window.frames.length; i++) {
-        gfx::DestroyGPUSemaphore(vk.device, &app.render_done_semaphores[i]);
-        gfx::DestroyGPUSemaphore(vk.device, &app.copy_done_semaphores[i]);
-        gfx::DestroyBuffer(&app.vertex_buffers_gpu[i], vk);
+        gfx::DestroyGPUSemaphore(device.device, &app.render_done_semaphores[i]);
+        gfx::DestroyGPUSemaphore(device.device, &app.copy_done_semaphores[i]);
+        gfx::DestroyBuffer(&app.vertex_buffers_gpu[i], device);
     }
     #if !DIRECT_UPLOAD
     for (usize i = 0; i < BUFFER_SIZE; i++) {
-        gfx::DestroyBuffer(&app.vertex_buffers_upload[i], vk);
+        gfx::DestroyBuffer(&app.vertex_buffers_upload[i], device);
     }
     #endif
 
-    gfx::DestroyBuffer(&index_buffer, vk);
+    gfx::DestroyBuffer(&index_buffer, device);
 
-    gfx::DestroyShader(&vertex_shader, vk);
-    gfx::DestroyShader(&fragment_shader, vk);
+    gfx::DestroyShader(&vertex_shader, device);
+    gfx::DestroyShader(&fragment_shader, device);
 
-    gfx::DestroyGraphicsPipeline(&pipeline, vk);
+    gfx::DestroyGraphicsPipeline(&pipeline, device);
 
     // Gui
-    gui::DestroyImGuiImpl(&imgui_impl, vk);
+    gui::DestroyImGuiImpl(&imgui_impl, device);
 
     // Window
-    gfx::DestroyWindowWithSwapchain(&window, vk);
+    gfx::DestroyWindowWithSwapchain(&window, instance, device);
 
-    // Context
-    gfx::DestroyContext(&vk);
+    // Device
+    gfx::DestroyDevice(&device);
+
+    // Instance
+    gfx::DestroyInstance(&instance);
 }

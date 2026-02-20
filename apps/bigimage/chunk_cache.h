@@ -42,14 +42,14 @@ struct ChunkCache {
     };
 
     ChunkCache(const ZMipFile& zmip, usize cache_size, usize upload_buffers_count, usize num_workers, usize num_frames_in_flight,
-        const xpg::gfx::Context& vk, xpg::gfx::DescriptorSet descriptor_set);
+        const xpg::gfx::Device& device, xpg::gfx::DescriptorSet descriptor_set);
 
-    void destroy_resources(const xpg::gfx::Context& vk);
-    void resize(usize cache_size, usize upload_buffers_count, const xpg::gfx::Context& vk, xpg::gfx::DescriptorSet descriptor_set);
+    void destroy_resources(const xpg::gfx::Device& device);
+    void resize(usize cache_size, usize upload_buffers_count, const xpg::gfx::Device& device, xpg::gfx::DescriptorSet descriptor_set);
     void release_chunk(usize chunk_index);
     static void worker_func(xpg::WorkerPool::WorkerInfo* worker_info, void* user_data);
-    void request_chunk_batch(xpg::ArrayView<ChunkId> chunk_ids, xpg::ArrayView<u32> output_descriptors, const xpg::gfx::Context& vk, xpg::gfx::DescriptorSet descriptor_set, VkCommandBuffer cmd, u32 frame_index);
-    u32 request_chunk_sync(ChunkId c, const xpg::gfx::Context& vk, xpg::gfx::DescriptorSet descriptor_set);
+    void request_chunk_batch(xpg::ArrayView<ChunkId> chunk_ids, xpg::ArrayView<u32> output_descriptors, const xpg::gfx::Device& device, xpg::gfx::DescriptorSet descriptor_set, VkCommandBuffer cmd, u32 frame_index);
+    u32 request_chunk_sync(ChunkId c, const xpg::gfx::Device& device, xpg::gfx::DescriptorSet descriptor_set);
 
     inline Chunk& get_chunk(ChunkId c) {
         usize index = GetChunkIndex(zmip, c);
