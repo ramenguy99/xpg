@@ -5,10 +5,14 @@ from enum import Enum, auto
 from pyxpg import *
 import numpy as np
 
-ctx = Context(
-    required_features=DeviceFeatures.SYNCHRONIZATION_2,
+instance = Instance(
     enable_validation_layer=True,
     enable_synchronization_validation=True,
+)
+
+device = Device(
+    instance,
+    required_features=DeviceFeatures.SYNCHRONIZATION_2,
 )
 
 # Findings:
@@ -80,9 +84,9 @@ ctx = Context(
 # Improvements (for later):
 # - expose host_image_copy for more image copy options
 
-copy_cmd = CommandBuffer(ctx, ctx.transfer_queue_family_index)
-copy_queue = ctx.transfer_queue
-fence = Fence(ctx)
+copy_cmd = CommandBuffer(device, device.transfer_queue_family_index)
+copy_queue = device.transfer_queue
+fence = Fence(device)
 
 TARGET_SIZE = 4 << 30
 
@@ -93,9 +97,9 @@ class Method(Enum):
     TRANSFER_COPY = auto()
 
 for method in [
-    Method.HOST,
-    Method.BAR,
-    Method.GFX_COPY,
+    # Method.HOST,
+    # Method.BAR,
+    # Method.GFX_COPY,
     Method.TRANSFER_COPY,
 ]:
     print(method)
@@ -106,12 +110,12 @@ for method in [
 
         alloc_type = AllocType.HOST
         if method == Method.BAR or method == Method.HOST:
-            buf = Buffer.from_data(ctx, arr, BufferUsageFlags.STORAGE, AllocType.HOST if method == Method.HOST else AllocType.DEVICE_MAPPED)
+            buf = Buffer.from_data(device, arr, BufferUsageFlags.STORAGE, AllocType.HOST if method == Method.HOST else AllocType.DEVICE_MAPPED)
             # print(f"{buf.alloc}")
         else:
-            staging = Buffer.from_data(ctx, arr, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST)
-            gpu = Buffer(ctx, len(arr), BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.STORAGE, AllocType.DEVICE)
-            with ctx.sync_commands() as cmd:
+            staging = Buffer.from_data(device, arr, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST)
+            gpu = Buffer(device, len(arr), BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.STORAGE, AllocType.DEVICE)
+            with device.sync_commands() as cmd:
                 cmd.copy_buffer(staging, gpu)
 
         total_begin = perf_counter_ns()
@@ -122,7 +126,7 @@ for method in [
             if method == Method.BAR or method == Method.HOST:
                 buf.data[:] = arr.data
             elif method == Method.GFX_COPY:
-                    with ctx.sync_commands() as cmd:
+                    with device.sync_commands() as cmd:
                         cmd.copy_buffer(staging, gpu)
             elif method == Method.TRANSFER_COPY:
                     with copy_cmd:

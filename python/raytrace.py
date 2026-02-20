@@ -15,17 +15,22 @@ from utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 
 scene = parse_scene(Path("res", "bistro.bin"))
 
-ctx = Context(
+instance = Instance(
+    enable_validation_layer=True,
+    enable_synchronization_validation=True,
+)
+
+device = Device(
+    instance,
     required_features=
         DeviceFeatures.DYNAMIC_RENDERING |
         DeviceFeatures.SYNCHRONIZATION_2 |
         DeviceFeatures.DESCRIPTOR_INDEXING |
         DeviceFeatures.SCALAR_BLOCK_LAYOUT |
         DeviceFeatures.RAY_QUERY,
-    enable_validation_layer=True,
-    enable_synchronization_validation=True,
 )
-window = Window(ctx, "Raytrace", 1280, 720)
+
+window = Window(device, "Raytrace", 1280, 720)
 gui = Gui(window)
 
 # Pipeline
@@ -50,27 +55,27 @@ class RaytracePipeline(Pipeline):
             bindings.append(DescriptorSetBinding(count, descriptor_type, flags))
             pool_sizes.append(DescriptorPoolSize(count, descriptor_type))
 
-        self.scene_descriptor_layout = DescriptorSetLayout(ctx, bindings)
-        self.scene_descriptor_pool = DescriptorPool(ctx, pool_sizes, 1)
+        self.scene_descriptor_layout = DescriptorSetLayout(device, bindings)
+        self.scene_descriptor_pool = DescriptorPool(device, pool_sizes, 1)
         self.scene_descriptor_set = self.scene_descriptor_pool.allocate_descriptor_set(self.scene_descriptor_layout, len(scene.images))
-        self.frame_descriptor_layout, self.frame_descriptor_pool, self.frame_descriptor_sets = create_descriptor_layout_pool_and_sets_ringbuffer(ctx,
+        self.frame_descriptor_layout, self.frame_descriptor_pool, self.frame_descriptor_sets = create_descriptor_layout_pool_and_sets_ringbuffer(device,
             [DescriptorSetBinding(d.count, to_descriptor_type(d.resource.binding_type)) for d in self.desc_reflection.sets[1]], window.num_frames
         )
 
         self.constants_dt = to_dtype(self.desc_reflection.descriptors["frame.constants"].resource.type)
 
         # Create a buffer to hold the constants with the required size.
-        self.u_bufs = RingBuffer([UploadableBuffer(ctx, self.constants_dt.itemsize, BufferUsageFlags.UNIFORM) for _ in range(window.num_frames)])
+        self.u_bufs = RingBuffer([UploadableBuffer(device, self.constants_dt.itemsize, BufferUsageFlags.UNIFORM) for _ in range(window.num_frames)])
         for set_1, u_buf in zip(self.frame_descriptor_sets, self.u_bufs):
             set_1.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
     def create(self, rt_prog: slang.Shader):
         # Turn SPIR-V code into vulkan shader modules
-        rt = Shader(ctx, rt_prog.code)
+        rt = Shader(device, rt_prog.code)
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = ComputePipeline(
-            ctx,
+            device,
             shader=rt,
             descriptor_set_layouts = [ self.scene_descriptor_layout, self.frame_descriptor_layout ],
         )
@@ -87,11 +92,11 @@ tangents = np.vstack([m.tangents for m in scene.meshes])
 uvs = np.vstack([m.uvs for m in scene.meshes])
 indices = np.vstack([m.indices.reshape((-1, 1)) for m in scene.meshes])
 
-positions_buf = Buffer.from_data(ctx, positions, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
-normals_buf = Buffer.from_data(ctx, normals, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
-tangents_buf = Buffer.from_data(ctx, tangents, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
-uvs_buf = Buffer.from_data(ctx, uvs, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
-indices_buf = Buffer.from_data(ctx, indices, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+positions_buf = Buffer.from_data(device, positions, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+normals_buf = Buffer.from_data(device, normals, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+tangents_buf = Buffer.from_data(device, tangents, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+uvs_buf = Buffer.from_data(device, uvs, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+indices_buf = Buffer.from_data(device, indices, BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT | BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 
 # Get mesh instance type from reflection
 as_meshes: List[AccelerationStructureMesh] = []
@@ -163,15 +168,15 @@ if BATCHED_UPLOAD:
         return (v + a - 1) & ~(a - 1)
 
     STAGING_SIZE = 32 * 1024 * 1024
-    alignment = max(64, ctx.device_properties.limits.optimal_buffer_copy_offset_alignment)
+    alignment = max(64, device.device_properties.limits.optimal_buffer_copy_offset_alignment)
     upload_size = align_up(max(largest, STAGING_SIZE), alignment)
 
-    staging = Buffer(ctx, upload_size, BufferUsageFlags.TRANSFER_SRC, alloc_type=AllocType.HOST_WRITE_COMBINING)
+    staging = Buffer(device, upload_size, BufferUsageFlags.TRANSFER_SRC, alloc_type=AllocType.HOST_WRITE_COMBINING)
     i = 0
     while i < len(scene.images):
         # Batched upload
         offset = 0
-        with ctx.sync_commands() as cmd:
+        with device.sync_commands() as cmd:
             while i < len(scene.images) and offset + scene.images[i].data.size <= staging.size:
                 image = scene.images[i]
                 format = 0
@@ -183,7 +188,7 @@ if BATCHED_UPLOAD:
                     raise ValueError(f"Unhandled image format: {image.format}")
 
                 # Create target image
-                gpu_img = Image(ctx, image.width, image.height, format, ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE)
+                gpu_img = Image(device, image.width, image.height, format, ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE)
                 images.append(gpu_img)
 
                 # Copy image data to staging buffer
@@ -209,23 +214,23 @@ else:
 
         images.append(
             Image.from_data(
-                ctx, image.data, ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                device, image.data, ImageLayout.SHADER_READ_ONLY_OPTIMAL,
                 image.width, image.height, format,
                 ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE
             )
         )
-mesh_instances_buf = Buffer.from_data(ctx, mesh_instances, BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+mesh_instances_buf = Buffer.from_data(device, mesh_instances, BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 print(f" Took {perf_counter() - begin:.3f}s")
 
 # Acceleration structure
 print("Creating acceleration structures... ", end="")
 begin = perf_counter()
-acceleration_structure = AccelerationStructure(ctx, as_meshes)
+acceleration_structure = AccelerationStructure(device, as_meshes)
 print(f" Took {perf_counter() - begin:.3f}s")
 
 # Sampler
 sampler = Sampler(
-    ctx,
+    device,
     min_filter=Filter.LINEAR,
     mag_filter=Filter.LINEAR,
 )
@@ -245,7 +250,7 @@ def draw():
     global first_frame
     global output
 
-    cache.refresh(lambda: ctx.wait_idle())
+    cache.refresh(lambda: device.wait_idle())
 
     # Update swapchain
     swapchain_status = window.update_swapchain()
@@ -254,7 +259,7 @@ def draw():
     if first_frame or swapchain_status == SwapchainStatus.RESIZED:
         first_frame = False
 
-        output = Image(ctx, window.fb_width, window.fb_height, Format.R32G32B32A32_SFLOAT, ImageUsageFlags.STORAGE | ImageUsageFlags.TRANSFER_SRC, AllocType.DEVICE_DEDICATED)
+        output = Image(device, window.fb_width, window.fb_height, Format.R32G32B32A32_SFLOAT, ImageUsageFlags.STORAGE | ImageUsageFlags.TRANSFER_SRC, AllocType.DEVICE_DEDICATED)
         rt.scene_descriptor_set.write_image(output, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, rt.desc_reflection.descriptors["output"].binding)
 
     # GUI

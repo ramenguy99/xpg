@@ -7,10 +7,14 @@ from pyxpg import *
 
 scene = parse_scene(Path("res", "bistro.bin"))
 
-ctx = Context(
-    required_features=DeviceFeatures.SYNCHRONIZATION_2,
+instance = Instance(
     enable_validation_layer=True,
     enable_synchronization_validation=True,
+)
+
+device = Device(
+    instance,
+    required_features=DeviceFeatures.SYNCHRONIZATION_2,
 )
 
 begin = perf_counter()
@@ -27,16 +31,16 @@ if True:
 
 
     STAGING_SIZE = 32 * 1024 * 1024
-    alignment = max(64, ctx.device_properties.limits.optimal_buffer_copy_offset_alignment)
+    alignment = max(64, device.device_properties.limits.optimal_buffer_copy_offset_alignment)
     upload_size = align_up(max(largest, STAGING_SIZE), alignment)
 
-    staging = Buffer(ctx, upload_size, BufferUsageFlags.TRANSFER_SRC, alloc_type=AllocType.HOST_WRITE_COMBINING)
+    staging = Buffer(device, upload_size, BufferUsageFlags.TRANSFER_SRC, alloc_type=AllocType.HOST_WRITE_COMBINING)
 
     images: List[Image] = []
     i = 0
     while i < len(scene.images):
         # Batched upload
-        with ctx.sync_commands() as cmd:
+        with device.sync_commands() as cmd:
             offset = 0
             while i < len(scene.images) and offset + scene.images[i].data.size <= staging.size:
                 image = scene.images[i]
@@ -49,7 +53,7 @@ if True:
                     raise ValueError(f"Unhandled image format: {image.format}")
 
                 # Create target image
-                gpu_img = Image(ctx, image.width, image.height, format, ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE)
+                gpu_img = Image(device, image.width, image.height, format, ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE)
                 images.append(gpu_img)
 
                 # Copy image data to staging buffer
@@ -77,7 +81,7 @@ else:
 
         images.append(
             Image.from_data(
-                ctx, image.data, ImageUsage.SHADER_READ_ONLY,
+                device, image.data, ImageUsage.SHADER_READ_ONLY,
                 image.width, image.height, format,
                 ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE
             )

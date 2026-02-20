@@ -1,12 +1,12 @@
 from pyxpg import *
 
 class UploadableBuffer(Buffer):
-    def __init__(self, ctx: Context, size: int, usage_flags: BufferUsageFlags, name: str = None):
-        super().__init__(ctx, size, usage_flags | BufferUsageFlags.TRANSFER_DST, AllocType.DEVICE_MAPPED_WITH_FALLBACK, name)
+    def __init__(self, device: Device, size: int, usage_flags: BufferUsageFlags, name: str = None):
+        super().__init__(device, size, usage_flags | BufferUsageFlags.TRANSFER_DST, AllocType.DEVICE_MAPPED_WITH_FALLBACK, name)
         if not self.is_mapped:
             if name is not None:
                 name = f"{name} - staging"
-            self._staging = Buffer(ctx, size, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST_WRITE_COMBINING, name)
+            self._staging = Buffer(device, size, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST_WRITE_COMBINING, name)
 
     def upload(self, cmd: CommandBuffer, usage: MemoryUsage, data: memoryview, offset: int = 0):
         if self.is_mapped:
@@ -18,6 +18,6 @@ class UploadableBuffer(Buffer):
                 cmd.memory_barrier(MemoryUsage.TRANSFER_DST, usage)
 
     def upload_sync(self, data: memoryview, offset: int = 0):
-        with self.ctx.sync_commands() as cmd:
+        with self.device.sync_commands() as cmd:
             self.upload(cmd, MemoryUsage.NONE, data, offset)
 

@@ -26,12 +26,19 @@ WORKERS = 4
 GPU_PREFETCH_SIZE = 2
 PREFETCH_SIZE = 2
 
-ctx = Context(
-    required_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.HOST_QUERY_RESET | DeviceFeatures.CALIBRATED_TIMESTAMPS | DeviceFeatures.TIMELINE_SEMAPHORES,
+instance = Instance(
     enable_validation_layer=True,
     enable_synchronization_validation=True,
-    preferred_frames_in_flight=2,
-    vsync=VSYNC,
+)
+
+device = Device(
+    instance,
+    required_features=
+        DeviceFeatures.DYNAMIC_RENDERING |
+        DeviceFeatures.SYNCHRONIZATION_2 |
+        DeviceFeatures.HOST_QUERY_RESET |
+        DeviceFeatures.CALIBRATED_TIMESTAMPS |
+        DeviceFeatures.TIMELINE_SEMAPHORES,
 )
 
 class UploadMethod(Enum):
@@ -41,23 +48,24 @@ class UploadMethod(Enum):
     TRANSFER_QUEUE = auto()
 
 upload_method = UploadMethod.GFX
-if ctx.device_properties.device_type == PhysicalDeviceType.INTEGRATED_GPU or ctx.device_properties.device_type == PhysicalDeviceType.CPU:
+if device.device_properties.device_type == PhysicalDeviceType.INTEGRATED_GPU or device.device_properties.device_type == PhysicalDeviceType.CPU:
     upload_method = UploadMethod.CPU_BUF
     GPU_PREFETCH_SIZE = 0
 elif False:
     upload_method = UploadMethod.BAR
     GPU_PREFETCH_SIZE = 0
-elif ctx.has_transfer_queue:
+elif device.has_transfer_queue:
     upload_method = UploadMethod.TRANSFER_QUEUE
 print(f"Upload method: {upload_method}")
 
 # Choose preferred upload mode (prioritizes first that is True in this order):
-window = Window(ctx, "Sequence", 1600, 900)
+window = Window(device, "Sequence", 1600, 900, preferred_frames_in_flight=2, vsync=VSYNC)
 gui = Gui(window)
 
+imgui.get_io().config_error_recovery_enable_assert = False
 
 layout, pool, sets = create_descriptor_layout_pool_and_sets_ringbuffer(
-    ctx,
+    device,
     [
         DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
     ],
@@ -79,17 +87,17 @@ class SequencePipeline(Pipeline):
         constants_dt = to_dtype(desc_refl.descriptors["constants"].resource.type)
 
         # Create uniform buffers and write descriptors
-        u_bufs = RingBuffer([UploadableBuffer(ctx, constants_dt.itemsize, BufferUsageFlags.UNIFORM, name="per-frame-uniform-buffer") for _ in range(window.num_frames)])
+        u_bufs = RingBuffer([UploadableBuffer(device, constants_dt.itemsize, BufferUsageFlags.UNIFORM, name="per-frame-uniform-buffer") for _ in range(window.num_frames)])
         for set, u_buf in zip(sets, u_bufs):
             set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         # Turn SPIR-V code into vulkan shader modules
-        vert = Shader(ctx, vert_prog.code, name="sequence-vert")
-        frag = Shader(ctx, frag_prog.code, name="sequence-frag")
+        vert = Shader(device, vert_prog.code, name="sequence-vert")
+        frag = Shader(device, frag_prog.code, name="sequence-frag")
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
-            ctx,
+            device,
             stages = [
                 PipelineStage(vert, Stage.VERTEX),
                 PipelineStage(frag, Stage.FRAGMENT),
@@ -119,7 +127,7 @@ GPU_BUFFERS = window.num_frames + GPU_PREFETCH_SIZE
 
 class CpuBuffer:
     def __init__(self, size: int, usage_flags: BufferUsageFlags, name: Optional[str] = None):
-        self.buf = Buffer(ctx, size, usage_flags, AllocType.DEVICE_MAPPED if upload_method == UploadMethod.CPU_BUF else AllocType.HOST, name=name)
+        self.buf = Buffer(device, size, usage_flags, AllocType.DEVICE_MAPPED if upload_method == UploadMethod.CPU_BUF else AllocType.HOST, name=name)
         self.promise = Promise()
 
     def __repr__(self):
@@ -140,13 +148,13 @@ class SemaphoreInfo:
     signal_value: int
 
 class GpuBuffer:
-    def __init__(self, ctx: Context, size: int, usage_flags: BufferUsageFlags, use_transfer_queue: bool, name: Optional[str] = None):
-        self.buf = Buffer(ctx, size, usage_flags, AllocType.DEVICE_MAPPED, name=name)
+    def __init__(self, device: Device, size: int, usage_flags: BufferUsageFlags, use_transfer_queue: bool, name: Optional[str] = None):
+        self.buf = Buffer(device, size, usage_flags, AllocType.DEVICE_MAPPED, name=name)
         self.state = GpuBufferState.EMPTY
 
         self.semaphore_value = 0
         if use_transfer_queue:
-            self.semaphore = TimelineSemaphore(ctx, name=f"{name}-semaphore")
+            self.semaphore = TimelineSemaphore(device, name=f"{name}-semaphore")
         else:
             self.semaphore = None
 
@@ -164,8 +172,8 @@ class PrefetchState:
     prefetch_done_value: int
 
 class Sequence:
-    def __init__(self, ctx: Context, path: Path, num_frames: int, animation_fps: int, name: str, pool: ThreadPool):
-        self.ctx = ctx
+    def __init__(self, device: Device, path: Path, num_frames: int, animation_fps: int, name: str, pool: ThreadPool):
+        self.device = device
         self.name = name
         self.pool = pool
 
@@ -178,20 +186,20 @@ class Sequence:
         I = struct.unpack("<I", header[8:12])[0]
 
         indices = np.frombuffer(read_exact_at_offset(file, N * V * 12 + len(header), I * 4), np.uint32)
-        self.i_buf = Buffer.from_data(ctx, indices, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK, "sequence-index-buffer")
+        self.i_buf = Buffer.from_data(device, indices, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK, "sequence-index-buffer")
 
         if upload_method == UploadMethod.CPU_BUF:
             self.cpu = LRUPool([CpuBuffer(V * 12, BufferUsageFlags.VERTEX, name=f"cpubuf-{name}-{i}") for i in range(BUFS)], num_frames, PREFETCH_SIZE)
             self.gpu = None
         else:
             self.cpu = LRUPool([CpuBuffer(V * 12, BufferUsageFlags.TRANSFER_SRC, name=f"cpubuf-{name}-{i}") for i in range(BUFS)], num_frames, PREFETCH_SIZE)
-            self.gpu = LRUPool([GpuBuffer(ctx, V * 12, BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST, upload_method == UploadMethod.TRANSFER_QUEUE, name=f"gpubuf-{name}-{i}") for i in range(GPU_BUFFERS)], num_frames, GPU_PREFETCH_SIZE)
+            self.gpu = LRUPool([GpuBuffer(device, V * 12, BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST, upload_method == UploadMethod.TRANSFER_QUEUE, name=f"gpubuf-{name}-{i}") for i in range(GPU_BUFFERS)], num_frames, GPU_PREFETCH_SIZE)
 
             # GPU prefetching state
             if upload_method == UploadMethod.TRANSFER_QUEUE:
                 self.prefetch_states = [
                     PrefetchState(
-                        commands=CommandBuffer(ctx, queue_family_index=ctx.transfer_queue_family_index, name=f"gpu-prefetch-commands-{name}-{i}"),
+                        commands=CommandBuffer(device, queue_family_index=device.transfer_queue_family_index, name=f"gpu-prefetch-commands-{name}-{i}"),
                         prefetch_done_value=0,
                     ) for i in range(GPU_PREFETCH_SIZE)
                 ]
@@ -263,7 +271,7 @@ class Sequence:
 
                         with profiler.gpu_transfer_zone("copy"):
                             copy_cmd.copy_buffer(cpu_buf.buf, gpu_buf.buf)
-                            copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
+                            copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE, device.transfer_queue_family_index, device.graphics_queue_family_index)
 
                         gpu_buf.state = GpuBufferState.LOAD
 
@@ -278,9 +286,9 @@ class Sequence:
                 if gpu_buf.state == GpuBufferState.PREFETCH:
                     with profiler.gpu_transfer_zone("prefetch barrier"):
                         copy_semaphores.append(gpu_buf.use(PipelineStageFlags.TOP_OF_PIPE))
-                    copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
+                    copy_cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.TRANSFER_DST, MemoryUsage.NONE, device.transfer_queue_family_index, device.graphics_queue_family_index)
 
-                cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.NONE, MemoryUsage.VERTEX_INPUT, ctx.transfer_queue_family_index, ctx.graphics_queue_family_index)
+                cmd.buffer_barrier(gpu_buf.buf, MemoryUsage.NONE, MemoryUsage.VERTEX_INPUT, device.transfer_queue_family_index, device.graphics_queue_family_index)
                 additional_semaphores.append(gpu_buf.use(PipelineStageFlags.VERTEX_INPUT))
                 gpu_buf.state = GpuBufferState.RENDER
 
@@ -328,7 +336,7 @@ class Sequence:
 
                 assert gpu_buf.state == GpuBufferState.EMPTY or GpuBufferState.PREFETCH or gpu_buf.state == GpuBufferState.RENDER, gpu_buf.state
                 info = gpu_buf.use(PipelineStageFlags.TRANSFER)
-                self.ctx.transfer_queue.submit(
+                self.device.transfer_queue.submit(
                     state.commands,
                     wait_semaphores = [ (info.sem, info.wait_value, info.wait_stage) ],
                     signal_semaphores = [ (info.sem, info.signal_value, info.signal_stage) ],
@@ -341,13 +349,16 @@ class Sequence:
             self.gpu.prefetch([i % self.N for i in range(prefetch_start, prefetch_end) if self.cpu.is_available(i % self.N)], gpu_prefetch_cleanup, gpu_prefetch)
 
 pool = ThreadPool(WORKERS)
-path0 = Path("N:\\scenes\\smpl\\all_frames_20.bin")
-path1 = Path("N:\\scenes\\smpl\\all_frames_10.bin")
-path2 = Path("N:\\scenes\\smpl\\all_frames_1.bin")
+# path0 = Path("N:\\scenes\\smpl\\all_frames_20.bin")
+# path1 = Path("N:\\scenes\\smpl\\all_frames_10.bin")
+# path2 = Path("N:\\scenes\\smpl\\all_frames_1.bin")
+path0 = Path("/mnt/scenes/smpl/all_frames_20.bin")
+path1 = Path("/mnt/scenes/smpl/all_frames_10.bin")
+path2 = Path("/mnt/scenes/smpl/all_frames_1.bin")
 seqs = [
-    Sequence(ctx, path0, window.num_frames, 25, "20", pool),
-    Sequence(ctx, path1, window.num_frames, 30, "10", pool),
-    Sequence(ctx, path2, window.num_frames, 60,  "1", pool),
+    Sequence(device, path0, window.num_frames, 25, "20", pool),
+    Sequence(device, path1, window.num_frames, 30, "10", pool),
+    Sequence(device, path2, window.num_frames, 60,  "1", pool),
 ]
 
 depth: Image = None
@@ -370,7 +381,7 @@ animation_playing = False
 #     [x] Multi-frame GPU prefetch
 #     [x] Generalize this to multiple sequences with different frame rates and counts
 
-profiler = Profiler(ctx, window.num_frames + 1)
+profiler = Profiler(device, window.num_frames + 1)
 profiler_max_frames = 20
 profiler_results: List[ProfilerFrame] = []
 
@@ -384,7 +395,7 @@ def draw():
     dt = timestamp - last_timestamp
     last_timestamp = timestamp
 
-    cache.refresh(lambda: ctx.wait_idle())
+    cache.refresh(lambda: device.wait_idle())
 
     # Update swapchain
     swapchain_status = window.update_swapchain()
@@ -397,7 +408,7 @@ def draw():
 
         if depth:
             depth.destroy()
-        depth = Image(ctx, window.fb_width, window.fb_height, Format.D32_SFLOAT, ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT, AllocType.DEVICE_DEDICATED, name="depth-buffer")
+        depth = Image(device, window.fb_width, window.fb_height, Format.D32_SFLOAT, ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT, AllocType.DEVICE_DEDICATED, name="depth-buffer")
         images_just_created = True
 
     # Camera
@@ -520,8 +531,8 @@ def draw():
                             drawpool("GPU", seq.gpu)
                     imgui.end()
 
-                    gui_profiler_list(prof, dt, ctx.timestamp_period_ns)
-                    gui_profiler_graph(profiler_results, ctx.timestamp_period_ns)
+                    gui_profiler_list(prof, dt, device.device_properties.limits.timestamp_period)
+                    gui_profiler_graph(profiler_results, device.device_properties.limits.timestamp_period)
 
 
             with profiler.gpu_zone(f"frame {seqs[0].animation_frame_index}"):
@@ -541,7 +552,7 @@ def draw():
                 # IMPORTANT: only issue if someone depends on this, otherwise no guarantee that this will execute
                 # befor we start the next one
                 if copy_semaphores:
-                    ctx.transfer_queue.submit(
+                    device.transfer_queue.submit(
                         copy_cmd,
                         wait_semaphores=[(s.sem, s.wait_value, s.wait_stage) for s in copy_semaphores],
                         signal_semaphores=[(s.sem, s.signal_value, s.signal_stage) for s in copy_semaphores],

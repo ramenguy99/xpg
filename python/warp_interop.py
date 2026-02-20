@@ -10,13 +10,17 @@ import os
 
 import warp as wp
 
-ctx = Context(
-    version=(1, 1),
-    required_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.EXTERNAL_RESOURCES,
+instance = Instance(
     enable_validation_layer=True,
     enable_synchronization_validation=True,
 )
-window = Window(ctx, "Warp Interop", 1280, 720)
+
+device = Device(
+    instance,
+    required_features=DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.EXTERNAL_RESOURCES,
+)
+
+window = Window(device, "Warp Interop", 1280, 720)
 gui = Gui(window)
 
 # gfx
@@ -26,9 +30,9 @@ I = np.array([
 ], np.uint32)
 rot = np.eye(4, dtype=np.float32)
 push_constants = np.array([ 1.0, 0.0, 0.0], np.float32)
-i_buf = Buffer.from_data(ctx, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
+i_buf = Buffer.from_data(device, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED)
 layout, pool, set = create_descriptor_layout_pool_and_set(
-    ctx,
+    device,
     [
         DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
     ],
@@ -45,12 +49,12 @@ else:
 # Warp
 wp.init()
 size = 4 * 3 * 4
-v_buf = ExternalBuffer(ctx, size, BufferUsageFlags.VERTEX, AllocType.DEVICE)
+v_buf = ExternalBuffer(device, size, BufferUsageFlags.VERTEX, AllocType.DEVICE)
 ext_buf = wp.ExternalMemoryBuffer(v_buf.handle, memory_handle_type, size)
 a = ext_buf.map(wp.vec3, shape=4)
 
-cuda_done = ExternalSemaphore(ctx)
-vulkan_done = ExternalSemaphore(ctx)
+cuda_done = ExternalSemaphore(device)
+vulkan_done = ExternalSemaphore(device)
 warp_cuda_done = wp.ExternalSemaphore(cuda_done.handle, semaphore_handle_type)
 warp_vulkan_done = wp.ExternalSemaphore(vulkan_done.handle, semaphore_handle_type)
 
@@ -75,18 +79,18 @@ class ColorPipeline(Pipeline):
         refl = vert_prog.reflection
         dt = to_dtype(refl.resources[0].type)
 
-        u_buf = Buffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
+        u_buf = Buffer(device, dt.itemsize, BufferUsageFlags.UNIFORM, AllocType.DEVICE_MAPPED)
         set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         buf = u_buf.view.view(dt)
         buf["transform"] = rot
         buf["nest1"]["val2"] = push_constants
 
-        vert = Shader(ctx, vert_prog.code)
-        frag = Shader(ctx, frag_prog.code)
+        vert = Shader(device, vert_prog.code)
+        frag = Shader(device, frag_prog.code)
 
         self.pipeline = GraphicsPipeline(
-            ctx,
+            device,
             stages = [
                 PipelineStage(vert, Stage.VERTEX),
                 PipelineStage(frag, Stage.FRAGMENT),
@@ -117,7 +121,7 @@ first_frame = True
 def draw():
     global push_constants, first_frame
 
-    cache.refresh(lambda: ctx.wait_idle())
+    cache.refresh(lambda: device.wait_idle())
 
     # swapchain update
     swapchain_status = window.update_swapchain()

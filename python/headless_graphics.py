@@ -3,13 +3,20 @@ import PIL.Image
 import numpy as np
 
 # Initialize without presentation for headless mode
-print("Initializing context...")
-ctx = Context(
+print("Initializing instance...")
+instance = Instance(
     version=(1, 1),
-    required_features=DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.DYNAMIC_RENDERING,
     presentation=False,
     enable_validation_layer=True,
     enable_synchronization_validation=True,
+)
+
+print("Initializing device...")
+device = Device(
+    instance,
+    version=(1, 1),
+    presentation=False,
+    required_features=DeviceFeatures.SYNCHRONIZATION_2 | DeviceFeatures.DYNAMIC_RENDERING,
 )
 
 # Create an image for drawing on the GPU and a buffer for readback on the CPU
@@ -17,10 +24,10 @@ print("Creating resources...")
 W = 256
 H = 256
 format = Format.R8G8B8A8_UNORM
-img = Image(ctx, W, H, format,
+img = Image(device, W, H, format,
             ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.TRANSFER_SRC,
             AllocType.DEVICE)
-buf = Buffer(ctx, W * H * 4, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
+buf = Buffer(device, W * H * 4, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
 
 # Create vertices to draw a triangle
 V = np.array([
@@ -28,7 +35,7 @@ V = np.array([
     [ 0.0,  0.5, 0], [ 0.0,  1.0, 0.0],
     [ 0.5, -0.5, 0], [ 0.0,  0.0, 1.0],
 ], np.float32)
-v_buf = Buffer.from_data(ctx, V, BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+v_buf = Buffer.from_data(device, V, BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 
 # Shaders
 source = """
@@ -63,11 +70,11 @@ float4 frag_main(VSOutput in) : SV_Target0
 """
 
 print("Compiling shaders...")
-vert = Shader(ctx, slang.compile_str(source, entry="vert_main", filename="vert.slang").code)
-frag = Shader(ctx, slang.compile_str(source, entry="frag_main", filename="frag.slang").code)
+vert = Shader(device, slang.compile_str(source, entry="vert_main", filename="vert.slang").code)
+frag = Shader(device, slang.compile_str(source, entry="frag_main", filename="frag.slang").code)
 
 pipeline = GraphicsPipeline(
-    ctx,
+    device,
     stages = [
         PipelineStage(vert, Stage.VERTEX),
         PipelineStage(frag, Stage.FRAGMENT),
@@ -87,7 +94,7 @@ pipeline = GraphicsPipeline(
 
 # Record commands
 print("Rendering...")
-with ctx.sync_commands() as cmd:
+with device.sync_commands() as cmd:
     cmd.image_barrier(img, ImageLayout.COLOR_ATTACHMENT_OPTIMAL, MemoryUsage.NONE, MemoryUsage.COLOR_ATTACHMENT)
     viewport = [0, 0, W, H]
     with cmd.rendering(viewport,

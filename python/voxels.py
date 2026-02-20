@@ -40,19 +40,24 @@ I: np.ndarray = (I.reshape((voxels.shape[0], -1)) + np.arange(voxels.shape[0]).r
 camera = Camera(vec3(30, 30, -30), vec3(0, 0, 0), vec3(0, 0, 1), 45, 1, 0.1, 100.0)
 
 # Init
-ctx = Context(
-    required_features=DeviceFeatures.SCALAR_BLOCK_LAYOUT | DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2,
+instance = Instance(
     enable_validation_layer=True,
     enable_synchronization_validation=True,
 )
-window = Window(ctx, "Voxels", 1280, 720)
+
+device = Device(
+    instance,
+    required_features=DeviceFeatures.SCALAR_BLOCK_LAYOUT | DeviceFeatures.DYNAMIC_RENDERING | DeviceFeatures.SYNCHRONIZATION_2,
+)
+
+window = Window(device, "Voxels", 1280, 720)
 gui = Gui(window)
 
-index_buf = Buffer.from_data(ctx, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
-voxels_buf = Buffer.from_data(ctx, voxels, BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+index_buf = Buffer.from_data(device, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+voxels_buf = Buffer.from_data(device, voxels, BufferUsageFlags.STORAGE, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 
 layout, pool, descriptor_sets = create_descriptor_layout_pool_and_sets_ringbuffer(
-    ctx,
+    device,
     [
         DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
         DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),
@@ -79,15 +84,15 @@ class VoxelPipeline(Pipeline):
         descs = reflection.DescriptorSetsReflection(refl)
         dt = reflection.to_dtype(descs.descriptors["u"].resource.type)
 
-        u_bufs = RingBuffer([UploadableBuffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM) for _ in range(window.num_frames)])
+        u_bufs = RingBuffer([UploadableBuffer(device, dt.itemsize, BufferUsageFlags.UNIFORM) for _ in range(window.num_frames)])
         for set, u_buf in zip(descriptor_sets, u_bufs):
             set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
-        vert = Shader(ctx, vert_prog.code)
-        frag = Shader(ctx, frag_prog.code)
+        vert = Shader(device, vert_prog.code)
+        frag = Shader(device, frag_prog.code)
 
         self.pipeline = GraphicsPipeline(
-            ctx,
+            device,
             stages = [
                 PipelineStage(vert, Stage.VERTEX),
                 PipelineStage(frag, Stage.FRAGMENT),
@@ -116,7 +121,7 @@ def draw():
     global depth
     global first_frame
 
-    cache.refresh(lambda: ctx.wait_idle())
+    cache.refresh(lambda: device.wait_idle())
 
     # swapchain update
     swapchain_status = window.update_swapchain()
@@ -134,9 +139,9 @@ def draw():
         # Resize depth
         if depth:
             depth.destroy()
-        depth = Image(ctx, window.fb_width, window.fb_height, Format.D32_SFLOAT, ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT, AllocType.DEVICE_DEDICATED, samples=SAMPLES)
+        depth = Image(device, window.fb_width, window.fb_height, Format.D32_SFLOAT, ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT, AllocType.DEVICE_DEDICATED, samples=SAMPLES)
         if SAMPLES > 1:
-            msaa_target = Image(ctx, window.fb_width, window.fb_height, window.swapchain_format, ImageUsageFlags.COLOR_ATTACHMENT, AllocType.DEVICE_DEDICATED, samples=SAMPLES)
+            msaa_target = Image(device, window.fb_width, window.fb_height, window.swapchain_format, ImageUsageFlags.COLOR_ATTACHMENT, AllocType.DEVICE_DEDICATED, samples=SAMPLES)
         images_just_created = True
 
     # GUI

@@ -5,7 +5,7 @@ from typing import Optional, List
 from time import perf_counter_ns
 from hashlib import md5
 
-from pyxpg import Context, QueryPool, QueryType, CommandBuffer, PipelineStageFlags, DeviceFeatures, imgui
+from pyxpg import Device,QueryPool, QueryType, CommandBuffer, PipelineStageFlags, DeviceFeatures, imgui
 
 
 @dataclass
@@ -27,14 +27,14 @@ class ProfilerFrame:
     gpu_transfer_zones: List[Zone]
 
 class Profiler:
-    def __init__(self, ctx: Context, num_frames: int, max_gpu_zones: int = 64):
-        self.ctx = ctx
+    def __init__(self, device: Device, num_frames: int, max_gpu_zones: int = 64):
+        self.device = device
         self.num_frames = num_frames
         self.max_gpu_zones = max_gpu_zones
 
-        self.pools = [QueryPool(ctx, QueryType.TIMESTAMP, max_gpu_zones * 2, name=f"profiler-query-pool-{i}") for i in range(num_frames)]
-        if ctx.has_transfer_queue:
-            self.transfer_pools = [QueryPool(ctx, QueryType.TIMESTAMP, max_gpu_zones * 2, name=f"profiler-query-pool-transfer-{i}") for i in range(num_frames)]
+        self.pools = [QueryPool(device, QueryType.TIMESTAMP, max_gpu_zones * 2, name=f"profiler-query-pool-{i}") for i in range(num_frames)]
+        if device.has_transfer_queue:
+            self.transfer_pools = [QueryPool(device, QueryType.TIMESTAMP, max_gpu_zones * 2, name=f"profiler-query-pool-transfer-{i}") for i in range(num_frames)]
         else:
             self.transfer_pools = None
 
@@ -79,7 +79,7 @@ class Profiler:
         self.gpu_zones = []
         self.gpu_transfer_zones = []
 
-        host_ts, device_ts = self.ctx.get_calibrated_timestamps()
+        host_ts, device_ts = self.device.get_calibrated_timestamps()
         self.results.put(ProfilerFrame(self.total_frame_index, host_ts, device_ts, self.zones, self.gpu_zones, self.gpu_transfer_zones))
 
         self.current_query = 0
@@ -98,10 +98,10 @@ class Profiler:
         self.current_transfer_query = 0
         self.current_transfer_cmd = transfer_cmd
 
-        if not self.ctx.device_features & DeviceFeatures.HOST_QUERY_RESET:
+        if not self.device.device_features & DeviceFeatures.HOST_QUERY_RESET:
             raise RuntimeError("DeviceFeatures.HOST_QUERY_RESET must be enabled to profile the transfer queue")
         else:
-            self.ctx.reset_query_pool(self.transfer_pools[self.frame_index])
+            self.device.reset_query_pool(self.transfer_pools[self.frame_index])
     
     @contextmanager
     def zone(self, name):
@@ -228,12 +228,11 @@ def gui_profiler_graph(profiler_results: List[ProfilerFrame], timestamp_period_n
 
                     for z in zones:
                         # Replace with something reasonable
-                        r, g, b = md5(z.name.encode(), usedforsecurity=False).digest()[:3]
+                        r, g, b = md5(z.name.encode()).digest()[:3]
 
                         s = (z.start_time - min_ts) * norm
                         e = (z.end_time - min_ts) * norm
                         e = max(e, s+1)
-
 
                         x0 = c.x + s
                         x1 = c.x + e
@@ -261,6 +260,7 @@ def gui_profiler_graph(profiler_results: List[ProfilerFrame], timestamp_period_n
                         dl.add_rect_filled((x0, y0), (x1, y1), 0xFF000000 | (b << 16) | (g << 8) | r )
 
             imgui.set_cursor_screen_pos((c.x, c.y + HEIGHT * 3.5))
+        imgui.dummy(imgui.Vec2(1, 1))
         if not hovered_something:
             hovered_frame = -1
     imgui.end()

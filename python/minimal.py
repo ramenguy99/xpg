@@ -1,8 +1,9 @@
 from pyxpg import *
 from typing import Tuple
 
-ctx = Context(enable_validation_layer=True, enable_synchronization_validation=True)
-window = Window(ctx, "Minimal", 1280, 720)
+instance = Instance(enable_validation_layer=True, enable_synchronization_validation=True)
+device = Device(instance)
+window = Window(device, "Minimal", 1280, 720)
 gui = Gui(window)
 
 # Draw function
@@ -80,4 +81,4 @@ while True:
         break
 
     draw()
-ctx.wait_idle()
+device.wait_idle()

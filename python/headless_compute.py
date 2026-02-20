@@ -3,13 +3,20 @@ import PIL.Image
 from utils.descriptors import create_descriptor_layout_pool_and_set
 
 # Initialize without presentation for headless mode
-print("Initializing context...")
-ctx = Context(
+print("Initializing instance...")
+instance = Instance(
     version=(1, 1),
-    required_features=DeviceFeatures.SYNCHRONIZATION_2,
     presentation=False,
     enable_validation_layer=True,
     enable_synchronization_validation=True,
+)
+
+print("Initializing device...")
+device = Device(
+    instance,
+    version=(1, 1),
+    presentation=False,
+    required_features=DeviceFeatures.SYNCHRONIZATION_2,
 )
 
 # Create an image for drawing on the GPU and a buffer for readback on the CPU
@@ -17,14 +24,14 @@ print("Creating resources...")
 W = 256
 H = 256
 format = Format.R8G8B8A8_UNORM
-img = Image(ctx, W, H, format,
+img = Image(device, W, H, format,
             ImageUsageFlags.STORAGE | ImageUsageFlags.TRANSFER_SRC,
             AllocType.DEVICE)
-buf = Buffer(ctx, W * H * 4, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
+buf = Buffer(device, W * H * 4, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
 
 # Descriptors
 layout, pool, set = create_descriptor_layout_pool_and_set(
-    ctx,
+    device,
     [
         DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),
     ],
@@ -61,13 +68,13 @@ void main(uint3 threadId : SV_DispatchThreadID)
 """
 
 print("Compiling shaders...")
-comp = Shader(ctx, slang.compile_str(comp_source, filename="comp.slang").code)
+comp = Shader(device, slang.compile_str(comp_source, filename="comp.slang").code)
 
-pipeline = ComputePipeline(ctx, comp, descriptor_set_layouts=[ layout ])
+pipeline = ComputePipeline(device, comp, descriptor_set_layouts=[ layout ])
 
 # Record commands
 print("Dispatching...")
-with ctx.sync_commands() as cmd:
+with device.sync_commands() as cmd:
     cmd.image_barrier(img, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.COMPUTE_SHADER_WRITE_ONLY)
     cmd.bind_compute_pipeline(pipeline, descriptor_sets=[ set ])
     cmd.dispatch((W + 7) // 8, (H + 7) // 8)

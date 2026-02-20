@@ -8,15 +8,18 @@ from utils.pipelines import PipelineWatch, Pipeline
 from utils.reflection import to_dtype, DescriptorSetsReflection
 from utils.descriptors import create_descriptor_layout_pool_and_set
 
-ctx = Context(
-    required_features=
-        DeviceFeatures.DYNAMIC_RENDERING |
-        DeviceFeatures.SYNCHRONIZATION_2,
+instance = Instance(
     enable_validation_layer=True,
     enable_synchronization_validation=True,
 )
 
-window = Window(ctx, "App", 1280, 720)
+device = Device(
+    instance,
+    required_features=
+        DeviceFeatures.DYNAMIC_RENDERING |
+        DeviceFeatures.SYNCHRONIZATION_2,
+)
+window = Window(device, "App", 1280, 720)
 gui = Gui(window)
 
 V = np.array([
@@ -33,11 +36,11 @@ I = np.array([
 
 rot = np.eye(4, dtype=np.float32)
 color_value = np.array([ 1.0, 0.0, 0.0], np.float32)
-v_buf = Buffer.from_data(ctx, V, BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
-i_buf = Buffer.from_data(ctx, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+v_buf = Buffer.from_data(device, V, BufferUsageFlags.VERTEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
+i_buf = Buffer.from_data(device, I, BufferUsageFlags.INDEX, AllocType.DEVICE_MAPPED_WITH_FALLBACK)
 
 layout, pool, set = create_descriptor_layout_pool_and_set(
-    ctx,
+    device,
     [
         DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
     ],
@@ -65,7 +68,7 @@ class ColorPipeline(Pipeline):
         dt = to_dtype(desc_refl.descriptors["u"].resource.type)
 
         # Create a buffer to hold the constants with the required size.
-        u_buf = UploadableBuffer(ctx, dt.itemsize, BufferUsageFlags.UNIFORM)
+        u_buf = UploadableBuffer(device, dt.itemsize, BufferUsageFlags.UNIFORM)
         set.write_buffer(u_buf, DescriptorType.UNIFORM_BUFFER, 0, 0)
 
         # Write initial values into the buffer by creating a view over it
@@ -76,12 +79,12 @@ class ColorPipeline(Pipeline):
         u_buf.upload_sync(buf.view(np.uint8).data)
 
         # Turn SPIR-V code into vulkan shader modules
-        vert = Shader(ctx, vert_prog.code)
-        frag = Shader(ctx, frag_prog.code)
+        vert = Shader(device, vert_prog.code)
+        frag = Shader(device, frag_prog.code)
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
-            ctx,
+            device,
             stages = [
                 PipelineStage(vert, Stage.VERTEX),
                 PipelineStage(frag, Stage.FRAGMENT),
@@ -115,7 +118,7 @@ def draw():
     # for the device to become idle. This is needed because as part of the
     # refresh the old pipeline is destroyed, and we need to ensure that no
     # previous frame is still using it.
-    cache.refresh(lambda: ctx.wait_idle())
+    cache.refresh(lambda: device.wait_idle())
 
     # Update swapchain
     swapchain_status = window.update_swapchain()
@@ -183,6 +186,6 @@ while True:
         break
 
     draw()
-ctx.wait_idle()
+device.wait_idle()
 
 cache.stop()
