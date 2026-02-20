@@ -2795,13 +2795,19 @@ struct Window: nb::intrusive_base {
     ~Window()
     {
         if (device) {
+            logging::info("gfx/window", "destroying window");
             gfx::WaitIdle(device->device);
             gfx::DestroyWindowWithSwapchain(&window, device->instance->instance, device->device);
+            logging::info("gfx/window", "window destroyed");
         }
     }
 
     bool should_close() {
         return gfx::ShouldClose(window);
+    }
+
+    void close() {
+        return gfx::CloseWindow(window);
     }
 
     gfx::Modifiers get_modifiers_state() {
@@ -4287,6 +4293,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("vsync") = true
         )
         .def("should_close", &Window::should_close)
+        .def("close", &Window::close)
         .def("get_modifiers_state", &Window::get_modifiers_state)
         .def("set_callbacks", &Window::set_callbacks,
             nb::arg("draw"),

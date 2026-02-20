@@ -2045,6 +2045,9 @@ DestroyWindowWithSwapchain(Window* w, const Instance& instance, const Device& de
     vkDestroySwapchainKHR(device.device, w->swapchain, 0);
     vkDestroySurfaceKHR(instance.instance, w->surface, 0);
 
+    // Destroy window
+    glfwDestroyWindow(w->window);
+
     // Frames
     for (usize i = 0; i < w->frames.length; i++) {
         gfx::Frame& frame = w->frames[i];
