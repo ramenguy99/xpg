@@ -178,7 +178,9 @@ struct Instance: nb::intrusive_base {
         bool enable_debug_utils,
         bool enable_validation_layer,
         bool enable_gpu_based_validation,
-        bool enable_synchronization_validation
+        bool enable_synchronization_validation,
+        bool enable_shader_debug_printf,
+        uint32_t shader_debug_printf_buffer_size
     )
     {
         gfx::Result result;
@@ -194,6 +196,8 @@ struct Instance: nb::intrusive_base {
             .enable_validation_layer = enable_validation_layer,
             .enable_gpu_based_validation = enable_gpu_based_validation,
             .enable_synchronization_validation = enable_synchronization_validation,
+            .enable_shader_debug_printf = enable_shader_debug_printf,
+            .shader_debug_printf_buffer_size = shader_debug_printf_buffer_size,
         });
 
         if (result != gfx::Result::SUCCESS) {
@@ -4118,13 +4122,15 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<Instance>(m, "Instance",
         nb::intrusive_ptr<Instance>([](Instance *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<std::tuple<u32, u32>, bool, bool, bool, bool, bool>(),
+        .def(nb::init<std::tuple<u32, u32>, bool, bool, bool, bool, bool, bool, uint32_t>(),
             nb::arg("version") = std::make_tuple(1, 1),
             nb::arg("presentation") = true,
             nb::arg("enable_debug_utils") = false,
             nb::arg("enable_validation_layer") = false,
             nb::arg("enable_gpu_based_validation") = false,
-            nb::arg("enable_synchronization_validation") = false
+            nb::arg("enable_synchronization_validation") = false,
+            nb::arg("enable_shader_debug_printf") = false,
+            nb::arg("shader_debug_printf_buffer_size") = 4096
         )
         .def_prop_ro("version", [](Instance& instance) {
             return nb::make_tuple(VK_API_VERSION_MAJOR(instance.instance.version), VK_API_VERSION_MINOR(instance.instance.version));

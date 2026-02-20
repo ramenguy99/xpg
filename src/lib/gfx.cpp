@@ -444,6 +444,8 @@ CreateInstance(Instance* instance, const InstanceDesc&& desc)
     const VkLayerSettingEXT layer_settings[] = {
         { "VK_LAYER_KHRONOS_validation", "validate_sync", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &desc.enable_synchronization_validation },
         { "VK_LAYER_KHRONOS_validation", "gpuav_enable", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &desc.enable_gpu_based_validation },
+        { "VK_LAYER_KHRONOS_validation", "printf_enable", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &desc.enable_shader_debug_printf },
+        { "VK_LAYER_KHRONOS_validation", "printf_buffer_size", VK_LAYER_SETTING_TYPE_UINT32_EXT, 1, &desc.shader_debug_printf_buffer_size },
     };
 
     VkLayerSettingsCreateInfoEXT layer_settings_create_info = {VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT};
@@ -1364,6 +1366,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
     device->sync_command_pool = sync_command_pool;
     device->sync_command_buffer = sync_command_buffer;
     device->sync_fence = sync_fence;
+    device->debug_utils_enabled = instance.debug_utils_enabled;
 
     return Result::SUCCESS;
 }

@@ -153,9 +153,11 @@ class Config:
     # Vulkan
     force_physical_device_index: Optional[int] = None
     prefer_discrete_gpu: bool = True
-    enable_validation_layer: bool = True
-    enable_synchronization_validation: bool = True
+    enable_validation_layer: bool = False
+    enable_synchronization_validation: bool = False
     enable_gpu_based_validation: bool = False
+    enable_shader_debug_printf: bool = False
+    shader_debug_printf_buffer_size: int = 4096
 
     # Scene
     world_up: Tuple[float, float, float] = (0, 0, 1)

@@ -91,6 +91,8 @@ class Viewer:
             enable_validation_layer=config.enable_validation_layer,
             enable_synchronization_validation=config.enable_synchronization_validation,
             enable_gpu_based_validation=config.enable_gpu_based_validation,
+            enable_shader_debug_printf=config.enable_shader_debug_printf,
+            shader_debug_printf_buffer_size=config.shader_debug_printf_buffer_size,
         )
 
         self.device = Device(

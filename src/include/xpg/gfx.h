@@ -167,6 +167,9 @@ struct InstanceDesc
     // Validation features, they require the validation to be enabled
     VkBool32 enable_gpu_based_validation = false;
     VkBool32 enable_synchronization_validation = false;
+    VkBool32 enable_shader_debug_printf = false;
+
+    uint32_t shader_debug_printf_buffer_size = 4096;
 };
 
 struct Device
