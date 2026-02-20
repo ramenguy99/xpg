@@ -2925,18 +2925,24 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
 }
 
 struct Gui: nb::intrusive_base {
-    Gui(nb::ref<Window> window)
+    Gui(nb::ref<Window> window, std::optional<float> default_font_size, gui::DefaultFontPreference default_font_preference)
         : ctx(window->ctx)
         , window(window)
     {
-        gui::CreateImGuiImpl(&imgui_impl, window->window, ctx->vk, {});
+        gui::CreateImGuiImpl(&imgui_impl, window->window, ctx->vk, {
+            .default_font_size = default_font_size.value_or(0.0f),
+            .default_font_preference = default_font_preference,
+        });
         ImPlot::CreateContext();
     }
 
-    Gui(nb::ref<Context> ctx, u32 num_frames_in_flight, VkFormat format)
+    Gui(nb::ref<Context> ctx, u32 num_frames_in_flight, VkFormat format, std::optional<float> default_font_size, gui::DefaultFontPreference default_font_preference)
         : ctx(ctx)
     {
-        gui::CreateWindowlessImGuiImpl(&imgui_impl, num_frames_in_flight, format, ctx->vk, {});
+        gui::CreateWindowlessImGuiImpl(&imgui_impl, num_frames_in_flight, format, ctx->vk, {
+            .default_font_size = default_font_size.value_or(0.0f),
+            .default_font_preference = default_font_preference,
+        });
     }
 
     struct GuiFrame {
@@ -4262,11 +4268,17 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<Font>([](Font *o, PyObject *po) noexcept { o->set_self_py(po); }))
     ;
 
+    nb::enum_<gui::DefaultFontPreference>(m, "DefaultFontPreference")
+        .value("AUTO", gui::DefaultFontPreference::AUTO)
+        .value("BITMAP", gui::DefaultFontPreference::BITMAP)
+        .value("VECTOR", gui::DefaultFontPreference::VECTOR)
+    ;
+
     nb::class_<Gui>(m, "Gui",
         nb::type_slots(gui_tp_slots),
         nb::intrusive_ptr<Gui>([](Gui *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<nb::ref<Window>>(), nb::arg("window"))
-        .def(nb::init<nb::ref<Context>, u32, VkFormat>(), nb::arg("ctx"), nb::arg("num_frames_in_flight"), nb::arg("format"))
+        .def(nb::init<nb::ref<Window>, std::optional<float>, gui::DefaultFontPreference>(), nb::arg("window"), nb::arg("default_font_size") = nb::none(), nb::arg("default_font_preference") = gui::DefaultFontPreference::AUTO)
+        .def(nb::init<nb::ref<Context>, u32, VkFormat, std::optional<float>, gui::DefaultFontPreference>(), nb::arg("ctx"), nb::arg("num_frames_in_flight"), nb::arg("format"), nb::arg("default_font_size") = nb::none(), nb::arg("default_font_preference") = gui::DefaultFontPreference::AUTO)
         .def("begin_frame", &Gui::begin_frame)
         .def("end_frame", &Gui::end_frame)
         .def("render", &Gui::render, nb::arg("frame"))

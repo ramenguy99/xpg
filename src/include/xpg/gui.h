@@ -18,12 +18,12 @@ struct ImGuiImpl {
 
 struct Font {
     ArrayView<u8> data;
-    float size = 12.0f;
+    float size = 13.0f;
     bool owned_by_atlas = false;
 };
 
 enum class DefaultFontPreference {
-    NONE = 0,
+    AUTO = 0,
     BITMAP = 1,
     VECTOR = 2,
 };
@@ -31,7 +31,8 @@ enum class DefaultFontPreference {
 struct Config {
     bool dynamic_rendering = true;
     bool enable_ini_and_log_files = true;
-    DefaultFontPreference default_font_preference = DefaultFontPreference::NONE;
+    float default_font_size = 0.0f;
+    DefaultFontPreference default_font_preference = DefaultFontPreference::AUTO;
     Span<Font> additional_fonts;
 };
 

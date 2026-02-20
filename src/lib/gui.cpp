@@ -115,10 +115,15 @@ void CreateImGuiImplCommon(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat f
         io.IniFilename = NULL;
     }
 
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.FontSizeBase = config.default_font_size;
+
     if (config.default_font_preference == DefaultFontPreference::VECTOR) {
         io.Fonts->AddFontDefaultVector();
     } else if (config.default_font_preference == DefaultFontPreference::BITMAP) {
         io.Fonts->AddFontDefaultBitmap();
+    } else {
+        io.Fonts->AddFontDefault();
     }
 
     for (usize i = 0; i < config.additional_fonts.length; i++) {

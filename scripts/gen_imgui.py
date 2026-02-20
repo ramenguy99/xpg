@@ -195,7 +195,8 @@ for t in data["typedefs"]:
 
 # Will need to handle structs later
 enabled_structs = {
-    "ImGuiIO"
+    "ImGuiIO",
+    "ImGuiStyle",
 }
 for struct in data["structs"]:
     if struct["name"] in enabled_structs:
@@ -384,6 +385,9 @@ for f in data["functions"]:
         "ImGui_MemFree",
         # Done manually"
         "ImGui_GetIO",
+        "ImGui_GetStyle",
+        "ImGui_PushFont",
+        "ImGui_PushFontFloat",
 
         # TODO:
         # Font

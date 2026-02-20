@@ -150,13 +150,13 @@ class Viewer:
             num_frames_in_flight = self.window.num_frames
 
             # GUI
-            self.gui = Gui(self.window)
+            self.gui = Gui(self.window, config.gui.default_font_size, config.gui.default_font_preference)
         else:
             render_width, render_height = config.window_width, config.window_height
             num_frames_in_flight = self.headless_swapchain.num_frames_in_flight
 
             # GUI
-            self.gui = Gui(self.ctx, num_frames_in_flight, output_format)
+            self.gui = Gui(self.ctx, num_frames_in_flight, output_format, config.gui.default_font_size, config.gui.default_font_preference)
 
         self.multiviewport = config.gui.multiviewport
         self.gui.set_ini_filename(config.gui.ini_filename)
@@ -174,6 +174,9 @@ class Viewer:
 
         # Make ImGui automatically scale fonts on DPI change events
         imgui.get_io().config_dpi_scale_fonts = True
+
+        style = imgui.get_style()
+        style.font_scale_main = config.gui.font_scale
 
         # Renderer
         self.renderer = Renderer(

@@ -878,6 +878,82 @@ nb::enum_<ImGuiViewportFlags_>(mod_imgui, "ViewportFlags", nb::is_arithmetic() ,
     .value("IS_FOCUSED", ImGuiViewportFlags_IsFocused)
     ;
 
+nb::class_<ImGuiStyle>(mod_imgui, "Style")
+    .def_rw("font_size_base", &ImGuiStyle::FontSizeBase)
+    .def_rw("font_scale_main", &ImGuiStyle::FontScaleMain)
+    .def_rw("font_scale_dpi", &ImGuiStyle::FontScaleDpi)
+    .def_rw("alpha", &ImGuiStyle::Alpha)
+    .def_rw("disabled_alpha", &ImGuiStyle::DisabledAlpha)
+    .def_rw("window_padding", &ImGuiStyle::WindowPadding)
+    .def_rw("window_rounding", &ImGuiStyle::WindowRounding)
+    .def_rw("window_border_size", &ImGuiStyle::WindowBorderSize)
+    .def_rw("window_border_hover_padding", &ImGuiStyle::WindowBorderHoverPadding)
+    .def_rw("window_min_size", &ImGuiStyle::WindowMinSize)
+    .def_rw("window_title_align", &ImGuiStyle::WindowTitleAlign)
+    .def_rw("window_menu_button_position", &ImGuiStyle::WindowMenuButtonPosition)
+    .def_rw("child_rounding", &ImGuiStyle::ChildRounding)
+    .def_rw("child_border_size", &ImGuiStyle::ChildBorderSize)
+    .def_rw("popup_rounding", &ImGuiStyle::PopupRounding)
+    .def_rw("popup_border_size", &ImGuiStyle::PopupBorderSize)
+    .def_rw("frame_padding", &ImGuiStyle::FramePadding)
+    .def_rw("frame_rounding", &ImGuiStyle::FrameRounding)
+    .def_rw("frame_border_size", &ImGuiStyle::FrameBorderSize)
+    .def_rw("item_spacing", &ImGuiStyle::ItemSpacing)
+    .def_rw("item_inner_spacing", &ImGuiStyle::ItemInnerSpacing)
+    .def_rw("cell_padding", &ImGuiStyle::CellPadding)
+    .def_rw("touch_extra_padding", &ImGuiStyle::TouchExtraPadding)
+    .def_rw("indent_spacing", &ImGuiStyle::IndentSpacing)
+    .def_rw("columns_min_spacing", &ImGuiStyle::ColumnsMinSpacing)
+    .def_rw("scrollbar_size", &ImGuiStyle::ScrollbarSize)
+    .def_rw("scrollbar_rounding", &ImGuiStyle::ScrollbarRounding)
+    .def_rw("scrollbar_padding", &ImGuiStyle::ScrollbarPadding)
+    .def_rw("grab_min_size", &ImGuiStyle::GrabMinSize)
+    .def_rw("grab_rounding", &ImGuiStyle::GrabRounding)
+    .def_rw("log_slider_deadzone", &ImGuiStyle::LogSliderDeadzone)
+    .def_rw("image_rounding", &ImGuiStyle::ImageRounding)
+    .def_rw("image_border_size", &ImGuiStyle::ImageBorderSize)
+    .def_rw("tab_rounding", &ImGuiStyle::TabRounding)
+    .def_rw("tab_border_size", &ImGuiStyle::TabBorderSize)
+    .def_rw("tab_min_width_base", &ImGuiStyle::TabMinWidthBase)
+    .def_rw("tab_min_width_shrink", &ImGuiStyle::TabMinWidthShrink)
+    .def_rw("tab_close_button_min_width_selected", &ImGuiStyle::TabCloseButtonMinWidthSelected)
+    .def_rw("tab_close_button_min_width_unselected", &ImGuiStyle::TabCloseButtonMinWidthUnselected)
+    .def_rw("tab_bar_border_size", &ImGuiStyle::TabBarBorderSize)
+    .def_rw("tab_bar_overline_size", &ImGuiStyle::TabBarOverlineSize)
+    .def_rw("table_angled_headers_angle", &ImGuiStyle::TableAngledHeadersAngle)
+    .def_rw("table_angled_headers_text_align", &ImGuiStyle::TableAngledHeadersTextAlign)
+    .def_rw("tree_lines_flags", &ImGuiStyle::TreeLinesFlags)
+    .def_rw("tree_lines_size", &ImGuiStyle::TreeLinesSize)
+    .def_rw("tree_lines_rounding", &ImGuiStyle::TreeLinesRounding)
+    .def_rw("drag_drop_target_rounding", &ImGuiStyle::DragDropTargetRounding)
+    .def_rw("drag_drop_target_border_size", &ImGuiStyle::DragDropTargetBorderSize)
+    .def_rw("drag_drop_target_padding", &ImGuiStyle::DragDropTargetPadding)
+    .def_rw("color_marker_size", &ImGuiStyle::ColorMarkerSize)
+    .def_rw("color_button_position", &ImGuiStyle::ColorButtonPosition)
+    .def_rw("button_text_align", &ImGuiStyle::ButtonTextAlign)
+    .def_rw("selectable_text_align", &ImGuiStyle::SelectableTextAlign)
+    .def_rw("separator_text_border_size", &ImGuiStyle::SeparatorTextBorderSize)
+    .def_rw("separator_text_align", &ImGuiStyle::SeparatorTextAlign)
+    .def_rw("separator_text_padding", &ImGuiStyle::SeparatorTextPadding)
+    .def_rw("display_window_padding", &ImGuiStyle::DisplayWindowPadding)
+    .def_rw("display_safe_area_padding", &ImGuiStyle::DisplaySafeAreaPadding)
+    .def_rw("docking_node_has_close_button", &ImGuiStyle::DockingNodeHasCloseButton)
+    .def_rw("docking_separator_size", &ImGuiStyle::DockingSeparatorSize)
+    .def_rw("mouse_cursor_scale", &ImGuiStyle::MouseCursorScale)
+    .def_rw("anti_aliased_lines", &ImGuiStyle::AntiAliasedLines)
+    .def_rw("anti_aliased_lines_use_tex", &ImGuiStyle::AntiAliasedLinesUseTex)
+    .def_rw("anti_aliased_fill", &ImGuiStyle::AntiAliasedFill)
+    .def_rw("curve_tessellation_tol", &ImGuiStyle::CurveTessellationTol)
+    .def_rw("circle_tessellation_max_error", &ImGuiStyle::CircleTessellationMaxError)
+    .def_rw("hover_stationary_delay", &ImGuiStyle::HoverStationaryDelay)
+    .def_rw("hover_delay_short", &ImGuiStyle::HoverDelayShort)
+    .def_rw("hover_delay_normal", &ImGuiStyle::HoverDelayNormal)
+    .def_rw("hover_flags_for_tooltip_mouse", &ImGuiStyle::HoverFlagsForTooltipMouse)
+    .def_rw("hover_flags_for_tooltip_nav", &ImGuiStyle::HoverFlagsForTooltipNav)
+    .def_rw("__main_scale", &ImGuiStyle::_MainScale)
+    .def_rw("__next_frame_font_size_base", &ImGuiStyle::_NextFrameFontSizeBase)
+;
+
 nb::class_<ImGuiIO>(mod_imgui, "IO")
     .def_rw("config_flags", &ImGuiIO::ConfigFlags)
     .def_rw("backend_flags", &ImGuiIO::BackendFlags)
@@ -965,11 +1041,6 @@ nb::class_<ImGuiIO>(mod_imgui, "IO")
     .def_rw("input_queue_surrogate", &ImGuiIO::InputQueueSurrogate)
     .def_rw("font_global_scale", &ImGuiIO::FontGlobalScale)
 ;
-
-mod_imgui.def("get_style",
-    [] () -> ImGuiStyle& {
-        return ImGui::GetStyle();
-    });
 
 mod_imgui.def("show_demo_window",
     [] (std::optional<bool> p_open) -> std::optional<bool> {
@@ -1245,11 +1316,6 @@ mod_imgui.def("set_scroll_from_pos_y",
     [] (float local_y, float center_y_ratio) -> void {
         return ImGui::SetScrollFromPosY(local_y, center_y_ratio);
     }, nb::arg("local_y"), nb::arg("center_y_ratio") = 0.5);
-
-mod_imgui.def("push_font_float",
-    [] (Font* font, float font_size_base_unscaled) -> void {
-        return ImGui::PushFont(font->font, font_size_base_unscaled);
-    }, nb::arg("font"), nb::arg("font_size_base_unscaled"));
 
 mod_imgui.def("pop_font",
     [] () -> void {
@@ -2866,11 +2932,6 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
         return self->list->PopTextureID();
     })
 ;
-mod_imgui.def("push_font",
-    [] (Font* font) -> void {
-        return ImGui::PushFont(font->font);
-    }, nb::arg("font"));
-
 mod_imgui.def("set_window_font_scale",
     [] (float scale) -> void {
         return ImGui::SetWindowFontScale(scale);

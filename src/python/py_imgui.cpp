@@ -194,6 +194,11 @@ void imgui_create_bindings(nb::module_& mod_imgui)
 
     // IO
     mod_imgui.def("get_io", ImGui::GetIO, nb::rv_policy::reference);
+    mod_imgui.def("get_style", ImGui::GetStyle, nb::rv_policy::reference);
+    mod_imgui.def("push_font",
+        [] (std::optional<Font*> font, float font_size_base_unscaled) -> void {
+            return ImGui::PushFont(font.has_value() ? (*font)->font : NULL, font_size_base_unscaled);
+        }, nb::arg("font").none(), nb::arg("font_size_base_unscaled") = 0.0f);
 
     // APIs not covered by generated bindings
     mod_imgui.def("set_next_window_size_constraints", [](const ImVec2& min_size, const ImVec2& max_size) { ImGui::SetNextWindowSizeConstraints(min_size, max_size); }, nb::arg("min_size"), nb::arg("max_size"));
