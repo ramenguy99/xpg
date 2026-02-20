@@ -138,60 +138,23 @@ struct DeviceFeatures {
     Flags flags = Flags::NONE;
 };
 
-//- Context
-struct Context
+//- Instance
+struct Instance
 {
-    u32 instance_version;
-    u32 device_version;
+    u32 version;
     VkInstance instance;
-    VkPhysicalDevice physical_device;
-    VkDevice device;
-    DeviceFeatures device_features;
-    float timestamp_period_ns;
-    bool has_presentation;
-
-    VkQueue queue;
-    u32 queue_family_index;
-    bool queue_timestamp_queries;
-
-    VkQueue compute_queue;
-    u32 compute_queue_family_index;
-    bool compute_queue_timestamp_queries;
-
-    VkQueue copy_queue;
-    u32 copy_queue_family_index;
-    bool copy_queue_timestamp_queries;
-
-    VmaAllocator vma;
-    u32 preferred_frames_in_flight;
-    VkImageUsageFlags preferred_swapchain_usage_flags;
-    bool subgroup_size_control;
-    bool compute_full_subgroups;
-    bool vsync;
-
-    // Sync command submission
-    VkCommandPool sync_command_pool;
-    VkCommandBuffer sync_command_buffer;
-    VkFence sync_fence;
 
     // Debug
     bool debug_utils_enabled;
     VkDebugUtilsMessengerEXT debug_messenger;
 };
 
-struct ContextDesc {
-    u32 minimum_api_version;
+struct InstanceDesc
+{
+    u32 minimum_api_version = VK_API_VERSION_1_1;
 
-    u32 force_physical_device_index = ~0U;
-    bool prefer_discrete_gpu = true;
-    DeviceFeatures required_features = DeviceFeatures::NONE;
-    DeviceFeatures optional_features = DeviceFeatures::NONE;
-
-    // Only used if presentation is requested
+    // Add required instance extensions to enable presentation
     bool require_presentation = true;
-    u32 preferred_frames_in_flight = 2;
-    VkImageUsageFlags preferred_swapchain_usage_flags = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    bool vsync = true;
 
     // Debug utils, adds the instance extension VK_EXT_debug_utils to enable
     // debug report, names and markers.
@@ -206,10 +169,59 @@ struct ContextDesc {
     VkBool32 enable_synchronization_validation = false;
 };
 
+struct Device
+{
+    u32 version;
+    VkPhysicalDevice physical_device;
+    VkDevice device;
+
+    VmaAllocator vma;
+
+    // Device features
+    DeviceFeatures device_features;
+    bool subgroup_size_control;
+    bool compute_full_subgroups;
+    bool has_presentation;
+
+    // Queues (VK_NULL_HANDLE if not available). Graphics queue is always required to be available.
+    VkQueue graphics_queue;
+    u32 graphics_queue_family_index;
+    bool graphics_queue_timestamp_queries;
+
+    VkQueue compute_queue;
+    u32 compute_queue_family_index;
+    bool compute_queue_timestamp_queries;
+
+    VkQueue transfer_queue;
+    u32 transfer_queue_family_index;
+    bool transfer_queue_timestamp_queries;
+
+    // Sync command submission (maybe remove this at some point)
+    VkCommandPool sync_command_pool;
+    VkCommandBuffer sync_command_buffer;
+    VkFence sync_fence;
+};
+
+struct DeviceDesc
+{
+    u32 minimum_api_version = VK_API_VERSION_1_1;
+
+    // Add required instance extensions to enable presentation
+    bool require_presentation = true;
+
+    u32 force_physical_device_index = ~0U;
+    bool prefer_discrete_gpu = true;
+    DeviceFeatures required_features = DeviceFeatures::NONE;
+    DeviceFeatures optional_features = DeviceFeatures::NONE;
+};
+
 Result Init(bool init_glfw = true);
-Result CreateContext(Context* vk, const ContextDesc&& desc);
-void DestroyContext(Context* vk);
-void WaitIdle(Context& vk);
+Result CreateInstance(Instance* instance, const InstanceDesc&& desc);
+Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&& desc);
+void DestroyInstance(Instance* instance);
+void DestroyDevice(Device* device);
+
+void WaitIdle(const Device& device);
 
 //- Semaphores
 #ifdef _WIN32
@@ -218,7 +230,7 @@ typedef HANDLE ExternalHandle;
 typedef int ExternalHandle;
 #endif
 
-VkResult GetExternalHandleForSemaphore(ExternalHandle* handle, const Context& vk, VkSemaphore semaphore);
+VkResult GetExternalHandleForSemaphore(ExternalHandle* handle, const Device& device, VkSemaphore semaphore);
 VkResult CreateGPUSemaphore(VkDevice device, VkSemaphore* semaphore, bool external = false);
 VkResult CreateGPUTimelineSemaphore(VkDevice device, VkSemaphore* semaphore, uint64_t initial_value = 0, bool external = false);
 void DestroyGPUSemaphore(VkDevice device, VkSemaphore* semaphore);
@@ -232,8 +244,8 @@ enum class SwapchainStatus
     FAILED,
 };
 
-Result CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize frames, VkSwapchainKHR old_swapchain);
-SwapchainStatus UpdateSwapchain(Window* w, const Context& vk);
+Result CreateSwapchain(Window* w, const Instance& instance, const Device& device, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize frames, VkSwapchainKHR old_swapchain);
+SwapchainStatus UpdateSwapchain(Window* w, const Instance& instance, const Device& device);
 
 //- Frame
 struct Frame
@@ -244,8 +256,8 @@ struct Frame
     VkCommandPool compute_command_pool;
     VkCommandBuffer compute_command_buffer;
 
-    VkCommandPool copy_command_pool;
-    VkCommandBuffer copy_command_buffer;
+    VkCommandPool transfer_command_pool;
+    VkCommandBuffer transfer_command_buffer;
 
     VkSemaphore acquire_semaphore;
 
@@ -258,8 +270,8 @@ struct Frame
     u32 current_image_index;
 };
 
-Frame& WaitForFrame(Window* w, const Context& vk);
-Result AcquireImage(Frame* frame, Window* window, const Context& vk);
+Frame& WaitForFrame(Window* w, const Device& device);
+Result AcquireImage(Frame* frame, Window* window, const Device& device);
 
 //- Window
 enum class MouseButton: u32 {
@@ -500,8 +512,23 @@ struct Window
     ObjArray<StaleSwapchain> stale_swapchains;
 };
 
-Result CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 width, u32 height, u32 x = ANY_POSITION, u32 y = ANY_POSITION);
-void DestroyWindowWithSwapchain(Window* w, const Context& vk);
+struct WindowDesc {
+    const char* title;
+    u32 width;
+    u32 height;
+
+    u32 x = ANY_POSITION;
+    u32 y = ANY_POSITION;
+
+    // Only used if presentation is requested
+    bool require_presentation = true;
+    u32 preferred_frames_in_flight = 2;
+    VkImageUsageFlags preferred_swapchain_usage_flags = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    bool vsync = true;
+};
+
+Result CreateWindowWithSwapchain(Window* w, const Instance& instance, const Device& device, const WindowDesc&& desc);
+void DestroyWindowWithSwapchain(Window* w, const Instance& instance, const Device& device);
 void CloseWindow(const Window& window);
 
 //- Input
@@ -519,8 +546,8 @@ struct QueryPoolDesc {
     VkQueryType type;
     u32 count;
 };
-VkResult CreateQueryPool(VkQueryPool* pool, const Context& context, const QueryPoolDesc&& desc);
-void DestroyQueryPool(VkQueryPool* pool, const Context& vk);
+VkResult CreateQueryPool(VkQueryPool* pool, const Device& device, const QueryPoolDesc&& desc);
+void DestroyQueryPool(VkQueryPool* pool, const Device& device);
 
 //- Queue
 struct SubmitDesc1 {
@@ -550,8 +577,8 @@ struct SubmitDesc1 {
 };
 
 VkResult SubmitQueue1(VkQueue queue, const SubmitDesc1&& desc);
-VkResult Submit1(const Frame& frame, const Context& vk, VkPipelineStageFlags wait_stage_mask);
-VkResult SubmitSync1(const Context& vk);
+VkResult Submit1(const Frame& frame, const Device& device, VkPipelineStageFlags wait_stage_mask);
+VkResult SubmitSync1(const Device& device);
 
 struct SemaphoreSubmitInfo {
     VkStructureType          type = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
@@ -580,13 +607,13 @@ struct SubmitDesc {
 };
 
 VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc);
-VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags2 wait_stage_mask, VkPipelineStageFlags2 signal_stage_mask);
-VkResult SubmitSync(const Context& vk);
+VkResult Submit(const Frame& frame, const Device& device, VkPipelineStageFlags2 wait_stage_mask, VkPipelineStageFlags2 signal_stage_mask);
+VkResult SubmitSync(const Device& device);
 
-VkResult PresentFrame(Window* w, Frame* frame, const Context& vk);
+VkResult PresentFrame(Window* w, Frame* frame, const Device& device);
 
 //- Commands
-VkResult BeginCommands(VkCommandPool pool, VkCommandBuffer buffer, const Context& vk);
+VkResult BeginCommands(VkCommandPool pool, VkCommandBuffer buffer, const Device& device);
 VkResult EndCommands(VkCommandBuffer buffer);
 
 struct MemoryBarrierDesc
@@ -786,8 +813,8 @@ struct Shader {
     VkShaderModule shader;
 };
 
-VkResult CreateShader(Shader* shader, const Context& vk, ArrayView<u8> code);
-void DestroyShader(Shader* shader, const Context& vk);
+VkResult CreateShader(Shader* shader, const Device& device, ArrayView<u8> code);
+void DestroyShader(Shader* shader, const Device& device);
 
 
 //- Pipelines
@@ -877,8 +904,8 @@ struct GraphicsPipelineDesc {
     Span<AttachmentDesc> attachments;
 };
 
-VkResult CreateGraphicsPipeline(GraphicsPipeline* graphics_pipeline, const Context& vk, const GraphicsPipelineDesc&& desc);
-void DestroyGraphicsPipeline(GraphicsPipeline* pipeline, const Context& vk);
+VkResult CreateGraphicsPipeline(GraphicsPipeline* graphics_pipeline, const Device& device, const GraphicsPipelineDesc&& desc);
+void DestroyGraphicsPipeline(GraphicsPipeline* pipeline, const Device& device);
 
 struct ComputePipeline {
     VkPipeline pipeline;
@@ -893,8 +920,8 @@ struct ComputePipelineDesc {
     u32 required_subgroup_size = 0;
 };
 
-VkResult CreateComputePipeline(ComputePipeline* compute_pipeline, const Context& vk, const ComputePipelineDesc&& desc);
-void DestroyComputePipeline(ComputePipeline* pipeline, const Context& vk);
+VkResult CreateComputePipeline(ComputePipeline* compute_pipeline, const Device& device, const ComputePipelineDesc&& desc);
+void DestroyComputePipeline(ComputePipeline* pipeline, const Device& device);
 
 //- Allocation info
 struct AllocDesc {
@@ -980,9 +1007,9 @@ struct BufferDesc {
     bool external = false;
 };
 
-VkResult CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& desc);
-VkResult CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, const BufferDesc&& desc);
-void DestroyBuffer(Buffer* buffer, const Context& vk);
+VkResult CreateBuffer(Buffer* buffer, const Device& device, size_t size, const BufferDesc&& desc);
+VkResult CreateBufferFromData(Buffer* buffer, const Device& device, ArrayView<u8> data, const BufferDesc&& desc);
+void DestroyBuffer(Buffer* buffer, const Device& device);
 
 struct Pool {
     VmaPool pool;
@@ -1000,10 +1027,10 @@ struct PoolBufferDesc {
     bool external = false;
 };
 
-VkResult CreatePoolForBuffer(Pool* pool, const Context& vk, const PoolBufferDesc&& desc);
-void DestroyPool(Pool* pool, const Context& vk);
+VkResult CreatePoolForBuffer(Pool* pool, const Device& device, const PoolBufferDesc&& desc);
+void DestroyPool(Pool* pool, const Device& device);
 
-VkResult GetExternalHandleForBuffer(ExternalHandle* handle, const Context& vk, const Buffer& buffer);
+VkResult GetExternalHandleForBuffer(ExternalHandle* handle, const Device& device, const Buffer& buffer);
 void CloseExternalHandle(ExternalHandle* handle);
 
 // - Images
@@ -1034,7 +1061,7 @@ struct ImageDesc {
     AllocDesc alloc;
 };
 
-VkResult CreateImage(Image* image, const Context& vk, const ImageDesc&& desc);
+VkResult CreateImage(Image* image, const Device& device, const ImageDesc&& desc);
 
 struct ImageUploadDesc {
     u32 width;
@@ -1044,10 +1071,10 @@ struct ImageUploadDesc {
     VkImageLayout final_image_layout;
 };
 
-VkResult UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const ImageUploadDesc&& desc);
+VkResult UploadImage(const Image& image, const Device& device, ArrayView<u8> data, const ImageUploadDesc&& desc);
 
-VkResult CreateAndUploadImage(Image* image, const Context& vk, ArrayView<u8> data, VkImageLayout layout, const ImageDesc&& desc);
-void DestroyImage(Image* image, const Context& vk);
+VkResult CreateAndUploadImage(Image* image, const Device& device, ArrayView<u8> data, VkImageLayout layout, const ImageDesc&& desc);
+void DestroyImage(Image* image, const Device& device);
 
 //- Sampler
 struct Sampler {
@@ -1075,8 +1102,8 @@ struct SamplerDesc {
     VkBorderColor border_color = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
 };
 
-VkResult CreateSampler(Sampler* sampler, const Context& vk, const SamplerDesc&& desc);
-void DestroySampler(Sampler* sampler, const Context& vk);
+VkResult CreateSampler(Sampler* sampler, const Device& device, const SamplerDesc&& desc);
+void DestroySampler(Sampler* sampler, const Device& device);
 
 //- Descriptors
 struct DescriptorSetLayout
@@ -1099,8 +1126,8 @@ struct DescriptorSetLayoutDesc
     VkDescriptorSetLayoutCreateFlags flags = 0;
 };
 
-VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Context& vk, const DescriptorSetLayoutDesc&& desc);
-void DestroyDescriptorSetLayout(DescriptorSetLayout* layout, const Context& vk);
+VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Device& device, const DescriptorSetLayoutDesc&& desc);
+void DestroyDescriptorSetLayout(DescriptorSetLayout* layout, const Device& device);
 
 struct DescriptorPool
 {
@@ -1114,9 +1141,9 @@ struct DescriptorPoolDesc
     VkDescriptorPoolCreateFlags flags = 0;
 };
 
-VkResult CreateDescriptorPool(DescriptorPool* pool, const Context& vk, const DescriptorPoolDesc&& desc);
-VkResult ResetDescriptorPool(DescriptorPool pool, const Context& vk);
-void DestroyDescriptorPool(DescriptorPool* pool, const Context& vk);
+VkResult CreateDescriptorPool(DescriptorPool* pool, const Device& device, const DescriptorPoolDesc&& desc);
+VkResult ResetDescriptorPool(DescriptorPool pool, const Device& device);
+void DestroyDescriptorPool(DescriptorPool* pool, const Device& device);
 
 struct DescriptorSet
 {
@@ -1130,8 +1157,8 @@ struct DescriptorSetAllocDesc
     u32 variable_size_count = 0;
 };
 
-VkResult AllocateDescriptorSet(DescriptorSet* set, const Context& vk, const DescriptorSetAllocDesc&& desc);
-VkResult FreeDescriptorSet(DescriptorPool pool, DescriptorSet set, const Context& vk);
+VkResult AllocateDescriptorSet(DescriptorSet* set, const Device& device, const DescriptorSetAllocDesc&& desc);
+VkResult FreeDescriptorSet(DescriptorPool pool, DescriptorSet set, const Device& device);
 
 struct DescriptorPoolLayoutAndSet
 {
@@ -1150,8 +1177,8 @@ struct DescriptorPoolLayoutAndSetDesc
     VkDescriptorPoolCreateFlags pool_flags = 0;
 };
 
-VkResult CreateDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layout_set, const Context& vk, const DescriptorPoolLayoutAndSetDesc&& desc);
-void DestroyDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layout_set, const Context& vk);
+VkResult CreateDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layout_set, const Device& device, const DescriptorPoolLayoutAndSetDesc&& desc);
+void DestroyDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layout_set, const Device& device);
 
 
 //- Descriptor writes
@@ -1194,11 +1221,11 @@ struct AccelerationStructureDescriptorWriteDesc {
     u32 element = 0;
 };
 
-void WriteBufferDescriptor(DescriptorSet set, const Context& vk, const BufferDescriptorWriteDesc&& write);
-void WriteImageDescriptor(DescriptorSet set, const Context& vk, const ImageDescriptorWriteDesc&& write);
-void WriteSamplerDescriptor(DescriptorSet set, const Context& vk, const SamplerDescriptorWriteDesc&& write);
-void WriteCombinedImageSamplerDescriptor(DescriptorSet set, const Context& vk, const CombinedImageSamplerDescriptorWriteDesc&& write);
-void WriteAccelerationStructureDescriptor(DescriptorSet set, const Context& vk, const AccelerationStructureDescriptorWriteDesc&& write);
+void WriteBufferDescriptor(DescriptorSet set, const Device& device, const BufferDescriptorWriteDesc&& write);
+void WriteImageDescriptor(DescriptorSet set, const Device& device, const ImageDescriptorWriteDesc&& write);
+void WriteSamplerDescriptor(DescriptorSet set, const Device& device, const SamplerDescriptorWriteDesc&& write);
+void WriteCombinedImageSamplerDescriptor(DescriptorSet set, const Device& device, const CombinedImageSamplerDescriptorWriteDesc&& write);
+void WriteAccelerationStructureDescriptor(DescriptorSet set, const Device& device, const AccelerationStructureDescriptorWriteDesc&& write);
 
 // Acceleration structures
 
@@ -1232,8 +1259,8 @@ struct AccelerationStructureDesc {
 };
 
 VkDeviceAddress GetBufferAddress(VkBuffer buffer, VkDevice device);
-VkResult CreateAccelerationStructure(AccelerationStructure* as, const Context& vk, const AccelerationStructureDesc&& desc);
-void DestroyAccelerationStructure(AccelerationStructure* as, const Context& vk);
+VkResult CreateAccelerationStructure(AccelerationStructure* as, const Device& device, const AccelerationStructureDesc&& desc);
+void DestroyAccelerationStructure(AccelerationStructure* as, const Device& device);
 
 //- Formats
 

@@ -36,9 +36,9 @@ struct Config {
     Span<Font> additional_fonts;
 };
 
-void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Context& vk, const Config&& config);
-void CreateWindowlessImGuiImpl(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat format, const gfx::Context& vk, const Config&& config);
-void DestroyImGuiImpl(ImGuiImpl* impl, gfx::Context& vk);
+void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Instance& instance, const gfx::Device& device, const Config&& config);
+void CreateWindowlessImGuiImpl(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat format, const gfx::Instance& instance, const gfx::Device& device, const Config&& config);
+void DestroyImGuiImpl(ImGuiImpl* impl, gfx::Device& device);
 
 //- Frames
 void BeginFrame();

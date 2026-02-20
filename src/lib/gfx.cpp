@@ -14,8 +14,6 @@
 
 #define XPG_VERSION 0
 
-// #define COPY_QUEUE_INDEX 2
-
 // FEATURE: this technically works, but applications need to be aware of this.
 // When using this, application resize logic is much more complicated, as it needs
 // to delay freeing objects in use. This appears to also fix flickering / artifacts
@@ -44,7 +42,7 @@ namespace gfx {
         name_info.objectType = typ; \
         name_info.objectHandle = (u64)obj; \
         name_info.pObjectName = name; \
-        vkSetDebugUtilsObjectNameEXT(device, &name_info); \
+        vkSetDebugUtilsObjectNameEXT(vk_device, &name_info); \
     }
 
 
@@ -253,12 +251,12 @@ struct PhysicalDeviceInfo {
 
     u32 queue_family_index = VK_QUEUE_FAMILY_IGNORED;
     u32 compute_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
-    u32 copy_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
+    u32 transfer_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
 
     float timestamp_period = false;
     bool queue_timestamp_queries = false;
     bool compute_queue_timestamp_queries = false;
-    bool copy_queue_timestamp_queries = false;
+    bool transfer_queue_timestamp_queries = false;
     bool require_portability_subset_extension = false;
 
     bool subgroup_size_control = false;
@@ -305,8 +303,9 @@ bool CheckAllSupported(const T& requested, const T& supported) {
 }
 
 
+
 Result
-CreateContext(Context* vk, const ContextDesc&& desc)
+CreateInstance(Instance* instance, const InstanceDesc&& desc)
 {
     VkResult result;
 
@@ -455,8 +454,8 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     }
 
     // Create instance.
-    VkInstance instance = 0;
-    result = vkCreateInstance(&info, 0, &instance);
+    VkInstance vk_instance = 0;
+    result = vkCreateInstance(&info, 0, &vk_instance);
     if (result != VK_SUCCESS) {
         logging::error("gfx/instance", "vkCreateInstance failed: %d", result);
 
@@ -475,7 +474,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
     // Load vulkan functions.
 #ifndef XPG_MOLTENVK_STATIC
-    volkLoadInstance(instance);
+    volkLoadInstance(vk_instance);
 #endif
 
     // Install debug callback.
@@ -493,13 +492,24 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
         messenger_create_info.pfnUserCallback = VulkanDebugUtilsMessengerCallback;
 
-        result = vkCreateDebugUtilsMessengerEXT(instance, &messenger_create_info, 0, &debug_messenger);
+        result = vkCreateDebugUtilsMessengerEXT(vk_instance, &messenger_create_info, 0, &debug_messenger);
         if (result != VK_SUCCESS) {
             // Failed to install debug callback.
             logging::warning("gfx/debug", "vkCreateDebugUtilsMessengerEXT failed: %d", result);
         }
     }
 
+    // Fill result
+    instance->version = instance_version;
+    instance->instance = vk_instance;
+    instance->debug_utils_enabled = debug_utils_enabled;
+    instance->debug_messenger = debug_messenger;
+
+    return Result::SUCCESS;
+}
+
+
+Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&& desc) {
     // Requested device features
     DeviceFeatures features_to_check = desc.required_features | desc.optional_features;
     if (desc.required_features & (DeviceFeatures::RAY_TRACING_PIPELINE | DeviceFeatures::RAY_QUERY)) {
@@ -806,14 +816,16 @@ CreateContext(Context* vk, const ContextDesc&& desc)
 
     // Enumerate and choose a physical devices.
     u32 physical_device_count = 0;
-    result = vkEnumeratePhysicalDevices(instance, &physical_device_count, 0);
+
+    VkResult result;
+    result = vkEnumeratePhysicalDevices(instance.instance, &physical_device_count, 0);
     if (result != VK_SUCCESS) {
         logging::error("gfx/device", "vkEnumeratePhysicalDevices for count failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
     }
 
     Array<VkPhysicalDevice> physical_devices(physical_device_count);
-    result = vkEnumeratePhysicalDevices(instance, &physical_device_count, physical_devices.data);
+    result = vkEnumeratePhysicalDevices(instance.instance, &physical_device_count, physical_devices.data);
     if (result != VK_SUCCESS) {
         logging::error("gfx/device", "vkEnumeratePhysicalDevices for values failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
@@ -862,7 +874,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                         // The actual API would be:
                         //     VkBool32 presentationSupport = false;
                         //     vkGetPhysicalDeviceSurfaceSupportKHR(physical_devices[i], j, surface, &presentationSupport);
-                        int presentation_ok = !desc.require_presentation || glfwGetPhysicalDevicePresentationSupport(instance, physical_devices[i], j);
+                        int presentation_ok = !desc.require_presentation || glfwGetPhysicalDevicePresentationSupport(instance.instance, physical_devices[i], j);
 
                         if (presentation_ok) {
                             info.queue_family_index = j;
@@ -880,9 +892,9 @@ CreateContext(Context* vk, const ContextDesc&& desc)
                         info.compute_queue_timestamp_queries = info.timestamp_period > 0 && properties.limits.timestampComputeAndGraphics && prop.timestampValidBits > 0;
                     }
                 } else if(prop.queueFlags & VK_QUEUE_TRANSFER_BIT) {
-                    if(info.copy_queue_family_index == VK_QUEUE_FAMILY_IGNORED) {
-                        info.copy_queue_family_index = j;
-                        info.copy_queue_timestamp_queries = info.timestamp_period > 0 && prop.timestampValidBits > 0;
+                    if(info.transfer_queue_family_index == VK_QUEUE_FAMILY_IGNORED) {
+                        info.transfer_queue_family_index = j;
+                        info.transfer_queue_timestamp_queries = info.timestamp_period > 0 && prop.timestampValidBits > 0;
                     }
                 }
             }
@@ -917,7 +929,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
             i, properties.deviceName,
             VK_API_VERSION_MAJOR(properties.apiVersion), VK_API_VERSION_MINOR(properties.apiVersion), VK_API_VERSION_PATCH(properties.apiVersion),
             driver_version, properties.vendorID, properties.deviceID, string_VkPhysicalDeviceType(properties.deviceType),
-            info.queue_family_index, info.compute_queue_family_index, info.copy_queue_family_index);
+            info.queue_family_index, info.compute_queue_family_index, info.transfer_queue_family_index);
 
 
         u32 extensions_count = 0;
@@ -1225,7 +1237,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     }
 
     // Create a physical device.
-    VkDevice device = 0;
+    VkDevice vk_device = 0;
 
     float queue_priorities[] = { 1.0f };
     ArrayFixed<VkDeviceQueueCreateInfo, 3> queue_create_info(1);
@@ -1243,10 +1255,10 @@ CreateContext(Context* vk, const ContextDesc&& desc)
         });
     }
 
-    if (picked_info.copy_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
+    if (picked_info.transfer_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
         queue_create_info.add({
             .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-            .queueFamilyIndex = picked_info.copy_queue_family_index,
+            .queueFamilyIndex = picked_info.transfer_queue_family_index,
             .queueCount = 1,
             .pQueuePriorities = queue_priorities,
         });
@@ -1260,7 +1272,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     device_create_info.ppEnabledExtensionNames = enabled_extensions.data;
     device_create_info.pEnabledFeatures = &enabled_physical_device_features;
 
-    result = vkCreateDevice(physical_devices[picked_index], &device_create_info, 0, &device);
+    result = vkCreateDevice(physical_devices[picked_index], &device_create_info, 0, &vk_device);
     if (result != VK_SUCCESS) {
         return Result::DEVICE_CREATION_FAILED;
     }
@@ -1268,9 +1280,9 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     // FEATURE: enable VMA extensions if supported
     VmaAllocatorCreateInfo vma_info = {};
     vma_info.flags = picked_info.supported_features.flags & (DeviceFeatures::RAY_QUERY | DeviceFeatures::RAY_TRACING_PIPELINE) ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT : 0; // Optionally set here that we externally synchronize.
-    vma_info.instance = instance;
+    vma_info.instance = instance.instance;
     vma_info.physicalDevice = physical_devices[picked_index];
-    vma_info.device = device;
+    vma_info.device = vk_device;
     vma_info.vulkanApiVersion = desc.minimum_api_version;
 
     VmaAllocator vma;
@@ -1280,16 +1292,16 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     }
 
     VkQueue queue = VK_NULL_HANDLE;
-    vkGetDeviceQueue(device, picked_info.queue_family_index, 0, &queue);
+    vkGetDeviceQueue(vk_device, picked_info.queue_family_index, 0, &queue);
 
     VkQueue compute_queue = VK_NULL_HANDLE;
     if (picked_info.compute_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
-        vkGetDeviceQueue(device, picked_info.compute_queue_family_index, 0, &compute_queue);
+        vkGetDeviceQueue(vk_device, picked_info.compute_queue_family_index, 0, &compute_queue);
     }
 
-    VkQueue copy_queue = VK_NULL_HANDLE;
-    if (picked_info.copy_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
-        vkGetDeviceQueue(device, picked_info.copy_queue_family_index, 0, &copy_queue);
+    VkQueue transfer_queue = VK_NULL_HANDLE;
+    if (picked_info.transfer_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
+        vkGetDeviceQueue(vk_device, picked_info.transfer_queue_family_index, 0, &transfer_queue);
     }
 
     // Create sync command
@@ -1298,7 +1310,7 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     sync_pool_info.queueFamilyIndex = picked_info.queue_family_index;
 
     VkCommandPool sync_command_pool = {};
-    result = vkCreateCommandPool(device, &sync_pool_info, 0, &sync_command_pool);
+    result = vkCreateCommandPool(vk_device, &sync_pool_info, 0, &sync_command_pool);
     if (result != VK_SUCCESS) {
         return Result::API_OUT_OF_MEMORY;
     }
@@ -1309,87 +1321,85 @@ CreateContext(Context* vk, const ContextDesc&& desc)
     sync_allocate_info.commandBufferCount = 1;
 
     VkCommandBuffer sync_command_buffer = {};
-    result = vkAllocateCommandBuffers(device, &sync_allocate_info, &sync_command_buffer);
+    result = vkAllocateCommandBuffers(vk_device, &sync_allocate_info, &sync_command_buffer);
     if (result != VK_SUCCESS) {
         return Result::API_OUT_OF_MEMORY;
     }
 
     VkFence sync_fence = {};
     VkFenceCreateInfo fence_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-    result = vkCreateFence(device, &fence_info, 0, &sync_fence);
+    result = vkCreateFence(vk_device, &fence_info, 0, &sync_fence);
     if (result != VK_SUCCESS) {
         return Result::API_OUT_OF_MEMORY;
     }
 
-    if (debug_utils_enabled) {
+    if (instance.debug_utils_enabled) {
         VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT }; \
 
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_QUEUE, queue, "xpg-queue");
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_QUEUE, compute_queue, "xpg-compute-queue");
-        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_QUEUE, copy_queue, "xpg-transfer-queue");
+        DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_QUEUE, transfer_queue, "xpg-transfer-queue");
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, sync_command_buffer, "xpg-sync-command-buffer");
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL, sync_command_pool, "xpg-sync-command-pool");
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_FENCE, sync_fence, "xpg-sync-fence");
     }
 
-    vk->instance_version = instance_version;
-    vk->device_version = picked_info.device_api_version;
-    vk->instance = instance;
-    vk->physical_device = physical_devices[picked_index];
-    vk->device = device;
-    vk->device_features = picked_info.supported_features;
-    vk->timestamp_period_ns = picked_info.timestamp_period;
-    vk->has_presentation = desc.require_presentation;
-    vk->queue = queue;
-    vk->queue_family_index = picked_info.queue_family_index;
-    vk->queue_timestamp_queries = picked_info.queue_timestamp_queries;
-    vk->compute_queue = compute_queue;
-    vk->compute_queue_family_index = picked_info.compute_queue_family_index;
-    vk->compute_queue_timestamp_queries = picked_info.compute_queue_timestamp_queries;
-    vk->copy_queue = copy_queue;
-    vk->copy_queue_family_index = picked_info.copy_queue_family_index;
-    vk->copy_queue_timestamp_queries = picked_info.copy_queue_timestamp_queries;
-    vk->preferred_frames_in_flight = desc.preferred_frames_in_flight;
-    vk->preferred_swapchain_usage_flags = desc.preferred_swapchain_usage_flags;
-    vk->subgroup_size_control = picked_info.subgroup_size_control;
-    vk->compute_full_subgroups = picked_info.compute_full_subgroups;
-    vk->vsync = desc.vsync;
-    vk->vma = vma;
-    vk->sync_command_pool = sync_command_pool;
-    vk->sync_command_buffer = sync_command_buffer;
-    vk->sync_fence = sync_fence;
-    vk->debug_utils_enabled = debug_utils_enabled;
-    vk->debug_messenger = debug_messenger;
+    device->version = picked_info.device_api_version;
+    device->physical_device = physical_devices[picked_index];
+    device->device = vk_device;
+    device->vma = vma;
+    device->device_features = picked_info.supported_features;
+    device->subgroup_size_control = picked_info.subgroup_size_control;
+    device->compute_full_subgroups = picked_info.compute_full_subgroups;
+    device->has_presentation = desc.require_presentation;
+    device->graphics_queue = queue;
+    device->graphics_queue_family_index = picked_info.queue_family_index;
+    device->graphics_queue_timestamp_queries = picked_info.queue_timestamp_queries;
+    device->compute_queue = compute_queue;
+    device->compute_queue_family_index = picked_info.compute_queue_family_index;
+    device->compute_queue_timestamp_queries = picked_info.compute_queue_timestamp_queries;
+    device->transfer_queue = transfer_queue;
+    device->transfer_queue_family_index = picked_info.transfer_queue_family_index;
+    device->transfer_queue_timestamp_queries = picked_info.transfer_queue_timestamp_queries;
+    device->sync_command_pool = sync_command_pool;
+    device->sync_command_buffer = sync_command_buffer;
+    device->sync_fence = sync_fence;
 
     return Result::SUCCESS;
 }
 
-void DestroyContext(Context* vk) {
-    vkFreeCommandBuffers(vk->device, vk->sync_command_pool, 1, &vk->sync_command_buffer);
-    vkDestroyCommandPool(vk->device, vk->sync_command_pool, 0);
-    vkDestroyFence(vk->device, vk->sync_fence, 0);
-
-    // VMA
-    vmaDestroyAllocator(vk->vma);
-
-    // Device and instance
-    vkDestroyDevice(vk->device, 0);
-    if (vk->debug_messenger) {
-        vkDestroyDebugUtilsMessengerEXT(vk->instance, vk->debug_messenger, 0);
+void DestroyInstance(Instance* instance) {
+    if (instance->debug_messenger) {
+        vkDestroyDebugUtilsMessengerEXT(instance->instance, instance->debug_messenger, 0);
     }
-    vkDestroyInstance(vk->instance, 0);
+    vkDestroyInstance(instance->instance, 0);
 
-    *vk = {};
+    *instance = {};
 }
 
-void WaitIdle(Context& vk) {
-    vkDeviceWaitIdle(vk.device);
+void DestroyDevice(Device* device) {
+    // Sync commands
+    vkFreeCommandBuffers(device->device, device->sync_command_pool, 1, &device->sync_command_buffer);
+    vkDestroyCommandPool(device->device, device->sync_command_pool, 0);
+    vkDestroyFence(device->device, device->sync_fence, 0);
+
+    // VMA
+    vmaDestroyAllocator(device->vma);
+
+    // Device and instance
+    vkDestroyDevice(device->device, 0);
+
+    *device = {};
+}
+
+void WaitIdle(const Device& device) {
+    vkDeviceWaitIdle(device.device);
 }
 
 static VkResult
-GetSwapchainSize(const Window& w, const Context& vk, u32* out_width, u32* out_height) {
+GetSwapchainSize(const Window& w, const Device& device, u32* out_width, u32* out_height) {
     VkSurfaceCapabilitiesKHR surface_capabilities;
-    VkResult vkr = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk.physical_device, w.surface, &surface_capabilities);
+    VkResult vkr = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device.physical_device, w.surface, &surface_capabilities);
     if (vkr != VK_SUCCESS) {
         logging::error("gfx/window", "vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed: %d", vkr);
         return vkr;
@@ -1409,10 +1419,10 @@ GetSwapchainSize(const Window& w, const Context& vk, u32* out_width, u32* out_he
 }
 
 Result
-CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize swapchain_frames, VkPresentModeKHR present_mode, VkImageUsageFlags usage_flags, VkSwapchainKHR old_swapchain)
+CreateSwapchain(Window* w, const Instance& instance, const Device& device, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize swapchain_frames, VkPresentModeKHR present_mode, VkImageUsageFlags usage_flags, VkSwapchainKHR old_swapchain)
 {
     // Create swapchain.
-    u32 queue_family_indices[] = { vk.queue_family_index };
+    u32 queue_family_indices[] = { device.graphics_queue_family_index };
     VkSwapchainCreateInfoKHR swapchain_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
     swapchain_info.surface = surface;
     swapchain_info.minImageCount = (u32)swapchain_frames;
@@ -1440,12 +1450,12 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     // See:
     // - Raph levien blog: https://raphlinus.github.io/rust/gui/2019/06/21/smooth-resize-test.html
     // - Winit discussion: https://github.com/rust-windowing/winit/issues/786
-    // swapchain_info.presentMode = vk.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_MAILBOX_KHR;
+    // swapchain_info.presentMode = device.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_MAILBOX_KHR;
     swapchain_info.presentMode = present_mode;
     swapchain_info.oldSwapchain = old_swapchain;
 
     VkSwapchainKHR swapchain;
-    VkResult result = vkCreateSwapchainKHR(vk.device, &swapchain_info, 0, &swapchain);
+    VkResult result = vkCreateSwapchainKHR(device.device, &swapchain_info, 0, &swapchain);
     if (result != VK_SUCCESS) {
 	logging::error("gfx/swapchain", "vkCreateSwapchainKHR [%ux%u] failed: %d", fb_width, fb_height, result);
         return Result::SWAPCHAIN_CREATION_FAILED;
@@ -1453,14 +1463,14 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
 
     // Get swapchain images.
     u32 image_count;
-    result = vkGetSwapchainImagesKHR(vk.device, swapchain, &image_count, 0);
+    result = vkGetSwapchainImagesKHR(device.device, swapchain, &image_count, 0);
     if (result != VK_SUCCESS) {
 	logging::error("gfx/swapchain", "vkGetSwapchainImages for count failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
     }
 
     Array<VkImage> images(image_count);
-    result = vkGetSwapchainImagesKHR(vk.device, swapchain, &image_count, images.data);
+    result = vkGetSwapchainImagesKHR(device.device, swapchain, &image_count, images.data);
     if (result != VK_SUCCESS) {
 	logging::error("gfx/swapchain", "vkGetSwapchainImages for values failed: %d", result);
         return Result::API_OUT_OF_MEMORY;
@@ -1482,15 +1492,15 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
         create_info.subresourceRange.baseArrayLayer = 0;
         create_info.subresourceRange.layerCount = 1;
 
-        result = vkCreateImageView(vk.device, &create_info, 0, &image_views[i]);
+        result = vkCreateImageView(device.device, &create_info, 0, &image_views[i]);
         if (result != VK_SUCCESS) {
             logging::error("gfx/swapchain", "vkCreateImageView for image %zu failed: %d", i, result);
             return Result::API_OUT_OF_MEMORY;
         }
 
-        if (vk.debug_utils_enabled) {
+        if (instance.debug_utils_enabled) {
             VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT }; \
-            VkDevice device = vk.device;
+            VkDevice vk_device = device.device;
             DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_IMAGE, images[i], "xpg-swapchain-image");
             DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_IMAGE_VIEW, image_views[i], "xpg-swapchain-image-view");
         }
@@ -1505,10 +1515,10 @@ CreateSwapchain(Window* w, const Context& vk, VkSurfaceKHR surface, VkFormat for
     return Result::SUCCESS;
 }
 
-SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
+SwapchainStatus UpdateSwapchain(Window* w, const Instance& instance, const Device& device)
 {
     u32 new_width = 0, new_height = 0;
-    VkResult vkr = GetSwapchainSize(*w, vk, &new_width, &new_height);
+    VkResult vkr = GetSwapchainSize(*w, device, &new_width, &new_height);
     if (vkr != VK_SUCCESS) {
         return SwapchainStatus::FAILED;
     }
@@ -1522,10 +1532,10 @@ SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
 
     VkSwapchainKHR old_swapchain = w->swapchain;
 #if SYNC_SWAPCHAIN_DESTRUCTION
-    vkDeviceWaitIdle(vk.device);
+    vkDeviceWaitIdle(device.device);
 
     for (size_t i = 0; i < w->image_views.length; i++) {
-        vkDestroyImageView(vk.device, w->image_views[i], nullptr);
+        vkDestroyImageView(device.device, w->image_views[i], nullptr);
         w->image_views[i] = VK_NULL_HANDLE;
     }
 #else
@@ -1537,7 +1547,7 @@ SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
     logging::trace("gfx/swapchain", "Added stale swapchain. Total: %llu", w->stale_swapchains.length);
 #endif
 
-    Result result = CreateSwapchain(w, vk, w->surface, w->swapchain_format, new_width, new_height, w->images.length, w->present_mode, w->swapchain_usage_flags, old_swapchain);
+    Result result = CreateSwapchain(w, instance, device, w->surface, w->swapchain_format, new_width, new_height, w->images.length, w->present_mode, w->swapchain_usage_flags, old_swapchain);
     if (result != Result::SUCCESS) {
         return SwapchainStatus::FAILED;
     }
@@ -1545,24 +1555,24 @@ SwapchainStatus UpdateSwapchain(Window* w, const Context& vk)
     w->force_swapchain_recreate = false;
 
 #if SYNC_SWAPCHAIN_DESTRUCTION
-    vkDestroySwapchainKHR(vk.device, old_swapchain, nullptr);
+    vkDestroySwapchainKHR(device.device, old_swapchain, nullptr);
 #endif
 
     return SwapchainStatus::RESIZED;
 }
 
-Frame& WaitForFrame(Window* w, const Context& vk) {
+Frame& WaitForFrame(Window* w, const Device& device) {
     Frame& frame = w->frames[w->wrapping_frame_index];
-    vkWaitForFences(vk.device, 1, &frame.fence, VK_TRUE, ~0ULL);
+    vkWaitForFences(device.device, 1, &frame.fence, VK_TRUE, ~0ULL);
 
 #if !SYNC_SWAPCHAIN_DESTRUCTION
     // Decrement frame in flight count on stale swapchains, if any.
     for (usize i = 0; i < w->stale_swapchains.length;) {
         if(--w->stale_swapchains[i].frames_in_flight == 0) {
             StaleSwapchain& stale = w->stale_swapchains[i];
-            vkDestroySwapchainKHR(vk.device, stale.swapchain, nullptr);
+            vkDestroySwapchainKHR(device.device, stale.swapchain, nullptr);
             for (size_t i = 0; i < stale.image_views.length; i++) {
-                vkDestroyImageView(vk.device, stale.image_views[i], nullptr);
+                vkDestroyImageView(device.device, stale.image_views[i], nullptr);
             }
 
             // Replace with last element from array, if any
@@ -1581,10 +1591,10 @@ Frame& WaitForFrame(Window* w, const Context& vk) {
     return frame;
 }
 
-Result AcquireImage(Frame* frame, Window* window, const Context& vk)
+Result AcquireImage(Frame* frame, Window* window, const Device& device)
 {
     u32 image_index;
-    VkResult vkr = vkAcquireNextImageKHR(vk.device, window->swapchain, ~0ull, frame->acquire_semaphore, 0, &image_index);
+    VkResult vkr = vkAcquireNextImageKHR(device.device, window->swapchain, ~0ull, frame->acquire_semaphore, 0, &image_index);
     if (vkr == VK_SUBOPTIMAL_KHR) {
         window->force_swapchain_recreate = true;
     }
@@ -1599,7 +1609,7 @@ Result AcquireImage(Frame* frame, Window* window, const Context& vk)
 
     // Reset frame fence before submission. This must be done after acquiring
     // because acquiring can fail with an out-of-date swapchain.
-    vkResetFences(vk.device, 1, &frame->fence);
+    vkResetFences(device.device, 1, &frame->fence);
 
     frame->current_image_index = image_index;
     frame->current_image = window->images[image_index];
@@ -1610,11 +1620,11 @@ Result AcquireImage(Frame* frame, Window* window, const Context& vk)
 }
 
 VkResult
-BeginCommands(VkCommandPool pool, VkCommandBuffer buffer, const Context& vk) {
+BeginCommands(VkCommandPool pool, VkCommandBuffer buffer, const Device& device) {
 
     // Reset command pool
     VkResult vkr;
-    vkr = vkResetCommandPool(vk.device, pool, 0);
+    vkr = vkResetCommandPool(device.device, pool, 0);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -1635,15 +1645,15 @@ EndCommands(VkCommandBuffer buffer) {
     return vkEndCommandBuffer(buffer);
 }
 
-VkResult CreateQueryPool(VkQueryPool* pool, const Context& vk, const QueryPoolDesc&& desc) {
+VkResult CreateQueryPool(VkQueryPool* pool, const Device& device, const QueryPoolDesc&& desc) {
     VkQueryPoolCreateInfo query_pool_info = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
     query_pool_info.queryType = desc.type;
     query_pool_info.queryCount = desc.count;
-    return vkCreateQueryPool(vk.device, &query_pool_info, NULL, pool);
+    return vkCreateQueryPool(device.device, &query_pool_info, NULL, pool);
 }
 
-void DestroyQueryPool(VkQueryPool* pool, const Context& vk) {
-    vkDestroyQueryPool(vk.device, *pool, NULL);
+void DestroyQueryPool(VkQueryPool* pool, const Device& device) {
+    vkDestroyQueryPool(device.device, *pool, NULL);
     *pool = VK_NULL_HANDLE;
 }
 
@@ -1672,8 +1682,8 @@ VkResult SubmitQueue1(VkQueue queue, const SubmitDesc1&& desc) {
     return vkQueueSubmit(queue, 1, &submit_info, desc.fence);
 }
 
-VkResult Submit1(const Frame& frame, const Context& vk, VkPipelineStageFlags wait_stage_mask) {
-    return SubmitQueue1(vk.queue, {
+VkResult Submit1(const Frame& frame, const Device& device, VkPipelineStageFlags wait_stage_mask) {
+    return SubmitQueue1(device.graphics_queue, {
         .cmd = { frame.command_buffer },
         .wait_semaphores = { frame.acquire_semaphore },
         .wait_stages = { wait_stage_mask },
@@ -1682,17 +1692,17 @@ VkResult Submit1(const Frame& frame, const Context& vk, VkPipelineStageFlags wai
     });
 }
 
-VkResult SubmitSync1(const Context& vk) {
-    VkResult vkr = SubmitQueue1(vk.queue, {
-        .cmd = { vk.sync_command_buffer},
-        .fence = vk.sync_fence,
+VkResult SubmitSync1(const Device& device) {
+    VkResult vkr = SubmitQueue1(device.graphics_queue, {
+        .cmd = { device.sync_command_buffer},
+        .fence = device.sync_fence,
     });
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
 
-    vkWaitForFences(vk.device, 1, &vk.sync_fence, VK_TRUE, ~0);
-    vkResetFences(vk.device, 1, &vk.sync_fence);
+    vkWaitForFences(device.device, 1, &device.sync_fence, VK_TRUE, ~0);
+    vkResetFences(device.device, 1, &device.sync_fence);
     return VK_SUCCESS;
 }
 
@@ -1708,8 +1718,8 @@ VkResult SubmitQueue(VkQueue queue, const SubmitDesc&& desc) {
     return vkQueueSubmit2KHR(queue, 1, &submit_info, desc.fence);
 }
 
-VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags2 wait_stage_mask, VkPipelineStageFlags2 signal_stage_mask) {
-    return SubmitQueue(vk.queue, {
+VkResult Submit(const Frame& frame, const Device& device, VkPipelineStageFlags2 wait_stage_mask, VkPipelineStageFlags2 signal_stage_mask) {
+    return SubmitQueue(device.graphics_queue, {
         .wait_semaphore_infos = {
             {
                 .semaphore = frame.acquire_semaphore,
@@ -1731,34 +1741,34 @@ VkResult Submit(const Frame& frame, const Context& vk, VkPipelineStageFlags2 wai
     });
 }
 
-VkResult SubmitSync(const Context& vk) {
-    VkResult vkr = SubmitQueue(vk.queue, {
+VkResult SubmitSync(const Device& device) {
+    VkResult vkr = SubmitQueue(device.graphics_queue, {
         .command_buffer_infos = {
             {
-                .command_buffer = vk.sync_command_buffer,
+                .command_buffer = device.sync_command_buffer,
             }
         },
-        .fence = vk.sync_fence,
+        .fence = device.sync_fence,
     });
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
 
-    vkWaitForFences(vk.device, 1, &vk.sync_fence, VK_TRUE, ~0);
-    vkResetFences(vk.device, 1, &vk.sync_fence);
+    vkWaitForFences(device.device, 1, &device.sync_fence, VK_TRUE, ~0);
+    vkResetFences(device.device, 1, &device.sync_fence);
     return VK_SUCCESS;
 }
 
 
 
-VkResult PresentFrame(Window* w, Frame* frame, const Context& vk) {
+VkResult PresentFrame(Window* w, Frame* frame, const Device& device) {
     VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     present_info.swapchainCount = 1;
     present_info.pSwapchains = &w->swapchain;
     present_info.pImageIndices = &frame->current_image_index;
     present_info.waitSemaphoreCount = 1;
     present_info.pWaitSemaphores = &frame->current_present_semaphore;
-    VkResult vkr = vkQueuePresentKHR(vk.queue, &present_info);
+    VkResult vkr = vkQueuePresentKHR(device.graphics_queue, &present_info);
 
     if (vkr == VK_ERROR_OUT_OF_DATE_KHR || vkr == VK_SUBOPTIMAL_KHR) {
         w->force_swapchain_recreate = true;
@@ -1775,13 +1785,13 @@ VkResult PresentFrame(Window* w, Frame* frame, const Context& vk) {
 }
 
 Result
-CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 width, u32 height, u32 x, u32 y)
+CreateWindowWithSwapchain(Window* w, const Instance& instance, const Device& device, const WindowDesc&& desc)
 {
     // Create window.
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_POSITION_X, x);
-    glfwWindowHint(GLFW_POSITION_Y, y);
-    GLFWwindow* window = glfwCreateWindow(width, height, name, NULL, NULL);
+    glfwWindowHint(GLFW_POSITION_X, desc.x);
+    glfwWindowHint(GLFW_POSITION_Y, desc.y);
+    GLFWwindow* window = glfwCreateWindow(desc.width, desc.height, desc.title, NULL, NULL);
     if (!window) {
         logging::error("gfx/window", "Failed to create GLFW window");
         return Result::WINDOW_CREATION_FAILED;
@@ -1793,7 +1803,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
 
     // Create window surface.
     VkSurfaceKHR surface = 0;
-    VkResult result = glfwCreateWindowSurface(vk.instance, window, NULL, &surface);
+    VkResult result = glfwCreateWindowSurface(instance.instance, window, NULL, &surface);
     if (result != VK_SUCCESS) {
         logging::error("gfx/window", "Failed to create GLFW window surface %d", result);
         return Result::SURFACE_CREATION_FAILED;
@@ -1801,36 +1811,36 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
 
     // Retrieve surface capabilities.
     VkSurfaceCapabilitiesKHR surface_capabilities = {};
-    result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk.physical_device, surface, &surface_capabilities);
+    result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device.physical_device, surface, &surface_capabilities);
     if (result != VK_SUCCESS) {
         logging::error("gfx/window", "vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed: %d", result);
         return Result::SWAPCHAIN_CREATION_FAILED;
     }
 
     // Compute available usage flags
-    VkImageUsageFlags usage_flags = surface_capabilities.supportedUsageFlags & vk.preferred_swapchain_usage_flags;
+    VkImageUsageFlags usage_flags = surface_capabilities.supportedUsageFlags & desc.preferred_swapchain_usage_flags;
     logging::info("gfx/window", "Swapchain usage flags: preferred 0x%x, supported 0x%x, picked 0x%x",
-        vk.preferred_swapchain_usage_flags, surface_capabilities.supportedUsageFlags, vk.preferred_swapchain_usage_flags & surface_capabilities.supportedUsageFlags);
+        desc.preferred_swapchain_usage_flags, surface_capabilities.supportedUsageFlags, desc.preferred_swapchain_usage_flags & surface_capabilities.supportedUsageFlags);
 
     // Compute number of frames in flight.
-    u32 swapchain_frames = Max<u32>(vk.preferred_frames_in_flight, surface_capabilities.minImageCount);
+    u32 swapchain_frames = Max<u32>(desc.preferred_frames_in_flight, surface_capabilities.minImageCount);
     if (surface_capabilities.maxImageCount > 0) {
         swapchain_frames = Min<u32>(swapchain_frames, surface_capabilities.maxImageCount);
     }
-    logging::info("gfx/window", "Swapchain images: preferred %d, min %d, max %d, picked %d", vk.preferred_frames_in_flight,
+    logging::info("gfx/window", "Swapchain images: preferred %d, min %d, max %d, picked %d", desc.preferred_frames_in_flight,
 	          surface_capabilities.minImageCount, surface_capabilities.maxImageCount, swapchain_frames);
 
     // Retrieve supported surface formats.
     // FEATURE: smarter format picking logic (HDR / non sRGB displays).
     u32 formats_count;
-    result = vkGetPhysicalDeviceSurfaceFormatsKHR(vk.physical_device, surface, &formats_count, 0);
+    result = vkGetPhysicalDeviceSurfaceFormatsKHR(device.physical_device, surface, &formats_count, 0);
     if (result != VK_SUCCESS || formats_count == 0) {
         logging::error("gfx/window", "vkGetPhysicalDeviceSurfaceFormatsKHR for count failed: %d", result);
         return Result::SWAPCHAIN_CREATION_FAILED;
     }
 
     Array<VkSurfaceFormatKHR> formats(formats_count);
-    result = vkGetPhysicalDeviceSurfaceFormatsKHR(vk.physical_device, surface, &formats_count, formats.data);
+    result = vkGetPhysicalDeviceSurfaceFormatsKHR(device.physical_device, surface, &formats_count, formats.data);
     if (result != VK_SUCCESS || formats_count == 0) {
         logging::error("gfx/window", "vkGetPhysicalDeviceSurfaceFormatsKHR for values failed: %d", result);
         return Result::SWAPCHAIN_CREATION_FAILED;
@@ -1869,14 +1879,14 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
 
     // If vsync is disabled check if MAILBOX or IMMEDIATE is supported.
-    if (!vk.vsync) {
+    if (!desc.vsync) {
         u32 supported_present_mode_count = 0;
-        result = vkGetPhysicalDeviceSurfacePresentModesKHR(vk.physical_device, surface, &supported_present_mode_count, 0);
+        result = vkGetPhysicalDeviceSurfacePresentModesKHR(device.physical_device, surface, &supported_present_mode_count, 0);
         if (result != VK_SUCCESS) {
             logging::warning("gfx/window", "first vkGetPhysicalDeviceSurfacePresentModesKHR failed: %d", result);
         } else {
             Array<VkPresentModeKHR> supported_present_modes(supported_present_mode_count);
-            result = vkGetPhysicalDeviceSurfacePresentModesKHR(vk.physical_device, surface, &supported_present_mode_count, supported_present_modes.data);
+            result = vkGetPhysicalDeviceSurfacePresentModesKHR(device.physical_device, surface, &supported_present_mode_count, supported_present_modes.data);
             if (result != VK_SUCCESS) {
                 logging::warning("gfx/window", "second vkGetPhysicalDeviceSurfacePresentModesKHR failed: %d", result);
             } else {
@@ -1890,7 +1900,7 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     }
     logging::info("gfx/window", "Swapchain present mode: %s", string_VkPresentModeKHR(present_mode));
 
-    Result res = CreateSwapchain(w, vk, surface, format, fb_width, fb_height, swapchain_frames, present_mode, usage_flags, VK_NULL_HANDLE);
+    Result res = CreateSwapchain(w, instance, device, surface, format, fb_width, fb_height, swapchain_frames, present_mode, usage_flags, VK_NULL_HANDLE);
     if (res != Result::SUCCESS) {
         logging::error("gfx/window", "CreateSwapchain failed: %d", (s32)res);
         return res;
@@ -1900,10 +1910,10 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     Array<VkSemaphore> present_semaphores(swapchain_frames);
     for (usize i = 0; i < swapchain_frames; i++) {
         VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT };
-        VkDevice device = vk.device;
+        VkDevice vk_device = device.device;
 
-        CreateGPUSemaphore(vk.device, &present_semaphores[i]);
-        if (vk.debug_utils_enabled) {
+        CreateGPUSemaphore(device.device, &present_semaphores[i]);
+        if (instance.debug_utils_enabled) {
             DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, present_semaphores[i], "xpg-swapchain-present-semaphore");
         }
     }
@@ -1911,8 +1921,8 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
     // We limit the number of frames we create to at most being the number of swapchain images.
     // Having more frames in flight does not make sense because we would anyway block to wait
     // for swapchain images to be ready.
-    u32 num_frames = Min(swapchain_frames, vk.preferred_frames_in_flight);
-    logging::info("gfx/window", "Frames in flight: preferred %u picked %u", vk.preferred_frames_in_flight, num_frames);
+    u32 num_frames = Min(swapchain_frames, desc.preferred_frames_in_flight);
+    logging::info("gfx/window", "Frames in flight: preferred %u picked %u", desc.preferred_frames_in_flight, num_frames);
 
     // Create frames
     Array<Frame> frames(num_frames);
@@ -1923,9 +1933,9 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
         {
             VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
             pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-            pool_info.queueFamilyIndex = vk.queue_family_index;
+            pool_info.queueFamilyIndex = device.graphics_queue_family_index;
 
-            result = vkCreateCommandPool(vk.device, &pool_info, 0, &frame.command_pool);
+            result = vkCreateCommandPool(device.device, &pool_info, 0, &frame.command_pool);
             if (result != VK_SUCCESS) {
                 return Result::API_OUT_OF_MEMORY;
             }
@@ -1935,19 +1945,19 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
             allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             allocate_info.commandBufferCount = 1;
 
-            result = vkAllocateCommandBuffers(vk.device, &allocate_info, &frame.command_buffer);
+            result = vkAllocateCommandBuffers(device.device, &allocate_info, &frame.command_buffer);
             if (result != VK_SUCCESS) {
                 return Result::API_OUT_OF_MEMORY;
             }
         }
 
         // Async compute commands, if queue is available
-        if (vk.compute_queue != VK_NULL_HANDLE) {
+        if (device.compute_queue != VK_NULL_HANDLE) {
             VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
             pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-            pool_info.queueFamilyIndex = vk.compute_queue_family_index;
+            pool_info.queueFamilyIndex = device.compute_queue_family_index;
 
-            result = vkCreateCommandPool(vk.device, &pool_info, 0, &frame.compute_command_pool);
+            result = vkCreateCommandPool(device.device, &pool_info, 0, &frame.compute_command_pool);
             if (result != VK_SUCCESS) {
                 return Result::API_OUT_OF_MEMORY;
             }
@@ -1957,29 +1967,29 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
             allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             allocate_info.commandBufferCount = 1;
 
-            result = vkAllocateCommandBuffers(vk.device, &allocate_info, &frame.compute_command_buffer);
+            result = vkAllocateCommandBuffers(device.device, &allocate_info, &frame.compute_command_buffer);
             if (result != VK_SUCCESS) {
                 return Result::API_OUT_OF_MEMORY;
             }
         }
 
         // Copy commands, if queue is available
-        if (vk.copy_queue != VK_NULL_HANDLE) {
+        if (device.transfer_queue != VK_NULL_HANDLE) {
             VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
             pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-            pool_info.queueFamilyIndex = vk.copy_queue_family_index;
+            pool_info.queueFamilyIndex = device.transfer_queue_family_index;
 
-            result = vkCreateCommandPool(vk.device, &pool_info, 0, &frame.copy_command_pool);
+            result = vkCreateCommandPool(device.device, &pool_info, 0, &frame.transfer_command_pool);
             if (result != VK_SUCCESS) {
                 return Result::API_OUT_OF_MEMORY;
             }
 
             VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-            allocate_info.commandPool = frame.copy_command_pool;
+            allocate_info.commandPool = frame.transfer_command_pool;
             allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             allocate_info.commandBufferCount = 1;
 
-            result = vkAllocateCommandBuffers(vk.device, &allocate_info, &frame.copy_command_buffer);
+            result = vkAllocateCommandBuffers(device.device, &allocate_info, &frame.transfer_command_buffer);
             if (result != VK_SUCCESS) {
                 return Result::API_OUT_OF_MEMORY;
             }
@@ -1987,24 +1997,24 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
 
         VkFenceCreateInfo fence_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
         fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        vkCreateFence(vk.device, &fence_info, 0, &frame.fence);
+        vkCreateFence(device.device, &fence_info, 0, &frame.fence);
 
-        CreateGPUSemaphore(vk.device, &frame.acquire_semaphore);
+        CreateGPUSemaphore(device.device, &frame.acquire_semaphore);
 
-        if (vk.debug_utils_enabled) {
+        if (instance.debug_utils_enabled) {
             VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT };
-            VkDevice device = vk.device;
+            VkDevice vk_device = device.device;
 
             // Commands
             DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, frame.command_buffer, "xpg-frame-command-buffer");
             DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL,   frame.command_pool,   "xpg-frame-command-pool");
-            if (vk.compute_queue != VK_NULL_HANDLE) {
+            if (device.compute_queue != VK_NULL_HANDLE) {
                 DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, frame.compute_command_buffer, "xpg-frame-compute-command-buffer");
                 DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL,   frame.compute_command_pool,   "xpg-frame-compute-command-pool");
             }
-            if (vk.copy_queue != VK_NULL_HANDLE) {
-                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, frame.copy_command_buffer,  "xpg-frame-transfer-command-buffer");
-                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL,   frame.copy_command_pool,    "xpg-frame-transfer-command-pool");
+            if (device.transfer_queue != VK_NULL_HANDLE) {
+                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER, frame.transfer_command_buffer,  "xpg-frame-transfer-command-buffer");
+                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL,   frame.transfer_command_pool,    "xpg-frame-transfer-command-pool");
             }
 
             // Sync
@@ -2025,34 +2035,34 @@ CreateWindowWithSwapchain(Window* w, const Context& vk, const char* name, u32 wi
 }
 
 void
-DestroyWindowWithSwapchain(Window* w, const Context& vk)
+DestroyWindowWithSwapchain(Window* w, const Instance& instance, const Device& device)
 {
     // Swapchain
     for (usize i = 0; i < w->image_views.length; i++) {
-        vkDestroyImageView(vk.device, w->image_views[i], 0);
-        vkDestroySemaphore(vk.device, w->present_semaphores[i], 0);
+        vkDestroyImageView(device.device, w->image_views[i], 0);
+        vkDestroySemaphore(device.device, w->present_semaphores[i], 0);
     }
-    vkDestroySwapchainKHR(vk.device, w->swapchain, 0);
-    vkDestroySurfaceKHR(vk.instance, w->surface, 0);
+    vkDestroySwapchainKHR(device.device, w->swapchain, 0);
+    vkDestroySurfaceKHR(instance.instance, w->surface, 0);
 
     // Frames
     for (usize i = 0; i < w->frames.length; i++) {
         gfx::Frame& frame = w->frames[i];
-        vkDestroyFence(vk.device, frame.fence, 0);
+        vkDestroyFence(device.device, frame.fence, 0);
 
-        vkDestroySemaphore(vk.device, frame.acquire_semaphore, 0);
+        vkDestroySemaphore(device.device, frame.acquire_semaphore, 0);
 
-        vkFreeCommandBuffers(vk.device, frame.command_pool, 1, &frame.command_buffer);
-        vkDestroyCommandPool(vk.device, frame.command_pool, 0);
+        vkFreeCommandBuffers(device.device, frame.command_pool, 1, &frame.command_buffer);
+        vkDestroyCommandPool(device.device, frame.command_pool, 0);
 
-        if(vk.compute_queue) {
-            vkFreeCommandBuffers(vk.device, frame.compute_command_pool, 1, &frame.compute_command_buffer);
-            vkDestroyCommandPool(vk.device, frame.compute_command_pool, 0);
+        if(device.compute_queue) {
+            vkFreeCommandBuffers(device.device, frame.compute_command_pool, 1, &frame.compute_command_buffer);
+            vkDestroyCommandPool(device.device, frame.compute_command_pool, 0);
         }
 
-        if(vk.copy_queue) {
-            vkFreeCommandBuffers(vk.device, frame.copy_command_pool, 1, &frame.copy_command_buffer);
-            vkDestroyCommandPool(vk.device, frame.copy_command_pool, 0);
+        if(device.transfer_queue) {
+            vkFreeCommandBuffers(device.device, frame.transfer_command_pool, 1, &frame.transfer_command_buffer);
+            vkDestroyCommandPool(device.device, frame.transfer_command_pool, 0);
         }
     }
 
@@ -2353,7 +2363,7 @@ DestroyGPUSemaphore(VkDevice device, VkSemaphore* semaphore)
 }
 
 
-VkResult GetExternalHandleForSemaphore(ExternalHandle* handle, const Context& vk, VkSemaphore semaphore) {
+VkResult GetExternalHandleForSemaphore(ExternalHandle* handle, const Device& device, VkSemaphore semaphore) {
 #ifdef XPG_MOLTENVK_STATIC
     return VK_ERROR_FEATURE_NOT_PRESENT;
 #else
@@ -2362,19 +2372,19 @@ VkResult GetExternalHandleForSemaphore(ExternalHandle* handle, const Context& vk
     semaphore_get_handle_info.semaphore = semaphore;
     semaphore_get_handle_info.handleType = EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT;
 
-    return vkGetSemaphoreWin32HandleKHR(vk.device, &semaphore_get_handle_info, handle);
+    return vkGetSemaphoreWin32HandleKHR(device.device, &semaphore_get_handle_info, handle);
 #else
     VkSemaphoreGetFdInfoKHR semaphore_get_handle_info = { VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR };
     semaphore_get_handle_info.semaphore = semaphore;
     semaphore_get_handle_info.handleType = EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT;
 
-    return vkGetSemaphoreFdKHR(vk.device, &semaphore_get_handle_info, handle);
+    return vkGetSemaphoreFdKHR(device.device, &semaphore_get_handle_info, handle);
 #endif
 #endif
 }
 
 VkResult
-CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& desc) {
+CreateBuffer(Buffer* buffer, const Device& device, size_t size, const BufferDesc&& desc) {
     // Alloc buffer
     VkExternalMemoryBufferCreateInfo external_memory_buffer_info = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO };
     external_memory_buffer_info.handleTypes = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
@@ -2397,7 +2407,7 @@ CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& 
     VkBuffer buf = 0;
     VmaAllocation allocation = {};
     VmaAllocationInfo alloc_info = {};
-    VkResult vkr = vmaCreateBuffer(vk.vma, &buffer_info, &alloc_create_info, &buf, &allocation, &alloc_info);
+    VkResult vkr = vmaCreateBuffer(device.vma, &buffer_info, &alloc_create_info, &buf, &allocation, &alloc_info);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -2410,8 +2420,8 @@ CreateBuffer(Buffer* buffer, const Context& vk, size_t size, const BufferDesc&& 
 }
 
 VkResult
-CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, const BufferDesc&& desc) {
-    VkResult vkr = CreateBuffer(buffer, vk, data.length, move(desc));
+CreateBufferFromData(Buffer* buffer, const Device& device, ArrayView<u8> data, const BufferDesc&& desc) {
+    VkResult vkr = CreateBuffer(buffer, device, data.length, move(desc));
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -2422,23 +2432,23 @@ CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, cons
     } else {
         // Check if allocation can be mapped
         VkMemoryPropertyFlags memPropFlags;
-        vmaGetAllocationMemoryProperties(vk.vma, buffer->allocation, &memPropFlags);
+        vmaGetAllocationMemoryProperties(device.vma, buffer->allocation, &memPropFlags);
         if(memPropFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
             // Let VMA do the map, copy, unmap steps
-            vkr = vmaCopyMemoryToAllocation(vk.vma, data.data, buffer->allocation, 0, data.length);
+            vkr = vmaCopyMemoryToAllocation(device.vma, data.data, buffer->allocation, 0, data.length);
             if (vkr != VK_SUCCESS) {
                 return vkr;
             }
         } else {
             // Allocate a staging buffer and do the copy through commands
             Buffer staging = {};
-            vkr = CreateBuffer(&staging, vk, data.length, {
+            vkr = CreateBuffer(&staging, device, data.length, {
                 .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 .alloc = AllocPresets::HostWriteCombining,
             });
 
             if (vkr != VK_SUCCESS) {
-                DestroyBuffer(buffer, vk);
+                DestroyBuffer(buffer, device);
                 return vkr;
             }
 
@@ -2446,17 +2456,17 @@ CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, cons
             staging.map.copy_exact(data);
 
             // Upload
-            BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
-            CmdCopyBuffer(vk.sync_command_buffer, {
+            BeginCommands(device.sync_command_pool, device.sync_command_buffer, device);
+            CmdCopyBuffer(device.sync_command_buffer, {
                 .src = staging.buffer,
                 .dst = buffer->buffer,
                 .size = data.length,
             });
-            EndCommands(vk.sync_command_buffer);
-            SubmitSync(vk);
+            EndCommands(device.sync_command_buffer);
+            SubmitSync(device);
 
             // Free staging buffer
-            DestroyBuffer(&staging, vk);
+            DestroyBuffer(&staging, device);
         }
     }
 
@@ -2464,15 +2474,15 @@ CreateBufferFromData(Buffer* buffer, const Context& vk, ArrayView<u8> data, cons
 }
 
 void
-DestroyBuffer(Buffer* buffer, const Context& vk)
+DestroyBuffer(Buffer* buffer, const Device& device)
 {
     if (buffer->buffer) {
-        vmaDestroyBuffer(vk.vma, buffer->buffer, buffer->allocation);
+        vmaDestroyBuffer(device.vma, buffer->buffer, buffer->allocation);
     }
     *buffer = {};
 }
 
-VkResult CreatePoolForBuffer(Pool* pool, const Context& vk, const PoolBufferDesc&& desc) {
+VkResult CreatePoolForBuffer(Pool* pool, const Device& device, const PoolBufferDesc&& desc) {
     // Alloc buffer
     VkExternalMemoryBufferCreateInfo external_memory_buffer_info = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO };
     external_memory_buffer_info.handleTypes = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
@@ -2480,7 +2490,7 @@ VkResult CreatePoolForBuffer(Pool* pool, const Context& vk, const PoolBufferDesc
     VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     // This creates a dummy buffer on vulkan < 1.3 or without maintenance4,
     // in that case size must be > 0 to avoid validation errors.
-    buffer_info.size = vk.device_version < VK_API_VERSION_1_3 ? 1 : 0;
+    buffer_info.size = device.version < VK_API_VERSION_1_3 ? 1 : 0;
     buffer_info.usage = desc.usage;
     if (desc.external) {
         buffer_info.pNext = &external_memory_buffer_info;
@@ -2495,7 +2505,7 @@ VkResult CreatePoolForBuffer(Pool* pool, const Context& vk, const PoolBufferDesc
 
     // Look for memory type for this allocation
     u32 mem_type_index;
-    VkResult vkr = vmaFindMemoryTypeIndexForBufferInfo(vk.vma, &buffer_info, &alloc_create_info, &mem_type_index);
+    VkResult vkr = vmaFindMemoryTypeIndexForBufferInfo(device.vma, &buffer_info, &alloc_create_info, &mem_type_index);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -2518,7 +2528,7 @@ VkResult CreatePoolForBuffer(Pool* pool, const Context& vk, const PoolBufferDesc
     }
 
     VmaPool vma_pool = {};
-    vkr = vmaCreatePool(vk.vma, &pool_info, &vma_pool);
+    vkr = vmaCreatePool(device.vma, &pool_info, &vma_pool);
     if (vkr != VK_SUCCESS) {
         delete export_mem_alloc_info;
         return vkr;
@@ -2532,9 +2542,9 @@ VkResult CreatePoolForBuffer(Pool* pool, const Context& vk, const PoolBufferDesc
     return VK_SUCCESS;
 }
 
-void DestroyPool(Pool* pool, const Context& vk)
+void DestroyPool(Pool* pool, const Device& device)
 {
-    vmaDestroyPool(vk.vma, pool->pool);
+    vmaDestroyPool(device.vma, pool->pool);
     delete pool->export_mem_alloc_info;
     *pool = {};
 }
@@ -2545,25 +2555,25 @@ typedef HANDLE ExternalHandle;
 typedef int ExternalHandle;
 #endif
 
-VkResult GetExternalHandleForBuffer(ExternalHandle* handle, const Context& vk, const Buffer& buffer) {
+VkResult GetExternalHandleForBuffer(ExternalHandle* handle, const Device& device, const Buffer& buffer) {
 #ifdef XPG_MOLTENVK_STATIC
     return VK_ERROR_FEATURE_NOT_PRESENT;
 #else
     VmaAllocationInfo alloc_info = {};
-    vmaGetAllocationInfo(vk.vma, buffer.allocation, &alloc_info);
+    vmaGetAllocationInfo(device.vma, buffer.allocation, &alloc_info);
 
 #ifdef _WIN32
     VkMemoryGetWin32HandleInfoKHR memory_get_win32_handle_info = { VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR };
     memory_get_win32_handle_info.memory = alloc_info.deviceMemory;
     memory_get_win32_handle_info.handleType = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
 
-    return vkGetMemoryWin32HandleKHR(vk.device, &memory_get_win32_handle_info, handle);
+    return vkGetMemoryWin32HandleKHR(device.device, &memory_get_win32_handle_info, handle);
 #else
     VkMemoryGetFdInfoKHR memory_get_fd_info = { VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR };
     memory_get_fd_info.memory = alloc_info.deviceMemory;
     memory_get_fd_info.handleType = EXTERNAL_MEMORY_HANDLE_TYPE_BIT;
 
-    return vkGetMemoryFdKHR(vk.device, &memory_get_fd_info, handle);
+    return vkGetMemoryFdKHR(device.device, &memory_get_fd_info, handle);
 #endif
 #endif
 }
@@ -2579,12 +2589,12 @@ void CloseExternalHandle(ExternalHandle* handle) {
 }
 
 VkResult
-CreateShader(Shader* shader, const Context& vk, ArrayView<u8> code) {
+CreateShader(Shader* shader, const Device& device, ArrayView<u8> code) {
     VkShaderModuleCreateInfo module_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
     module_info.codeSize = code.length;
     module_info.pCode = (u32*)code.data;
     VkShaderModule shader_module = 0;
-    VkResult vkr = vkCreateShaderModule(vk.device, &module_info, 0, &shader_module);
+    VkResult vkr = vkCreateShaderModule(device.device, &module_info, 0, &shader_module);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -2594,12 +2604,12 @@ CreateShader(Shader* shader, const Context& vk, ArrayView<u8> code) {
 }
 
 void
-DestroyShader(Shader* shader, const Context& vk) {
-    vkDestroyShaderModule(vk.device, shader->shader, NULL);
+DestroyShader(Shader* shader, const Device& device) {
+    vkDestroyShaderModule(device.device, shader->shader, NULL);
 }
 
 VkResult
-CreateGraphicsPipeline(GraphicsPipeline* graphics_pipeline, const Context& vk, const GraphicsPipelineDesc&& desc)
+CreateGraphicsPipeline(GraphicsPipeline* graphics_pipeline, const Device& device, const GraphicsPipelineDesc&& desc)
 {
     Array<VkPipelineShaderStageCreateInfo> stages(desc.stages.length);
     Array<VkPipelineShaderStageRequiredSubgroupSizeCreateInfo> required_subgroup_sizes(desc.stages.length);
@@ -2699,7 +2709,7 @@ CreateGraphicsPipeline(GraphicsPipeline* graphics_pipeline, const Context& vk, c
     VkResult vkr;
 
     VkPipelineLayout layout = 0;
-    vkr = vkCreatePipelineLayout(vk.device, &layout_info, 0, &layout);
+    vkr = vkCreatePipelineLayout(device.device, &layout_info, 0, &layout);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -2731,7 +2741,7 @@ CreateGraphicsPipeline(GraphicsPipeline* graphics_pipeline, const Context& vk, c
     pipeline_create_info.renderPass = VK_NULL_HANDLE;
 
     VkPipeline pipeline = 0;
-    vkr = vkCreateGraphicsPipelines(vk.device, VK_NULL_HANDLE, 1, &pipeline_create_info, 0, &pipeline);
+    vkr = vkCreateGraphicsPipelines(device.device, VK_NULL_HANDLE, 1, &pipeline_create_info, 0, &pipeline);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -2743,14 +2753,14 @@ CreateGraphicsPipeline(GraphicsPipeline* graphics_pipeline, const Context& vk, c
 }
 
 void
-DestroyGraphicsPipeline(GraphicsPipeline* pipeline, const Context& vk) {
-    vkDestroyPipelineLayout(vk.device, pipeline->layout, 0);
-    vkDestroyPipeline(vk.device, pipeline->pipeline, 0);
+DestroyGraphicsPipeline(GraphicsPipeline* pipeline, const Device& device) {
+    vkDestroyPipelineLayout(device.device, pipeline->layout, 0);
+    vkDestroyPipeline(device.device, pipeline->pipeline, 0);
     *pipeline = {};
 }
 
 VkResult
-CreateComputePipeline(ComputePipeline* compute_pipeline, const Context& vk, const ComputePipelineDesc&& desc) {
+CreateComputePipeline(ComputePipeline* compute_pipeline, const Device& device, const ComputePipelineDesc&& desc) {
     VkResult vkr;
 
     VkPipelineLayoutCreateInfo layout_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
@@ -2760,7 +2770,7 @@ CreateComputePipeline(ComputePipeline* compute_pipeline, const Context& vk, cons
     layout_info.pPushConstantRanges = (VkPushConstantRange*)desc.push_constants.data;
 
     VkPipelineLayout layout = 0;
-    vkr = vkCreatePipelineLayout(vk.device, &layout_info, 0, &layout);
+    vkr = vkCreatePipelineLayout(device.device, &layout_info, 0, &layout);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -2780,7 +2790,7 @@ CreateComputePipeline(ComputePipeline* compute_pipeline, const Context& vk, cons
     }
 
     VkPipeline pipeline = 0;
-    vkr = vkCreateComputePipelines(vk.device, VK_NULL_HANDLE, 1, &pipeline_create_info, 0, &pipeline);
+    vkr = vkCreateComputePipelines(device.device, VK_NULL_HANDLE, 1, &pipeline_create_info, 0, &pipeline);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -2792,9 +2802,9 @@ CreateComputePipeline(ComputePipeline* compute_pipeline, const Context& vk, cons
 }
 
 void
-DestroyComputePipeline(ComputePipeline* pipeline, const Context& vk) {
-    vkDestroyPipelineLayout(vk.device, pipeline->layout, 0);
-    vkDestroyPipeline(vk.device, pipeline->pipeline, 0);
+DestroyComputePipeline(ComputePipeline* pipeline, const Device& device) {
+    vkDestroyPipelineLayout(device.device, pipeline->layout, 0);
+    vkDestroyPipeline(device.device, pipeline->pipeline, 0);
     *pipeline = {};
 }
 
@@ -2809,7 +2819,7 @@ IsDepthFormat(VkFormat format) {
 }
 
 VkResult
-CreateImage(Image* image, const Context& vk, const ImageDesc&& desc) {
+CreateImage(Image* image, const Device& device, const ImageDesc&& desc) {
     // Create a depth buffer.
     VkImageCreateInfo image_create_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     image_create_info.imageType = desc.depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
@@ -2834,7 +2844,7 @@ CreateImage(Image* image, const Context& vk, const ImageDesc&& desc) {
 
     VkImage img = 0;
     VmaAllocation allocation = 0;
-    VkResult vkr = vmaCreateImage(vk.vma, &image_create_info, &alloc_create_info, &img, &allocation, nullptr);
+    VkResult vkr = vmaCreateImage(device.vma, &image_create_info, &alloc_create_info, &img, &allocation, nullptr);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -2848,7 +2858,7 @@ CreateImage(Image* image, const Context& vk, const ImageDesc&& desc) {
     image_view_info.subresourceRange.layerCount = desc.array_layers;
 
     VkImageView image_view = 0;
-    vkr = vkCreateImageView(vk.device, &image_view_info, 0, &image_view);
+    vkr = vkCreateImageView(device.device, &image_view_info, 0, &image_view);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -2861,7 +2871,7 @@ CreateImage(Image* image, const Context& vk, const ImageDesc&& desc) {
 }
 
 VkResult
-UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const ImageUploadDesc&& desc)
+UploadImage(const Image& image, const Device& device, ArrayView<u8> data, const ImageUploadDesc&& desc)
 {
     FormatInfo info = GetFormatInfo(desc.format);
     usize pitch = (usize)desc.width * info.size;
@@ -2877,7 +2887,7 @@ UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const Ima
 
     // Create and populate staging buffer
     Buffer staging_buffer = {};
-    vkr = CreateBufferFromData(&staging_buffer, vk, data, {
+    vkr = CreateBufferFromData(&staging_buffer, device, data, {
         .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         .alloc = AllocPresets::HostWriteCombining,
     });
@@ -2886,10 +2896,10 @@ UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const Ima
     }
 
     // Issue upload
-    gfx::BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
+    gfx::BeginCommands(device.sync_command_pool, device.sync_command_buffer, device);
 
     if (desc.current_image_layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-        gfx::CmdImageBarrier(vk.sync_command_buffer, {
+        gfx::CmdImageBarrier(device.sync_command_buffer, {
             .src_stage = VK_PIPELINE_STAGE_2_NONE,
             .src_access = 0,
             .dst_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
@@ -2912,10 +2922,10 @@ UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const Ima
     copy.imageExtent.height = desc.height;
     copy.imageExtent.depth = 1;
 
-    vkCmdCopyBufferToImage(vk.sync_command_buffer, staging_buffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    vkCmdCopyBufferToImage(device.sync_command_buffer, staging_buffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
     if (desc.final_image_layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-        gfx::CmdImageBarrier(vk.sync_command_buffer, {
+        gfx::CmdImageBarrier(device.sync_command_buffer, {
             .src_stage = VK_PIPELINE_STAGE_2_COPY_BIT,
             .src_access = VK_ACCESS_2_TRANSFER_WRITE_BIT,
             .dst_stage = VK_PIPELINE_STAGE_2_NONE,
@@ -2926,26 +2936,26 @@ UploadImage(const Image& image, const Context& vk, ArrayView<u8> data, const Ima
         });
     }
 
-    gfx::EndCommands(vk.sync_command_buffer);
+    gfx::EndCommands(device.sync_command_buffer);
 
-    gfx::SubmitSync(vk);
+    gfx::SubmitSync(device);
 
-    gfx::DestroyBuffer(&staging_buffer, vk);
+    gfx::DestroyBuffer(&staging_buffer, device);
 
     return VK_SUCCESS;
 }
 
 VkResult
-CreateAndUploadImage(Image* image, const Context& vk, ArrayView<u8> data, VkImageLayout layout, const ImageDesc&& desc)
+CreateAndUploadImage(Image* image, const Device& device, ArrayView<u8> data, VkImageLayout layout, const ImageDesc&& desc)
 {
     assert(desc.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
     VkResult vkr;
-    vkr = CreateImage(image, vk, move(desc));
+    vkr = CreateImage(image, device, move(desc));
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
-    vkr = UploadImage(*image, vk, data, {
+    vkr = UploadImage(*image, device, data, {
         .width = desc.width,
         .height = desc.height,
         .format = desc.format,
@@ -2958,15 +2968,15 @@ CreateAndUploadImage(Image* image, const Context& vk, ArrayView<u8> data, VkImag
 }
 
 void
-DestroyImage(Image* image, const Context& vk)
+DestroyImage(Image* image, const Device& device)
 {
-    vkDestroyImageView(vk.device, image->view, 0);
-    vmaDestroyImage(vk.vma, image->image, image->allocation);
+    vkDestroyImageView(device.device, image->view, 0);
+    vmaDestroyImage(device.vma, image->image, image->allocation);
     *image = {};
 }
 
 //- Descriptors
-VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Context& vk, const DescriptorSetLayoutDesc&& desc)
+VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Device& device, const DescriptorSetLayoutDesc&& desc)
 {
     VkResult vkr;
 
@@ -3001,7 +3011,7 @@ VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Context& v
 
     // Create layout
     VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
-    vkr = vkCreateDescriptorSetLayout(vk.device, &create_info, 0, &descriptor_layout);
+    vkr = vkCreateDescriptorSetLayout(device.device, &create_info, 0, &descriptor_layout);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -3011,17 +3021,17 @@ VkResult CreateDescriptorSetLayout(DescriptorSetLayout* layout, const Context& v
 }
 
 VkResult
-ResetDescriptorPool(DescriptorPool pool, const Context& vk) {
-    return vkResetDescriptorPool(vk.device, pool.pool, 0);
+ResetDescriptorPool(DescriptorPool pool, const Device& device) {
+    return vkResetDescriptorPool(device.device, pool.pool, 0);
 }
 
 void
-DestroyDescriptorSetLayout(DescriptorSetLayout* set, const Context& vk) {
-    vkDestroyDescriptorSetLayout(vk.device, set->layout, 0);
+DestroyDescriptorSetLayout(DescriptorSetLayout* set, const Device& device) {
+    vkDestroyDescriptorSetLayout(device.device, set->layout, 0);
     *set = {};
 }
 
-VkResult CreateDescriptorPool(DescriptorPool* pool, const Context& vk, const DescriptorPoolDesc&& desc) {
+VkResult CreateDescriptorPool(DescriptorPool* pool, const Device& device, const DescriptorPoolDesc&& desc) {
     VkDescriptorPoolCreateInfo descriptor_pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
     descriptor_pool_info.flags = desc.flags;
     descriptor_pool_info.maxSets = desc.max_sets;
@@ -3029,7 +3039,7 @@ VkResult CreateDescriptorPool(DescriptorPool* pool, const Context& vk, const Des
     descriptor_pool_info.poolSizeCount = (uint32_t)desc.sizes.length;
 
     VkDescriptorPool descriptor_pool = 0;
-    VkResult vkr = vkCreateDescriptorPool(vk.device, &descriptor_pool_info, 0, &descriptor_pool);
+    VkResult vkr = vkCreateDescriptorPool(device.device, &descriptor_pool_info, 0, &descriptor_pool);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -3039,12 +3049,12 @@ VkResult CreateDescriptorPool(DescriptorPool* pool, const Context& vk, const Des
 }
 
 void
-DestroyDescriptorPool(DescriptorPool* pool, const Context& vk) {
-    vkDestroyDescriptorPool(vk.device, pool->pool, 0);
+DestroyDescriptorPool(DescriptorPool* pool, const Device& device) {
+    vkDestroyDescriptorPool(device.device, pool->pool, 0);
     *pool = {};
 }
 
-VkResult AllocateDescriptorSet(DescriptorSet* set, const Context& vk, const DescriptorSetAllocDesc&& desc) {
+VkResult AllocateDescriptorSet(DescriptorSet* set, const Device& device, const DescriptorSetAllocDesc&& desc) {
     VkDescriptorSetAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
     allocate_info.descriptorPool = desc.pool.pool;
     allocate_info.pSetLayouts = &desc.layout.layout;
@@ -3059,7 +3069,7 @@ VkResult AllocateDescriptorSet(DescriptorSet* set, const Context& vk, const Desc
     }
 
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
-    VkResult vkr = vkAllocateDescriptorSets(vk.device, &allocate_info, &descriptor_set);
+    VkResult vkr = vkAllocateDescriptorSets(device.device, &allocate_info, &descriptor_set);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -3068,11 +3078,11 @@ VkResult AllocateDescriptorSet(DescriptorSet* set, const Context& vk, const Desc
     return VK_SUCCESS;
 }
 
-VkResult FreeDescriptorSet(DescriptorPool pool, DescriptorSet set, const Context& vk) {
-    return vkFreeDescriptorSets(vk.device, pool.pool, 1, &set.set);
+VkResult FreeDescriptorSet(DescriptorPool pool, DescriptorSet set, const Device& device) {
+    return vkFreeDescriptorSets(device.device, pool.pool, 1, &set.set);
 }
 
-VkResult CreateDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layout_set, const Context& vk, const DescriptorPoolLayoutAndSetDesc&& desc) {
+VkResult CreateDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layout_set, const Device& device, const DescriptorPoolLayoutAndSetDesc&& desc) {
     VkResult vkr;
 
     usize N = desc.bindings.length;
@@ -3104,7 +3114,7 @@ VkResult CreateDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layou
     create_info.flags = desc.layout_flags;
 
     VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
-    vkr = vkCreateDescriptorSetLayout(vk.device, &create_info, 0, &descriptor_layout);
+    vkr = vkCreateDescriptorSetLayout(device.device, &create_info, 0, &descriptor_layout);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -3117,7 +3127,7 @@ VkResult CreateDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layou
     descriptor_pool_info.poolSizeCount = (uint32_t)sizes.length;
 
     VkDescriptorPool descriptor_pool = 0;
-    vkr = vkCreateDescriptorPool(vk.device, &descriptor_pool_info, 0, &descriptor_pool);
+    vkr = vkCreateDescriptorPool(device.device, &descriptor_pool_info, 0, &descriptor_pool);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -3128,7 +3138,7 @@ VkResult CreateDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layou
     allocate_info.descriptorSetCount = 1;
 
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
-    vkr = vkAllocateDescriptorSets(vk.device, &allocate_info, &descriptor_set);
+    vkr = vkAllocateDescriptorSets(device.device, &allocate_info, &descriptor_set);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -3139,14 +3149,14 @@ VkResult CreateDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layou
     return VK_SUCCESS;
 }
 
-void DestroyDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layout_set, const Context& vk) {
-    vkDestroyDescriptorSetLayout(vk.device, pool_layout_set->layout.layout, 0);
-    vkDestroyDescriptorPool(vk.device, pool_layout_set->pool.pool, 0);
+void DestroyDescriptorPoolLayoutAndSet(DescriptorPoolLayoutAndSet* pool_layout_set, const Device& device) {
+    vkDestroyDescriptorSetLayout(device.device, pool_layout_set->layout.layout, 0);
+    vkDestroyDescriptorPool(device.device, pool_layout_set->pool.pool, 0);
     *pool_layout_set = {};
 }
 
 VkResult
-CreateSampler(Sampler* sampler, const Context& vk, const SamplerDesc&& desc) {
+CreateSampler(Sampler* sampler, const Device& device, const SamplerDesc&& desc) {
     VkSamplerCreateInfo info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
     info.minFilter = desc.min_filter;
     info.magFilter = desc.mag_filter;
@@ -3165,7 +3175,7 @@ CreateSampler(Sampler* sampler, const Context& vk, const SamplerDesc&& desc) {
     info.unnormalizedCoordinates = 0;
 
     VkSampler s = {};
-    VkResult vkr = vkCreateSampler(vk.device, &info, 0, &s);
+    VkResult vkr = vkCreateSampler(device.device, &info, 0, &s);
     if (vkr != VK_SUCCESS) {
         return vkr;
     }
@@ -3175,13 +3185,13 @@ CreateSampler(Sampler* sampler, const Context& vk, const SamplerDesc&& desc) {
 }
 
 void
-DestroySampler(Sampler* sampler, const Context& vk) {
-    vkDestroySampler(vk.device, sampler->sampler, 0);
+DestroySampler(Sampler* sampler, const Device& device) {
+    vkDestroySampler(device.device, sampler->sampler, 0);
     *sampler = {};
 }
 
 void
-WriteBufferDescriptor(DescriptorSet set, const Context& vk, const BufferDescriptorWriteDesc&& write)
+WriteBufferDescriptor(DescriptorSet set, const Device& device, const BufferDescriptorWriteDesc&& write)
 {
     assert(
         write.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ||
@@ -3205,11 +3215,11 @@ WriteBufferDescriptor(DescriptorSet set, const Context& vk, const BufferDescript
     write_descriptor_set.descriptorType = write.type;
 
     // Actually write the descriptor to the GPU visible heap
-    vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
+    vkUpdateDescriptorSets(device.device, 1, &write_descriptor_set, 0, nullptr);
 }
 
 void
-WriteImageDescriptor(DescriptorSet set, const Context& vk, const ImageDescriptorWriteDesc&& write)
+WriteImageDescriptor(DescriptorSet set, const Device& device, const ImageDescriptorWriteDesc&& write)
 {
     assert(write.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || write.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
 
@@ -3227,11 +3237,11 @@ WriteImageDescriptor(DescriptorSet set, const Context& vk, const ImageDescriptor
     write_descriptor_set.descriptorType = write.type;
 
     // Actually write the descriptor to the GPU visible heap
-    vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
+    vkUpdateDescriptorSets(device.device, 1, &write_descriptor_set, 0, nullptr);
 }
 
 void
-WriteSamplerDescriptor(DescriptorSet set, const Context& vk, const SamplerDescriptorWriteDesc&& write)
+WriteSamplerDescriptor(DescriptorSet set, const Device& device, const SamplerDescriptorWriteDesc&& write)
 {
     // Prepare descriptor and handle
     VkDescriptorImageInfo desc_info = {};
@@ -3246,11 +3256,11 @@ WriteSamplerDescriptor(DescriptorSet set, const Context& vk, const SamplerDescri
     write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
 
     // Actually write the descriptor to the GPU visible heap
-    vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
+    vkUpdateDescriptorSets(device.device, 1, &write_descriptor_set, 0, nullptr);
 }
 
 void
-WriteCombinedImageSamplerDescriptor(DescriptorSet set, const Context& vk, const CombinedImageSamplerDescriptorWriteDesc&& write)
+WriteCombinedImageSamplerDescriptor(DescriptorSet set, const Device& device, const CombinedImageSamplerDescriptorWriteDesc&& write)
 {
     // Prepare descriptor and handle
     VkDescriptorImageInfo desc_info = {};
@@ -3267,11 +3277,11 @@ WriteCombinedImageSamplerDescriptor(DescriptorSet set, const Context& vk, const 
     write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 
     // Actually write the descriptor to the GPU visible heap
-    vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
+    vkUpdateDescriptorSets(device.device, 1, &write_descriptor_set, 0, nullptr);
 }
 
 void
-WriteAccelerationStructureDescriptor(DescriptorSet set, const Context& vk, const AccelerationStructureDescriptorWriteDesc&& write)
+WriteAccelerationStructureDescriptor(DescriptorSet set, const Device& device, const AccelerationStructureDescriptorWriteDesc&& write)
 {
     // Prepare descriptor and handle
     VkWriteDescriptorSetAccelerationStructureKHR  write_as = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
@@ -3287,7 +3297,7 @@ WriteAccelerationStructureDescriptor(DescriptorSet set, const Context& vk, const
     write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
 
     // Actually write the descriptor to the GPU visible heap
-    vkUpdateDescriptorSets(vk.device, 1, &write_descriptor_set, 0, nullptr);
+    vkUpdateDescriptorSets(device.device, 1, &write_descriptor_set, 0, nullptr);
 }
 
 VkDeviceAddress GetBufferAddress(VkBuffer buffer, VkDevice device)
@@ -3299,7 +3309,7 @@ VkDeviceAddress GetBufferAddress(VkBuffer buffer, VkDevice device)
 	return address;
 }
 
-VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &vk, const AccelerationStructureDesc &&desc)
+VkResult CreateAccelerationStructure(AccelerationStructure *as, const Device &device, const AccelerationStructureDesc &&desc)
 {
 #ifdef XPG_MOLTENVK_STATIC
     return VK_ERROR_FEATURE_NOT_PRESENT;
@@ -3346,7 +3356,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
         blas_build_infos[i].pGeometries = &geometries[i];
 
         VkAccelerationStructureBuildSizesInfoKHR as_build_sizes = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
-        vkGetAccelerationStructureBuildSizesKHR(vk.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &blas_build_infos[i], &desc.meshes[i].primitive_count, &as_build_sizes);
+        vkGetAccelerationStructureBuildSizesKHR(device.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &blas_build_infos[i], &desc.meshes[i].primitive_count, &as_build_sizes);
 
         acceleration_offsets[i] = total_as_size;
         acceleration_sizes[i] = as_build_sizes.accelerationStructureSize;
@@ -3357,7 +3367,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
     }
 
     gfx::Buffer blas_buffer = {};
-    vkr = gfx::CreateBuffer(&blas_buffer, vk, total_as_size, {
+    vkr = gfx::CreateBuffer(&blas_buffer, device, total_as_size, {
         .usage =  VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         .alloc = AllocPresets::Device,
     });
@@ -3365,12 +3375,12 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 
     usize scratch_buffer_size = Max(DEFAULT_SCRATCH_SIZE, max_scratch_size);
     gfx::Buffer blas_scratch = {};
-    vkr = gfx::CreateBuffer(&blas_scratch, vk, scratch_buffer_size, {
+    vkr = gfx::CreateBuffer(&blas_scratch, device, scratch_buffer_size, {
         .usage =  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         .alloc = AllocPresets::Device,
     });
 
-    VkDeviceAddress scratch_address = GetBufferAddress(blas_scratch.buffer, vk.device);
+    VkDeviceAddress scratch_address = GetBufferAddress(blas_scratch.buffer, device.device);
 
     Array<VkAccelerationStructureKHR> blas(num_meshes);
     Array<VkAccelerationStructureBuildRangeInfoKHR> blas_build_ranges(num_meshes);
@@ -3383,7 +3393,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 		acceleration_info.size = acceleration_sizes[i];
 		acceleration_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
 
-		vkr = vkCreateAccelerationStructureKHR(vk.device, &acceleration_info, nullptr, &blas[i]);
+		vkr = vkCreateAccelerationStructureKHR(device.device, &acceleration_info, nullptr, &blas[i]);
         if(vkr != VK_SUCCESS) return vkr;
     }
 
@@ -3393,11 +3403,11 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 	query_create_info.queryCount = num_meshes;
 
 	VkQueryPool query = 0;
-	vkr = vkCreateQueryPool(vk.device, &query_create_info, 0, &query);
+	vkr = vkCreateQueryPool(device.device, &query_create_info, 0, &query);
     if(vkr != VK_SUCCESS) return vkr;
 
 
-    vkr = gfx::BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
+    vkr = gfx::BeginCommands(device.sync_command_pool, device.sync_command_buffer, device);
     if(vkr != VK_SUCCESS) return vkr;
 
     for(usize start = 0; start < num_meshes;) {
@@ -3415,10 +3425,10 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
         }
         assert(i > start);
 
-        vkCmdBuildAccelerationStructuresKHR(vk.sync_command_buffer, (u32)(i - start), &blas_build_infos[start], &blas_build_range_pointers[start]);
+        vkCmdBuildAccelerationStructuresKHR(device.sync_command_buffer, (u32)(i - start), &blas_build_infos[start], &blas_build_range_pointers[start]);
         start = i;
 
-        gfx::CmdMemoryBarrier(vk.sync_command_buffer, {
+        gfx::CmdMemoryBarrier(device.sync_command_buffer, {
             .src_stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
             .src_access = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
             .dst_stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
@@ -3426,21 +3436,21 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
         });
     }
 
-    vkCmdResetQueryPool(vk.sync_command_buffer, query, 0, num_meshes);
-    vkCmdWriteAccelerationStructuresPropertiesKHR(vk.sync_command_buffer, blas.length, blas.data, VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR, query, 0);
-    vkr = gfx::EndCommands(vk.sync_command_buffer);
+    vkCmdResetQueryPool(device.sync_command_buffer, query, 0, num_meshes);
+    vkCmdWriteAccelerationStructuresPropertiesKHR(device.sync_command_buffer, blas.length, blas.data, VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR, query, 0);
+    vkr = gfx::EndCommands(device.sync_command_buffer);
     if(vkr != VK_SUCCESS) return vkr;
 
-    vkr = gfx::SubmitSync(vk);
+    vkr = gfx::SubmitSync(device);
     if(vkr != VK_SUCCESS) return vkr;
 
     Array<VkDeviceSize> compacted_sizes(num_meshes);
-    vkr = vkGetQueryPoolResults(vk.device, query,  0, blas.length, compacted_sizes.size_in_bytes(), compacted_sizes.data, sizeof(VkDeviceSize), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+    vkr = vkGetQueryPoolResults(device.device, query,  0, blas.length, compacted_sizes.size_in_bytes(), compacted_sizes.data, sizeof(VkDeviceSize), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
     if(vkr != VK_SUCCESS) return vkr;
 
-    vkDestroyQueryPool(vk.device, query, 0);
+    vkDestroyQueryPool(device.device, query, 0);
 
-    gfx::DestroyBuffer(&blas_scratch, vk);
+    gfx::DestroyBuffer(&blas_scratch, device);
 
     // Compact blases
     Array<usize> compacted_offsets(num_meshes);
@@ -3451,7 +3461,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
     }
 
     gfx::Buffer compacted_blas_buffer = {};
-    vkr = gfx::CreateBuffer(&compacted_blas_buffer, vk, total_compacted_size, {
+    vkr = gfx::CreateBuffer(&compacted_blas_buffer, device, total_compacted_size, {
         .usage =  VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         .alloc = AllocPresets::Device,
     });
@@ -3464,11 +3474,11 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 		acceleration_info.offset = compacted_offsets[i];
 		acceleration_info.size = compacted_sizes[i];
 		acceleration_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-		vkr = vkCreateAccelerationStructureKHR(vk.device, &acceleration_info, nullptr, &compacted_blas[i]);
+		vkr = vkCreateAccelerationStructureKHR(device.device, &acceleration_info, nullptr, &compacted_blas[i]);
         if(vkr != VK_SUCCESS) return vkr;
     }
 
-    vkr = gfx::BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
+    vkr = gfx::BeginCommands(device.sync_command_pool, device.sync_command_buffer, device);
     if(vkr != VK_SUCCESS) return vkr;
 
     for(usize i = 0; i < num_meshes; i++) {
@@ -3476,25 +3486,25 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 		copy_info.src = blas[i];
 		copy_info.dst = compacted_blas[i];
 		copy_info.mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_COMPACT_KHR;
-		vkCmdCopyAccelerationStructureKHR(vk.sync_command_buffer, &copy_info);
+		vkCmdCopyAccelerationStructureKHR(device.sync_command_buffer, &copy_info);
     }
 
-    vkr = gfx::EndCommands(vk.sync_command_buffer);
+    vkr = gfx::EndCommands(device.sync_command_buffer);
     if(vkr != VK_SUCCESS) return vkr;
 
-    vkr = gfx::SubmitSync(vk);
+    vkr = gfx::SubmitSync(device);
     if(vkr != VK_SUCCESS) return vkr;
 
     for(usize i = 0; i < num_meshes; i++) {
-        vkDestroyAccelerationStructureKHR(vk.device, blas[i], 0);
+        vkDestroyAccelerationStructureKHR(device.device, blas[i], 0);
     }
     blas.clear();
 
-    gfx::DestroyBuffer(&blas_buffer, vk);
+    gfx::DestroyBuffer(&blas_buffer, device);
 
     // Populate instances
     gfx::Buffer instances_buffer;
-    gfx::CreateBuffer(&instances_buffer, vk, sizeof(VkAccelerationStructureInstanceKHR) * num_meshes, {
+    gfx::CreateBuffer(&instances_buffer, device, sizeof(VkAccelerationStructureInstanceKHR) * num_meshes, {
         .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         .alloc = AllocPresets::DeviceMapped,
     });
@@ -3502,7 +3512,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
     for(usize i = 0; i < num_meshes; i++) {
         VkAccelerationStructureDeviceAddressInfoKHR info = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
         info.accelerationStructure = compacted_blas[i];
-        VkDeviceAddress address = vkGetAccelerationStructureDeviceAddressKHR(vk.device, &info);
+        VkDeviceAddress address = vkGetAccelerationStructureDeviceAddressKHR(device.device, &info);
 
         VkAccelerationStructureInstanceKHR instance = {};
         glm::mat3x4 transform = transpose(desc.meshes[i].transform);
@@ -3521,7 +3531,7 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
     VkAccelerationStructureGeometryKHR tlas_geometry = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
 	tlas_geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
 	tlas_geometry.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
-	tlas_geometry.geometry.instances.data.deviceAddress = GetBufferAddress(instances_buffer.buffer, vk.device);
+	tlas_geometry.geometry.instances.data.deviceAddress = GetBufferAddress(instances_buffer.buffer, device.device);
 
 	VkAccelerationStructureBuildGeometryInfoKHR tlas_build_info = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
 	tlas_build_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
@@ -3532,17 +3542,17 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 
 	VkAccelerationStructureBuildSizesInfoKHR tlas_build_sizes = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
     u32 max_count = num_meshes;
-	vkGetAccelerationStructureBuildSizesKHR(vk.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &tlas_build_info, &max_count, &tlas_build_sizes);
+	vkGetAccelerationStructureBuildSizesKHR(device.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &tlas_build_info, &max_count, &tlas_build_sizes);
 
     gfx::Buffer tlas_buffer = {};
-	vkr = gfx::CreateBuffer(&tlas_buffer, vk, tlas_build_sizes.accelerationStructureSize, {
+	vkr = gfx::CreateBuffer(&tlas_buffer, device, tlas_build_sizes.accelerationStructureSize, {
         .usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR,
         .alloc = AllocPresets::Device,
     });
     if(vkr != VK_SUCCESS) return vkr;
 
     gfx::Buffer tlas_scratch_buffer = {};
-	vkr = gfx::CreateBuffer(&tlas_scratch_buffer, vk, tlas_build_sizes.buildScratchSize, {
+	vkr = gfx::CreateBuffer(&tlas_scratch_buffer, device, tlas_build_sizes.buildScratchSize, {
         .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         .alloc = AllocPresets::Device,
     });
@@ -3554,30 +3564,30 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 	tlas_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
 
 	VkAccelerationStructureKHR tlas = VK_NULL_HANDLE;
-	vkr = vkCreateAccelerationStructureKHR(vk.device, &tlas_info, nullptr, &tlas);
+	vkr = vkCreateAccelerationStructureKHR(device.device, &tlas_info, nullptr, &tlas);
     if(vkr != VK_SUCCESS) return vkr;
 
     // Build tlas
 	tlas_build_info.srcAccelerationStructure = tlas;
 	tlas_build_info.dstAccelerationStructure = tlas;
-	tlas_build_info.scratchData.deviceAddress = GetBufferAddress(tlas_scratch_buffer.buffer, vk.device);
+	tlas_build_info.scratchData.deviceAddress = GetBufferAddress(tlas_scratch_buffer.buffer, device.device);
 
 	VkAccelerationStructureBuildRangeInfoKHR build_range = {};
 	build_range.primitiveCount = num_meshes;
 
 	const VkAccelerationStructureBuildRangeInfoKHR* build_range_ptr = &build_range;
 
-    vkr = gfx::BeginCommands(vk.sync_command_pool, vk.sync_command_buffer, vk);
+    vkr = gfx::BeginCommands(device.sync_command_pool, device.sync_command_buffer, device);
     if(vkr != VK_SUCCESS) return vkr;
 
-	vkCmdBuildAccelerationStructuresKHR(vk.sync_command_buffer, 1, &tlas_build_info, &build_range_ptr);
+	vkCmdBuildAccelerationStructuresKHR(device.sync_command_buffer, 1, &tlas_build_info, &build_range_ptr);
 
-    vkr = gfx::EndCommands(vk.sync_command_buffer);
+    vkr = gfx::EndCommands(device.sync_command_buffer);
     if(vkr != VK_SUCCESS) return vkr;
-    vkr = gfx::SubmitSync(vk);
+    vkr = gfx::SubmitSync(device);
     if(vkr != VK_SUCCESS) return vkr;
 
-    gfx::DestroyBuffer(&tlas_scratch_buffer, vk);
+    gfx::DestroyBuffer(&tlas_scratch_buffer, device);
 
     as->blas = std::move(compacted_blas);
     as->blas_buffer = compacted_blas_buffer;
@@ -3589,19 +3599,19 @@ VkResult CreateAccelerationStructure(AccelerationStructure *as, const Context &v
 #endif
 }
 
-void DestroyAccelerationStructure(AccelerationStructure* as, const Context& vk) {
+void DestroyAccelerationStructure(AccelerationStructure* as, const Device& device) {
 #ifndef XPG_MOLTENVK_STATIC
-    vkDestroyAccelerationStructureKHR(vk.device, as->tlas, 0);
+    vkDestroyAccelerationStructureKHR(device.device, as->tlas, 0);
     as->tlas = VK_NULL_HANDLE;
 
     for(usize i = 0; i < as->blas.length; i++) {
-        vkDestroyAccelerationStructureKHR(vk.device, as->blas[i], 0);
+        vkDestroyAccelerationStructureKHR(device.device, as->blas[i], 0);
     }
     as->blas.clear();
 
-    gfx::DestroyBuffer(&as->tlas_buffer, vk);
-    gfx::DestroyBuffer(&as->instances_buffer, vk);
-    gfx::DestroyBuffer(&as->blas_buffer, vk);
+    gfx::DestroyBuffer(&as->tlas_buffer, device);
+    gfx::DestroyBuffer(&as->instances_buffer, device);
+    gfx::DestroyBuffer(&as->blas_buffer, device);
 #endif
 }
 

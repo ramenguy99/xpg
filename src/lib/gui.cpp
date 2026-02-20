@@ -19,15 +19,15 @@
 namespace xpg {
 namespace gui {
 
-void CreateImGuiImplCommon(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat format, const gfx::Context& vk, const Config&& config) {
+void CreateImGuiImplCommon(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat format, const gfx::Instance& instance, const gfx::Device& device, const Config&& config) {
     // TODO: MSAA
     ImGui_ImplVulkan_InitInfo vk_init_info = {};
-    vk_init_info.ApiVersion = vk.instance_version;
-    vk_init_info.Instance = vk.instance;
-    vk_init_info.PhysicalDevice = vk.physical_device;
-    vk_init_info.Device = vk.device;
-    vk_init_info.QueueFamily = vk.queue_family_index;
-    vk_init_info.Queue = vk.queue;
+    vk_init_info.ApiVersion = device.version;
+    vk_init_info.Instance = instance.instance;
+    vk_init_info.PhysicalDevice = device.physical_device;
+    vk_init_info.Device = device.device;
+    vk_init_info.QueueFamily = device.graphics_queue_family_index;
+    vk_init_info.Queue = device.graphics_queue;
     vk_init_info.DescriptorPool = VK_NULL_HANDLE;
     vk_init_info.PipelineInfoMain.RenderPass = VK_NULL_HANDLE;
     vk_init_info.MinImageCount = (u32)num_frames_in_flight,
@@ -96,7 +96,7 @@ void CreateImGuiImplCommon(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat f
         rp_info.dependencyCount = 1;
         rp_info.pDependencies = &subpass_dependency;
 
-        VkResult vkr = vkCreateRenderPass(vk.device, &rp_info, NULL, &render_pass);
+        VkResult vkr = vkCreateRenderPass(device.device, &rp_info, NULL, &render_pass);
         assert(vkr == VK_SUCCESS);
 
         vk_init_info.PipelineInfoMain.RenderPass = render_pass;
@@ -138,14 +138,14 @@ void CreateImGuiImplCommon(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat f
     impl->render_pass = render_pass;
 }
 
-void CreateWindowlessImGuiImpl(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat format, const gfx::Context& vk, const Config&& config) {
+void CreateWindowlessImGuiImpl(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat format, const gfx::Instance& instance, const gfx::Device& device, const Config&& config) {
     // Initialize ImGui.
     ImGui::CreateContext();
 
-    CreateImGuiImplCommon(impl, num_frames_in_flight, format, vk, std::move(config));
+    CreateImGuiImplCommon(impl, num_frames_in_flight, format, instance, device, std::move(config));
 }
 
-void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Context& vk, const Config&& config) {
+void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Instance& instance, const gfx::Device& device, const Config&& config) {
     // Initialize ImGui.
     ImGui::CreateContext();
 
@@ -154,10 +154,10 @@ void CreateImGuiImpl(ImGuiImpl* impl, const gfx::Window& window, const gfx::Cont
         exit(1);
     }
 
-    CreateImGuiImplCommon(impl, window.images.length, window.swapchain_format, vk, std::move(config));
+    CreateImGuiImplCommon(impl, window.images.length, window.swapchain_format, instance, device, std::move(config));
 }
 
-void DestroyImGuiImpl(ImGuiImpl* impl, gfx::Context& vk) {
+void DestroyImGuiImpl(ImGuiImpl* impl, gfx::Device& device) {
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Data* bd = ImGui_ImplGlfw_GetBackendData();
     if (bd) {
@@ -165,7 +165,7 @@ void DestroyImGuiImpl(ImGuiImpl* impl, gfx::Context& vk) {
     }
     ImGui::DestroyContext();
 
-    vkDestroyRenderPass(vk.device, impl->render_pass, 0);
+    vkDestroyRenderPass(device.device, impl->render_pass, 0);
 }
 
 
