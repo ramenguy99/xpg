@@ -11,18 +11,18 @@
 
 #include <xpg/gfx.h>
 
-struct Context;
+struct Device;
 
 struct GfxObject: nanobind::intrusive_base {
     GfxObject() {}
-    GfxObject(nanobind::ref<Context> ctx, bool owned, std::optional<nanobind::str> name = std::nullopt)
-        : ctx(std::move(ctx))
+    GfxObject(nanobind::ref<Device> device, bool owned, std::optional<nanobind::str> name = std::nullopt)
+        : device(std::move(device))
         , owned(owned)
         , name(std::move(name))
     {}
 
     // Reference to main context
-    nanobind::ref<Context> ctx;
+    nanobind::ref<Device> device;
 
     // If set the underlying object should be freed on destruction.
     // User created objects normally have this set to true,
@@ -65,7 +65,7 @@ struct DescriptorPoolSize: VkDescriptorPoolSize {
 };
 
 struct DescriptorSetLayout: GfxObject {
-    DescriptorSetLayout(nanobind::ref<Context> ctx, std::vector<nanobind::ref<DescriptorSetBinding>> bindings, VkDescriptorSetLayoutCreateFlagBits flags, std::optional<nanobind::str> name);
+    DescriptorSetLayout(nanobind::ref<Device> device, std::vector<nanobind::ref<DescriptorSetBinding>> bindings, VkDescriptorSetLayoutCreateFlagBits flags, std::optional<nanobind::str> name);
     ~DescriptorSetLayout();
     void destroy();
 
@@ -76,7 +76,7 @@ struct DescriptorSetLayout: GfxObject {
 struct DescriptorSet;
 
 struct DescriptorPool: GfxObject {
-    DescriptorPool(nanobind::ref<Context> ctx, const std::vector<DescriptorPoolSize>& sizes, u32 max_sets, VkDescriptorPoolCreateFlagBits flags, std::optional<nanobind::str> name);
+    DescriptorPool(nanobind::ref<Device> device, const std::vector<DescriptorPoolSize>& sizes, u32 max_sets, VkDescriptorPoolCreateFlagBits flags, std::optional<nanobind::str> name);
     ~DescriptorPool();
     void destroy();
 
@@ -88,7 +88,7 @@ struct DescriptorPool: GfxObject {
 };
 
 struct DescriptorSet: GfxObject {
-    DescriptorSet(nanobind::ref<Context> ctx, nanobind::ref<DescriptorPool> pool, xpg::gfx::DescriptorSet set, std::optional<nanobind::str> name);
+    DescriptorSet(nanobind::ref<Device> device, nanobind::ref<DescriptorPool> pool, xpg::gfx::DescriptorSet set, std::optional<nanobind::str> name);
 
     void write_buffer(const Buffer& buffer, VkDescriptorType type, u32 binding, u32 element, VkDeviceSize offset, VkDeviceSize size);
     void write_image(const Image& image, VkImageLayout layout, VkDescriptorType type, u32 binding, u32 element);

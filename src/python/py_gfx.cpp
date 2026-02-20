@@ -35,12 +35,12 @@ namespace nb = nanobind;
 using namespace xpg;
 
 #define DEBUG_UTILS_OBJECT_NAME_WITH_NAME(type, obj, name) \
-    if(obj && ctx->vk.debug_utils_enabled && (name).has_value()) { \
+    if(obj && device->device.debug_utils_enabled && (name).has_value()) { \
         VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT }; \
         name_info.objectType = type; \
         name_info.objectHandle = (u64)obj; \
         name_info.pObjectName = (name).value().c_str(); \
-        vkSetDebugUtilsObjectNameEXT(ctx->vk.device, &name_info); \
+        vkSetDebugUtilsObjectNameEXT(device->device.device, &name_info); \
     }
 
 #define DEBUG_UTILS_OBJECT_NAME(type, obj) DEBUG_UTILS_OBJECT_NAME_WITH_NAME(type, obj, this->name)
@@ -171,17 +171,10 @@ struct DeviceProperties: nb::intrusive_base {
     nb::ref<DeviceMeshShaderProperties> mesh_shader_properties;
 };
 
-struct Context: nb::intrusive_base {
-    Context(
+struct Instance: nb::intrusive_base {
+    Instance(
         std::tuple<u32, u32> version,
-        gfx::DeviceFeatures::Flags required_features,
-        gfx::DeviceFeatures::Flags optional_features,
         bool presentation,
-        u32 preferred_frames_in_flight,
-        VkImageUsageFlagBits preferred_swapchain_usage_flags,
-        bool vsync,
-        u32 force_physical_device_index,
-        bool prefer_discrete_gpu,
         bool enable_debug_utils,
         bool enable_validation_layer,
         bool enable_gpu_based_validation,
@@ -194,20 +187,49 @@ struct Context: nb::intrusive_base {
             throw std::runtime_error("Failed to initialize platform");
         }
 
-        result = gfx::CreateContext(&vk, {
+        result = gfx::CreateInstance(&instance, {
             .minimum_api_version = VK_MAKE_API_VERSION(0, std::get<0>(version), std::get<1>(version), 0),
-            .force_physical_device_index = force_physical_device_index,
-            .prefer_discrete_gpu = prefer_discrete_gpu,
-            .required_features = required_features,
-            .optional_features = optional_features,
             .require_presentation = presentation,
-            .preferred_frames_in_flight = preferred_frames_in_flight,
-            .preferred_swapchain_usage_flags = (VkImageUsageFlags)preferred_swapchain_usage_flags,
-            .vsync = vsync,
             .enable_debug_utils = enable_debug_utils,
             .enable_validation_layer = enable_validation_layer,
             .enable_gpu_based_validation = enable_gpu_based_validation,
             .enable_synchronization_validation = enable_synchronization_validation,
+        });
+
+        if (result != gfx::Result::SUCCESS) {
+            throw std::runtime_error("Failed to initialize vulkan");
+        }
+    }
+
+    ~Instance() {
+        logging::info("gfx", "destroying instance");
+        gfx::DestroyInstance(&instance);
+        logging::info("gfx", "instance destroyed");
+    }
+
+    gfx::Instance instance;
+};
+
+struct Device: nb::intrusive_base {
+    Device(
+        nb::ref<Instance> instance,
+        std::tuple<u32, u32> version,
+        gfx::DeviceFeatures::Flags required_features,
+        gfx::DeviceFeatures::Flags optional_features,
+        bool presentation,
+        u32 force_physical_device_index,
+        bool prefer_discrete_gpu
+    )
+    : instance(instance)
+    {
+        gfx::Result result;
+        result = gfx::CreateDevice(&device, instance->instance, {
+            .minimum_api_version = VK_MAKE_API_VERSION(0, std::get<0>(version), std::get<1>(version), 0),
+            .require_presentation = presentation,
+            .force_physical_device_index = force_physical_device_index,
+            .prefer_discrete_gpu = prefer_discrete_gpu,
+            .required_features = required_features,
+            .optional_features = optional_features,
         });
 
         if (result != gfx::Result::SUCCESS) {
@@ -218,37 +240,38 @@ struct Context: nb::intrusive_base {
         VkPhysicalDeviceSubgroupProperties subgroup_properties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES };
         properties.pNext = &subgroup_properties;
         VkPhysicalDeviceSubgroupSizeControlProperties subgroup_size_control_properties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES };
-        if (vk.device_features & gfx::DeviceFeatures::SUBGROUP_SIZE_CONTROL) {
+        if (device.device_features & gfx::DeviceFeatures::SUBGROUP_SIZE_CONTROL) {
             subgroup_size_control_properties.pNext = properties.pNext;
             properties.pNext = &subgroup_size_control_properties;
         }
 
         VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT };
-        if (vk.device_features & gfx::DeviceFeatures::MESH_SHADER) {
+        if (device.device_features & gfx::DeviceFeatures::MESH_SHADER) {
             mesh_shader_properties.pNext = properties.pNext;
             properties.pNext = &mesh_shader_properties;
         }
 
-        if (vk.device_version >= VK_API_VERSION_1_1) {
-            vkGetPhysicalDeviceProperties2(vk.physical_device, &properties);
+        if (device.version >= VK_API_VERSION_1_1) {
+            vkGetPhysicalDeviceProperties2(device.physical_device, &properties);
         } else {
-            vkGetPhysicalDeviceProperties(vk.physical_device, &properties.properties);
+            vkGetPhysicalDeviceProperties(device.physical_device, &properties.properties);
         }
         device_properties = new DeviceProperties(properties.properties, subgroup_properties, subgroup_size_control_properties, mesh_shader_properties);
 
         VkPhysicalDeviceMemoryProperties vk_memory_properties;
-        vkGetPhysicalDeviceMemoryProperties(vk.physical_device, &vk_memory_properties);
+        vkGetPhysicalDeviceMemoryProperties(device.physical_device, &vk_memory_properties);
         memory_properties = new MemoryProperties(vk_memory_properties);
     }
 
-    ~Context() {
-        gfx::WaitIdle(vk);
-        logging::info("gfx", "destroying context");
-        gfx::DestroyContext(&vk);
-        logging::info("gfx", "done");
+    ~Device() {
+        gfx::WaitIdle(device);
+        logging::info("gfx", "destroying device");
+        gfx::DestroyDevice(&device);
+        logging::info("gfx", "device destroyed");
     }
 
-    gfx::Context vk;
+    nb::ref<Instance> instance;
+    gfx::Device device;
     nb::ref<DeviceProperties> device_properties;
     nb::ref<MemoryProperties> memory_properties;
 };
@@ -268,11 +291,11 @@ struct AllocInfo: nb::intrusive_base {
 };
 
 struct Buffer: GfxObject {
-    Buffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, std::optional<nb::str> name)
-        : GfxObject(ctx, true, std::move(name))
+    Buffer(nb::ref<Device> device, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, std::optional<nb::str> name)
+        : GfxObject(device, true, std::move(name))
         , size(size)
     {
-        VkResult vkr = gfx::CreateBuffer(&buffer, ctx->vk, size, {
+        VkResult vkr = gfx::CreateBuffer(&buffer, device->device, size, {
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
         });
@@ -281,18 +304,18 @@ struct Buffer: GfxObject {
         }
 
         VmaAllocationInfo2 alloc_info = {};
-        vmaGetAllocationInfo2(ctx->vk.vma, buffer.allocation, &alloc_info);
+        vmaGetAllocationInfo2(device->device.vma, buffer.allocation, &alloc_info);
         alloc = new AllocInfo(alloc_info);
 
         if (usage_flags & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
-            device_address = gfx::GetBufferAddress(buffer.buffer, ctx->vk.device);
+            device_address = gfx::GetBufferAddress(buffer.buffer, device->device.device);
         }
 
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_BUFFER, buffer.buffer);
     }
 
-    Buffer(nb::ref<Context> ctx, size_t size, std::optional<nb::str> name)
-        : GfxObject(ctx, true, std::move(name))
+    Buffer(nb::ref<Device> device, size_t size, std::optional<nb::str> name)
+        : GfxObject(device, true, std::move(name))
         , size(size)
     { }
 
@@ -302,11 +325,11 @@ struct Buffer: GfxObject {
 
     void destroy() {
         if(owned) {
-            gfx::DestroyBuffer(&buffer, ctx->vk);
+            gfx::DestroyBuffer(&buffer, device->device);
         }
     }
 
-    static nb::ref<Buffer> from_data(nb::ref<Context> ctx, nb::object data, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, std::optional<nb::str> name) {
+    static nb::ref<Buffer> from_data(nb::ref<Device> device, nb::object data, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, std::optional<nb::str> name) {
         Py_buffer view;
         if (PyObject_GetBuffer(data.ptr(), &view, PyBUF_SIMPLE) != 0) {
             throw nb::python_error();
@@ -317,8 +340,8 @@ struct Buffer: GfxObject {
             throw std::runtime_error("Data buffer must be contiguous");
         }
 
-        std::unique_ptr<Buffer> self = std::make_unique<Buffer>(ctx, view.len, std::move(name));
-        VkResult vkr = gfx::CreateBufferFromData(&self->buffer, ctx->vk, ArrayView<u8>((u8*)view.buf, view.len), {
+        std::unique_ptr<Buffer> self = std::make_unique<Buffer>(device, view.len, std::move(name));
+        VkResult vkr = gfx::CreateBufferFromData(&self->buffer, device->device, ArrayView<u8>((u8*)view.buf, view.len), {
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
         });
@@ -329,11 +352,11 @@ struct Buffer: GfxObject {
         }
 
         VmaAllocationInfo2 alloc_info = {};
-        vmaGetAllocationInfo2(ctx->vk.vma, self->buffer.allocation, &alloc_info);
+        vmaGetAllocationInfo2(device->device.vma, self->buffer.allocation, &alloc_info);
         self->alloc = new AllocInfo(alloc_info);
 
         if (usage_flags & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
-            self->device_address = gfx::GetBufferAddress(self->buffer.buffer, ctx->vk.device);
+            self->device_address = gfx::GetBufferAddress(self->buffer.buffer, device->device.device);
         }
 
         DEBUG_UTILS_OBJECT_NAME_WITH_NAME(VK_OBJECT_TYPE_BUFFER, self->buffer.buffer, self->name);
@@ -401,14 +424,14 @@ PyType_Slot buffer_slots[] = {
 };
 
 struct Fence: GfxObject {
-    Fence(nb::ref<Context> ctx, bool signaled, std::optional<nb::str> name)
-        : GfxObject(ctx, true, std::move(name))
+    Fence(nb::ref<Device> device, bool signaled, std::optional<nb::str> name)
+        : GfxObject(device, true, std::move(name))
     {
         VkFenceCreateInfo fence_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
         if (signaled) {
             fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         }
-        VkResult vkr = vkCreateFence(ctx->vk.device, &fence_info, 0, &fence);
+        VkResult vkr = vkCreateFence(device->device.device, &fence_info, 0, &fence);
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to create fence", vkr);
         }
@@ -417,7 +440,7 @@ struct Fence: GfxObject {
     }
 
     bool is_signaled() {
-        VkResult vkr = vkGetFenceStatus(ctx->vk.device, fence);
+        VkResult vkr = vkGetFenceStatus(device->device.device, fence);
         if (vkr == VK_ERROR_DEVICE_LOST) {
             throw VulkanError("Device lost while checking fence status", vkr);
         }
@@ -426,10 +449,10 @@ struct Fence: GfxObject {
 
     void wait() {
         nb::gil_scoped_release gil;
-        vkWaitForFences(ctx->vk.device, 1, &fence, VK_TRUE, ~0U);
+        vkWaitForFences(device->device.device, 1, &fence, VK_TRUE, ~0U);
     }
     void reset() {
-        vkResetFences(ctx->vk.device, 1, &fence);
+        vkResetFences(device->device.device, 1, &fence);
     }
 
     void wait_and_reset() {
@@ -439,7 +462,7 @@ struct Fence: GfxObject {
 
     void destroy() {
         if (owned) {
-            vkDestroyFence(ctx->vk.device, fence, 0);
+            vkDestroyFence(device->device.device, fence, 0);
             fence = VK_NULL_HANDLE;
         }
     }
@@ -452,22 +475,22 @@ struct Fence: GfxObject {
 };
 
 struct Semaphore: GfxObject {
-    Semaphore(nb::ref<Context> ctx, std::optional<nb::str> name, bool external)
-        : GfxObject(ctx, true, std::move(name))
+    Semaphore(nb::ref<Device> device, std::optional<nb::str> name, bool external)
+        : GfxObject(device, true, std::move(name))
     {
-        VkResult vkr = gfx::CreateGPUSemaphore(ctx->vk.device, &semaphore, external);
+        VkResult vkr = gfx::CreateGPUSemaphore(device->device.device, &semaphore, external);
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to create semaphore", vkr);
         }
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_SEMAPHORE, semaphore);
     }
-    Semaphore(nb::ref<Context> ctx, std::optional<nb::str> name): Semaphore(ctx, std::move(name), false) { }
+    Semaphore(nb::ref<Device> device, std::optional<nb::str> name): Semaphore(device, std::move(name), false) { }
 
     Semaphore(): semaphore(VK_NULL_HANDLE) {}
 
     void destroy() {
         if (owned) {
-            gfx::DestroyGPUSemaphore(ctx->vk.device, &semaphore);
+            gfx::DestroyGPUSemaphore(device->device.device, &semaphore);
         }
     }
 
@@ -479,17 +502,17 @@ struct Semaphore: GfxObject {
 };
 
 struct TimelineSemaphore: Semaphore {
-    TimelineSemaphore(nb::ref<Context> ctx, u64 initial_value, std::optional<nb::str> name, bool external)
+    TimelineSemaphore(nb::ref<Device> device, u64 initial_value, std::optional<nb::str> name, bool external)
     {
-        this->ctx = ctx;
+        this->device = device;
         this->owned = true;
         this->name = std::move(name);
 
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::TIMELINE_SEMAPHORES)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::TIMELINE_SEMAPHORES)) {
             throw std::runtime_error("Device feature TIMELINE_SEMAPHORES must be set to use TimelineSemaphore");
         }
 
-        VkResult vkr = gfx::CreateGPUTimelineSemaphore(ctx->vk.device, &this->semaphore, initial_value, external);
+        VkResult vkr = gfx::CreateGPUTimelineSemaphore(device->device.device, &this->semaphore, initial_value, external);
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to create semaphore", vkr);
         }
@@ -501,7 +524,7 @@ struct TimelineSemaphore: Semaphore {
         VkSemaphoreSignalInfoKHR signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO_KHR };
         signal_info.semaphore = semaphore;
         signal_info.value = value;
-        VkResult vkr = vkSignalSemaphoreKHR(ctx->vk.device, &signal_info);
+        VkResult vkr = vkSignalSemaphoreKHR(device->device.device, &signal_info);
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to signal semaphore", vkr);
         }
@@ -516,7 +539,7 @@ struct TimelineSemaphore: Semaphore {
         VkResult vkr;
         {
             nb::gil_scoped_release gil;
-            vkr = vkWaitSemaphoresKHR(ctx->vk.device, &wait_info, ~0ULL);
+            vkr = vkWaitSemaphoresKHR(device->device.device, &wait_info, ~0ULL);
         }
 
         if (vkr != VK_SUCCESS) {
@@ -526,19 +549,19 @@ struct TimelineSemaphore: Semaphore {
 
     u64 get_value() {
         u64 value;
-        VkResult vkr = vkGetSemaphoreCounterValueKHR(ctx->vk.device, semaphore, &value);
+        VkResult vkr = vkGetSemaphoreCounterValueKHR(device->device.device, semaphore, &value);
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to get semaphore counter value", vkr);
         }
         return value;
     }
 
-    TimelineSemaphore(nb::ref<Context> ctx, u64 initial_value, std::optional<nb::str> name): TimelineSemaphore(ctx, initial_value, std::move(name), false) { }
+    TimelineSemaphore(nb::ref<Device> device, u64 initial_value, std::optional<nb::str> name): TimelineSemaphore(device, initial_value, std::move(name), false) { }
 };
 
 struct ExternalSemaphore: Semaphore {
-    ExternalSemaphore(nb::ref<Context> ctx, std::optional<nb::str> name): Semaphore(ctx, std::move(name), true) {
-        VkResult vkr = gfx::GetExternalHandleForSemaphore(&handle, ctx->vk, semaphore);
+    ExternalSemaphore(nb::ref<Device> device, std::optional<nb::str> name): Semaphore(device, std::move(name), true) {
+        VkResult vkr = gfx::GetExternalHandleForSemaphore(&handle, device->device, semaphore);
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to get handle for semaphore", vkr);
         }
@@ -559,8 +582,8 @@ struct ExternalSemaphore: Semaphore {
 };
 
 struct ExternalTimelineSemaphore: TimelineSemaphore {
-    ExternalTimelineSemaphore(nb::ref<Context> ctx, u64 initial_value, std::optional<nb::str> name): TimelineSemaphore(ctx, initial_value, std::move(name), true) {
-        VkResult vkr = gfx::GetExternalHandleForSemaphore(&handle, ctx->vk, semaphore);
+    ExternalTimelineSemaphore(nb::ref<Device> device, u64 initial_value, std::optional<nb::str> name): TimelineSemaphore(device, initial_value, std::move(name), true) {
+        VkResult vkr = gfx::GetExternalHandleForSemaphore(&handle, device->device, semaphore);
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to get handle for semaphore", vkr);
         }
@@ -581,11 +604,11 @@ struct ExternalTimelineSemaphore: TimelineSemaphore {
 };
 
 struct ExternalBuffer: Buffer {
-    ExternalBuffer(nb::ref<Context> ctx, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, std::optional<nb::str> name)
-        : Buffer(ctx, size, std::move(name))
+    ExternalBuffer(nb::ref<Device> device, usize size, VkBufferUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type, std::optional<nb::str> name)
+        : Buffer(device, size, std::move(name))
     {
         VkResult vkr;
-        vkr = gfx::CreatePoolForBuffer(&pool, ctx->vk, {
+        vkr = gfx::CreatePoolForBuffer(&pool, device->device, {
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
             .external = true,
@@ -594,7 +617,7 @@ struct ExternalBuffer: Buffer {
             throw VulkanError("Failed to create pool", vkr);
         }
 
-        vkr = gfx::CreateBuffer(&buffer, ctx->vk, size, {
+        vkr = gfx::CreateBuffer(&buffer, device->device, size, {
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
             .pool = pool.pool,
@@ -604,7 +627,7 @@ struct ExternalBuffer: Buffer {
             throw VulkanError("Failed to create buffer", vkr);
         }
 
-        vkr = gfx::GetExternalHandleForBuffer(&handle, ctx->vk, buffer);
+        vkr = gfx::GetExternalHandleForBuffer(&handle, device->device, buffer);
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to get external handle", vkr);
         }
@@ -620,7 +643,7 @@ struct ExternalBuffer: Buffer {
         if(owned) {
             gfx::CloseExternalHandle(&handle);
             Buffer::destroy();
-            gfx::DestroyPool(&pool, ctx->vk);
+            gfx::DestroyPool(&pool, device->device);
         }
     }
 
@@ -1087,11 +1110,11 @@ struct ImageBarrier: nanobind::intrusive_base {
 };
 
 struct Image: GfxObject {
-    Image(nb::ref<Context> ctx, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags,
+    Image(nb::ref<Device> device, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags,
         gfx::AllocPresets::Type alloc_type, u32 depth, u32 mip_levels, u32 array_layers,
         bool is_cube, VkImageCreateFlagBits create_flags, int samples, std::optional<nb::str> name
     )
-        : GfxObject(ctx, true, std::move(name))
+        : GfxObject(device, true, std::move(name))
         , width(width)
         , height(height)
         , format(format)
@@ -1120,7 +1143,7 @@ struct Image: GfxObject {
             }
         }
 
-        VkResult vkr = gfx::CreateImage(&image, ctx->vk, {
+        VkResult vkr = gfx::CreateImage(&image, device->device, {
             .width = width,
             .height = height,
             .depth = depth,
@@ -1138,14 +1161,14 @@ struct Image: GfxObject {
         }
 
         VmaAllocationInfo2 alloc_info = {};
-        vmaGetAllocationInfo2(ctx->vk.vma, image.allocation, &alloc_info);
+        vmaGetAllocationInfo2(device->device.vma, image.allocation, &alloc_info);
         alloc = new AllocInfo(alloc_info);
 
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_IMAGE, image.image);
     }
 
-    Image(nb::ref<Context> ctx, VkImage image, VkImageView view, u32 width, u32 height, VkFormat format, u32 samples)
-        : GfxObject(ctx, false)
+    Image(nb::ref<Device> device, VkImage image, VkImageView view, u32 width, u32 height, VkFormat format, u32 samples)
+        : GfxObject(device, false)
         , width(width)
         , height(height)
         , format(format)
@@ -1156,8 +1179,8 @@ struct Image: GfxObject {
         this->image.allocation = 0;
     }
 
-    Image(nb::ref<Context> ctx, std::optional<nb::str> name)
-        : GfxObject(ctx, true, std::move(name))
+    Image(nb::ref<Device> device, std::optional<nb::str> name)
+        : GfxObject(device, true, std::move(name))
     { }
 
     ~Image() {
@@ -1166,11 +1189,11 @@ struct Image: GfxObject {
 
     void destroy() {
         if(owned) {
-            gfx::DestroyImage(&image, ctx->vk);
+            gfx::DestroyImage(&image, device->device);
         }
     }
 
-    static nb::ref<Image> from_data(nb::ref<Context> ctx, nb::object data, VkImageLayout layout,
+    static nb::ref<Image> from_data(nb::ref<Device> device, nb::object data, VkImageLayout layout,
         u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type,
         u32 depth, u32 mip_levels, u32 array_layers, VkImageCreateFlagBits create_flags, int samples, std::optional<nb::str> name
     )
@@ -1185,8 +1208,8 @@ struct Image: GfxObject {
             throw std::runtime_error("Data buffer must be contiguous");
         }
 
-        std::unique_ptr<Image> self = std::make_unique<Image>(ctx, std::move(name));
-        VkResult vkr = gfx::CreateAndUploadImage(&self->image, ctx->vk, ArrayView<u8>((u8*)view.buf, view.len), layout, {
+        std::unique_ptr<Image> self = std::make_unique<Image>(device, std::move(name));
+        VkResult vkr = gfx::CreateAndUploadImage(&self->image, device->device, ArrayView<u8>((u8*)view.buf, view.len), layout, {
             .width = width,
             .height = height,
             .depth = depth,
@@ -1205,7 +1228,7 @@ struct Image: GfxObject {
         }
 
         VmaAllocationInfo2 alloc_info = {};
-        vmaGetAllocationInfo2(ctx->vk.vma, self->image.allocation, &alloc_info);
+        vmaGetAllocationInfo2(device->device.vma, self->image.allocation, &alloc_info);
 
         self->width = width;
         self->height = height;
@@ -1237,7 +1260,7 @@ struct Image: GfxObject {
 
 struct ImageView: GfxObject {
     ImageView(
-        nb::ref<Context> ctx,
+        nb::ref<Device> device,
         nb::ref<Image> image,
         VkImageViewType type,
         std::optional<VkFormat> format,
@@ -1249,7 +1272,7 @@ struct ImageView: GfxObject {
         VkImageUsageFlags usage_flags,
         std::optional<nb::str> name
     )
-        : GfxObject(ctx, true, std::move(name))
+        : GfxObject(device, true, std::move(name))
         , image(image)
         , type(type)
         , format(format.value_or(image->format))
@@ -1275,7 +1298,7 @@ struct ImageView: GfxObject {
             info.pNext = &view_usage_info;
         }
 
-        VkResult vkr = vkCreateImageView(ctx->vk.device, &info, NULL, &this->view);
+        VkResult vkr = vkCreateImageView(device->device.device, &info, NULL, &this->view);
 
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to create image view", vkr);
@@ -1288,7 +1311,7 @@ struct ImageView: GfxObject {
 
     void destroy() {
         if(owned) {
-            vkDestroyImageView(ctx->vk.device, view, NULL);
+            vkDestroyImageView(device->device.device, view, NULL);
             view = VK_NULL_HANDLE;
         }
     }
@@ -1309,7 +1332,7 @@ struct ImageView: GfxObject {
 
 struct Sampler: GfxObject {
     Sampler(
-        nb::ref<Context> ctx,
+        nb::ref<Device> device,
         VkFilter min_filter,
         VkFilter mag_filter,
         VkSamplerMipmapMode mipmap_mode,
@@ -1325,9 +1348,9 @@ struct Sampler: GfxObject {
         VkCompareOp compare_op,
         VkBorderColor border_color,
         std::optional<nb::str> name
-    ) : GfxObject(ctx, true, std::move(name))
+    ) : GfxObject(device, true, std::move(name))
     {
-        VkResult vkr = gfx::CreateSampler(&sampler, ctx->vk, gfx::SamplerDesc {
+        VkResult vkr = gfx::CreateSampler(&sampler, device->device, gfx::SamplerDesc {
             .min_filter =        min_filter,
             .mag_filter =        mag_filter,
             .mipmap_mode =       mipmap_mode,
@@ -1357,7 +1380,7 @@ struct Sampler: GfxObject {
 
     void destroy() {
         if(owned) {
-            gfx::DestroySampler(&sampler, ctx->vk);
+            gfx::DestroySampler(&sampler, device->device);
         }
     }
 
@@ -1372,12 +1395,12 @@ struct DescriptorSet;
 struct Buffer;
 
 struct QueryPool: GfxObject {
-    QueryPool(nb::ref<Context> ctx, VkQueryType type, u32 count, std::optional<nb::str> name)
-        : GfxObject(ctx, true, std::move(name))
+    QueryPool(nb::ref<Device> device, VkQueryType type, u32 count, std::optional<nb::str> name)
+        : GfxObject(device, true, std::move(name))
         , count(count)
         , type(type)
     {
-        VkResult vkr = gfx::CreateQueryPool(&pool, ctx->vk, {
+        VkResult vkr = gfx::CreateQueryPool(&pool, device->device, {
             .type = type,
             .count = count,
         });
@@ -1393,7 +1416,7 @@ struct QueryPool: GfxObject {
 
     void destroy() {
         if(owned) {
-            gfx::DestroyQueryPool(&pool, ctx->vk);
+            gfx::DestroyQueryPool(&pool, device->device);
         }
     }
 
@@ -1403,7 +1426,7 @@ struct QueryPool: GfxObject {
         }
 
         std::vector<u64> data(count);
-        VkResult vkr = vkGetQueryPoolResults(ctx->vk.device, pool, first, count, sizeof(u64) * count, data.data(), sizeof(u64),
+        VkResult vkr = vkGetQueryPoolResults(device->device.device, pool, first, count, sizeof(u64) * count, data.data(), sizeof(u64),
                                              VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to get query pool results", vkr);
@@ -1459,14 +1482,14 @@ void check_vector_of_ref_for_null(const std::vector<nb::ref<T>>& v, const char* 
 }
 
 struct CommandBuffer: GfxObject {
-    CommandBuffer(nb::ref<Context> ctx, std::optional<u32> queue_family_index, std::optional<nb::str> name)
-        : GfxObject(ctx, true, std::move(name))
+    CommandBuffer(nb::ref<Device> device, std::optional<u32> queue_family_index, std::optional<nb::str> name)
+        : GfxObject(device, true, std::move(name))
     {
         VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
         pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-        pool_info.queueFamilyIndex = queue_family_index.value_or(ctx->vk.queue_family_index);
+        pool_info.queueFamilyIndex = queue_family_index.value_or(device->device.graphics_queue_family_index);
 
-        VkResult vkr = vkCreateCommandPool(ctx->vk.device, &pool_info, 0, &pool);
+        VkResult vkr = vkCreateCommandPool(device->device.device, &pool_info, 0, &pool);
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to create command pool", vkr);
         }
@@ -1476,7 +1499,7 @@ struct CommandBuffer: GfxObject {
         allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocate_info.commandBufferCount = 1;
 
-        vkr = vkAllocateCommandBuffers(ctx->vk.device, &allocate_info, &buffer);
+        vkr = vkAllocateCommandBuffers(device->device.device, &allocate_info, &buffer);
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to create command buffer", vkr);
         }
@@ -1484,8 +1507,8 @@ struct CommandBuffer: GfxObject {
         DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_POOL, pool);
     }
 
-    CommandBuffer(nb::ref<Context> ctx, VkCommandPool pool, VkCommandBuffer buffer)
-        : GfxObject(ctx, false)
+    CommandBuffer(nb::ref<Device> device, VkCommandPool pool, VkCommandBuffer buffer)
+        : GfxObject(device, false)
         , pool(pool)
         , buffer(buffer)
     {}
@@ -1494,7 +1517,7 @@ struct CommandBuffer: GfxObject {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
 
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use memory_barrier");
         }
 
@@ -1517,7 +1540,7 @@ struct CommandBuffer: GfxObject {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
 
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use buffer_barrier");
         }
 
@@ -1565,7 +1588,7 @@ struct CommandBuffer: GfxObject {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
 
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
         }
 
@@ -1608,7 +1631,7 @@ struct CommandBuffer: GfxObject {
     }
 
     void memory_barrier_full(nb::ref<MemoryBarrier> memory_barrier) {
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
         }
 
@@ -1622,7 +1645,7 @@ struct CommandBuffer: GfxObject {
     }
 
     void buffer_barrier_full(nb::ref<BufferBarrier> buffer_barrier) {
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
         }
 
@@ -1641,7 +1664,7 @@ struct CommandBuffer: GfxObject {
     }
 
     void image_barrier_full(nb::ref<ImageBarrier> image_barrier) {
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
         }
 
@@ -1671,7 +1694,7 @@ struct CommandBuffer: GfxObject {
         const std::vector<nb::ref<BufferBarrier>> buffer_barriers,
         std::vector<nb::ref<ImageBarrier>> image_barriers
     ) {
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
         }
 
@@ -1738,7 +1761,7 @@ struct CommandBuffer: GfxObject {
     }
 
     void begin() {
-        VkResult vkr = gfx::BeginCommands(pool, buffer, ctx->vk);
+        VkResult vkr = gfx::BeginCommands(pool, buffer, device->device);
         if(vkr != VK_SUCCESS) {
             throw VulkanError("Failed to begin commands", vkr);
         }
@@ -1787,7 +1810,7 @@ struct CommandBuffer: GfxObject {
     }
 
     void begin_rendering(std::array<u32, 4> render_area, const std::vector<nb::ref<RenderingAttachment>>& color, std::optional<nb::ref<DepthAttachment>> depth) {
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::DYNAMIC_RENDERING)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::DYNAMIC_RENDERING)) {
             throw std::runtime_error("Device feature DYNAMIC_RENDERING must be set to use begin_rendering");
         }
 
@@ -1834,7 +1857,7 @@ struct CommandBuffer: GfxObject {
     }
 
     void end_rendering() {
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::DYNAMIC_RENDERING)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::DYNAMIC_RENDERING)) {
             throw std::runtime_error("Device feature DYNAMIC_RENDERING must be set to use begin_rendering");
         }
 
@@ -1960,7 +1983,7 @@ struct CommandBuffer: GfxObject {
         u32 max_draw_count,
         u32 stride
     ) {
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
             throw std::runtime_error("Device feature DRAW_INDIRECT_COUNT must be set to use CommandBuffer.draw_indirect_count");
         }
         vkCmdDrawIndirectCount(buffer, buf->buffer.buffer, offset, count_buf->buffer.buffer, count_offset, max_draw_count, stride);
@@ -1993,7 +2016,7 @@ struct CommandBuffer: GfxObject {
         u32 max_draw_count,
         u32 stride
     ) {
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
             throw std::runtime_error("Device feature DRAW_INDIRECT_COUNT must be set to use CommandBuffer.draw_indexed_indirect_count");
         }
         vkCmdDrawIndexedIndirectCount(buffer, buf->buffer.buffer, offset, count_buf->buffer.buffer, count_offset, max_draw_count, stride);
@@ -2004,7 +2027,7 @@ struct CommandBuffer: GfxObject {
         u32 groups_y,
         u32 groups_z
     ) {
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
             throw std::runtime_error("Device feature MESH_SHADER must be set to use CommandBuffer.draw_mesh_tasks");
         }
         gfx::CmdDrawMeshTasks(buffer, groups_x, groups_y, groups_z);
@@ -2016,7 +2039,7 @@ struct CommandBuffer: GfxObject {
         u32 draw_count,
         u32 stride
     ) {
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
             throw std::runtime_error("Device feature MESH_SHADER must be set to use CommandBuffer.draw_mesh_tasks_indirect");
         }
         gfx::CmdDrawMeshTasksIndirect(buffer, buf->buffer.buffer, offset, draw_count, stride);
@@ -2030,10 +2053,10 @@ struct CommandBuffer: GfxObject {
         u32 max_draw_count,
         u32 stride
     ) {
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
             throw std::runtime_error("Device feature MESH_SHADER must be set to use CommandBuffer.draw_mesh_tasks_indirect_count");
         }
-        if (!(ctx->vk.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
+        if (!(device->device.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
             throw std::runtime_error("Device feature DRAW_INDIRECT_COUNT must be set to use CommandBuffer.draw_mesh_tasks_indirect_count");
         }
         gfx::CmdDrawMeshTasksIndirectCount(buffer, buf->buffer.buffer, offset, count_buf->buffer.buffer, count_offset, max_draw_count, stride);
@@ -2337,7 +2360,7 @@ struct CommandBuffer: GfxObject {
     }
 
     void begin_label(nb::str name, std::optional<std::tuple<float, float, float, float>> color) {
-        if (ctx->vk.debug_utils_enabled) {
+        if (device->device.debug_utils_enabled) {
             VkDebugUtilsLabelEXT label = { VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
             label.pLabelName = name.c_str();
             if (color.has_value()) {
@@ -2351,13 +2374,13 @@ struct CommandBuffer: GfxObject {
     }
 
     void end_label() {
-        if (ctx->vk.debug_utils_enabled) {
+        if (device->device.debug_utils_enabled) {
             vkCmdEndDebugUtilsLabelEXT(buffer);
         }
     }
 
     void insert_label(nb::str name, std::optional<std::tuple<float, float, float, float>> color) {
-        if (ctx->vk.debug_utils_enabled) {
+        if (device->device.debug_utils_enabled) {
             VkDebugUtilsLabelEXT label = { VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
             label.pLabelName = name.c_str();
             if (color.has_value()) {
@@ -2376,8 +2399,8 @@ struct CommandBuffer: GfxObject {
 
     void destroy() {
         if (owned) {
-            vkFreeCommandBuffers(ctx->vk.device, pool, 1, &buffer);
-            vkDestroyCommandPool(ctx->vk.device, pool, 0);
+            vkFreeCommandBuffers(device->device.device, pool, 1, &buffer);
+            vkDestroyCommandPool(device->device.device, pool, 0);
         }
     }
 
@@ -2390,13 +2413,13 @@ struct CommandBuffer: GfxObject {
 };
 
 struct Queue: GfxObject {
-    Queue(nb::ref<Context> ctx, VkQueue queue)
-        : GfxObject(ctx, false)
+    Queue(nb::ref<Device> device, VkQueue queue)
+        : GfxObject(device, false)
         , queue(queue)
     {}
 
     void begin_label(nb::str name, std::optional<std::tuple<float, float, float, float>> color) {
-        if (ctx->vk.debug_utils_enabled) {
+        if (device->device.debug_utils_enabled) {
             VkDebugUtilsLabelEXT label = { VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
             label.pLabelName = name.c_str();
             if (color.has_value()) {
@@ -2410,13 +2433,13 @@ struct Queue: GfxObject {
     }
 
     void end_label() {
-        if (ctx->vk.debug_utils_enabled) {
+        if (device->device.debug_utils_enabled) {
             vkQueueEndDebugUtilsLabelEXT(queue);
         }
     }
 
     void insert_label(nb::str name, std::optional<std::tuple<float, float, float, float>> color) {
-        if (ctx->vk.debug_utils_enabled) {
+        if (device->device.debug_utils_enabled) {
             VkDebugUtilsLabelEXT label = { VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
             label.pLabelName = name.c_str();
             if (color.has_value()) {
@@ -2465,7 +2488,7 @@ struct Queue: GfxObject {
         VkFence vk_fence = VK_NULL_HANDLE;
         if (fence.has_value()) {
             vk_fence = fence.value()->fence;
-            vkResetFences(ctx->vk.device, 1, &vk_fence);
+            vkResetFences(device->device.device, 1, &vk_fence);
         }
         VkResult vkr = gfx::SubmitQueue(queue, {
             .wait_semaphore_infos = Span(vk_wait_semaphores),
@@ -2532,13 +2555,32 @@ struct Window: nb::intrusive_base {
         return new FrameManager(this, std::move(additional_wait_semaphores), std::move(additional_signal_semaphores));
     }
 
-    Window(nb::ref<Context> ctx, const std::string& name, u32 width, u32 height, std::optional<u32> x, std::optional<u32> y)
-        : ctx(ctx)
+    Window(
+        nb::ref<Device> device,
+        const std::string& name,
+        u32 width,
+        u32 height,
+        std::optional<u32> x,
+        std::optional<u32> y,
+        u32 preferred_frames_in_flight,
+        VkImageUsageFlagBits preferred_swapchain_usage_flags,
+        bool vsync
+    )
+        : device(device)
     {
-        if (!ctx->vk.has_presentation) {
+        if (!device->device.has_presentation) {
             throw std::runtime_error("Cannot create Window if presentation was not requested at context creation time");
         }
-        if (CreateWindowWithSwapchain(&window, ctx->vk, name.c_str(), width, height, x.value_or(xpg::gfx::ANY_POSITION), y.value_or(xpg::gfx::ANY_POSITION)) != gfx::Result::SUCCESS) {
+        if (CreateWindowWithSwapchain(&window, device->instance->instance, device->device, {
+                .title = name.c_str(),
+                .width = width,
+                .height = height,
+                .x = x.value_or(xpg::gfx::ANY_POSITION),
+                .y = y.value_or(xpg::gfx::ANY_POSITION),
+                .preferred_frames_in_flight = preferred_frames_in_flight,
+                .preferred_swapchain_usage_flags = (VkImageUsageFlags)preferred_swapchain_usage_flags,
+                .vsync = vsync,
+            }) != gfx::Result::SUCCESS) {
             throw std::runtime_error("Failed to create window");
         }
     }
@@ -2643,7 +2685,7 @@ struct Window: nb::intrusive_base {
 
     gfx::SwapchainStatus update_swapchain()
     {
-        gfx::SwapchainStatus status = gfx::UpdateSwapchain(&window, ctx->vk);
+        gfx::SwapchainStatus status = gfx::UpdateSwapchain(&window, device->device);
         if (status == gfx::SwapchainStatus::FAILED) {
             throw std::runtime_error("Failed to update swapchain");
         }
@@ -2656,9 +2698,9 @@ struct Window: nb::intrusive_base {
         gfx::Frame* frame;
         {
             nb::gil_scoped_release gil;
-            frame = &gfx::WaitForFrame(&window, ctx->vk);
+            frame = &gfx::WaitForFrame(&window, device->device);
         }
-        gfx::Result ok = gfx::AcquireImage(frame, &window, ctx->vk);
+        gfx::Result ok = gfx::AcquireImage(frame, &window, device->device);
 
         if (ok == gfx::Result::SWAPCHAIN_OUT_OF_DATE) {
             throw SwapchainOutOfDateError();
@@ -2695,7 +2737,7 @@ struct Window: nb::intrusive_base {
             // Here we assume that the transition starts at the color_attachment_output stage and needs
             // to finish also at the color_attachment_output.
             // See: https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/6177
-            vkr = gfx::Submit(frame.frame, ctx->vk, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
+            vkr = gfx::Submit(frame.frame, device->device, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
         } else {
             Array<gfx::SemaphoreSubmitInfo> wait_semaphores(additional_wait_semaphores.size() + 1);
             for(usize i = 0; i < additional_wait_semaphores.size(); i++) {
@@ -2725,7 +2767,7 @@ struct Window: nb::intrusive_base {
                 .stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
             };
 
-            vkr = gfx::SubmitQueue(ctx->vk.queue, {
+            vkr = gfx::SubmitQueue(device->device.graphics_queue, {
                 .wait_semaphore_infos = Span(wait_semaphores),
                 .command_buffer_infos = {
                     {
@@ -2740,7 +2782,7 @@ struct Window: nb::intrusive_base {
             throw VulkanError("Failed to submit frame commands", vkr);
         }
 
-        vkr = gfx::PresentFrame(&window, &frame.frame, ctx->vk);
+        vkr = gfx::PresentFrame(&window, &frame.frame, device->device);
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to present frame", vkr);
         }
@@ -2752,9 +2794,9 @@ struct Window: nb::intrusive_base {
 
     ~Window()
     {
-        if (ctx) {
-            gfx::WaitIdle(ctx->vk);
-            gfx::DestroyWindowWithSwapchain(&window, ctx->vk);
+        if (device) {
+            gfx::WaitIdle(device->device);
+            gfx::DestroyWindowWithSwapchain(&window, device->instance->instance, device->device);
         }
     }
 
@@ -2766,7 +2808,7 @@ struct Window: nb::intrusive_base {
         return gfx::GetModifiersState(window);
     }
 
-    nb::ref<Context> ctx;
+    nb::ref<Device> device;
     gfx::Window window;
 
     Function<void()> draw;
@@ -2783,7 +2825,7 @@ struct Window: nb::intrusive_base {
 
         // If w->value has an associated CPython object, return it.
         // If not, value.ptr() will equal NULL, which is also fine.
-        nb::handle ctx                = nb::find(w->ctx.get());
+        nb::handle device             = nb::find(w->device.get());
         nb::handle draw               = nb::find(w->draw);
         nb::handle mouse_move_event   = nb::find(w->mouse_move_event);
         nb::handle mouse_button_event = nb::find(w->mouse_button_event);
@@ -2791,7 +2833,7 @@ struct Window: nb::intrusive_base {
         nb::handle key_event          = nb::find(w->key_event);
 
         // Inform the Python GC about the instance (if non-NULL)
-        Py_VISIT(ctx.ptr());
+        Py_VISIT(device.ptr());
         Py_VISIT(draw.ptr());
         Py_VISIT(mouse_move_event.ptr());
         Py_VISIT(mouse_button_event.ptr());
@@ -2896,9 +2938,9 @@ struct CommandsManager: nb::intrusive_base {
 
             {
                 nb::gil_scoped_release gil;
-                vkWaitForFences(cmd->ctx->vk.device, 1, &fence, VK_TRUE, ~0U);
+                vkWaitForFences(cmd->device->device.device, 1, &fence, VK_TRUE, ~0U);
             }
-            vkResetFences(cmd->ctx->vk.device, 1, &fence);
+            vkResetFences(cmd->device->device.device, 1, &fence);
         }
     }
 
@@ -2914,32 +2956,32 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
     : window(window)
     , frame(frame)
 {
-    image = new Image(window->ctx, frame.current_image, frame.current_image_view, window->window.fb_width, window->window.fb_height, window->window.swapchain_format, 1);
-    command_buffer = new CommandBuffer(window->ctx, frame.command_pool, frame.command_buffer);
-    if (window->ctx->vk.compute_queue) {
-        compute_command_buffer = new CommandBuffer(window->ctx, frame.compute_command_pool, frame.compute_command_buffer);
+    image = new Image(window->device, frame.current_image, frame.current_image_view, window->window.fb_width, window->window.fb_height, window->window.swapchain_format, 1);
+    command_buffer = new CommandBuffer(window->device, frame.command_pool, frame.command_buffer);
+    if (window->device->device.compute_queue) {
+        compute_command_buffer = new CommandBuffer(window->device, frame.compute_command_pool, frame.compute_command_buffer);
     }
-    if (window->ctx->vk.copy_queue) {
-        transfer_command_buffer = new CommandBuffer(window->ctx, frame.copy_command_pool, frame.copy_command_buffer);
+    if (window->device->device.transfer_queue) {
+        transfer_command_buffer = new CommandBuffer(window->device, frame.transfer_command_pool, frame.transfer_command_buffer);
     }
 }
 
 struct Gui: nb::intrusive_base {
     Gui(nb::ref<Window> window, std::optional<float> default_font_size, gui::DefaultFontPreference default_font_preference)
-        : ctx(window->ctx)
+        : device(window->device)
         , window(window)
     {
-        gui::CreateImGuiImpl(&imgui_impl, window->window, ctx->vk, {
+        gui::CreateImGuiImpl(&imgui_impl, window->window, device->instance->instance, device->device, {
             .default_font_size = default_font_size.value_or(0.0f),
             .default_font_preference = default_font_preference,
         });
         ImPlot::CreateContext();
     }
 
-    Gui(nb::ref<Context> ctx, u32 num_frames_in_flight, VkFormat format, std::optional<float> default_font_size, gui::DefaultFontPreference default_font_preference)
-        : ctx(ctx)
+    Gui(nb::ref<Instance> instance, nb::ref<Device> device, u32 num_frames_in_flight, VkFormat format, std::optional<float> default_font_size, gui::DefaultFontPreference default_font_preference)
+        : device(device)
     {
-        gui::CreateWindowlessImGuiImpl(&imgui_impl, num_frames_in_flight, format, ctx->vk, {
+        gui::CreateWindowlessImGuiImpl(&imgui_impl, num_frames_in_flight, format, instance->instance, device->device, {
             .default_font_size = default_font_size.value_or(0.0f),
             .default_font_preference = default_font_preference,
         });
@@ -2996,12 +3038,12 @@ struct Gui: nb::intrusive_base {
 
     ~Gui()
     {
-        gfx::WaitIdle(ctx->vk);
+        gfx::WaitIdle(device->device);
         ImPlot::DestroyContext();
-        gui::DestroyImGuiImpl(&imgui_impl, ctx->vk);
+        gui::DestroyImGuiImpl(&imgui_impl, device->device);
     }
 
-    nb::ref<Context> ctx;
+    nb::ref<Device> device;
     nb::ref<Window> window;
     gui::ImGuiImpl imgui_impl;
     std::optional<nb::str> ini_filename;
@@ -3077,10 +3119,10 @@ struct AccelerationStructureMesh: gfx::AccelerationStructureMeshDesc {
 static_assert(sizeof(AccelerationStructureMesh) == sizeof(gfx::AccelerationStructureMeshDesc));
 
 struct AccelerationStructure: GfxObject {
-    AccelerationStructure(nb::ref<Context> ctx, const std::vector<AccelerationStructureMesh>& meshes, bool prefer_fast_build, std::optional<nb::str> name)
-        : GfxObject(ctx, true, std::move(name))
+    AccelerationStructure(nb::ref<Device> device, const std::vector<AccelerationStructureMesh>& meshes, bool prefer_fast_build, std::optional<nb::str> name)
+        : GfxObject(device, true, std::move(name))
     {
-        VkResult vkr = gfx::CreateAccelerationStructure(&as, ctx->vk, gfx::AccelerationStructureDesc {
+        VkResult vkr = gfx::CreateAccelerationStructure(&as, device->device, gfx::AccelerationStructureDesc {
             .meshes = ArrayView((gfx::AccelerationStructureMeshDesc*)meshes.data(), meshes.size()),
             .prefer_fast_build = prefer_fast_build,
         });
@@ -3096,15 +3138,15 @@ struct AccelerationStructure: GfxObject {
 
     void destroy() {
         if(owned) {
-            gfx::DestroyAccelerationStructure(&as, ctx->vk);
+            gfx::DestroyAccelerationStructure(&as, device->device);
         }
     }
 
     gfx::AccelerationStructure as;
 };
 
-DescriptorSetLayout::DescriptorSetLayout(nanobind::ref<Context> ctx, std::vector<nb::ref<DescriptorSetBinding>> bindings, VkDescriptorSetLayoutCreateFlagBits flags, std::optional<nanobind::str> name)
-    : GfxObject(ctx, true, std::move(name))
+DescriptorSetLayout::DescriptorSetLayout(nanobind::ref<Device> device, std::vector<nb::ref<DescriptorSetBinding>> bindings, VkDescriptorSetLayoutCreateFlagBits flags, std::optional<nanobind::str> name)
+    : GfxObject(device, true, std::move(name))
     , bindings(std::move(bindings))
 {
     check_vector_of_ref_for_null(bindings, "elements of \"bindings\" must not be None");
@@ -3131,7 +3173,7 @@ DescriptorSetLayout::DescriptorSetLayout(nanobind::ref<Context> ctx, std::vector
             .flags = binding.flags,
         };
     }
-    VkResult vkr = gfx::CreateDescriptorSetLayout(&layout, ctx->vk, {
+    VkResult vkr = gfx::CreateDescriptorSetLayout(&layout, device->device, {
         .bindings = ArrayView(bindings_array),
         .flags = (VkDescriptorSetLayoutCreateFlags)flags,
     });
@@ -3149,14 +3191,14 @@ DescriptorSetLayout::~DescriptorSetLayout() {
 
 void DescriptorSetLayout::destroy() {
     if(owned) {
-        gfx::DestroyDescriptorSetLayout(&layout, ctx->vk);
+        gfx::DestroyDescriptorSetLayout(&layout, device->device);
     }
 }
 
-DescriptorPool::DescriptorPool(nanobind::ref<Context> ctx, const std::vector<DescriptorPoolSize>& sizes, u32 max_sets, VkDescriptorPoolCreateFlagBits flags, std::optional<nanobind::str> name)
-    : GfxObject(ctx, true, std::move(name))
+DescriptorPool::DescriptorPool(nanobind::ref<Device> device, const std::vector<DescriptorPoolSize>& sizes, u32 max_sets, VkDescriptorPoolCreateFlagBits flags, std::optional<nanobind::str> name)
+    : GfxObject(device, true, std::move(name))
 {
-    VkResult vkr = gfx::CreateDescriptorPool(&pool, ctx->vk, {
+    VkResult vkr = gfx::CreateDescriptorPool(&pool, device->device, {
         .sizes = ArrayView((VkDescriptorPoolSize*)sizes.data(), sizes.size()),
         .max_sets = max_sets,
         .flags = (VkDescriptorPoolCreateFlags)flags,
@@ -3175,13 +3217,13 @@ DescriptorPool::~DescriptorPool() {
 
 void DescriptorPool::destroy() {
     if(owned) {
-        gfx::DestroyDescriptorPool(&pool, ctx->vk);
+        gfx::DestroyDescriptorPool(&pool, device->device);
     }
 }
 
 nb::ref<DescriptorSet> DescriptorPool::allocate_descriptor_set(nb::ref<DescriptorSetLayout> layout, u32 variable_size_count, std::optional<nb::str> name) {
     gfx::DescriptorSet set = {};
-    VkResult vkr = gfx::AllocateDescriptorSet(&set, ctx->vk, {
+    VkResult vkr = gfx::AllocateDescriptorSet(&set, device->device, {
         .pool = pool,
         .layout = layout->layout,
         .variable_size_count = variable_size_count,
@@ -3190,19 +3232,19 @@ nb::ref<DescriptorSet> DescriptorPool::allocate_descriptor_set(nb::ref<Descripto
         throw VulkanError("Failed to create descriptor pool", vkr);
     }
 
-    return new DescriptorSet(ctx, this, set, std::move(name));
+    return new DescriptorSet(device, this, set, std::move(name));
 }
 
 void DescriptorPool::free_descriptor_set(nb::ref<DescriptorSet> set) {
-    gfx::FreeDescriptorSet(pool, set->set, ctx->vk);
+    gfx::FreeDescriptorSet(pool, set->set, device->device);
 }
 
 void DescriptorPool::reset() {
-    gfx::ResetDescriptorPool(pool, ctx->vk);
+    gfx::ResetDescriptorPool(pool, device->device);
 }
 
-DescriptorSet::DescriptorSet(nanobind::ref<Context> ctx, nb::ref<DescriptorPool> pool, gfx::DescriptorSet set, std::optional<nanobind::str> name)
-    : GfxObject(ctx, false, std::move(name))
+DescriptorSet::DescriptorSet(nanobind::ref<Device> device, nb::ref<DescriptorPool> pool, gfx::DescriptorSet set, std::optional<nanobind::str> name)
+    : GfxObject(device, false, std::move(name))
     , set(set)
     , pool(pool)
 {
@@ -3210,7 +3252,7 @@ DescriptorSet::DescriptorSet(nanobind::ref<Context> ctx, nb::ref<DescriptorPool>
 }
 
 void DescriptorSet::write_buffer(const Buffer& buffer, VkDescriptorType type, u32 binding, u32 element, VkDeviceSize offset, VkDeviceSize size) {
-    gfx::WriteBufferDescriptor(set, ctx->vk, {
+    gfx::WriteBufferDescriptor(set, device->device, {
         .buffer = buffer.buffer.buffer,
         .type = type,
         .binding = binding,
@@ -3221,7 +3263,7 @@ void DescriptorSet::write_buffer(const Buffer& buffer, VkDescriptorType type, u3
 };
 
 void DescriptorSet::write_image(const Image& image, VkImageLayout layout, VkDescriptorType type, u32 binding, u32 element) {
-    gfx::WriteImageDescriptor(set, ctx->vk, {
+    gfx::WriteImageDescriptor(set, device->device, {
         .view = image.image.view,
         .layout = layout,
         .type = type,
@@ -3231,7 +3273,7 @@ void DescriptorSet::write_image(const Image& image, VkImageLayout layout, VkDesc
 };
 
 void DescriptorSet::write_image_view(const ImageView& view, VkImageLayout layout, VkDescriptorType type, u32 binding, u32 element) {
-    gfx::WriteImageDescriptor(set, ctx->vk, {
+    gfx::WriteImageDescriptor(set, device->device, {
         .view = view.view,
         .layout = layout,
         .type = type,
@@ -3241,7 +3283,7 @@ void DescriptorSet::write_image_view(const ImageView& view, VkImageLayout layout
 };
 
 void DescriptorSet::write_combined_image_sampler(const Image& image, VkImageLayout layout, const Sampler& sampler, u32 binding, u32 element) {
-    gfx::WriteCombinedImageSamplerDescriptor(set, ctx->vk, {
+    gfx::WriteCombinedImageSamplerDescriptor(set, device->device, {
         .view = image.image.view,
         .layout = layout,
         .sampler = sampler.sampler.sampler,
@@ -3251,7 +3293,7 @@ void DescriptorSet::write_combined_image_sampler(const Image& image, VkImageLayo
 }
 
 void DescriptorSet::write_combined_image_sampler_view(const ImageView& view, VkImageLayout layout, const Sampler& sampler, u32 binding, u32 element) {
-    gfx::WriteCombinedImageSamplerDescriptor(set, ctx->vk, {
+    gfx::WriteCombinedImageSamplerDescriptor(set, device->device, {
         .view = view.view,
         .layout = layout,
         .sampler = sampler.sampler.sampler,
@@ -3261,7 +3303,7 @@ void DescriptorSet::write_combined_image_sampler_view(const ImageView& view, VkI
 }
 
 void DescriptorSet::write_sampler(const Sampler& sampler, u32 binding, u32 element) {
-    gfx::WriteSamplerDescriptor(set, ctx->vk, {
+    gfx::WriteSamplerDescriptor(set, device->device, {
         .sampler = sampler.sampler.sampler,
         .binding = binding,
         .element = element,
@@ -3269,7 +3311,7 @@ void DescriptorSet::write_sampler(const Sampler& sampler, u32 binding, u32 eleme
 }
 
 void DescriptorSet::write_acceleration_structure(const AccelerationStructure& as, u32 binding, u32 element) {
-    gfx::WriteAccelerationStructureDescriptor(set, ctx->vk, {
+    gfx::WriteAccelerationStructureDescriptor(set, device->device, {
         .acceleration_structure = as.as.tlas,
         .binding = binding,
         .element = element,
@@ -3277,10 +3319,10 @@ void DescriptorSet::write_acceleration_structure(const AccelerationStructure& as
 }
 
 struct Shader: GfxObject {
-    Shader(nb::ref<Context> ctx, const nb::bytes& code, std::optional<nb::str> name)
-        : GfxObject(ctx, true, std::move(name))
+    Shader(nb::ref<Device> device, const nb::bytes& code, std::optional<nb::str> name)
+        : GfxObject(device, true, std::move(name))
     {
-        VkResult vkr = gfx::CreateShader(&shader, ctx->vk, ArrayView<u8>((u8*)code.data(), code.size()));
+        VkResult vkr = gfx::CreateShader(&shader, device->device, ArrayView<u8>((u8*)code.data(), code.size()));
         if (vkr != VK_SUCCESS) {
             throw VulkanError("Failed to create shader", vkr);
         }
@@ -3293,7 +3335,7 @@ struct Shader: GfxObject {
 
     void destroy() {
         if (owned) {
-            gfx::DestroyShader(&shader, ctx->vk);
+            gfx::DestroyShader(&shader, device->device);
         }
     }
 
@@ -3427,7 +3469,7 @@ struct PushConstantsRange: gfx::PushConstantsRangeDesc {
 static_assert(sizeof(PushConstantsRange) == sizeof(gfx::PushConstantsRangeDesc));
 
 struct ComputePipeline: GfxObject {
-    ComputePipeline(nb::ref<Context> ctx,
+    ComputePipeline(nb::ref<Device> device,
         nb::ref<Shader> shader,
         nb::str entry,
         const std::vector<PushConstantsRange>& push_constant_ranges,
@@ -3435,7 +3477,7 @@ struct ComputePipeline: GfxObject {
         std::optional<u32> required_subgroup_size,
         std::optional<nb::str> name
         )
-        : GfxObject(ctx, true, std::move(name))
+        : GfxObject(device, true, std::move(name))
     {
         check_vector_of_ref_for_null(descriptor_set_layouts, "elements of \"descriptor_set_layouts\" must not be None");
 
@@ -3444,7 +3486,7 @@ struct ComputePipeline: GfxObject {
             d[i] = descriptor_set_layouts[i]->layout.layout;
         }
 
-        VkResult vkr = gfx::CreateComputePipeline(&pipeline, ctx->vk, {
+        VkResult vkr = gfx::CreateComputePipeline(&pipeline, device->device, {
             .shader = shader->shader,
             .entry = entry.c_str(),
             .push_constants = ArrayView((gfx::PushConstantsRangeDesc*)push_constant_ranges.data(), push_constant_ranges.size()),
@@ -3465,7 +3507,7 @@ struct ComputePipeline: GfxObject {
 
     void destroy() {
         if (owned) {
-            gfx::DestroyComputePipeline(&pipeline, ctx->vk);
+            gfx::DestroyComputePipeline(&pipeline, device->device);
         }
     }
 
@@ -3473,7 +3515,7 @@ struct ComputePipeline: GfxObject {
 };
 
 struct GraphicsPipeline: GfxObject {
-    GraphicsPipeline(nb::ref<Context> ctx,
+    GraphicsPipeline(nb::ref<Device> device,
         const std::vector<nb::ref<PipelineStage>>& stages,
         const std::vector<VertexBinding>& vertex_bindings,
         const std::vector<VertexAttribute>& vertex_attributes,
@@ -3486,7 +3528,7 @@ struct GraphicsPipeline: GfxObject {
         std::optional<Depth> depth,
         std::optional<nb::str> name
         )
-        : GfxObject(ctx, true, std::move(name))
+        : GfxObject(device, true, std::move(name))
     {
         check_vector_of_ref_for_null(stages, "elements of \"stages\" must not be None");
         check_vector_of_ref_for_null(descriptor_set_layouts, "elements of \"descriptor_set_layouts\" must not be None");
@@ -3504,7 +3546,7 @@ struct GraphicsPipeline: GfxObject {
             d[i] = descriptor_set_layouts[i]->layout.layout;
         }
 
-        VkResult vkr = gfx::CreateGraphicsPipeline(&pipeline, ctx->vk, {
+        VkResult vkr = gfx::CreateGraphicsPipeline(&pipeline, device->device, {
             .stages = ArrayView(s),
             .vertex_bindings = ArrayView((gfx::VertexBindingDesc*)vertex_bindings.data(), vertex_bindings.size()),
             .vertex_attributes = ArrayView((gfx::VertexAttributeDesc*)vertex_attributes.data(), vertex_attributes.size()),
@@ -3530,7 +3572,7 @@ struct GraphicsPipeline: GfxObject {
 
     void destroy() {
         if (owned) {
-            gfx::DestroyGraphicsPipeline(&pipeline, ctx->vk);
+            gfx::DestroyGraphicsPipeline(&pipeline, device->device);
         }
     }
 
@@ -4052,52 +4094,61 @@ void gfx_create_bindings(nb::module_& m)
         .value("SHADING_RATE_IMAGE",                   VK_IMAGE_USAGE_SHADING_RATE_IMAGE_BIT_NV)
     ;
 
-    nb::class_<Context>(m, "Context",
-        nb::intrusive_ptr<Context>([](Context *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<std::tuple<u32, u32>, gfx::DeviceFeatures::Flags, gfx::DeviceFeatures::Flags, bool, u32, VkImageUsageFlagBits, bool, u32, bool, bool, bool, bool, bool>(),
+    nb::class_<Instance>(m, "Instance",
+        nb::intrusive_ptr<Instance>([](Instance *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def(nb::init<std::tuple<u32, u32>, bool, bool, bool, bool, bool>(),
             nb::arg("version") = std::make_tuple(1, 1),
-            nb::arg("required_features") = gfx::DeviceFeatures::Flags(gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::SYNCHRONIZATION_2),
-            nb::arg("optional_features") = gfx::DeviceFeatures::Flags(gfx::DeviceFeatures::NONE),
             nb::arg("presentation") = true,
-            nb::arg("preferred_frames_in_flight") = 2,
-            nb::arg("preferred_swapchain_usage_flags") = (VkImageUsageFlagBits)(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT),
-            nb::arg("vsync") = true,
-            nb::arg("force_physical_device_index") = ~0U,
-            nb::arg("prefer_discrete_gpu") = true,
             nb::arg("enable_debug_utils") = false,
             nb::arg("enable_validation_layer") = false,
             nb::arg("enable_gpu_based_validation") = false,
             nb::arg("enable_synchronization_validation") = false
         )
-        .def("sync_commands", [] (nb::ref<Context> ctx) {
-            return new CommandsManager(new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer), ctx->vk.queue, {}, {}, ctx->vk.sync_fence, true);
+        .def_prop_ro("version", [](Instance& instance) {
+            return nb::make_tuple(VK_API_VERSION_MAJOR(instance.instance.version), VK_API_VERSION_MINOR(instance.instance.version));
         })
-        .def_prop_ro("sync_command_buffer", [] (nb::ref<Context> ctx) {
-            return new CommandBuffer(ctx, ctx->vk.sync_command_pool, ctx->vk.sync_command_buffer);
+        .def_prop_ro("debug_utils_enabled", [](Instance& instance) {
+            return instance.instance.debug_utils_enabled;
         })
-        .def("submit_sync", [](const Context& ctx) {
-            gfx::SubmitSync(ctx.vk);
-        })
-        .def("wait_idle", [](Context& ctx) {
-            nb::gil_scoped_release gil;
-            gfx::WaitIdle(ctx.vk);
-        })
-        .def_prop_ro("instance_version", [](Context& ctx) {
-            return nb::make_tuple(VK_API_VERSION_MAJOR(ctx.vk.instance_version), VK_API_VERSION_MINOR(ctx.vk.instance_version));
-        })
-        .def_prop_ro("version", [](Context& ctx) {
-            return nb::make_tuple(VK_API_VERSION_MAJOR(ctx.vk.device_version), VK_API_VERSION_MINOR(ctx.vk.device_version));
-        })
-        .def_prop_ro("device_features", [](Context& ctx) {
-            return ctx.vk.device_features.flags;
-        })
-        .def_ro("device_properties", &Context::device_properties)
-        .def_ro("memory_properties", &Context::memory_properties)
-        .def_prop_ro("heap_statistics", [](Context& ctx) {
-            VmaBudget budgets[VK_MAX_MEMORY_HEAPS];
-            vmaGetHeapBudgets(ctx.vk.vma, budgets);
+    ;
 
-            usize heap_count = ctx.memory_properties->memory_heaps.size();
+    nb::class_<Device>(m, "Device",
+        nb::intrusive_ptr<Device>([](Device *o, PyObject *po) noexcept { o->set_self_py(po); }))
+        .def(nb::init<nb::ref<Instance>, std::tuple<u32, u32>, gfx::DeviceFeatures::Flags, gfx::DeviceFeatures::Flags, bool, u32, bool>(),
+            nb::arg("instance"),
+            nb::arg("version") = std::make_tuple(1, 1),
+            nb::arg("required_features") = gfx::DeviceFeatures::Flags(gfx::DeviceFeatures::DYNAMIC_RENDERING | gfx::DeviceFeatures::SYNCHRONIZATION_2),
+            nb::arg("optional_features") = gfx::DeviceFeatures::Flags(gfx::DeviceFeatures::NONE),
+            nb::arg("presentation") = true,
+            nb::arg("force_physical_device_index") = ~0U,
+            nb::arg("prefer_discrete_gpu") = true
+        )
+        .def("sync_commands", [] (nb::ref<Device> device) {
+            return new CommandsManager(new CommandBuffer(device, device->device.sync_command_pool, device->device.sync_command_buffer), device->device.graphics_queue, {}, {}, device->device.sync_fence, true);
+        })
+        .def_prop_ro("sync_command_buffer", [] (nb::ref<Device> device) {
+            return new CommandBuffer(device, device->device.sync_command_pool, device->device.sync_command_buffer);
+        })
+        .def("submit_sync", [](const Device& device) {
+            gfx::SubmitSync(device.device);
+        })
+        .def("wait_idle", [](Device& device) {
+            nb::gil_scoped_release gil;
+            gfx::WaitIdle(device.device);
+        })
+        .def_prop_ro("version", [](Device& device) {
+            return nb::make_tuple(VK_API_VERSION_MAJOR(device.device.version), VK_API_VERSION_MINOR(device.device.version));
+        })
+        .def_prop_ro("device_features", [](Device& device) {
+            return device.device.device_features.flags;
+        })
+        .def_ro("device_properties", &Device::device_properties)
+        .def_ro("memory_properties", &Device::memory_properties)
+        .def_prop_ro("heap_statistics", [](Device& device) {
+            VmaBudget budgets[VK_MAX_MEMORY_HEAPS];
+            vmaGetHeapBudgets(device.device.vma, budgets);
+
+            usize heap_count = device.memory_properties->memory_heaps.size();
             std::vector<nb::ref<HeapStatistics>> statistics;
             statistics.reserve(heap_count);
             for (size_t i = 0; i < heap_count; i++) {
@@ -4105,45 +4156,42 @@ void gfx_create_bindings(nb::module_& m)
             }
             return statistics;
         }, nb::rv_policy::move)
-        .def_prop_ro("has_compute_queue", [](Context& ctx) {
-            return ctx.vk.compute_queue != VK_NULL_HANDLE;
+        .def_prop_ro("has_compute_queue", [](Device& device) {
+            return device.device.compute_queue != VK_NULL_HANDLE;
         })
-        .def_prop_ro("has_transfer_queue", [](Context& ctx) {
-            return ctx.vk.copy_queue != VK_NULL_HANDLE;
+        .def_prop_ro("has_transfer_queue", [](Device& device) {
+            return device.device.transfer_queue != VK_NULL_HANDLE;
         })
-        .def_prop_ro("graphics_queue_family_index", [](Context& ctx) {
-            return ctx.vk.queue_family_index;
+        .def_prop_ro("graphics_queue_family_index", [](Device& device) {
+            return device.device.graphics_queue_family_index;
         })
-        .def_prop_ro("compute_queue_family_index", [](Context& ctx) {
-            if (ctx.vk.compute_queue == VK_NULL_HANDLE) {
+        .def_prop_ro("compute_queue_family_index", [](Device& device) {
+            if (device.device.compute_queue == VK_NULL_HANDLE) {
                 throw std::runtime_error("Compute queue not supported by device");
             }
-            return ctx.vk.compute_queue_family_index;
+            return device.device.compute_queue_family_index;
         })
-        .def_prop_ro("transfer_queue_family_index", [](Context& ctx) {
-            if (ctx.vk.copy_queue == VK_NULL_HANDLE) {
+        .def_prop_ro("transfer_queue_family_index", [](Device& device) {
+            if (device.device.transfer_queue == VK_NULL_HANDLE) {
                 throw std::runtime_error("Transfer queue not supported by device");
             }
-            return ctx.vk.copy_queue_family_index;
+            return device.device.transfer_queue_family_index;
         })
-        .def_prop_ro("subgroup_size_control", [](Context& ctx) {
-            return ctx.vk.subgroup_size_control;
+        .def_prop_ro("subgroup_size_control", [](Device& device) {
+            return device.device.subgroup_size_control;
         })
-        .def_prop_ro("compute_full_subgroups", [](Context& ctx) {
-            return ctx.vk.compute_full_subgroups;
+        .def_prop_ro("compute_full_subgroups", [](Device& device) {
+            return device.device.compute_full_subgroups;
         })
-        .def_prop_ro("timestamp_period_ns", [](Context& ctx) {
-            return ctx.vk.timestamp_period_ns;
-        })
-        .def("reset_query_pool", [](Context& ctx, const QueryPool& pool) {
-            if (!(ctx.vk.device_features & gfx::DeviceFeatures::HOST_QUERY_RESET)) {
-                throw std::runtime_error("Device feature HOST_QUERY_RESET must be set to use Context.reset_query_pool");
+        .def("reset_query_pool", [](Device& device, const QueryPool& pool) {
+            if (!(device.device.device_features & gfx::DeviceFeatures::HOST_QUERY_RESET)) {
+                throw std::runtime_error("Device feature HOST_QUERY_RESET must be set to use Device.reset_query_pool");
             }
-            vkResetQueryPoolEXT(ctx.vk.device, pool.pool, 0, pool.count);
+            vkResetQueryPoolEXT(device.device.device, pool.pool, 0, pool.count);
         })
-        .def("get_calibrated_timestamps", [](Context& ctx) -> std::tuple<u64, u64> {
-            if (!(ctx.vk.device_features & gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)) {
-                throw std::runtime_error("Device feature HOST_QUERY_RESET must be set to use Context.get_calibrated_timestamps");
+        .def("get_calibrated_timestamps", [](Device& device) -> std::tuple<u64, u64> {
+            if (!(device.device.device_features & gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)) {
+                throw std::runtime_error("Device feature HOST_QUERY_RESET must be set to use Device.get_calibrated_timestamps");
             }
 
             VkCalibratedTimestampInfoKHR timestamp_infos[2] = {};
@@ -4158,7 +4206,7 @@ void gfx_create_bindings(nb::module_& m)
 
             u64 timestamps[2];
             u64 deviations[2];
-            vkGetCalibratedTimestampsEXT(ctx.vk.device, 2, timestamp_infos, timestamps, deviations);
+            vkGetCalibratedTimestampsEXT(device.device.device, 2, timestamp_infos, timestamps, deviations);
 
 #ifdef _WIN32
             // Convert performance counter ticks to ns. This matches what time.perf_counter_ns does.
@@ -4173,18 +4221,18 @@ void gfx_create_bindings(nb::module_& m)
 
             return std::make_tuple(timestamps[0], timestamps[1]);
         })
-        .def_prop_ro("queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> { return new Queue(ctx, ctx->vk.queue); })
-        .def_prop_ro("compute_queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> {
-            if (ctx->vk.compute_queue == VK_NULL_HANDLE) {
+        .def_prop_ro("graphics_queue", [](nb::ref<Device> device) -> nb::ref<Queue> { return new Queue(device, device->device.graphics_queue); })
+        .def_prop_ro("compute_queue", [](nb::ref<Device> device) -> nb::ref<Queue> {
+            if (device->device.compute_queue == VK_NULL_HANDLE) {
                 throw std::runtime_error("Compute queue not supported by device");
             }
-            return new Queue(ctx, ctx->vk.compute_queue);
+            return new Queue(device, device->device.compute_queue);
         })
-        .def_prop_ro("transfer_queue", [](nb::ref<Context> ctx) -> nb::ref<Queue> {
-            if (ctx->vk.copy_queue == VK_NULL_HANDLE) {
+        .def_prop_ro("transfer_queue", [](nb::ref<Device> device) -> nb::ref<Queue> {
+            if (device->device.transfer_queue == VK_NULL_HANDLE) {
                 throw std::runtime_error("Transfer queue not supported by device");
             }
-            return new Queue(ctx, ctx->vk.copy_queue);
+            return new Queue(device, device->device.transfer_queue);
         })
     ;
 
@@ -4200,16 +4248,16 @@ void gfx_create_bindings(nb::module_& m)
         .def_ro("image", &Frame::image)
         .def("compute_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> wait_semaphores, std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> signal_semaphores) {
             if (!frame.compute_command_buffer.has_value()) {
-                nb::raise("Device does not support compute queue. Check Context.has_compute_queue to know if it's supported.");
+                nb::raise("Device does not support compute queue. Check Device.has_compute_queue to know if it's supported.");
             }
-            return new CommandsManager(frame.compute_command_buffer.value(), frame.window->ctx->vk.compute_queue, std::move(wait_semaphores), std::move(signal_semaphores), VK_NULL_HANDLE, false);
+            return new CommandsManager(frame.compute_command_buffer.value(), frame.window->device->device.compute_queue, std::move(wait_semaphores), std::move(signal_semaphores), VK_NULL_HANDLE, false);
         }, nb::arg("wait_semaphores") = nb::list(), nb::arg("signal_semaphores") = nb::list())
         .def_ro("compute_command_buffer", &Frame::compute_command_buffer)
         .def("transfer_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> wait_semaphores, std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> signal_semaphores) {
             if (!frame.transfer_command_buffer.has_value()) {
-                nb::raise("Device does not support transfer queue. Check Context.has_transfer_queue to know if it's supported.");
+                nb::raise("Device does not support transfer queue. Check Device.has_transfer_queue to know if it's supported.");
             }
-            return new CommandsManager(frame.transfer_command_buffer.value(), frame.window->ctx->vk.copy_queue, std::move(wait_semaphores), std::move(signal_semaphores), VK_NULL_HANDLE, false);
+            return new CommandsManager(frame.transfer_command_buffer.value(), frame.window->device->device.transfer_queue, std::move(wait_semaphores), std::move(signal_semaphores), VK_NULL_HANDLE, false);
         }, nb::arg("wait_semaphores") = nb::list(), nb::arg("signal_semaphores") = nb::list())
         .def_ro("transfer_command_buffer", &Frame::transfer_command_buffer)
     ;
@@ -4217,7 +4265,27 @@ void gfx_create_bindings(nb::module_& m)
     nb::class_<Window>(m, "Window",
         nb::type_slots(window_tp_slots),
         nb::intrusive_ptr<Window>([](Window *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<nb::ref<Context>, const::std::string&, u32, u32, std::optional<u32>, std::optional<u32>>(), nb::arg("ctx"), nb::arg("title"), nb::arg("width"), nb::arg("height"), nb::arg("x") = nb::none(), nb::arg("y") = nb::none())
+        .def(nb::init<
+            nb::ref<Device>,
+            const::std::string&,
+            u32,
+            u32,
+            std::optional<u32>,
+            std::optional<u32>,
+            u32,
+            VkImageUsageFlagBits,
+            bool
+        >(),
+            nb::arg("device"),
+            nb::arg("title"),
+            nb::arg("width"),
+            nb::arg("height"),
+            nb::arg("x") = nb::none(),
+            nb::arg("y") = nb::none(),
+            nb::arg("preferred_frames_in_flight") = 2,
+            nb::arg("preferred_swapchain_usage_flags") = (VkImageUsageFlagBits)(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT),
+            nb::arg("vsync") = true
+        )
         .def("should_close", &Window::should_close)
         .def("get_modifiers_state", &Window::get_modifiers_state)
         .def("set_callbacks", &Window::set_callbacks,
@@ -4278,7 +4346,7 @@ void gfx_create_bindings(nb::module_& m)
         nb::type_slots(gui_tp_slots),
         nb::intrusive_ptr<Gui>([](Gui *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def(nb::init<nb::ref<Window>, std::optional<float>, gui::DefaultFontPreference>(), nb::arg("window"), nb::arg("default_font_size") = nb::none(), nb::arg("default_font_preference") = gui::DefaultFontPreference::AUTO)
-        .def(nb::init<nb::ref<Context>, u32, VkFormat, std::optional<float>, gui::DefaultFontPreference>(), nb::arg("ctx"), nb::arg("num_frames_in_flight"), nb::arg("format"), nb::arg("default_font_size") = nb::none(), nb::arg("default_font_preference") = gui::DefaultFontPreference::AUTO)
+        .def(nb::init<nb::ref<Instance>, nb::ref<Device>, u32, VkFormat, std::optional<float>, gui::DefaultFontPreference>(), nb::arg("instance"), nb::arg("device"), nb::arg("num_frames_in_flight"), nb::arg("format"), nb::arg("default_font_size") = nb::none(), nb::arg("default_font_preference") = gui::DefaultFontPreference::AUTO)
         .def("begin_frame", &Gui::begin_frame)
         .def("end_frame", &Gui::end_frame)
         .def("render", &Gui::render, nb::arg("frame"))
@@ -4506,7 +4574,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<GfxObject>(m, "GfxObject",
         nb::intrusive_ptr<GfxObject>([](GfxObject *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def_ro("ctx", &GfxObject::ctx)
+        .def_ro("device", &GfxObject::device)
     ;
 
     nb::class_<Queue, GfxObject>(m, "Queue")
@@ -4543,7 +4611,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<QueryPool, GfxObject>(m, "QueryPool")
-        .def(nb::init<nb::ref<Context>, VkQueryType, u32, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("type"), nb::arg("count"), nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, VkQueryType, u32, std::optional<nb::str>>(), nb::arg("device"), nb::arg("type"), nb::arg("count"), nb::arg("name") = nb::none())
         .def("__repr__", [](QueryPool& pool) {
             return nb::str("QueryPool(name={}, type={}, count={})").format(pool.name, pool.type, pool.count);
         })
@@ -4565,12 +4633,12 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<Buffer, GfxObject> buffer_type(m, "Buffer", nb::type_slots(buffer_slots));
     buffer_type
-        .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("device"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
         .def("__repr__", [](Buffer& buf) {
             return nb::str("Buffer(name={}, size={})").format(buf.name, buf.size);
         })
         .def("destroy", &Buffer::destroy)
-        .def_static("from_data", &Buffer::from_data, nb::arg("ctx"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
+        .def_static("from_data", &Buffer::from_data, nb::arg("device"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
         .def_prop_ro("data", [] (Buffer& buffer) {
             return nb::steal(PyMemoryView_FromObject(buffer.self_py()));
         }, nb::sig("def data(self) -> memoryview"))
@@ -4596,7 +4664,7 @@ void gfx_create_bindings(nb::module_& m)
 #endif
 
     nb::class_<ExternalBuffer, Buffer>(m, "ExternalBuffer")
-        .def(nb::init<nb::ref<Context>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, size_t, VkBufferUsageFlagBits, gfx::AllocPresets::Type, std::optional<nb::str>>(), nb::arg("device"), nb::arg("size"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
         .def("__repr__", [](ExternalBuffer& buf) {
             return nb::str("ExternalBuffer(name={}, size={})").format(buf.name, buf.size);
         })
@@ -4629,13 +4697,13 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Image, GfxObject>(m, "Image")
-        .def(nb::init<nb::ref<Context>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, u32, u32, u32, bool, VkImageCreateFlagBits, int, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("depth") = 1, nb::arg("mip_levels") = 1, nb::arg("array_layers") = 1, nb::arg("is_cube") = false, nb::arg("create_flags") = (VkImageCreateFlagBits)0, nb::arg("samples") = 1, nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, u32, u32, u32, bool, VkImageCreateFlagBits, int, std::optional<nb::str>>(), nb::arg("device"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("depth") = 1, nb::arg("mip_levels") = 1, nb::arg("array_layers") = 1, nb::arg("is_cube") = false, nb::arg("create_flags") = (VkImageCreateFlagBits)0, nb::arg("samples") = 1, nb::arg("name") = nb::none())
         .def("__repr__", [](Image& image) {
             return nb::str("Image(name={}, width={}, height={}, depth={}, format={}, mip_levels={}, array_layers={}, is_cube={}, samples={})").format(image.name, image.width, image.height, image.depth, image.format, image.mip_levels, image.array_layers, image.is_cube, image.samples);
         })
         .def("destroy", &Image::destroy)
         .def_static("from_data", &Image::from_data,
-            nb::arg("ctx"),
+            nb::arg("device"),
             nb::arg("data"),
             nb::arg("layout"),
             nb::arg("width"),
@@ -4688,7 +4756,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<ImageView, GfxObject>(m, "ImageView")
         .def(nb::init<
-                nb::ref<Context>,
+                nb::ref<Device>,
                 nb::ref<Image>,
                 VkImageViewType,
                 std::optional<VkFormat>,
@@ -4700,7 +4768,7 @@ void gfx_create_bindings(nb::module_& m)
                 VkImageUsageFlags,
                 std::optional<nb::str>
             >(),
-            nb::arg("ctx"),
+            nb::arg("device"),
             nb::arg("image"),
             nb::arg("type"),
             nb::arg("format") = nb::none(),
@@ -4730,7 +4798,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<Sampler, GfxObject>(m, "Sampler")
         .def(nb::init<
-                nb::ref<Context>,
+                nb::ref<Device>,
                 VkFilter,
                 VkFilter,
                 VkSamplerMipmapMode,
@@ -4747,7 +4815,7 @@ void gfx_create_bindings(nb::module_& m)
                 VkBorderColor,
                 std::optional<nb::str>
             >(),
-                nb::arg("ctx"),
+                nb::arg("device"),
                 nb::arg("min_filter")        = VK_FILTER_NEAREST,
                 nb::arg("mag_filter")        = VK_FILTER_NEAREST,
                 nb::arg("mipmap_mode")       = VK_SAMPLER_MIPMAP_MODE_NEAREST,
@@ -4771,7 +4839,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<AccelerationStructure, GfxObject>(m, "AccelerationStructure")
-        .def(nb::init<nb::ref<Context>, const std::vector<AccelerationStructureMesh>, bool, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("meshes"), nb::arg("prefer_fast_build") = false, nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, const std::vector<AccelerationStructureMesh>, bool, std::optional<nb::str>>(), nb::arg("device"), nb::arg("meshes"), nb::arg("prefer_fast_build") = false, nb::arg("name") = nb::none())
         .def("__repr__", [](AccelerationStructure& as) {
             return nb::str("AccelerationStructure(name={})").format(as.name);
         })
@@ -4779,7 +4847,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Fence, GfxObject>(m, "Fence")
-        .def(nb::init<nb::ref<Context>, bool, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("signaled") = false, nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, bool, std::optional<nb::str>>(), nb::arg("device"), nb::arg("signaled") = false, nb::arg("name") = nb::none())
         .def("__repr__", [](Fence& fence) {
             return nb::str("Fence(name={})").format(fence.name);
         })
@@ -4791,7 +4859,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Semaphore, GfxObject>(m, "Semaphore")
-        .def(nb::init<nb::ref<Context>, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, std::optional<nb::str>>(), nb::arg("device"), nb::arg("name") = nb::none())
         .def("__repr__", [](Semaphore& semaphore) {
             return nb::str("Semaphore(name={})").format(semaphore.name);
         })
@@ -4799,7 +4867,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<TimelineSemaphore, Semaphore>(m, "TimelineSemaphore")
-        .def(nb::init<nb::ref<Context>, u64, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("initial_value") = 0, nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, u64, std::optional<nb::str>>(), nb::arg("device"), nb::arg("initial_value") = 0, nb::arg("name") = nb::none())
         .def("__repr__", [](TimelineSemaphore& semaphore) {
             return nb::str("TimelineSemaphore(name={})").format(semaphore.name);
         })
@@ -4809,7 +4877,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<ExternalSemaphore, Semaphore>(m, "ExternalSemaphore")
-        .def(nb::init<nb::ref<Context>, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, std::optional<nb::str>>(), nb::arg("device"), nb::arg("name") = nb::none())
         .def("__repr__", [](ExternalSemaphore& semaphore) {
             return nb::str("ExternalSemaphore(name={}, handle={})").format(semaphore.name, (u64)semaphore.handle);
         })
@@ -4818,7 +4886,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<ExternalTimelineSemaphore, TimelineSemaphore>(m, "ExternalTimelineSemaphore")
-        .def(nb::init<nb::ref<Context>, u64, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("initial_value") = 0, nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, u64, std::optional<nb::str>>(), nb::arg("device"), nb::arg("initial_value") = 0, nb::arg("name") = nb::none())
         .def("__repr__", [](ExternalTimelineSemaphore& semaphore) {
             return nb::str("ExternalTimelineSemaphore(name={}, handle={})").format(semaphore.name, (u64)semaphore.handle);
         })
@@ -5137,7 +5205,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<CommandBuffer, GfxObject>(m, "CommandBuffer")
-        .def(nb::init<nb::ref<Context>, std::optional<u32>, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("queue_family_index") = nb::none(), nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, std::optional<u32>, std::optional<nb::str>>(), nb::arg("device"), nb::arg("queue_family_index") = nb::none(), nb::arg("name") = nb::none())
         .def("__enter__", &CommandBuffer::enter)
         .def("__exit__", &CommandBuffer::exit, nb::arg("exc_type").none(), nb::arg("exc_val").none(), nb::arg("exc_tb").none())
         .def("__repr__", [](CommandBuffer& buf) {
@@ -5434,7 +5502,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Shader, GfxObject>(m, "Shader")
-        .def(nb::init<nb::ref<Context>, const nb::bytes&, std::optional<nb::str>>(), nb::arg("ctx"), nb::arg("code"), nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, const nb::bytes&, std::optional<nb::str>>(), nb::arg("device"), nb::arg("code"), nb::arg("name") = nb::none())
         .def("__repr__", [](Shader& shader) {
             return nb::str("Shader(name={})").format(shader.name);
         })
@@ -5918,12 +5986,12 @@ void gfx_create_bindings(nb::module_& m)
     nb::class_<DescriptorSetLayout, GfxObject>(m, "DescriptorSetLayout")
         .def(
             nb::init<
-                nanobind::ref<Context>,
+                nanobind::ref<Device>,
                 std::vector<nb::ref<DescriptorSetBinding>>,
                 VkDescriptorSetLayoutCreateFlagBits,
                 std::optional<nanobind::str>
             >(),
-            nb::arg("ctx"),
+            nb::arg("device"),
             nb::arg("bindings"),
             nb::arg("flags") = 0,
             nb::arg("name") = nb::none()
@@ -5951,13 +6019,13 @@ void gfx_create_bindings(nb::module_& m)
     nb::class_<DescriptorPool, GfxObject>(m, "DescriptorPool")
         .def(
             nb::init<
-                nanobind::ref<Context>,
+                nanobind::ref<Device>,
                 const std::vector<DescriptorPoolSize>&,
                 u32,
                 VkDescriptorPoolCreateFlagBits,
                 std::optional<nanobind::str>
             >(),
-            nb::arg("ctx"),
+            nb::arg("device"),
             nb::arg("sizes"),
             nb::arg("max_sets") = 0,
             nb::arg("flags") = 0,
@@ -6130,7 +6198,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<ComputePipeline, GfxObject>(m, "ComputePipeline")
-        .def(nb::init<nb::ref<Context>,
+        .def(nb::init<nb::ref<Device>,
                 nb::ref<Shader>,
                 nb::str,
                 const std::vector<PushConstantsRange>&,
@@ -6138,7 +6206,7 @@ void gfx_create_bindings(nb::module_& m)
                 std::optional<u32>,
                 std::optional<nb::str>
             >(),
-            nb::arg("ctx"),
+            nb::arg("device"),
             nb::arg("shader"),
             nb::arg("entry") = "main",
             nb::arg("push_constants_ranges") = std::vector<PushConstantsRange>(),
@@ -6152,7 +6220,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("destroy", &ComputePipeline::destroy)
     ;
     nb::class_<GraphicsPipeline, GfxObject>(m, "GraphicsPipeline")
-        .def(nb::init<nb::ref<Context>,
+        .def(nb::init<nb::ref<Device>,
                 const std::vector<nb::ref<PipelineStage>>&,
                 const std::vector<VertexBinding>&,
                 const std::vector<VertexAttribute>&,
@@ -6165,7 +6233,7 @@ void gfx_create_bindings(nb::module_& m)
                 std::optional<Depth>,
                 std::optional<nb::str>
             >(),
-            nb::arg("ctx"),
+            nb::arg("device"),
             nb::arg("stages") = std::vector<nb::ref<PipelineStage>>(),
             nb::arg("vertex_bindings") = std::vector<VertexBinding>(),
             nb::arg("vertex_attributes") = std::vector<VertexAttribute>(),
