@@ -65,21 +65,23 @@ class CustomViewer(Viewer):
 
 v = CustomViewer(config=Config(gui=GuiConfig(stats=True)))
 
-print(v.ctx.device_features)
-print(v.ctx.subgroup_size_control)
-print(v.ctx.compute_full_subgroups)
-print(v.ctx.device_properties.subgroup_size_control_properties.min_subgroup_size)
-print(v.ctx.device_properties.subgroup_size_control_properties.max_subgroup_size)
-print(v.ctx.device_properties.subgroup_size_control_properties.max_compute_workgroup_subgroups)
-print(v.ctx.device_properties.subgroup_size_control_properties.required_subgroup_size_stages)
+print(v.device.features)
+print(v.device.subgroup_size_control)
+print(v.device.compute_full_subgroups)
+print(v.device.device_properties.subgroup_size_control_properties.min_subgroup_size)
+print(v.device.device_properties.subgroup_size_control_properties.max_subgroup_size)
+print(v.device.device_properties.subgroup_size_control_properties.max_compute_workgroup_subgroups)
+print(v.device.device_properties.subgroup_size_control_properties.required_subgroup_size_stages)
 
 if False:
-    # print(v.renderer.ctx.device_properties.subgroup_properties.subgroup_size)
+    # print(v.renderer.device.device_properties.subgroup_properties.subgroup_size)
     pipeline = MarchingCubesPipeline(v.renderer)
 
-    sdf_buf = Buffer.from_data(v.ctx, view_bytes(sdf), BufferUsageFlags.TRANSFER_SRC, AllocType.HOST, name="sdf-buf")
+    sdf_buf = Buffer.from_data(
+        v.device, view_bytes(sdf), BufferUsageFlags.TRANSFER_SRC, AllocType.HOST, name="sdf-buf"
+    )
     sdf_gpu = Image(
-        v.ctx,
+        v.device,
         x,
         y,
         depth=z,
@@ -89,16 +91,16 @@ if False:
         name="sdf",
     )
 
-    with v.ctx.sync_commands() as cmd:
+    with v.device.sync_commands() as cmd:
         cmd.image_barrier(sdf_gpu, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST)
         cmd.copy_buffer_to_image(sdf_buf, sdf_gpu)
         cmd.image_barrier(sdf_gpu, ImageLayout.GENERAL, MemoryUsage.TRANSFER_DST, MemoryUsage.COMPUTE_SHADER)
 
     res = pipeline.run_sync(v.renderer, sdf_gpu, size, 0.0)
 
-    positions = readback_buffer(v.ctx, res.positions).view(np.float32).reshape((-1, 3))
-    normals = readback_buffer(v.ctx, res.normals).view(np.float32).reshape((-1, 3))
-    indices = readback_buffer(v.ctx, res.indices).view(np.uint32)
+    positions = readback_buffer(v.device, res.positions).view(np.float32).reshape((-1, 3))
+    normals = readback_buffer(v.device, res.normals).view(np.float32).reshape((-1, 3))
+    indices = readback_buffer(v.device, res.indices).view(np.uint32)
 
     print(positions.shape)
     print(normals.shape)

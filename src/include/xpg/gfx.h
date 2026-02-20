@@ -178,7 +178,7 @@ struct Device
     VmaAllocator vma;
 
     // Device features
-    DeviceFeatures device_features;
+    DeviceFeatures features;
     bool subgroup_size_control;
     bool compute_full_subgroups;
     bool has_presentation;

@@ -98,7 +98,7 @@ class Profiler:
         self.current_transfer_query = 0
         self.current_transfer_cmd = transfer_cmd
 
-        if not self.device.device_features & DeviceFeatures.HOST_QUERY_RESET:
+        if not self.device.features & DeviceFeatures.HOST_QUERY_RESET:
             raise RuntimeError("DeviceFeatures.HOST_QUERY_RESET must be enabled to profile the transfer queue")
         else:
             self.device.reset_query_pool(self.transfer_pools[self.frame_index])

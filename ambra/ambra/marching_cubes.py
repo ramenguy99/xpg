@@ -72,7 +72,7 @@ class MarchingCubesResult:
 class MarchingCubesPipeline:
     def __init__(self, r: "Renderer"):
         min_subgroup_size, max_subgroup_size, required_subgroup_size = get_min_max_and_required_subgroup_size(
-            r.ctx, Stage.COMPUTE, 32, BLOCK_TOTAL_SIZE
+            r.device, Stage.COMPUTE, 32, BLOCK_TOTAL_SIZE
         )
 
         defines = [
@@ -93,7 +93,7 @@ class MarchingCubesPipeline:
         )  # type: ignore
 
         self.check_descriptor_set_layout = DescriptorSetLayout(
-            r.ctx,
+            r.device,
             [
                 DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),  # 0 - in volume
                 DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  # 1 - out blocks
@@ -102,8 +102,8 @@ class MarchingCubesPipeline:
 
         self.check_shader = r.compile_builtin_shader("3d/marching_cubes/check_surface.slang", defines=defines)
         self.check_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, self.check_shader.code),
+            r.device,
+            Shader(r.device, self.check_shader.code),
             descriptor_set_layouts=[self.check_descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.check_constants_dtype.itemsize)],
             required_subgroup_size=required_subgroup_size,
@@ -117,7 +117,7 @@ class MarchingCubesPipeline:
         )  # type: ignore
 
         self.compact_descriptor_set_layout = DescriptorSetLayout(
-            r.ctx,
+            r.device,
             [
                 DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  # 0 - in blocks
                 DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  # 1 - out valid block count
@@ -127,8 +127,8 @@ class MarchingCubesPipeline:
 
         self.compact_shader = r.compile_builtin_shader("3d/marching_cubes/compact.slang")
         self.compact_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, self.compact_shader.code),
+            r.device,
+            Shader(r.device, self.compact_shader.code),
             descriptor_set_layouts=[self.compact_descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.compact_constants_dtype.itemsize)],
             required_subgroup_size=required_subgroup_size,
@@ -148,7 +148,7 @@ class MarchingCubesPipeline:
         )  # type: ignore
 
         self.march_descriptor_set_layout = DescriptorSetLayout(
-            r.ctx,
+            r.device,
             [
                 DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),  # 0 - in volume
                 DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),  # 1 - in compacted blocks
@@ -163,8 +163,8 @@ class MarchingCubesPipeline:
 
         self.march_shader = r.compile_builtin_shader("3d/marching_cubes/marching_cubes.slang", defines=defines)
         self.march_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, self.march_shader.code),
+            r.device,
+            Shader(r.device, self.march_shader.code),
             descriptor_set_layouts=[self.march_descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.march_constants_dtype.itemsize)],
             required_subgroup_size=required_subgroup_size,
@@ -174,15 +174,15 @@ class MarchingCubesPipeline:
             "3d/marching_cubes/marching_cubes.slang", defines=[*defines, ("COUNT_ONLY", "")]
         )
         self.march_count_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, self.march_count_shader.code),
+            r.device,
+            Shader(r.device, self.march_count_shader.code),
             descriptor_set_layouts=[self.march_descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.march_constants_dtype.itemsize)],
             required_subgroup_size=required_subgroup_size,
         )
 
         self.tri_table = Buffer.from_data(
-            r.ctx,
+            r.device,
             view_bytes(TRIS_TABLE),
             BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
             AllocType.DEVICE,
@@ -200,19 +200,19 @@ class MarchingCubesPipeline:
         # Allocate descriptor pools and sets
         number_of_sets = r.num_frames_in_flight if not single_set else 1
         check_pool, check_descriptor_sets = create_descriptor_pool_and_sets_ringbuffer(
-            r.ctx,
+            r.device,
             self.check_descriptor_set_layout,
             number_of_sets,
             name="marching-cubes-check",
         )
         compact_pool, compact_descriptor_sets = create_descriptor_pool_and_sets_ringbuffer(
-            r.ctx,
+            r.device,
             self.compact_descriptor_set_layout,
             number_of_sets,
             name="marching-cubes-compact",
         )
         march_pool, march_descriptor_sets = create_descriptor_pool_and_sets_ringbuffer(
-            r.ctx,
+            r.device,
             self.march_descriptor_set_layout,
             number_of_sets,
             name="marching-cubes-march",
@@ -220,7 +220,7 @@ class MarchingCubesPipeline:
 
         # Allocate counter buffers
         valid_blocks_counter_buf = Buffer.from_data(
-            r.ctx,
+            r.device,
             view_bytes(np.array([0, 1, 1], np.uint32)),  # Alloc 3 elements to allow using this for indirect dispatch
             BufferUsageFlags.STORAGE
             | BufferUsageFlags.TRANSFER_DST
@@ -231,7 +231,7 @@ class MarchingCubesPipeline:
         )
 
         vertices_counter_buf = Buffer.from_data(
-            r.ctx,
+            r.device,
             view_bytes(np.zeros((1,), np.uint32)),
             BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.TRANSFER_SRC,
             AllocType.DEVICE_MAPPED_WITH_FALLBACK,
@@ -239,7 +239,7 @@ class MarchingCubesPipeline:
         )
         if not vertices_counter_buf.is_mapped:
             vertices_counter_readback_buf = Buffer.from_data(
-                r.ctx,
+                r.device,
                 view_bytes(np.zeros((1,), np.uint32)),
                 BufferUsageFlags.TRANSFER_DST,
                 AllocType.HOST,
@@ -250,7 +250,7 @@ class MarchingCubesPipeline:
 
         # Allocate additional elements for use as draw indexed indirect argument
         indices_counter_buf = Buffer.from_data(
-            r.ctx,
+            r.device,
             view_bytes(np.array([0, 1, 0, 0, 0], np.uint32)),
             BufferUsageFlags.STORAGE
             | BufferUsageFlags.TRANSFER_DST
@@ -261,7 +261,7 @@ class MarchingCubesPipeline:
         )
         if not indices_counter_buf.is_mapped:
             indices_counter_readback_buf = Buffer.from_data(
-                r.ctx,
+                r.device,
                 view_bytes(np.zeros((1,), np.uint32)),
                 BufferUsageFlags.TRANSFER_DST,
                 AllocType.HOST,
@@ -414,14 +414,14 @@ class MarchingCubesPipeline:
         total_blocks = blocks_x * blocks_y * blocks_z
 
         blocks_buffer = Buffer(
-            r.ctx,
+            r.device,
             total_blocks * 4,
             (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC),
             AllocType.DEVICE,
             name="marching-cubes-sync-blocks",
         )
         valid_blocks_buffer = Buffer(
-            r.ctx,
+            r.device,
             total_blocks * 4,
             (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC),
             AllocType.DEVICE,
@@ -458,7 +458,7 @@ class MarchingCubesPipeline:
         instance.march_constants["max_vertices"] = 0
         instance.march_constants["max_indices"] = 0
 
-        with r.ctx.sync_commands() as cmd:
+        with r.device.sync_commands() as cmd:
             cmd.bind_compute_pipeline(
                 self.check_pipeline, descriptor_sets=[check_set], push_constants=instance.check_constants.tobytes()
             )
@@ -545,21 +545,21 @@ class MarchingCubesPipeline:
         indices_arr[0] = 0
 
         positions_buf = Buffer(
-            r.ctx,
+            r.device,
             vertices_count * 12,
             (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC | BufferUsageFlags.VERTEX),
             AllocType.DEVICE,
             name="marching-cubes-sync-positions",
         )
         normals_buf = Buffer(
-            r.ctx,
+            r.device,
             vertices_count * 12,
             (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC | BufferUsageFlags.VERTEX),
             AllocType.DEVICE,
             name="marching-cubes-sync-normals",
         )
         indices_buf = Buffer(
-            r.ctx,
+            r.device,
             indices_count * 4,
             (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC | BufferUsageFlags.INDEX),
             AllocType.DEVICE,
@@ -571,7 +571,7 @@ class MarchingCubesPipeline:
 
         instance.march_constants["max_vertices"] = vertices_count
         instance.march_constants["max_indices"] = indices_count
-        with r.ctx.sync_commands() as cmd:
+        with r.device.sync_commands() as cmd:
             cmd.bind_compute_pipeline(
                 self.march_pipeline, descriptor_sets=[march_set], push_constants=instance.march_constants.tobytes()
             )

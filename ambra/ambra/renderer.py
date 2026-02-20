@@ -20,7 +20,6 @@ from pyxpg import (
     CommandBuffer,
     CompareOp,
     ComputePipeline,
-    Context,
     DepthAttachment,
     DescriptorBindingFlags,
     DescriptorPool,
@@ -28,6 +27,7 @@ from pyxpg import (
     DescriptorSetBinding,
     DescriptorSetLayout,
     DescriptorType,
+    Device,
     DeviceFeatures,
     Filter,
     Format,
@@ -144,7 +144,7 @@ class PathTracer:
 class Renderer:
     def __init__(
         self,
-        ctx: Context,
+        device: Device,
         width: int,
         height: int,
         num_frames_in_flight: int,
@@ -153,7 +153,7 @@ class Renderer:
         max_viewports: int,
         config: RendererConfig,
     ):
-        self.ctx = ctx
+        self.device = device
         self.num_frames_in_flight = num_frames_in_flight
         self.output_format = output_format
         self.multiviewport = multiviewport
@@ -162,7 +162,7 @@ class Renderer:
 
         # Config
         self.background_color = config.background_color
-        self.supports_path_tracing = bool(ctx.device_features & DeviceFeatures.RAY_QUERY)
+        self.supports_path_tracing = bool(device.features & DeviceFeatures.RAY_QUERY)
         if config.render_mode == RenderMode.PATH_TRACER and not self.supports_path_tracing:
             logger.warning(
                 "Path tracing cannot be enabled because DeviceFeatures.RAY_QUERY is not supported. Falling back to raster mode."
@@ -236,7 +236,7 @@ class Renderer:
         self.max_shadow_maps = config.max_shadow_maps
 
         self.linear_sampler = Sampler(
-            ctx,
+            device,
             Filter.LINEAR,
             Filter.LINEAR,
             SamplerMipmapMode.LINEAR,
@@ -245,7 +245,7 @@ class Renderer:
             name="linear-sampler",
         )
         self.shadow_sampler = Sampler(
-            ctx,
+            device,
             Filter.LINEAR,
             Filter.LINEAR,
             u=SamplerAddressMode.CLAMP_TO_BORDER,
@@ -257,14 +257,14 @@ class Renderer:
         )
 
         self.zero_buffer = Buffer.from_data(
-            ctx,
+            device,
             np.zeros((4,), np.uint8),
             BufferUsageFlags.STORAGE | BufferUsageFlags.UNIFORM | BufferUsageFlags.TRANSFER_DST,
             AllocType.DEVICE,
             name="zero-buffer",
         )
         self.zero_image = Image.from_data(
-            ctx,
+            device,
             np.zeros((1, 1, 4), np.uint8),
             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
             1,
@@ -275,7 +275,7 @@ class Renderer:
             name="zero-image",
         )
         self.zero_cubemap = Image(
-            self.ctx,
+            self.device,
             1,
             1,
             Format.R16G16B16A16_SFLOAT,
@@ -287,7 +287,7 @@ class Renderer:
         self.zero_triangle: Optional[Buffer] = None
         self.zero_material: Optional[Material] = None
 
-        with ctx.sync_commands() as cmd:
+        with device.sync_commands() as cmd:
             cmd.image_barrier(
                 self.zero_cubemap,
                 ImageLayout.TRANSFER_DST_OPTIMAL,
@@ -308,7 +308,7 @@ class Renderer:
         self.shader_cache: Dict[Tuple[Union[str, Tuple[str, str], Path], ...], slang.Shader] = {}
 
         self.scene_descriptor_set_layout = DescriptorSetLayout(
-            ctx,
+            device,
             [
                 DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),  # 0 - Constants
                 DescriptorSetBinding(1, DescriptorType.SAMPLER),  # 1 - shadow_map sampler
@@ -323,7 +323,7 @@ class Renderer:
         )
 
         self.scene_depth_descriptor_set_layout = DescriptorSetLayout(
-            ctx,
+            device,
             [
                 DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
             ],
@@ -356,7 +356,7 @@ class Renderer:
         self.ggx_lut_pipeline = GGXLUTPipeline(self)
         self.ggx_lut = self.ggx_lut_pipeline.run(self)
 
-        self.uniform_pool = UniformPool(ctx, self.num_frames_in_flight, config.uniform_pool_block_size)
+        self.uniform_pool = UniformPool(device, self.num_frames_in_flight, config.uniform_pool_block_size)
 
         if config.thread_pool_workers is not None:
             self.num_workers = config.thread_pool_workers
@@ -374,9 +374,9 @@ class Renderer:
         if config.force_buffer_upload_method is not None:
             self.buffer_upload_method = config.force_buffer_upload_method
             if self.buffer_upload_method == UploadMethod.TRANSFER_QUEUE:
-                if not ctx.has_transfer_queue:
+                if not device.has_transfer_queue:
                     raise RuntimeError("Transfer queue not available on picked device")
-                if not ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES:
+                if not device.features & DeviceFeatures.TIMELINE_SEMAPHORES:
                     raise RuntimeError(
                         "Transfer queue upload requires timeline semaphores which are not available on picked device"
                     )
@@ -384,14 +384,14 @@ class Renderer:
             # TODO: we could also check if BAR is available and large enough
             # and add a DEVICE_PREFER_MAPPED option to take advantage of it.
             if (
-                ctx.device_properties.device_type == PhysicalDeviceType.INTEGRATED_GPU
-                or ctx.device_properties.device_type == PhysicalDeviceType.CPU
+                device.device_properties.device_type == PhysicalDeviceType.INTEGRATED_GPU
+                or device.device_properties.device_type == PhysicalDeviceType.CPU
             ):
                 self.buffer_upload_method = UploadMethod.MAPPED_PREFER_DEVICE
             elif (
                 config.use_transfer_queue_if_available
-                and ctx.has_transfer_queue
-                and ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES
+                and device.has_transfer_queue
+                and device.features & DeviceFeatures.TIMELINE_SEMAPHORES
             ):
                 self.buffer_upload_method = UploadMethod.TRANSFER_QUEUE
             else:
@@ -408,24 +408,24 @@ class Renderer:
                 )
             self.image_upload_method = config.force_image_upload_method
             if self.image_upload_method == UploadMethod.TRANSFER_QUEUE:
-                if not ctx.has_transfer_queue:
+                if not device.has_transfer_queue:
                     raise RuntimeError("Transfer queue not available on picked device")
-                if not ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES:
+                if not device.features & DeviceFeatures.TIMELINE_SEMAPHORES:
                     raise RuntimeError(
                         "Transfer queue upload requires timeline semaphores which are not available on picked device"
                     )
         else:
             if (
                 config.use_transfer_queue_if_available
-                and ctx.has_transfer_queue
-                and ctx.device_features & DeviceFeatures.TIMELINE_SEMAPHORES
+                and device.has_transfer_queue
+                and device.features & DeviceFeatures.TIMELINE_SEMAPHORES
             ):
                 self.image_upload_method = UploadMethod.TRANSFER_QUEUE
             else:
                 self.image_upload_method = UploadMethod.GRAPHICS_QUEUE
 
         # Allocate buffers for bulk upload
-        self.bulk_uploader = BulkUploader(self.ctx, config.upload_buffer_size, config.upload_buffer_count)
+        self.bulk_uploader = BulkUploader(self.device, config.upload_buffer_size, config.upload_buffer_count)
         self.bulk_upload_list: List[Union[BufferUploadInfo, ImageUploadInfo]] = []
 
         # Enabled gpu properties cache for prefetch after frame submission
@@ -457,7 +457,7 @@ class Renderer:
             self.depth_buffer.destroy()
 
         self.depth_buffer = Image(
-            self.ctx,
+            self.device,
             width,
             height,
             self.depth_format,
@@ -470,7 +470,7 @@ class Renderer:
             if self.msaa_target is not None:
                 self.msaa_target.destroy()
             self.msaa_target = Image(
-                self.ctx,
+                self.device,
                 width,
                 height,
                 self.output_format,
@@ -586,7 +586,7 @@ class Renderer:
             # run each of these generations independently.
             batch_size = len(self.spd_pipeline_instances)
             for i in range(0, len(mip_generation_requests), batch_size):
-                with self.ctx.sync_commands() as cmd:
+                with self.device.sync_commands() as cmd:
                     for j, spd_instance in enumerate(self.spd_pipeline_instances):
                         if i + j >= len(mip_generation_requests):
                             break
@@ -610,7 +610,7 @@ class Renderer:
         if path_tracing and self.path_tracer is None:
             path_tracer_descriptor_set_layout, path_tracer_descriptor_pool, path_tracer_descriptor_set = (
                 create_descriptor_layout_pool_and_set(
-                    self.ctx,
+                    self.device,
                     [
                         DescriptorSetBinding(1, DescriptorType.ACCELERATION_STRUCTURE),
                         DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),
@@ -627,7 +627,7 @@ class Renderer:
                 )
             )
             path_tracer_viewport_descriptor_set_layout = DescriptorSetLayout(
-                self.ctx,
+                self.device,
                 [
                     DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),  # 0 - Constants
                     *[DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in LIGHT_TYPES_INFO],  # 1 - Lights
@@ -639,8 +639,8 @@ class Renderer:
             )
             shader = self.compile_builtin_shader(Path("3d", "path_tracer", "path_tracer.slang"))
             path_tracer_pipeline = ComputePipeline(
-                self.ctx,
-                Shader(self.ctx, shader.code),
+                self.device,
+                Shader(self.device, shader.code),
                 descriptor_set_layouts=[
                     path_tracer_descriptor_set_layout,
                     path_tracer_viewport_descriptor_set_layout,
@@ -651,7 +651,7 @@ class Renderer:
 
             # TODO: dynamic viewport creation
             viewport_descriptor_pool, viewport_descriptor_sets = create_descriptor_pool_and_sets(
-                self.ctx,
+                self.device,
                 path_tracer_viewport_descriptor_set_layout,
                 self.max_viewports * self.num_frames_in_flight,
                 name="pathtracer-viewport-scene-descriptor-sets",
@@ -665,7 +665,9 @@ class Renderer:
                 )
                 uniform_buffers = RingBuffer(
                     [
-                        UploadableBuffer(self.ctx, self.path_tracer_constants_dtype.itemsize, BufferUsageFlags.UNIFORM)
+                        UploadableBuffer(
+                            self.device, self.path_tracer_constants_dtype.itemsize, BufferUsageFlags.UNIFORM
+                        )
                         for _ in range(self.num_frames_in_flight)
                     ]
                 )
@@ -959,7 +961,7 @@ class Renderer:
                         v.path_tracer_viewport.accumulation_image.destroy()
 
                     v.path_tracer_viewport.accumulation_image = Image(
-                        self.ctx,
+                        self.device,
                         self.render_width,
                         self.render_height,
                         Format.R32G32B32A32_SFLOAT,
@@ -996,7 +998,7 @@ class Renderer:
                 # Since we are now anyways stalling the pipeline to create acceleration structures this overhead
                 # should be negligible compared to the actual build time and synchronization.
                 f.cmd.end()
-                self.ctx.queue.submit(
+                self.device.graphics_queue.submit(
                     f.cmd,
                     wait_semaphores=[(s.sem, s.wait_value, s.wait_stage) for s in f.additional_semaphores],
                     signal_semaphores=[(s.sem, s.signal_value, s.signal_stage) for s in f.additional_semaphores],
@@ -1004,14 +1006,14 @@ class Renderer:
                 if f.transfer_semaphores:
                     assert f.transfer_cmd is not None
                     f.transfer_cmd.end()
-                    self.ctx.transfer_queue.submit(
+                    self.device.transfer_queue.submit(
                         f.transfer_cmd,
                         wait_semaphores=[(s.sem, s.wait_value, s.wait_stage) for s in f.transfer_semaphores],
                         signal_semaphores=[(s.sem, s.signal_value, s.signal_stage) for s in f.transfer_semaphores],
                     )
 
                 # Wait for commands to complete
-                self.ctx.wait_idle()
+                self.device.wait_idle()
 
                 # Reset commands and semaphores
                 f.cmd.begin()
@@ -1035,7 +1037,7 @@ class Renderer:
                 if not instances:
                     if self.zero_triangle is None:
                         self.zero_triangle = Buffer.from_data(
-                            self.ctx,
+                            self.device,
                             np.array([0.0, 0.0, 0.0], np.float32),
                             BufferUsageFlags.SHADER_DEVICE_ADDRESS
                             | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
@@ -1089,10 +1091,10 @@ class Renderer:
                         )
                     )
                 self.path_tracer.acceleration_structure = AccelerationStructure(
-                    self.ctx, acceleration_structure_meshes, name="acceleration-structure"
+                    self.device, acceleration_structure_meshes, name="acceleration-structure"
                 )
                 self.path_tracer.instances_buf = Buffer.from_data(
-                    self.ctx,
+                    self.device,
                     view_bytes(instances_data),
                     BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
                     AllocType.DEVICE_MAPPED_WITH_FALLBACK,
@@ -1169,7 +1171,7 @@ class Renderer:
                 if self.path_tracer.materials_buf is not None:
                     self.path_tracer.materials_buf.destroy()
                 self.path_tracer.materials_buf = Buffer.from_data(
-                    self.ctx,
+                    self.device,
                     view_bytes(materials_data),
                     BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
                     AllocType.DEVICE_MAPPED_WITH_FALLBACK,
@@ -1520,7 +1522,7 @@ class Renderer:
         self.destruction_queue.setdefault(self.total_frame_index + self.num_frames_in_flight, []).extend(resources)
 
     def wait_and_destroy(self) -> None:
-        self.ctx.wait_idle()
+        self.device.wait_idle()
         for resources in self.destruction_queue.values():
             for resource in resources:
                 resource.destroy()

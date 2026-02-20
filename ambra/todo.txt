@@ -386,7 +386,7 @@ TODO:
 
 Bugs:
 - [x] Fix non-unit world_up results in nans in camera
-- [ ] Why does @cache on shader break refcounting on context, especially for an object that does not have any reference to ctx
+- [ ] Why does @cache on shader break refcounting on context, especially for an object that does not have any reference to device
       -> investigate further and maybe make minimal repro if it's actually a nanobind issue
       -> might be fixed reoving global log context
 - [ ] Exceptions sometimes cause vulkan validation errors on wrong frees

@@ -240,13 +240,13 @@ struct Device: nb::intrusive_base {
         VkPhysicalDeviceSubgroupProperties subgroup_properties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES };
         properties.pNext = &subgroup_properties;
         VkPhysicalDeviceSubgroupSizeControlProperties subgroup_size_control_properties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES };
-        if (device.device_features & gfx::DeviceFeatures::SUBGROUP_SIZE_CONTROL) {
+        if (device.features & gfx::DeviceFeatures::SUBGROUP_SIZE_CONTROL) {
             subgroup_size_control_properties.pNext = properties.pNext;
             properties.pNext = &subgroup_size_control_properties;
         }
 
         VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT };
-        if (device.device_features & gfx::DeviceFeatures::MESH_SHADER) {
+        if (device.features & gfx::DeviceFeatures::MESH_SHADER) {
             mesh_shader_properties.pNext = properties.pNext;
             properties.pNext = &mesh_shader_properties;
         }
@@ -508,7 +508,7 @@ struct TimelineSemaphore: Semaphore {
         this->owned = true;
         this->name = std::move(name);
 
-        if (!(device->device.device_features & gfx::DeviceFeatures::TIMELINE_SEMAPHORES)) {
+        if (!(device->device.features & gfx::DeviceFeatures::TIMELINE_SEMAPHORES)) {
             throw std::runtime_error("Device feature TIMELINE_SEMAPHORES must be set to use TimelineSemaphore");
         }
 
@@ -1517,7 +1517,7 @@ struct CommandBuffer: GfxObject {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
 
-        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use memory_barrier");
         }
 
@@ -1540,7 +1540,7 @@ struct CommandBuffer: GfxObject {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
 
-        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use buffer_barrier");
         }
 
@@ -1588,7 +1588,7 @@ struct CommandBuffer: GfxObject {
         assert((usize)src_usage < ArrayCount(MemoryUsagePresets::Types));
         assert((usize)dst_usage < ArrayCount(MemoryUsagePresets::Types));
 
-        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
         }
 
@@ -1631,7 +1631,7 @@ struct CommandBuffer: GfxObject {
     }
 
     void memory_barrier_full(nb::ref<MemoryBarrier> memory_barrier) {
-        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
         }
 
@@ -1645,7 +1645,7 @@ struct CommandBuffer: GfxObject {
     }
 
     void buffer_barrier_full(nb::ref<BufferBarrier> buffer_barrier) {
-        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
         }
 
@@ -1664,7 +1664,7 @@ struct CommandBuffer: GfxObject {
     }
 
     void image_barrier_full(nb::ref<ImageBarrier> image_barrier) {
-        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
         }
 
@@ -1694,7 +1694,7 @@ struct CommandBuffer: GfxObject {
         const std::vector<nb::ref<BufferBarrier>> buffer_barriers,
         std::vector<nb::ref<ImageBarrier>> image_barriers
     ) {
-        if (!(device->device.device_features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
+        if (!(device->device.features & gfx::DeviceFeatures::SYNCHRONIZATION_2)) {
             throw std::runtime_error("Device feature SYNCHRONIZATION_2 must be set to use image_barrier");
         }
 
@@ -1810,7 +1810,7 @@ struct CommandBuffer: GfxObject {
     }
 
     void begin_rendering(std::array<u32, 4> render_area, const std::vector<nb::ref<RenderingAttachment>>& color, std::optional<nb::ref<DepthAttachment>> depth) {
-        if (!(device->device.device_features & gfx::DeviceFeatures::DYNAMIC_RENDERING)) {
+        if (!(device->device.features & gfx::DeviceFeatures::DYNAMIC_RENDERING)) {
             throw std::runtime_error("Device feature DYNAMIC_RENDERING must be set to use begin_rendering");
         }
 
@@ -1857,7 +1857,7 @@ struct CommandBuffer: GfxObject {
     }
 
     void end_rendering() {
-        if (!(device->device.device_features & gfx::DeviceFeatures::DYNAMIC_RENDERING)) {
+        if (!(device->device.features & gfx::DeviceFeatures::DYNAMIC_RENDERING)) {
             throw std::runtime_error("Device feature DYNAMIC_RENDERING must be set to use begin_rendering");
         }
 
@@ -1983,7 +1983,7 @@ struct CommandBuffer: GfxObject {
         u32 max_draw_count,
         u32 stride
     ) {
-        if (!(device->device.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
+        if (!(device->device.features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
             throw std::runtime_error("Device feature DRAW_INDIRECT_COUNT must be set to use CommandBuffer.draw_indirect_count");
         }
         vkCmdDrawIndirectCount(buffer, buf->buffer.buffer, offset, count_buf->buffer.buffer, count_offset, max_draw_count, stride);
@@ -2016,7 +2016,7 @@ struct CommandBuffer: GfxObject {
         u32 max_draw_count,
         u32 stride
     ) {
-        if (!(device->device.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
+        if (!(device->device.features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
             throw std::runtime_error("Device feature DRAW_INDIRECT_COUNT must be set to use CommandBuffer.draw_indexed_indirect_count");
         }
         vkCmdDrawIndexedIndirectCount(buffer, buf->buffer.buffer, offset, count_buf->buffer.buffer, count_offset, max_draw_count, stride);
@@ -2027,7 +2027,7 @@ struct CommandBuffer: GfxObject {
         u32 groups_y,
         u32 groups_z
     ) {
-        if (!(device->device.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
+        if (!(device->device.features & gfx::DeviceFeatures::MESH_SHADER)) {
             throw std::runtime_error("Device feature MESH_SHADER must be set to use CommandBuffer.draw_mesh_tasks");
         }
         gfx::CmdDrawMeshTasks(buffer, groups_x, groups_y, groups_z);
@@ -2039,7 +2039,7 @@ struct CommandBuffer: GfxObject {
         u32 draw_count,
         u32 stride
     ) {
-        if (!(device->device.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
+        if (!(device->device.features & gfx::DeviceFeatures::MESH_SHADER)) {
             throw std::runtime_error("Device feature MESH_SHADER must be set to use CommandBuffer.draw_mesh_tasks_indirect");
         }
         gfx::CmdDrawMeshTasksIndirect(buffer, buf->buffer.buffer, offset, draw_count, stride);
@@ -2053,10 +2053,10 @@ struct CommandBuffer: GfxObject {
         u32 max_draw_count,
         u32 stride
     ) {
-        if (!(device->device.device_features & gfx::DeviceFeatures::MESH_SHADER)) {
+        if (!(device->device.features & gfx::DeviceFeatures::MESH_SHADER)) {
             throw std::runtime_error("Device feature MESH_SHADER must be set to use CommandBuffer.draw_mesh_tasks_indirect_count");
         }
-        if (!(device->device.device_features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
+        if (!(device->device.features & gfx::DeviceFeatures::DRAW_INDIRECT_COUNT)) {
             throw std::runtime_error("Device feature DRAW_INDIRECT_COUNT must be set to use CommandBuffer.draw_mesh_tasks_indirect_count");
         }
         gfx::CmdDrawMeshTasksIndirectCount(buffer, buf->buffer.buffer, offset, count_buf->buffer.buffer, count_offset, max_draw_count, stride);
@@ -4139,8 +4139,8 @@ void gfx_create_bindings(nb::module_& m)
         .def_prop_ro("version", [](Device& device) {
             return nb::make_tuple(VK_API_VERSION_MAJOR(device.device.version), VK_API_VERSION_MINOR(device.device.version));
         })
-        .def_prop_ro("device_features", [](Device& device) {
-            return device.device.device_features.flags;
+        .def_prop_ro("features", [](Device& device) {
+            return device.device.features.flags;
         })
         .def_ro("device_properties", &Device::device_properties)
         .def_ro("memory_properties", &Device::memory_properties)
@@ -4184,13 +4184,13 @@ void gfx_create_bindings(nb::module_& m)
             return device.device.compute_full_subgroups;
         })
         .def("reset_query_pool", [](Device& device, const QueryPool& pool) {
-            if (!(device.device.device_features & gfx::DeviceFeatures::HOST_QUERY_RESET)) {
+            if (!(device.device.features & gfx::DeviceFeatures::HOST_QUERY_RESET)) {
                 throw std::runtime_error("Device feature HOST_QUERY_RESET must be set to use Device.reset_query_pool");
             }
             vkResetQueryPoolEXT(device.device.device, pool.pool, 0, pool.count);
         })
         .def("get_calibrated_timestamps", [](Device& device) -> std::tuple<u64, u64> {
-            if (!(device.device.device_features & gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)) {
+            if (!(device.device.features & gfx::DeviceFeatures::CALIBRATED_TIMESTAMPS)) {
                 throw std::runtime_error("Device feature HOST_QUERY_RESET must be set to use Device.get_calibrated_timestamps");
             }
 

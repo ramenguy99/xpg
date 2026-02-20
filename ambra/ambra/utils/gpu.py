@@ -12,8 +12,8 @@ from pyxpg import (
     Buffer,
     BufferUsageFlags,
     CommandBuffer,
-    Context,
     CullMode,
+    Device,
     DeviceFeatures,
     Fence,
     Format,
@@ -97,34 +97,34 @@ class BulkUploadState:
 
 
 class BulkUploader:
-    def __init__(self, ctx: Context, size: int, count: int):
-        self.ctx = ctx
+    def __init__(self, device: Device, size: int, count: int):
+        self.device = device
 
         self.upload_states: List[BulkUploadState] = []
         upload_alignment = max(
-            ctx.device_properties.limits.optimal_buffer_copy_offset_alignment,
-            ctx.device_properties.limits.optimal_buffer_copy_row_pitch_alignment,
+            device.device_properties.limits.optimal_buffer_copy_offset_alignment,
+            device.device_properties.limits.optimal_buffer_copy_row_pitch_alignment,
         )
 
-        if ctx.has_transfer_queue:
-            self.queue = ctx.transfer_queue
-            self.queue_family_index = ctx.transfer_queue_family_index
+        if device.has_transfer_queue:
+            self.queue = device.transfer_queue
+            self.queue_family_index = device.transfer_queue_family_index
         else:
-            self.queue = ctx.queue
-            self.queue_family_index = ctx.graphics_queue_family_index
+            self.queue = device.graphics_queue
+            self.queue_family_index = device.graphics_queue_family_index
 
         for i in range(count):
             self.upload_states.append(
                 BulkUploadState(
                     buffer=Buffer(
-                        ctx,
+                        device,
                         align_up(size, upload_alignment),
                         BufferUsageFlags.TRANSFER_SRC,
                         AllocType.HOST,
                         name=f"bulk-upload-buffer-{i}",
                     ),
-                    cmd=CommandBuffer(ctx, self.queue_family_index, name=f"bulk-upload-commands-{i}"),
-                    fence=Fence(ctx, name=f"bulk-upload-fence-{i}"),
+                    cmd=CommandBuffer(device, self.queue_family_index, name=f"bulk-upload-commands-{i}"),
+                    fence=Fence(device, name=f"bulk-upload-fence-{i}"),
                     submitted=False,
                 )
             )
@@ -133,8 +133,8 @@ class BulkUploader:
         self, uploads: List[Union[BufferUploadInfo, ImageUploadInfo]], mip_generation_requests: List[ImageUploadInfo]
     ) -> None:
         # Compute alignment requirements
-        offset_alignment = max(self.ctx.device_properties.limits.optimal_buffer_copy_offset_alignment, 16)
-        pitch_alignment = max(self.ctx.device_properties.limits.optimal_buffer_copy_row_pitch_alignment, 16)
+        offset_alignment = max(self.device.device_properties.limits.optimal_buffer_copy_offset_alignment, 16)
+        pitch_alignment = max(self.device.device_properties.limits.optimal_buffer_copy_row_pitch_alignment, 16)
 
         # State of current upload
         start_image_plane = 0
@@ -320,7 +320,7 @@ class BulkUploader:
 class UploadableBuffer(Buffer):
     def __init__(
         self,
-        ctx: Context,
+        device: Device,
         size: int,
         usage_flags: BufferUsageFlags,
         name: Optional[str] = None,
@@ -330,7 +330,7 @@ class UploadableBuffer(Buffer):
         #
         # Maybe we should also handle integrated and CPU differently here
         super().__init__(
-            ctx,
+            device,
             size,
             usage_flags | BufferUsageFlags.TRANSFER_DST,
             AllocType.DEVICE_MAPPED_WITH_FALLBACK,
@@ -340,7 +340,7 @@ class UploadableBuffer(Buffer):
             if name is not None:
                 name = f"{name} - staging"
             self._staging = Buffer(
-                ctx,
+                device,
                 size,
                 BufferUsageFlags.TRANSFER_SRC,
                 AllocType.HOST_WRITE_COMBINING,
@@ -350,12 +350,12 @@ class UploadableBuffer(Buffer):
     @classmethod
     def from_data(  # type: ignore
         cls,
-        ctx: Context,
+        device: Device,
         data: memoryview,
         usage_flags: BufferUsageFlags,
         name: Optional[str] = None,
     ) -> "UploadableBuffer":
-        buf = cls(ctx, len(data), usage_flags, name=name)
+        buf = cls(device, len(data), usage_flags, name=name)
         buf.upload_sync(data)
         return buf
 
@@ -392,7 +392,7 @@ class UploadableBuffer(Buffer):
             # print(self.data.format    , data.format     )
             self.data[offset : offset + len(data)] = data
         else:
-            with self.ctx.sync_commands() as cmd:
+            with self.device.sync_commands() as cmd:
                 self.upload(cmd, MemoryUsage.NONE, data, offset)
 
 
@@ -417,7 +417,7 @@ def get_image_pitch_rows_and_texel_size(width: int, height: int, format: Format)
 class UploadableImage(Image):
     def __init__(
         self,
-        ctx: Context,
+        device: Device,
         width: int,
         height: int,
         format: Format,
@@ -427,14 +427,14 @@ class UploadableImage(Image):
     ):
         pitch, rows, _ = get_image_pitch_rows_and_texel_size(width, height, format)
         self._staging = Buffer(
-            ctx,
+            device,
             pitch * rows,
             BufferUsageFlags.TRANSFER_SRC,
             AllocType.HOST_WRITE_COMBINING,
             f"{name} - staging",
         )
         super().__init__(
-            ctx,
+            device,
             width,
             height,
             format,
@@ -445,7 +445,7 @@ class UploadableImage(Image):
     @classmethod
     def from_data(  # type: ignore
         cls,
-        ctx: Context,
+        device: Device,
         data: memoryview,
         layout: ImageLayout,
         width: int,
@@ -455,7 +455,7 @@ class UploadableImage(Image):
         dedicated_alloc: bool = False,
         name: Optional[str] = None,
     ) -> "UploadableImage":
-        buf = cls(ctx, width, height, format, usage_flags, dedicated_alloc, name)
+        buf = cls(device, width, height, format, usage_flags, dedicated_alloc, name)
         buf.upload_sync(data, layout)
         return buf
 
@@ -487,7 +487,7 @@ class UploadableImage(Image):
             cmd.image_barrier(self, layout, MemoryUsage.TRANSFER_DST, dst_usage)
 
     def upload_sync(self, data: Union[memoryview, NDArray[np.uint8]], layout: ImageLayout) -> None:
-        with self.ctx.sync_commands() as cmd:
+        with self.device.sync_commands() as cmd:
             self.upload(cmd, layout, MemoryUsage.NONE, MemoryUsage.NONE, data)
 
 
@@ -525,16 +525,16 @@ class UniformBlock:
 
 
 class UniformPool:
-    def __init__(self, ctx: Context, num_frames: int, block_size: int):
-        self.ctx = ctx
+    def __init__(self, device: Device, num_frames: int, block_size: int):
+        self.device = device
         self.num_frames = num_frames
         self.block_size = block_size
         self.blocks: List[UniformBlock] = []
         self.alignment = max(
             16,
-            self.ctx.device_properties.limits.min_uniform_buffer_offset_alignment,
+            self.device.device_properties.limits.min_uniform_buffer_offset_alignment,
         )
-        self.max_uniform_buffer_range = self.ctx.device_properties.limits.max_uniform_buffer_range
+        self.max_uniform_buffer_range = self.device.device_properties.limits.max_uniform_buffer_range
 
         # Warmup first block
         self._alloc_block(block_size)
@@ -546,7 +546,7 @@ class UniformPool:
             buffers=RingBuffer(
                 [
                     UploadableBuffer(
-                        self.ctx,
+                        self.device,
                         size,
                         BufferUsageFlags.UNIFORM,
                         name=f"uniform-pool-block-buf{block_idx}",
@@ -681,9 +681,9 @@ def cull_mode_opposite_face(mode: CullMode) -> CullMode:
         return mode
 
 
-def readback_buffer(ctx: Context, buf: Buffer) -> NDArray[np.uint8]:
-    host_buffer = Buffer(ctx, buf.size, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
-    with ctx.sync_commands() as cmd:
+def readback_buffer(device: Device, buf: Buffer) -> NDArray[np.uint8]:
+    host_buffer = Buffer(device, buf.size, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
+    with device.sync_commands() as cmd:
         cmd.copy_buffer(buf, host_buffer)
         cmd.memory_barrier(MemoryUsage.TRANSFER_SRC, MemoryUsage.HOST_READ)
     array = np.frombuffer(host_buffer, np.uint8).copy()
@@ -691,12 +691,12 @@ def readback_buffer(ctx: Context, buf: Buffer) -> NDArray[np.uint8]:
     return array
 
 
-def readback_image(ctx: Context, img: Image, new_layout: ImageLayout) -> NDArray[Any]:
+def readback_image(device: Device, img: Image, new_layout: ImageLayout) -> NDArray[Any]:
     channels, dtype, _, _ = _format_to_channels_dtype_int_bgra_table[img.format]
     shape = (img.height, img.width, channels)
 
-    buffer = Buffer(ctx, int(np.prod(shape)) * dtype.itemsize, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
-    with ctx.sync_commands() as cmd:
+    buffer = Buffer(device, int(np.prod(shape)) * dtype.itemsize, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
+    with device.sync_commands() as cmd:
         cmd.image_barrier(img, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC)
         cmd.copy_image_to_buffer(img, buffer)
         cmd.image_barrier(img, new_layout, MemoryUsage.TRANSFER_SRC, MemoryUsage.SHADER_READ_ONLY)
@@ -707,15 +707,17 @@ def readback_image(ctx: Context, img: Image, new_layout: ImageLayout) -> NDArray
     return array
 
 
-def readback_image_mips(ctx: Context, img: Image, new_layout: ImageLayout) -> List[NDArray[Any]]:
+def readback_image_mips(device: Device, img: Image, new_layout: ImageLayout) -> List[NDArray[Any]]:
     channels, dtype, _, _ = _format_to_channels_dtype_int_bgra_table[img.format]
 
     buffers: List[Buffer] = []
     for m in range(img.mip_levels):
         w, h = max(img.width >> m, 1), max(img.height >> m, 1)
-        buffers.append(Buffer(ctx, w * h * channels * dtype.itemsize, BufferUsageFlags.TRANSFER_DST, AllocType.HOST))
+        buffers.append(
+            Buffer(device, w * h * channels * dtype.itemsize, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)
+        )
 
-    with ctx.sync_commands() as cmd:
+    with device.sync_commands() as cmd:
         cmd.image_barrier(img, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC)
         for m, buffer in zip(range(img.mip_levels), buffers):
             w, h = max(img.width >> m, 1), max(img.height >> m, 1)
@@ -741,14 +743,14 @@ def to_srgb_format(format: Format) -> Format:
 
 
 def get_min_max_and_required_subgroup_size(
-    ctx: Context, stage: Stage, preferred_size: int, group_size: Optional[int] = None
+    device: Device, stage: Stage, preferred_size: int, group_size: Optional[int] = None
 ) -> Tuple[int, int, Optional[int]]:
     if not is_pow_2(preferred_size):
         raise RuntimeError(f"Preferred size must be a power of 2. Got: {preferred_size}")
 
-    control_props = ctx.device_properties.subgroup_size_control_properties
-    if ctx.device_features & DeviceFeatures.SUBGROUP_SIZE_CONTROL:
-        if ctx.subgroup_size_control and control_props.required_subgroup_size_stages & stage:
+    control_props = device.device_properties.subgroup_size_control_properties
+    if device.features & DeviceFeatures.SUBGROUP_SIZE_CONTROL:
+        if device.subgroup_size_control and control_props.required_subgroup_size_stages & stage:
             min_subgroup_size = control_props.min_subgroup_size
             if group_size is not None:
                 min_subgroup_size = group_size // control_props.max_compute_workgroup_subgroups
@@ -762,7 +764,7 @@ def get_min_max_and_required_subgroup_size(
             return control_props.min_subgroup_size, control_props.max_subgroup_size, None
     else:
         return (
-            ctx.device_properties.subgroup_properties.subgroup_size,
-            ctx.device_properties.subgroup_properties.subgroup_size,
+            device.device_properties.subgroup_properties.subgroup_size,
+            device.device_properties.subgroup_properties.subgroup_size,
             None,
         )

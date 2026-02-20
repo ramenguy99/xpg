@@ -130,13 +130,13 @@ class GpuSortingPipeline:
         # Allocate 2 sets per frame to ping-pong radix passes
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
-                r.ctx,
+                r.device,
                 descriptors,
                 2 * r.num_frames_in_flight,
             )
         )
 
-        enable_16_bit = (r.ctx.device_features & DeviceFeatures.SHADER_INT16) != 0
+        enable_16_bit = (r.device.features & DeviceFeatures.SHADER_INT16) != 0
 
         # Permutations are:
         # 3 key types
@@ -177,7 +177,7 @@ class GpuSortingPipeline:
         if enable_16_bit:
             defines.append(("ENABLE_16_BIT", ""))
 
-        defines.append(("MAX_DISPATCH_DIM", str(r.ctx.device_properties.limits.max_compute_work_group_count[0])))
+        defines.append(("MAX_DISPATCH_DIM", str(r.device.device_properties.limits.max_compute_work_group_count[0])))
         if options.indirect:
             defines.append(("INDIRECT_DISPATCH", ""))
 
@@ -195,8 +195,8 @@ class GpuSortingPipeline:
                 include_paths=[renderer.SHADERS_PATH.joinpath("GPUSorting")],
             )
             return ComputePipeline(
-                r.ctx,
-                Shader(r.ctx, shader.code),
+                r.device,
+                Shader(r.device, shader.code),
                 descriptor_set_layouts=[self.descriptor_set_layout],
                 push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
             )
@@ -217,7 +217,7 @@ class GpuSortingPipeline:
             )
 
         self.global_histogram_buf = Buffer(
-            r.ctx,
+            r.device,
             RADIX_SORT_RADIX * RADIX_SORT_PASSES * 4,
             BufferUsageFlags.STORAGE,
             AllocType.DEVICE,
@@ -229,7 +229,7 @@ class GpuSortingPipeline:
             pass_histogram_buf_size *= RADIX_SORT_PASSES
 
         self.pass_histogram_buf = Buffer(
-            r.ctx,
+            r.device,
             pass_histogram_buf_size,
             BufferUsageFlags.STORAGE,
             AllocType.DEVICE,
@@ -237,7 +237,7 @@ class GpuSortingPipeline:
         )
         if options.unsafe_has_forward_thread_progress_guarantee:
             self.index_buf = Buffer(
-                r.ctx,
+                r.device,
                 RADIX_SORT_PASSES * 4,
                 BufferUsageFlags.STORAGE,
                 AllocType.DEVICE,
@@ -246,7 +246,7 @@ class GpuSortingPipeline:
 
         if options.indirect:
             self.indirect_constants_buf = Buffer(
-                r.ctx,
+                r.device,
                 16,
                 BufferUsageFlags.STORAGE | BufferUsageFlags.UNIFORM,
                 AllocType.DEVICE,
@@ -254,7 +254,7 @@ class GpuSortingPipeline:
             )
 
             self.indirect_dispatch_buf = Buffer(
-                r.ctx,
+                r.device,
                 48 if options.unsafe_has_forward_thread_progress_guarantee else 24,
                 BufferUsageFlags.STORAGE | BufferUsageFlags.INDIRECT,
                 AllocType.DEVICE,
@@ -322,7 +322,7 @@ class GpuSortingPipeline:
 
         thread_blocks = div_round_up(count, self.tuning.partition_size)
 
-        max_dispatch_size = r.ctx.device_properties.limits.max_compute_work_group_count[0]
+        max_dispatch_size = r.device.device_properties.limits.max_compute_work_group_count[0]
         full_blocks = thread_blocks // max_dispatch_size
         partial_blocks = thread_blocks - full_blocks * max_dispatch_size
 

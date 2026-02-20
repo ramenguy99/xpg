@@ -13,15 +13,16 @@ from pyxpg import (
     AllocType,
     BorderColor,
     BufferUsageFlags,
-    Context,
     DescriptorSetBinding,
     DescriptorType,
+    Device,
     DeviceFeatures,
     Format,
     Gui,
     Image,
     ImageLayout,
     ImageUsageFlags,
+    Instance,
     Key,
     LogLevel,
     MemoryHeapFlags,
@@ -83,8 +84,17 @@ class Viewer:
         # Viewer
         self.running = False
 
-        # Context
-        self.ctx = Context(
+        # Device
+        self.instance = Instance(
+            version=(1, 1),
+            presentation=config.window,
+            enable_validation_layer=config.enable_validation_layer,
+            enable_synchronization_validation=config.enable_synchronization_validation,
+            enable_gpu_based_validation=config.enable_gpu_based_validation,
+        )
+
+        self.device = Device(
+            self.instance,
             version=(1, 1),
             required_features=DeviceFeatures.SYNCHRONIZATION_2
             | DeviceFeatures.DYNAMIC_RENDERING
@@ -105,31 +115,29 @@ class Viewer:
             | DeviceFeatures.MESH_SHADER
             | DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC
             | DeviceFeatures.SUBGROUP_SIZE_CONTROL,
-            preferred_frames_in_flight=config.preferred_frames_in_flight,
-            preferred_swapchain_usage_flags=ImageUsageFlags.COLOR_ATTACHMENT
-            | ImageUsageFlags.TRANSFER_DST
-            | ImageUsageFlags.TRANSFER_SRC
-            | ImageUsageFlags.STORAGE,
-            vsync=config.vsync,
+            presentation=config.window,
             force_physical_device_index=0xFFFFFFFF
             if config.force_physical_device_index is None
             else config.force_physical_device_index,
             prefer_discrete_gpu=config.prefer_discrete_gpu,
-            enable_validation_layer=config.enable_validation_layer,
-            enable_synchronization_validation=config.enable_synchronization_validation,
-            enable_gpu_based_validation=config.enable_gpu_based_validation,
         )
 
         # Window
         self.window: Optional[Window] = None
         if config.window:
             self.window = Window(
-                self.ctx,
+                self.device,
                 title,
                 config.window_width,
                 config.window_height,
                 x=config.window_x,
                 y=config.window_y,
+                preferred_frames_in_flight=config.preferred_frames_in_flight,
+                preferred_swapchain_usage_flags=ImageUsageFlags.COLOR_ATTACHMENT
+                | ImageUsageFlags.TRANSFER_DST
+                | ImageUsageFlags.TRANSFER_SRC
+                | ImageUsageFlags.STORAGE,
+                vsync=config.vsync,
             )
             self.window.set_callbacks(
                 draw=self.on_draw,
@@ -143,7 +151,7 @@ class Viewer:
 
         # Headless swapchain for screenshots and videos
         output_format = Format.R8G8B8A8_UNORM if self.window is None else self.window.swapchain_format
-        self.headless_swapchain = HeadlessSwapchain(self.ctx, 2, output_format)
+        self.headless_swapchain = HeadlessSwapchain(self.device, 2, output_format)
 
         if self.window is not None:
             render_width, render_height = self.window.fb_width, self.window.fb_height
@@ -156,7 +164,14 @@ class Viewer:
             num_frames_in_flight = self.headless_swapchain.num_frames_in_flight
 
             # GUI
-            self.gui = Gui(self.ctx, num_frames_in_flight, output_format, config.gui.default_font_size, config.gui.default_font_preference)
+            self.gui = Gui(
+                self.instance,
+                self.device,
+                num_frames_in_flight,
+                output_format,
+                config.gui.default_font_size,
+                config.gui.default_font_preference,
+            )
 
         self.multiviewport = config.gui.multiviewport
         self.gui.set_ini_filename(config.gui.ini_filename)
@@ -180,7 +195,7 @@ class Viewer:
 
         # Renderer
         self.renderer = Renderer(
-            self.ctx,
+            self.device,
             render_width,
             render_height,
             num_frames_in_flight,
@@ -211,14 +226,14 @@ class Viewer:
                     "config.gui.initial_number_of_viewports must be less than or equal to config.gui.max_viewport_count"
                 )
             self.viewport_sampler = Sampler(
-                self.ctx,
+                self.device,
                 u=SamplerAddressMode.CLAMP_TO_BORDER,
                 v=SamplerAddressMode.CLAMP_TO_BORDER,
                 border_color=BorderColor.FLOAT_OPAQUE_BLACK,
             )
             self.viewport_descriptor_layout, self.viewport_descriptor_pool, self.viewport_descriptor_sets = (
                 create_descriptor_layout_pool_and_sets(
-                    self.ctx,
+                    self.device,
                     [
                         DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT),
                     ],
@@ -232,7 +247,7 @@ class Viewer:
             max_viewports = 1
 
         self.viewport_scene_descriptor_pool, self.viewport_scene_descriptor_sets = create_descriptor_pool_and_sets(
-            self.ctx,
+            self.device,
             self.renderer.scene_descriptor_set_layout,
             max_viewports * self.renderer.num_frames_in_flight,
             name="viewport-scene-descriptor-sets",
@@ -247,7 +262,9 @@ class Viewer:
             )
             scene_uniform_buffers = RingBuffer(
                 [
-                    UploadableBuffer(self.ctx, self.renderer.scene_constants_dtype.itemsize, BufferUsageFlags.UNIFORM)
+                    UploadableBuffer(
+                        self.device, self.renderer.scene_constants_dtype.itemsize, BufferUsageFlags.UNIFORM
+                    )
                     for _ in range(self.renderer.num_frames_in_flight)
                 ]
             )
@@ -255,7 +272,7 @@ class Viewer:
                 [
                     [
                         UploadableBuffer(
-                            self.ctx, info.size * self.renderer.max_lights_per_type, BufferUsageFlags.STORAGE
+                            self.device, info.size * self.renderer.max_lights_per_type, BufferUsageFlags.STORAGE
                         )
                         for info in LIGHT_TYPES_INFO
                     ]
@@ -297,7 +314,7 @@ class Viewer:
                 if self.renderer.supports_path_tracing:
                     usage_flags |= ImageUsageFlags.STORAGE
                 img = Image(
-                    self.ctx,
+                    self.device,
                     render_width,
                     render_height,
                     output_format,
@@ -462,7 +479,7 @@ class Viewer:
             # Even if someone recorded commands, this would be a bug because
             # there is no way to know when those commands would complete.
             if frame_inputs.transfer_semaphores:
-                self.ctx.transfer_queue.submit(
+                self.device.transfer_queue.submit(
                     frame_inputs.transfer_command_buffer,
                     wait_semaphores=[(s.sem, s.wait_value, s.wait_stage) for s in frame_inputs.transfer_semaphores],
                     signal_semaphores=[
@@ -626,7 +643,7 @@ class Viewer:
                     if self.renderer.supports_path_tracing:
                         usage_flags |= ImageUsageFlags.STORAGE
                     img = Image(
-                        self.ctx,
+                        self.device,
                         width,
                         height,
                         self.renderer.output_format,
@@ -676,12 +693,14 @@ class Viewer:
             avg_fps = 1.0 / avg_dt if avg_dt > 0 else 0.0
             last_dt = self.frame_times[self.frame_time_index]
             last_fps = 1.0 / last_dt if last_dt > 0 else 0.0
-            imgui.text(f"{self.ctx.device_properties.device_name}")
+            imgui.text(f"{self.device.device_properties.device_name}")
             if self.window is not None:
                 imgui.text(f"Window size:     [{self.window.fb_width}x{self.window.fb_height}]")
             imgui.text(f"FPS:             {avg_fps:6.2f} ({last_fps:6.2f})")
             imgui.text(f"Frame time (ms): {avg_dt * 1000.0:6.2f} ({last_dt * 1000.0:6.2f})")
-            for i, (heap, stats) in enumerate(zip(self.ctx.memory_properties.memory_heaps, self.ctx.heap_statistics)):
+            for i, (heap, stats) in enumerate(
+                zip(self.device.memory_properties.memory_heaps, self.device.heap_statistics)
+            ):
                 if heap.flags & MemoryHeapFlags.VK_MEMORY_HEAP_DEVICE_LOCAL:
                     kind = "GPU"
                 else:
@@ -1081,7 +1100,7 @@ class Viewer:
                 break
 
             self.on_draw()
-        self.ctx.wait_idle()
+        self.device.wait_idle()
 
         if self.server is not None:
             self.server.shutdown()

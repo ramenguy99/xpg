@@ -4,7 +4,6 @@
 from typing import List, Optional, Tuple
 
 from pyxpg import (
-    Context,
     DescriptorPool,
     DescriptorPoolCreateFlags,
     DescriptorPoolSize,
@@ -12,27 +11,28 @@ from pyxpg import (
     DescriptorSetBinding,
     DescriptorSetLayout,
     DescriptorSetLayoutCreateFlags,
+    Device,
 )
 
 from .ring_buffer import RingBuffer
 
 
 def create_descriptor_layout_pool_and_set(
-    ctx: Context,
+    device: Device,
     bindings: List[DescriptorSetBinding],
     variable_count: int = 0,
     layout_flags: DescriptorSetLayoutCreateFlags = DescriptorSetLayoutCreateFlags.NONE,
     pool_flags: DescriptorPoolCreateFlags = DescriptorPoolCreateFlags.NONE,
     name: Optional[str] = None,
 ) -> Tuple[DescriptorSetLayout, DescriptorPool, DescriptorSet]:
-    layout = DescriptorSetLayout(ctx, bindings, layout_flags, name=name)
-    pool = DescriptorPool(ctx, [DescriptorPoolSize(b.count, b.type) for b in bindings], 1, pool_flags, name=name)
+    layout = DescriptorSetLayout(device, bindings, layout_flags, name=name)
+    pool = DescriptorPool(device, [DescriptorPoolSize(b.count, b.type) for b in bindings], 1, pool_flags, name=name)
     set = pool.allocate_descriptor_set(layout, variable_count, name=name)
     return layout, pool, set
 
 
 def create_descriptor_layout_pool_and_sets(
-    ctx: Context,
+    device: Device,
     bindings: List[DescriptorSetBinding],
     count: int,
     variable_count: int = 0,
@@ -40,16 +40,16 @@ def create_descriptor_layout_pool_and_sets(
     pool_flags: DescriptorPoolCreateFlags = DescriptorPoolCreateFlags.NONE,
     name: Optional[str] = None,
 ) -> Tuple[DescriptorSetLayout, DescriptorPool, List[DescriptorSet]]:
-    layout = DescriptorSetLayout(ctx, bindings, layout_flags, name=name)
+    layout = DescriptorSetLayout(device, bindings, layout_flags, name=name)
     pool = DescriptorPool(
-        ctx, [DescriptorPoolSize(b.count * count, b.type) for b in bindings], count, pool_flags, name=name
+        device, [DescriptorPoolSize(b.count * count, b.type) for b in bindings], count, pool_flags, name=name
     )
     sets: List[DescriptorSet] = [pool.allocate_descriptor_set(layout, variable_count, name=name) for _ in range(count)]
     return layout, pool, sets
 
 
 def create_descriptor_layout_pool_and_sets_ringbuffer(
-    ctx: Context,
+    device: Device,
     bindings: List[DescriptorSetBinding],
     count: int,
     variable_count: int = 0,
@@ -58,13 +58,13 @@ def create_descriptor_layout_pool_and_sets_ringbuffer(
     name: Optional[str] = None,
 ) -> Tuple[DescriptorSetLayout, DescriptorPool, RingBuffer[DescriptorSet]]:
     layout, pool, sets = create_descriptor_layout_pool_and_sets(
-        ctx, bindings, count, variable_count, layout_flags, pool_flags, name
+        device, bindings, count, variable_count, layout_flags, pool_flags, name
     )
     return layout, pool, RingBuffer(sets)
 
 
 def create_descriptor_pool_and_sets(
-    ctx: Context,
+    device: Device,
     layout: DescriptorSetLayout,
     count: int,
     variable_count: int = 0,
@@ -72,19 +72,19 @@ def create_descriptor_pool_and_sets(
     name: Optional[str] = None,
 ) -> Tuple[DescriptorPool, List[DescriptorSet]]:
     pool = DescriptorPool(
-        ctx, [DescriptorPoolSize(b.count * count, b.type) for b in layout.bindings], count, pool_flags, name=name
+        device, [DescriptorPoolSize(b.count * count, b.type) for b in layout.bindings], count, pool_flags, name=name
     )
     sets: List[DescriptorSet] = [pool.allocate_descriptor_set(layout, variable_count, name=name) for _ in range(count)]
     return pool, sets
 
 
 def create_descriptor_pool_and_sets_ringbuffer(
-    ctx: Context,
+    device: Device,
     layout: DescriptorSetLayout,
     count: int,
     variable_count: int = 0,
     pool_flags: DescriptorPoolCreateFlags = DescriptorPoolCreateFlags.NONE,
     name: Optional[str] = None,
 ) -> Tuple[DescriptorPool, RingBuffer[DescriptorSet]]:
-    pool, sets = create_descriptor_pool_and_sets(ctx, layout, count, variable_count, pool_flags, name)
+    pool, sets = create_descriptor_pool_and_sets(device, layout, count, variable_count, pool_flags, name)
     return pool, RingBuffer(sets)

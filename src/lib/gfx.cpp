@@ -982,7 +982,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
             if (features_to_check & o##_deps.flag) { \
                 CHECK_FEATURES(o) \
                 CHECK_EXTENSIONS(o) \
-                logging::trace("gfx/device", "%-25s | features: %s, extensions: %s", #o, all_features_supported ? "yes" : " no", all_extensions_supported ? "yes" : " no"); \
+                logging::trace("gfx/device", "%-30s | features: %s, extensions: %s", #o, all_features_supported ? "yes" : " no", all_extensions_supported ? "yes" : " no"); \
                 if (all_features_supported && all_extensions_supported) { \
                     info.supported_features = info.supported_features | o##_deps.flag; \
                 } \
@@ -991,7 +991,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
 #define CHECK_SUPPORTED_EXTENSIONS(o) \
             if (features_to_check & o##_deps.flag) { \
                 CHECK_EXTENSIONS(o) \
-                logging::trace("gfx/device", "%-25s | extensions: %s", #o, all_extensions_supported ? "yes" : " no"); \
+                logging::trace("gfx/device", "%-30s | extensions: %s", #o, all_extensions_supported ? "yes" : " no"); \
                 if (all_extensions_supported) { \
                     info.supported_features = info.supported_features | o##_deps.flag; \
                 } \
@@ -1348,7 +1348,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
     device->physical_device = physical_devices[picked_index];
     device->device = vk_device;
     device->vma = vma;
-    device->device_features = picked_info.supported_features;
+    device->features = picked_info.supported_features;
     device->subgroup_size_control = picked_info.subgroup_size_control;
     device->compute_full_subgroups = picked_info.compute_full_subgroups;
     device->has_presentation = desc.require_presentation;

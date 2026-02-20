@@ -176,10 +176,10 @@ class Points(Object3D):
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
-            r.ctx,
+            r.device,
             stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+                PipelineStage(Shader(r.device, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
             ],
             vertex_bindings=vertex_bindings,
             vertex_attributes=vertex_attributes,
@@ -270,10 +270,10 @@ class Lines(Object3D):
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
-            r.ctx,
+            r.device,
             stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+                PipelineStage(Shader(r.device, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
             ],
             vertex_bindings=[
                 VertexBinding(0, 12, VertexInputRate.VERTEX),
@@ -316,7 +316,7 @@ class Lines(Object3D):
             push_constants=self.constants.tobytes(),
         )
         frame.cmd.set_line_width(
-            self.line_width.get_current().item() if renderer.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
+            self.line_width.get_current().item() if renderer.device.features & DeviceFeatures.WIDE_LINES else 1.0
         )
 
         frame.cmd.draw(lines.size // 12)
@@ -492,10 +492,10 @@ class Mesh(Object3D):
         frag = r.compile_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
 
         self.pipeline = GraphicsPipeline(
-            r.ctx,
+            r.device,
             stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+                PipelineStage(Shader(r.device, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
             ],
             vertex_bindings=vertex_bindings,
             vertex_attributes=vertex_attributes,
@@ -515,9 +515,9 @@ class Mesh(Object3D):
 
         depth_vert = r.compile_builtin_shader("3d/mesh_depth.slang", "vertex_main", defines=depth_defines)
         self.depth_pipeline = GraphicsPipeline(
-            r.ctx,
+            r.device,
             stages=[
-                PipelineStage(Shader(r.ctx, depth_vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, depth_vert.code), Stage.VERTEX),
             ],
             vertex_bindings=depth_vertex_bindings,
             vertex_attributes=depth_vertex_attributes,
@@ -772,10 +772,10 @@ class MarchingCubesMesh(Object3D):
         frag = r.compile_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
 
         self.pipeline = GraphicsPipeline(
-            r.ctx,
+            r.device,
             stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+                PipelineStage(Shader(r.device, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
             ],
             vertex_bindings=vertex_bindings,
             vertex_attributes=vertex_attributes,
@@ -793,9 +793,9 @@ class MarchingCubesMesh(Object3D):
 
         depth_vert = r.compile_builtin_shader("3d/mesh_depth.slang", "vertex_main", defines=depth_defines)
         self.depth_pipeline = GraphicsPipeline(
-            r.ctx,
+            r.device,
             stages=[
-                PipelineStage(Shader(r.ctx, depth_vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, depth_vert.code), Stage.VERTEX),
             ],
             vertex_bindings=depth_vertex_bindings,
             vertex_attributes=depth_vertex_attributes,
@@ -810,14 +810,14 @@ class MarchingCubesMesh(Object3D):
         )
 
         self.blocks_buf = Buffer(
-            r.ctx,
+            r.device,
             self.total_blocks * 4,
             (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC),
             AllocType.DEVICE,
             name="marching-cubes-mesh-blocks",
         )
         self.valid_blocks_buf = Buffer(
-            r.ctx,
+            r.device,
             self.total_blocks * 4,
             (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC),
             AllocType.DEVICE,
@@ -833,7 +833,7 @@ class MarchingCubesMesh(Object3D):
             address_flags |= BufferUsageFlags.SHADER_DEVICE_ADDRESS
 
         self.positions_buf = Buffer(
-            r.ctx,
+            r.device,
             self.max_vertices * 12,
             (
                 BufferUsageFlags.STORAGE
@@ -845,14 +845,14 @@ class MarchingCubesMesh(Object3D):
             name="marching-cubes-mesh-positions",
         )
         self.normals_buf = Buffer(
-            r.ctx,
+            r.device,
             self.max_vertices * 12,
             (BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_SRC | BufferUsageFlags.VERTEX | address_flags),
             AllocType.DEVICE,
             name="marching-cubes-mesh-normals",
         )
         self.indices_buf = Buffer(
-            r.ctx,
+            r.device,
             self.max_indices * 4,
             (
                 BufferUsageFlags.STORAGE
@@ -1233,22 +1233,22 @@ class Grid(Object3D):
         frag = r.compile_builtin_shader("3d/grid.slang", "pixel_main")
 
         self.grid_constants_buf = Buffer.from_data(
-            r.ctx,
+            r.device,
             view_bytes(self.grid_constants),
             BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.UNIFORM,
             AllocType.DEVICE_MAPPED_WITH_FALLBACK,
         )
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_set = create_descriptor_layout_pool_and_set(
-            r.ctx,
+            r.device,
             [DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER)],
         )
         self.descriptor_set.write_buffer(self.grid_constants_buf, DescriptorType.UNIFORM_BUFFER, 0)
 
         self.pipeline = GraphicsPipeline(
-            r.ctx,
+            r.device,
             stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+                PipelineStage(Shader(r.device, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
             ],
             rasterization=Rasterization(cull_mode=CullMode.NONE),
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_STRIP),
@@ -1399,7 +1399,7 @@ class Voxels(Object3D):
             np.uint32,
         )
         self.indices = Buffer.from_data(
-            r.ctx,
+            r.device,
             view_bytes(indices),
             BufferUsageFlags.INDEX | BufferUsageFlags.TRANSFER_DST,
             AllocType.DEVICE,
@@ -1407,10 +1407,10 @@ class Voxels(Object3D):
         )
 
         self.pipeline = GraphicsPipeline(
-            r.ctx,
+            r.device,
             stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+                PipelineStage(Shader(r.device, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
             ],
             vertex_bindings=vertex_bindings,
             vertex_attributes=vertex_attributes,
@@ -1558,44 +1558,48 @@ class GaussianSplats(Object3D):
         self.splat_scale = 1.0
 
     def create(self, r: Renderer) -> None:
-        if self.sh_format == self.FORMAT_UINT8 and (r.ctx.device_features & DeviceFeatures.STORAGE_8BIT) == 0:
+        if self.sh_format == self.FORMAT_UINT8 and (r.device.features & DeviceFeatures.STORAGE_8BIT) == 0:
             raise RuntimeError("Device does not support 8bit storage")
-        if self.sh_format == self.FORMAT_FLOAT16 and (r.ctx.device_features & DeviceFeatures.STORAGE_16BIT) == 0:
+        if self.sh_format == self.FORMAT_FLOAT16 and (r.device.features & DeviceFeatures.STORAGE_16BIT) == 0:
             raise RuntimeError("Device does not support 16bit storage")
 
-        self.use_barycentric = (r.ctx.device_features & DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC) != 0
-        self.use_mesh_shader = (r.ctx.device_features & DeviceFeatures.MESH_SHADER) != 0
+        self.use_barycentric = (r.device.features & DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC) != 0
+        self.use_mesh_shader = (r.device.features & DeviceFeatures.MESH_SHADER) != 0
 
         max_splats = self.positions.max_size // 12
         self.dists_buf = Buffer(
-            r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-dists"
+            r.device, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-dists"
         )
         self.dists_alt_buf = Buffer(
-            r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-dists-alt"
+            r.device, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-dists-alt"
         )
         self.sorted_indices_buf = Buffer(
-            r.ctx,
+            r.device,
             max_splats * 4,
             BufferUsageFlags.STORAGE | BufferUsageFlags.VERTEX,
             AllocType.DEVICE,
             name=f"{self.name}-sorted-indices",
         )
         self.sorted_indices_alt_buf = Buffer(
-            r.ctx, max_splats * 4, BufferUsageFlags.STORAGE, AllocType.DEVICE, name=f"{self.name}-sorted-indices-alt"
+            r.device,
+            max_splats * 4,
+            BufferUsageFlags.STORAGE,
+            AllocType.DEVICE,
+            name=f"{self.name}-sorted-indices-alt",
         )
 
         if not self.use_mesh_shader:
             quad_vertices = np.array([-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0], np.float32)
             quad_indices = np.array([0, 2, 1, 2, 0, 3], np.uint32)
             self.quad_vertices = Buffer.from_data(
-                r.ctx,
+                r.device,
                 quad_vertices,
                 BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST,
                 AllocType.DEVICE,
                 name=f"{self.name}-quad-vertices",
             )
             self.quad_indices = Buffer.from_data(
-                r.ctx,
+                r.device,
                 quad_indices,
                 BufferUsageFlags.INDEX | BufferUsageFlags.TRANSFER_DST,
                 AllocType.DEVICE,
@@ -1604,7 +1608,7 @@ class GaussianSplats(Object3D):
 
             draw_parameters = np.array([6, max_splats, 0, 0, 0], np.uint32)
             self.draw_parameters_buf = Buffer.from_data(
-                r.ctx,
+                r.device,
                 draw_parameters,
                 BufferUsageFlags.INDIRECT | BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
                 AllocType.DEVICE,
@@ -1613,14 +1617,14 @@ class GaussianSplats(Object3D):
             self.draw_parameters_init = np.array([6, 0, 0, 0, 0], np.uint32).tobytes()
         else:
             mesh_workgroup_size = min(
-                r.ctx.device_properties.mesh_shader_properties.max_preferred_mesh_work_group_invocations,
-                r.ctx.device_properties.mesh_shader_properties.max_mesh_work_group_count[0],
+                r.device.device_properties.mesh_shader_properties.max_preferred_mesh_work_group_invocations,
+                r.device.device_properties.mesh_shader_properties.max_mesh_work_group_count[0],
             )
             draw_mesh_tasks_parameters = np.array(
                 [div_round_up(max_splats, mesh_workgroup_size), 1, 1, max_splats], np.uint32
             )
             self.draw_mesh_tasks_buf = Buffer.from_data(
-                r.ctx,
+                r.device,
                 draw_mesh_tasks_parameters,
                 BufferUsageFlags.INDIRECT | BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
                 AllocType.DEVICE,
@@ -1653,7 +1657,7 @@ class GaussianSplats(Object3D):
         dist_shader = r.compile_builtin_shader("3d/gaussian_splatting/dist.comp.slang", defines=defines)
         self.descriptor_layout, self.descriptor_pool, self.descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
-                r.ctx,
+                r.device,
                 [DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER) for _ in range(7)],
                 r.num_frames_in_flight,
             )
@@ -1668,8 +1672,8 @@ class GaussianSplats(Object3D):
                 s.write_buffer(self.draw_mesh_tasks_buf, DescriptorType.STORAGE_BUFFER, 2)
 
         self.dist_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, dist_shader.code),
+            r.device,
+            Shader(r.device, dist_shader.code),
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
@@ -1713,12 +1717,12 @@ class GaussianSplats(Object3D):
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
-            r.ctx,
+            r.device,
             stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX)
+                PipelineStage(Shader(r.device, vert.code), Stage.VERTEX)
                 if not self.use_mesh_shader
-                else PipelineStage(Shader(r.ctx, mesh.code), Stage.MESH),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+                else PipelineStage(Shader(r.device, mesh.code), Stage.MESH),
+                PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
             ],
             vertex_bindings=[
                 VertexBinding(0, 8, VertexInputRate.VERTEX),

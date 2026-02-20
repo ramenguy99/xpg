@@ -13,9 +13,9 @@ from pyxpg import (
     BufferBarrier,
     BufferUsageFlags,
     CommandBuffer,
-    Context,
     DescriptorSet,
     DescriptorType,
+    Device,
     Format,
     Image,
     ImageBarrier,
@@ -121,7 +121,7 @@ class GpuImageView:
 
 
 def _create_image_view(
-    ctx: Context,
+    device: Device,
     width: int,
     height: int,
     depth: int,
@@ -142,7 +142,7 @@ def _create_image_view(
         usage_flags |= ImageUsageFlags.STORAGE
 
     img = Image(
-        ctx,
+        device,
         width,
         height,
         format,
@@ -156,7 +156,7 @@ def _create_image_view(
     srgb_view = None
     if srgb:
         srgb_view = ImageView(
-            ctx,
+            device,
             img,
             ImageViewType.TYPE_2D if depth == 1 else ImageViewType.TYPE_3D,
             to_srgb_format(format),
@@ -168,7 +168,7 @@ def _create_image_view(
     mip_views = []
     if mips:
         mip_level_0_view = ImageView(
-            ctx,
+            device,
             img,
             ImageViewType.TYPE_2D_ARRAY,
             to_srgb_format(format) if srgb else format,
@@ -177,7 +177,7 @@ def _create_image_view(
         )
         mip_views = [
             ImageView(
-                ctx,
+                device,
                 img,
                 ImageViewType.TYPE_2D_ARRAY,
                 base_mip_level=m if m < img.mip_levels else 0,
@@ -373,7 +373,7 @@ class GpuPreuploadedArrayProperty(GpuProperty[V], Generic[R, V]):
             self.staging_buffers = RingBuffer(
                 [
                     Buffer(
-                        self.renderer.ctx,
+                        self.renderer.device,
                         self.frame_size,
                         BufferUsageFlags.TRANSFER_SRC,
                         AllocType.HOST,
@@ -427,7 +427,7 @@ class GpuBufferPreuploadedArrayProperty(GpuPreuploadedArrayProperty[Buffer, GpuB
             alloc_type = AllocType.DEVICE
 
         # TODO: handle alignment here (need to pad the data)
-        buffer = Buffer(self.renderer.ctx, data.nbytes, self.usage_flags, alloc_type, self.name)
+        buffer = Buffer(self.renderer.device, data.nbytes, self.usage_flags, alloc_type, self.name)
 
         if buffer.is_mapped:
             buffer.data[:] = view_bytes(data)
@@ -691,7 +691,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
                 [
                     CpuBuffer(
                         Buffer(
-                            self.renderer.ctx,
+                            self.renderer.device,
                             self.max_frame_size,
                             BufferUsageFlags.TRANSFER_SRC,
                             AllocType.HOST,
@@ -768,7 +768,7 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
             for frame in frames:
                 total_size_in_bytes += len(view_bytes(frame))
 
-            buffer = Buffer(self.renderer.ctx, total_size_in_bytes, self.usage_flags, self.alloc_type, self.name)
+            buffer = Buffer(self.renderer.device, total_size_in_bytes, self.usage_flags, self.alloc_type, self.name)
             resources.append(buffer)
 
             # Create views and upload
@@ -796,7 +796,7 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
 
     def _create_preuploaded_resource_and_view_for_frame(self, frame: NDArray[Any]) -> Tuple[Buffer, GpuBufferView]:
         frame_bytes = view_bytes(frame)
-        buffer = Buffer(self.renderer.ctx, len(frame_bytes), self.usage_flags, self.alloc_type, self.name)
+        buffer = Buffer(self.renderer.device, len(frame_bytes), self.usage_flags, self.alloc_type, self.name)
         if buffer.is_mapped:
             buffer.data[:] = frame_bytes
         else:
@@ -867,7 +867,7 @@ class GpuImagePreuploadedProperty(GpuPreuploadedProperty[Image, GpuImageView]):
 
     def _create_preuploaded_resource_and_view_for_frame(self, frame: NDArray[Any]) -> Tuple[Image, GpuImageView]:
         view = _create_image_view(
-            self.renderer.ctx,
+            self.renderer.device,
             self.width,
             self.height,
             self.depth,
@@ -1029,7 +1029,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
             for i in range(gpu_resources_count):
                 res = self._create_gpu_resource(f"{name}-gpu-{i}")
                 if upload_method == UploadMethod.TRANSFER_QUEUE:
-                    semaphore = TimelineSemaphore(self.renderer.ctx, name=f"{name}-sem-{i}")
+                    semaphore = TimelineSemaphore(self.renderer.device, name=f"{name}-sem-{i}")
                 else:
                     semaphore = None
                 self.gpu_resources.append(GpuResource(res, semaphore))
@@ -1044,8 +1044,8 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
                 self.prefetch_states = [
                     PrefetchState(
                         commands=CommandBuffer(
-                            self.renderer.ctx,
-                            queue_family_index=self.renderer.ctx.transfer_queue_family_index,
+                            self.renderer.device,
+                            queue_family_index=self.renderer.device.transfer_queue_family_index,
                             name=f"{name}-prefetch-{i}",
                         ),
                         prefetch_done_value=0,
@@ -1250,7 +1250,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
                 # expensive, but we assume that applications will make very sparse
                 # use of prefetching, only for really large resources of which hopeufully
                 # there are only one or a few.
-                self.renderer.ctx.transfer_queue.submit(
+                self.renderer.device.transfer_queue.submit(
                     state.commands,
                     wait_semaphores=[(info.sem, info.wait_value, info.wait_stage)],
                     signal_semaphores=[(info.sem, info.signal_value, info.signal_stage)],
@@ -1384,12 +1384,12 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
             cpu_buffer_usage_flags = self.usage_flags
         else:
             cpu_buffer_usage_flags = BufferUsageFlags.TRANSFER_SRC
-        return Buffer(self.renderer.ctx, self.max_frame_size, cpu_buffer_usage_flags, cpu_alloc_type, name)
+        return Buffer(self.renderer.device, self.max_frame_size, cpu_buffer_usage_flags, cpu_alloc_type, name)
 
     def _create_gpu_resource(self, name: str) -> GpuBufferView:
         return GpuBufferView(
             Buffer(
-                self.renderer.ctx,
+                self.renderer.device,
                 self.max_frame_size,
                 self.usage_flags,
                 AllocType.DEVICE,
@@ -1413,8 +1413,8 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
                 AccessFlags.NONE,
                 self.pipeline_stage_flags,
                 AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
-                self.renderer.ctx.transfer_queue_family_index,
-                self.renderer.ctx.graphics_queue_family_index,
+                self.renderer.device.transfer_queue_family_index,
+                self.renderer.device.graphics_queue_family_index,
             )
         )
 
@@ -1426,8 +1426,8 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
                 AccessFlags.TRANSFER_WRITE,
                 PipelineStageFlags.NONE,
                 AccessFlags.NONE,
-                self.renderer.ctx.transfer_queue_family_index,
-                self.renderer.ctx.graphics_queue_family_index,
+                self.renderer.device.transfer_queue_family_index,
+                self.renderer.device.graphics_queue_family_index,
             )
         )
 
@@ -1482,12 +1482,16 @@ class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
     # Private API
     def _create_cpu_buffer(self, name: str) -> Buffer:
         return Buffer(
-            self.renderer.ctx, self.depth * self.pitch * self.rows, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST, name
+            self.renderer.device,
+            self.depth * self.pitch * self.rows,
+            BufferUsageFlags.TRANSFER_SRC,
+            AllocType.HOST,
+            name,
         )
 
     def _create_gpu_resource(self, name: str) -> GpuImageView:
         return _create_image_view(
-            self.renderer.ctx,
+            self.renderer.device,
             self.width,
             self.height,
             self.depth,
@@ -1599,8 +1603,8 @@ class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
                     AccessFlags.SHADER_SAMPLED_READ
                     | AccessFlags.SHADER_STORAGE_READ
                     | AccessFlags.SHADER_STORAGE_WRITE,
-                    self.renderer.ctx.transfer_queue_family_index,
-                    self.renderer.ctx.graphics_queue_family_index,
+                    self.renderer.device.transfer_queue_family_index,
+                    self.renderer.device.graphics_queue_family_index,
                 )
             )
         else:
@@ -1617,8 +1621,8 @@ class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
                     AccessFlags.TRANSFER_WRITE,
                     self.pipeline_stage_flags,
                     AccessFlags.MEMORY_READ | AccessFlags.MEMORY_WRITE,
-                    self.renderer.ctx.transfer_queue_family_index,
-                    self.renderer.ctx.graphics_queue_family_index,
+                    self.renderer.device.transfer_queue_family_index,
+                    self.renderer.device.graphics_queue_family_index,
                 )
             )
 
@@ -1636,8 +1640,8 @@ class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):
                 # look at these when a layout transition is involved.
                 PipelineStageFlags.COPY,
                 AccessFlags.TRANSFER_WRITE,
-                self.renderer.ctx.transfer_queue_family_index,
-                self.renderer.ctx.graphics_queue_family_index,
+                self.renderer.device.transfer_queue_family_index,
+                self.renderer.device.graphics_queue_family_index,
             )
         )
 

@@ -46,14 +46,14 @@ class ImageInspector(Widget):
 
     def create(self, r: Renderer) -> None:
         self.sampler = Sampler(
-            r.ctx,
+            r.device,
             u=SamplerAddressMode.CLAMP_TO_BORDER,
             v=SamplerAddressMode.CLAMP_TO_BORDER,
             border_color=BorderColor.FLOAT_OPAQUE_BLACK,
         )
 
         self.descriptor_layout, self.descriptor_pool, self.descriptor_sets = create_descriptor_layout_pool_and_sets(
-            r.ctx,
+            r.device,
             [
                 DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT),
             ],

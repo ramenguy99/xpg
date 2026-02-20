@@ -152,7 +152,7 @@ class Material:
     def create(self, r: "Renderer") -> None:
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
-                r.ctx,
+                r.device,
                 [
                     DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER),
                     DescriptorSetBinding(1, DescriptorType.SAMPLER),
@@ -168,13 +168,13 @@ class Material:
 
         self.uniform_buffers = RingBuffer(
             [
-                UploadableBuffer(r.ctx, self.dtype.itemsize, BufferUsageFlags.UNIFORM)
+                UploadableBuffer(r.device, self.dtype.itemsize, BufferUsageFlags.UNIFORM)
                 for _ in range(r.num_frames_in_flight)
             ]
         )
 
         self.sampler = Sampler(
-            r.ctx,
+            r.device,
             self.sampling_options.min_filter,
             self.sampling_options.mag_filter,
             self.sampling_options.mipmap_mode,

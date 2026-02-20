@@ -62,24 +62,24 @@ class DebugCube(Object3D):
 
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
-                r.ctx,
+                r.device,
                 [
                     DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER),
                 ],
                 r.num_frames_in_flight,
             )
         )
-        self.sampler = Sampler(r.ctx, Filter.NEAREST, Filter.NEAREST)
-        # self.sampler = Sampler(r.ctx, Filter.LINEAR, Filter.LINEAR)
+        self.sampler = Sampler(r.device, Filter.NEAREST, Filter.NEAREST)
+        # self.sampler = Sampler(r.device, Filter.LINEAR, Filter.LINEAR)
 
         vert = r.compile_builtin_shader("3d/cube.slang", "vertex_main")
         frag = r.compile_builtin_shader("3d/cube.slang", "pixel_main")
 
         self.pipeline = GraphicsPipeline(
-            r.ctx,
+            r.device,
             stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+                PipelineStage(Shader(r.device, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
             ],
             vertex_bindings=vertex_bindings,
             vertex_attributes=vertex_attributes,
@@ -180,7 +180,7 @@ def main():
         np.uint32,
     )
 
-    ctx = viewer.ctx
+    device = viewer.device
 
     # Load image
     hdr_data = cv2.imread(sys.argv[1], cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH | cv2.IMREAD_COLOR_RGB)
@@ -190,7 +190,7 @@ def main():
     )
     hdr_data = np.dstack((hdr_data, np.ones((hdr_height, hdr_width, 1), np.float32)))
     hdr_img = Image.from_data(
-        ctx,
+        device,
         hdr_data,
         ImageLayout.SHADER_READ_ONLY_OPTIMAL,
         hdr_width,
@@ -203,11 +203,11 @@ def main():
     result = viewer.renderer.run_ibl_pipeline(hdr_img)
 
     # Test round trip from GPU to CPU to disk and back.
-    cubemap_data = result.cpu(ctx)
+    cubemap_data = result.cpu(device)
     file = "cubemap_ibl.npz"
     cubemap_data.save(file)
     cubemap_data = EnvironmentCubemaps.load(file)
-    result = cubemap_data.gpu(ctx)
+    result = cubemap_data.gpu(device)
 
     cube_positions, _, cube_faces = create_cube(extents=(2.0, 2.0, 2.0))
     cube = DebugCube(result.specular_cubemap, cube_positions, cube_faces)

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Tuple
 
-from pyxpg import LogLevel, DefaultFontPreference
+from pyxpg import DefaultFontPreference, LogLevel
 
 
 @dataclass
@@ -86,9 +86,13 @@ class GuiConfig:
 
     ini_filename: Optional[str] = "imgui.ini"  # if set to None disables.
 
-    default_font_size: Optional[float] = None # If None use default imgui font size (13.0)
-    default_font_preference: DefaultFontPreference = DefaultFontPreference.AUTO # If set to AUTO use BITMAP for font size < 15.0 and VECTOR otherwise.
-    font_scale: float = 1.0 # Scale all fonts globally by this factor (default font selection does not take this factor into account).
+    default_font_size: Optional[float] = None  # If None use default imgui font size (13.0)
+    default_font_preference: DefaultFontPreference = (
+        DefaultFontPreference.AUTO
+    )  # If set to AUTO use BITMAP for font size < 15.0 and VECTOR otherwise.
+    font_scale: float = (
+        1.0  # Scale all fonts globally by this factor (default font selection does not take this factor into account).
+    )
 
     stats: bool = False
     playback: bool = False

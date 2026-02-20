@@ -88,12 +88,12 @@ class CustomViewer(Viewer):
             if hasattr(light, "shadow_map"):
                 if self._texture is None and light.shadow_map is not None:
                     sampler = Sampler(
-                        viewer.ctx,
+                        viewer.device,
                         u=SamplerAddressMode.REPEAT,
                         v=SamplerAddressMode.REPEAT,
                     )
                     layout, pool, set = create_descriptor_layout_pool_and_set(
-                        viewer.ctx,
+                        viewer.device,
                         [
                             DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT),
                         ],

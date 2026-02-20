@@ -130,7 +130,7 @@ class SPDPipeline:
         #
         # See: https://github.com/KhronosGroup/MoltenVK/issues/1610
         self.descriptor_set_layout = DescriptorSetLayout(
-            r.ctx,
+            r.device,
             [
                 DescriptorSetBinding(1, DescriptorType.SAMPLER),
                 DescriptorSetBinding(1, DescriptorType.STORAGE_BUFFER),
@@ -142,10 +142,10 @@ class SPDPipeline:
         )
 
         # Check hardware support for float16 and quad operations. Otherwise fallback to LDS.
-        use_float16 = (r.ctx.device_features & DeviceFeatures.SHADER_FLOAT16_INT8) != 0
+        use_float16 = (r.device.features & DeviceFeatures.SHADER_FLOAT16_INT8) != 0
         use_wave_ops = (
-            r.ctx.device_properties.subgroup_properties.supported_operations & SubgroupFeatureFlags.QUAD
-        ) != 0 and (r.ctx.device_features & DeviceFeatures.SHADER_SUBGROUP_EXTENDED_TYPES) != 0
+            r.device.device_properties.subgroup_properties.supported_operations & SubgroupFeatureFlags.QUAD
+        ) != 0 and (r.device.features & DeviceFeatures.SHADER_SUBGROUP_EXTENDED_TYPES) != 0
 
         defines = [
             ("FFX_GPU", ""),
@@ -182,32 +182,32 @@ class SPDPipeline:
         )
 
         self.avg_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, self.avg_shader.code),
+            r.device,
+            Shader(r.device, self.avg_shader.code),
             descriptor_set_layouts=[self.descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
         self.avg_srgb_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, self.avg_srgb_shader.code),
+            r.device,
+            Shader(r.device, self.avg_srgb_shader.code),
             descriptor_set_layouts=[self.descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
         self.min_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, self.min_shader.code),
+            r.device,
+            Shader(r.device, self.min_shader.code),
             descriptor_set_layouts=[self.descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
         self.max_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, self.max_shader.code),
+            r.device,
+            Shader(r.device, self.max_shader.code),
             descriptor_set_layouts=[self.descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
         self.linear_clamp_sampler = Sampler(
-            r.ctx,
+            r.device,
             min_filter=Filter.LINEAR,
             mag_filter=Filter.LINEAR,
             u=SamplerAddressMode.CLAMP_TO_EDGE,
@@ -221,7 +221,7 @@ class SPDPipeline:
         constants = np.zeros((1,), self.constants_dtype)
 
         atomic_counters = Buffer.from_data(
-            r.ctx,
+            r.device,
             view_bytes(np.zeros((6,), np.uint32)),
             BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
             AllocType.DEVICE,
@@ -230,7 +230,7 @@ class SPDPipeline:
 
         number_of_sets = r.num_frames_in_flight if not single_set else 1
         pool, descriptor_sets = create_descriptor_pool_and_sets_ringbuffer(
-            r.ctx,
+            r.device,
             self.descriptor_set_layout,
             number_of_sets,
             pool_flags=DescriptorPoolCreateFlags.UPDATE_AFTER_BIND,
@@ -291,12 +291,12 @@ class SPDPipeline:
         filter: MipGenerationFilter,
     ) -> None:
         self.sync_instance.set_image_extents(image.width, image.height, image.mip_levels)
-        with r.ctx.sync_commands() as cmd:
+        with r.device.sync_commands() as cmd:
             self.run(cmd, image, new_layout, view_level_0, mip_views, self.sync_instance, filter)
 
     def run_sync(self, r: "Renderer", image: Image, new_layout: ImageLayout, filter: MipGenerationFilter) -> None:
         level_0_view = ImageView(
-            r.ctx,
+            r.device,
             image,
             ImageViewType.TYPE_2D_ARRAY,
             format=Format.R8G8B8A8_SRGB if filter == MipGenerationFilter.AVERAGE_SRGB else Format.R8G8B8A8_UNORM,
@@ -304,7 +304,7 @@ class SPDPipeline:
         )
         views = [
             ImageView(
-                r.ctx,
+                r.device,
                 image,
                 ImageViewType.TYPE_2D_ARRAY,
                 base_mip_level=m,

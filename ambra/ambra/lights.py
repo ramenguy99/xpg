@@ -14,10 +14,10 @@ from pyxpg import (
     Buffer,
     BufferUsageFlags,
     ComputePipeline,
-    Context,
     DepthAttachment,
     DescriptorSetBinding,
     DescriptorType,
+    Device,
     Filter,
     Format,
     Image,
@@ -171,7 +171,7 @@ class DirectionalLight(Light):
     def create(self, r: "Renderer") -> None:
         if self.shadow_settings.casts_shadow:
             self.shadow_map = Image(
-                r.ctx,
+                r.device,
                 self.shadow_settings.shadow_map_size,
                 self.shadow_settings.shadow_map_size,
                 r.shadow_map_format,
@@ -187,7 +187,7 @@ class DirectionalLight(Light):
             ]
 
             self.descriptor_pool, self.descriptor_sets = create_descriptor_pool_and_sets_ringbuffer(
-                r.ctx, r.scene_depth_descriptor_set_layout, r.num_frames_in_flight, name="scene-descriptors"
+                r.device, r.scene_depth_descriptor_set_layout, r.num_frames_in_flight, name="scene-descriptors"
             )
 
             constants_dtype = np.dtype(
@@ -200,7 +200,7 @@ class DirectionalLight(Light):
 
             self.uniform_buffers = RingBuffer(
                 [
-                    UploadableBuffer(r.ctx, constants_dtype.itemsize, BufferUsageFlags.UNIFORM)
+                    UploadableBuffer(r.device, constants_dtype.itemsize, BufferUsageFlags.UNIFORM)
                     for _ in range(r.num_frames_in_flight)
                 ]
             )
@@ -347,11 +347,11 @@ class EnvironmentCubemaps:
             **kwargs,
         )
 
-    def gpu(self, ctx: Context) -> "GpuEnvironmentCubemaps":
+    def gpu(self, device: Device) -> "GpuEnvironmentCubemaps":
         # Create cubemaps
         irradiance_size = self.irradiance_cubemap.shape[1]
         irradiance_cubemap = Image(
-            ctx,
+            device,
             irradiance_size,
             irradiance_size,
             Format.R16G16B16A16_SFLOAT,
@@ -364,7 +364,7 @@ class EnvironmentCubemaps:
             is_cube=True,
         )
         specular_cubemap = Image(
-            ctx,
+            device,
             self.specular_cubemap[0].shape[2],
             self.specular_cubemap[0].shape[1],
             Format.R16G16B16A16_SFLOAT,
@@ -380,14 +380,14 @@ class EnvironmentCubemaps:
 
         # Create upload buffers
         irradiance_buffer = Buffer.from_data(
-            ctx, self.irradiance_cubemap, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST
+            device, self.irradiance_cubemap, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST
         )
         specular_buffers = [
-            Buffer.from_data(ctx, a, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST) for a in self.specular_cubemap
+            Buffer.from_data(device, a, BufferUsageFlags.TRANSFER_SRC, AllocType.HOST) for a in self.specular_cubemap
         ]
 
         # Upload
-        with ctx.sync_commands() as cmd:
+        with device.sync_commands() as cmd:
             cmd.image_barrier(
                 irradiance_cubemap, ImageLayout.TRANSFER_DST_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_DST
             )
@@ -423,11 +423,13 @@ class GpuEnvironmentCubemaps:
     irradiance_cubemap: Image
     specular_cubemap: Image
 
-    def cpu(self, ctx: Context) -> EnvironmentCubemaps:
+    def cpu(self, device: Device) -> EnvironmentCubemaps:
         # Create buffers
         irradiance_size = self.irradiance_cubemap.width
         irradiance_shape = (6, irradiance_size, irradiance_size, 4)
-        irradiance_buffer = Buffer(ctx, np.prod(irradiance_shape) * 2, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)  # type: ignore
+        irradiance_buffer = Buffer(
+            device, np.prod(irradiance_shape) * 2, BufferUsageFlags.TRANSFER_DST, AllocType.HOST  # type: ignore
+        )
 
         specular_size = self.specular_cubemap.width
         specular_mips = self.specular_cubemap.mip_levels
@@ -436,11 +438,11 @@ class GpuEnvironmentCubemaps:
             specular_mip_size = specular_size >> m
             specular_mip_shape = (6, specular_mip_size, specular_mip_size, 4)
             specular_buffers.append(
-                Buffer(ctx, np.prod(specular_mip_shape) * 2, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)  # type: ignore
+                Buffer(device, np.prod(specular_mip_shape) * 2, BufferUsageFlags.TRANSFER_DST, AllocType.HOST)  # type: ignore
             )
 
         # Readback
-        with ctx.sync_commands() as cmd:
+        with device.sync_commands() as cmd:
             cmd.image_barrier(
                 self.irradiance_cubemap, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC
             )
@@ -491,21 +493,21 @@ class GGXLUTPipeline:
         self.lut_constants = np.zeros((1,), self.lut_constants_dtype)
         self.lut_shader = r.compile_builtin_shader("3d/ibl.slang", "entry_lut")
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_set = create_descriptor_layout_pool_and_set(
-            r.ctx,
+            r.device,
             [
                 DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),
             ],
         )
         self.lut_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, self.lut_shader.code),
+            r.device,
+            Shader(r.device, self.lut_shader.code),
             descriptor_set_layouts=[self.descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.lut_constants_dtype.itemsize)],
         )
 
     def run(self, r: "Renderer", width: int = 512, height: int = 512, samples: int = 1024) -> Image:
         lut = Image(
-            r.ctx,
+            r.device,
             width,
             height,
             Format.R16G16_SFLOAT,
@@ -521,7 +523,7 @@ class GGXLUTPipeline:
         descriptor_set = self.descriptor_set
         descriptor_set.write_image(lut, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0)
 
-        with r.ctx.sync_commands() as cmd:
+        with r.device.sync_commands() as cmd:
             cmd.image_barrier(lut, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.COMPUTE_SHADER, undefined=True)
             cmd.bind_compute_pipeline(
                 self.lut_pipeline, descriptor_sets=[descriptor_set], push_constants=self.lut_constants.tobytes()
@@ -538,7 +540,7 @@ class IBLPipeline:
         self.max_specular_mips = 16
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
             create_descriptor_layout_pool_and_sets(
-                r.ctx,
+                r.device,
                 [
                     DescriptorSetBinding(1, DescriptorType.STORAGE_IMAGE),
                     DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER),
@@ -556,8 +558,8 @@ class IBLPipeline:
         self.skybox_constants = np.zeros((1,), self.skybox_constants_dtype)
         self.skybox_shader = r.compile_builtin_shader("3d/ibl.slang", "entry_skybox")
         self.skybox_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, self.skybox_shader.code),
+            r.device,
+            Shader(r.device, self.skybox_shader.code),
             descriptor_set_layouts=[self.descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.skybox_constants.itemsize)],
         )
@@ -573,8 +575,8 @@ class IBLPipeline:
         self.irradiance_constants = np.zeros((1,), self.irradiance_constants_dtype)
         self.irradiance_shader = r.compile_builtin_shader("3d/ibl.slang", "entry_irradiance")
         self.irradiance_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, self.irradiance_shader.code),
+            r.device,
+            Shader(r.device, self.irradiance_shader.code),
             descriptor_set_layouts=[self.descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.irradiance_constants.itemsize)],
         )
@@ -591,8 +593,8 @@ class IBLPipeline:
         self.specular_constants = np.zeros((1,), self.specular_constants_dtype)
         self.specular_shader = r.compile_builtin_shader("3d/ibl.slang", "entry_specular")
         self.specular_pipeline = ComputePipeline(
-            r.ctx,
-            Shader(r.ctx, self.specular_shader.code),
+            r.device,
+            Shader(r.device, self.specular_shader.code),
             descriptor_set_layouts=[self.descriptor_set_layout],
             push_constants_ranges=[PushConstantsRange(self.specular_constants_dtype.itemsize)],
         )
@@ -601,7 +603,7 @@ class IBLPipeline:
         skybox_size = params.skybox_size
         skybox_mip_levels = skybox_size.bit_length()
         skybox_cubemap = Image(
-            r.ctx,
+            r.device,
             skybox_size,
             skybox_size,
             Format.R16G16B16A16_SFLOAT,
@@ -618,13 +620,13 @@ class IBLPipeline:
         # Skybox
         descriptor_set = self.descriptor_sets[0]
         self.skybox_constants["size"] = params.skybox_size
-        cubemap_array_view = ImageView(r.ctx, skybox_cubemap, ImageViewType.TYPE_2D_ARRAY, mip_level_count=1)
+        cubemap_array_view = ImageView(r.device, skybox_cubemap, ImageViewType.TYPE_2D_ARRAY, mip_level_count=1)
         descriptor_set.write_image(cubemap_array_view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0)
         descriptor_set.write_combined_image_sampler(
             equirectangular, ImageLayout.SHADER_READ_ONLY_OPTIMAL, r.linear_sampler, 1
         )
 
-        with r.ctx.sync_commands() as cmd:
+        with r.device.sync_commands() as cmd:
             cmd.image_barrier(
                 skybox_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.COMPUTE_SHADER, undefined=True
             )
@@ -657,7 +659,7 @@ class IBLPipeline:
         # Irradiance
         irradiance_size = params.irradiance_size
         irradiance_cubemap = Image(
-            r.ctx,
+            r.device,
             irradiance_size,
             irradiance_size,
             Format.R16G16B16A16_SFLOAT,
@@ -671,13 +673,13 @@ class IBLPipeline:
         self.irradiance_constants["samples_phi"] = params.irradiance_samples_phi
         self.irradiance_constants["samples_theta"] = params.irradiance_samples_theta
 
-        cubemap_array_view = ImageView(r.ctx, irradiance_cubemap, ImageViewType.TYPE_2D_ARRAY, mip_level_count=1)
+        cubemap_array_view = ImageView(r.device, irradiance_cubemap, ImageViewType.TYPE_2D_ARRAY, mip_level_count=1)
         descriptor_set.write_image(cubemap_array_view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0)
         descriptor_set.write_combined_image_sampler(
             skybox_cubemap, ImageLayout.SHADER_READ_ONLY_OPTIMAL, r.linear_sampler, 1
         )
 
-        with r.ctx.sync_commands() as cmd:
+        with r.device.sync_commands() as cmd:
             cmd.image_barrier(
                 irradiance_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.COMPUTE_SHADER, undefined=True
             )
@@ -699,7 +701,7 @@ class IBLPipeline:
         specular_mips = min(self.max_specular_mips, params.specular_mips, params.specular_size.bit_length())
         specular_size = params.specular_size
         specular_cubemap = Image(
-            r.ctx,
+            r.device,
             params.specular_size,
             params.specular_size,
             Format.R16G16B16A16_SFLOAT,
@@ -713,7 +715,7 @@ class IBLPipeline:
         self.specular_constants["samples"] = params.specular_samples
         self.specular_constants["skybox_resolution"] = skybox_size
         views = []
-        with r.ctx.sync_commands() as cmd:
+        with r.device.sync_commands() as cmd:
             cmd.image_barrier(
                 specular_cubemap, ImageLayout.GENERAL, MemoryUsage.NONE, MemoryUsage.COMPUTE_SHADER, undefined=True
             )
@@ -721,7 +723,7 @@ class IBLPipeline:
             for m in range(specular_mips):
                 descriptor_set = self.descriptor_sets[m]
                 specular_mip_view = ImageView(
-                    r.ctx, specular_cubemap, ImageViewType.TYPE_2D_ARRAY, base_mip_level=m, mip_level_count=1
+                    r.device, specular_cubemap, ImageViewType.TYPE_2D_ARRAY, base_mip_level=m, mip_level_count=1
                 )
                 descriptor_set.write_image(specular_mip_view, ImageLayout.GENERAL, DescriptorType.STORAGE_IMAGE, 0)
                 descriptor_set.write_combined_image_sampler(
@@ -776,7 +778,7 @@ class EnvironmentLight(Light):
         if self.equirectangular is not None:
             height, width, _channels = self.equirectangular.shape
             equirectangular_img = Image.from_data(
-                r.ctx,
+                r.device,
                 self.equirectangular,
                 ImageLayout.SHADER_READ_ONLY_OPTIMAL,
                 width,
@@ -788,7 +790,7 @@ class EnvironmentLight(Light):
             self.gpu_cubemaps = r.run_ibl_pipeline(equirectangular_img, self.ibl_params)
         else:
             assert self.cubemaps is not None
-            self.gpu_cubemaps = self.cubemaps.gpu(r.ctx)
+            self.gpu_cubemaps = self.cubemaps.gpu(r.device)
 
     @classmethod
     def from_equirectangular(

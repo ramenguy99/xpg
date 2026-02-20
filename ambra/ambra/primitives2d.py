@@ -78,10 +78,10 @@ class Lines(Object2D):
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
-            r.ctx,
+            r.device,
             stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+                PipelineStage(Shader(r.device, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
             ],
             vertex_bindings=[
                 VertexBinding(0, 8, VertexInputRate.VERTEX),
@@ -124,7 +124,7 @@ class Lines(Object2D):
             push_constants=self.constants.tobytes(),
         )
         frame.cmd.set_line_width(
-            self.line_width.get_current().item() if renderer.ctx.device_features & DeviceFeatures.WIDE_LINES else 1.0
+            self.line_width.get_current().item() if renderer.device.features & DeviceFeatures.WIDE_LINES else 1.0
         )
 
         frame.cmd.draw(lines.size // 8)
@@ -157,13 +157,13 @@ class Image(Object2D):
         )
 
     def create(self, r: Renderer) -> None:
-        if not (r.ctx.device_features & DeviceFeatures.SHADER_DRAW_PARAMETERS):
+        if not (r.device.features & DeviceFeatures.SHADER_DRAW_PARAMETERS):
             raise RuntimeError(
                 f"Image primitive requires {DeviceFeatures.SHADER_DRAW_PARAMETERS} whis is not available on current device."
             )
 
         self.sampler = Sampler(
-            r.ctx,
+            r.device,
             min_filter=Filter.LINEAR,
             mag_filter=Filter.LINEAR,
             u=SamplerAddressMode.CLAMP_TO_EDGE,
@@ -172,7 +172,7 @@ class Image(Object2D):
 
         self.descriptor_set_layout, self.descriptor_pool, self.descriptor_sets = (
             create_descriptor_layout_pool_and_sets_ringbuffer(
-                r.ctx,
+                r.device,
                 [
                     DescriptorSetBinding(1, DescriptorType.SAMPLER),
                     DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
@@ -189,10 +189,10 @@ class Image(Object2D):
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
-            r.ctx,
+            r.device,
             stages=[
-                PipelineStage(Shader(r.ctx, vert.code), Stage.VERTEX),
-                PipelineStage(Shader(r.ctx, frag.code), Stage.FRAGMENT),
+                PipelineStage(Shader(r.device, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
             ],
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_STRIP),
             samples=r.msaa_samples,

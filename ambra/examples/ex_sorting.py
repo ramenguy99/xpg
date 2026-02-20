@@ -28,22 +28,22 @@ keys_array = np.random.randint(0, 0xFFFFFFFF, N, np.uint32)
 
 # Alocate buffers
 keys = Buffer.from_data(
-    v.ctx,
+    v.device,
     keys_array,
     BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.TRANSFER_SRC,
     AllocType.DEVICE_MAPPED_WITH_FALLBACK,
     name="keys",
 )
-keys_alt = Buffer(v.ctx, keys.size, BufferUsageFlags.STORAGE, AllocType.DEVICE, name="keys-alt")
+keys_alt = Buffer(v.device, keys.size, BufferUsageFlags.STORAGE, AllocType.DEVICE, name="keys-alt")
 
 payload = Buffer.from_data(
-    v.ctx,
+    v.device,
     np.arange(N, dtype=np.uint32),
     BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.TRANSFER_SRC,
     AllocType.DEVICE_MAPPED_WITH_FALLBACK,
     name="payload",
 )
-payload_alt = Buffer(v.ctx, payload.size, BufferUsageFlags.STORAGE, AllocType.DEVICE, name="payload-alt")
+payload_alt = Buffer(v.device, payload.size, BufferUsageFlags.STORAGE, AllocType.DEVICE, name="payload-alt")
 
 BENCHMARK = True
 if BENCHMARK:
@@ -51,27 +51,27 @@ if BENCHMARK:
         n = 1 << i
         dt = 1000_000_000
         for _ in range(5):
-            pool = QueryPool(v.ctx, QueryType.TIMESTAMP, 2)
-            v.ctx.reset_query_pool(pool)
-            with v.ctx.sync_commands() as cmd:
+            pool = QueryPool(v.device, QueryType.TIMESTAMP, 2)
+            v.device.reset_query_pool(pool)
+            with v.device.sync_commands() as cmd:
                 cmd.write_timestamp(pool, 0, PipelineStageFlags.TOP_OF_PIPE)
                 sort.run(v.renderer, cmd, n, keys, keys_alt, payload, payload_alt)
                 cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.TRANSFER_SRC)
                 cmd.write_timestamp(pool, 1, PipelineStageFlags.BOTTOM_OF_PIPE)
             res = pool.wait_results(0, 2)
             dt = min(dt, res[1] - res[0])
-        dt_ns = dt * v.ctx.timestamp_period_ns
+        dt_ns = dt * v.device.timestamp_period_ns
         print(f"{n:12}: {dt_ns * 1e-3:12.03f}us  {n / (dt_ns)} B/s")
 else:
     readback_keys = Buffer(
-        v.ctx,
+        v.device,
         keys.size,
         BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
         AllocType.HOST,
         name="readback-keys",
     )
     readback_payload = Buffer(
-        v.ctx,
+        v.device,
         payload.size,
         BufferUsageFlags.STORAGE | BufferUsageFlags.TRANSFER_DST,
         AllocType.HOST,
@@ -79,7 +79,7 @@ else:
     )
 
     # Sort and readback
-    with v.ctx.sync_commands() as cmd:
+    with v.device.sync_commands() as cmd:
         sort.run(v.renderer, cmd, N, keys, keys_alt, payload, payload_alt)
         cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.TRANSFER_SRC)
         cmd.copy_buffer(keys, readback_keys)

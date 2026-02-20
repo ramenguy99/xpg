@@ -469,7 +469,7 @@ class BufferProperty(Property):
     def create(self, r: "Renderer") -> None:
         if self.gpu_usage and self.gpu_property is None:
             # HACK: disable shader device address and acceleration structure usages if not supported.
-            if not (r.ctx.device_features & DeviceFeatures.RAY_QUERY):
+            if not (r.device.features & DeviceFeatures.RAY_QUERY):
                 self.gpu_usage &= ~(
                     BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
                 )
@@ -594,7 +594,7 @@ class ArrayBufferProperty(BufferProperty):
     def create(self, r: "Renderer") -> None:
         if self.gpu_usage and self.gpu_property is None:
             # HACK: disable shader device address and acceleration structure usages if not supported.
-            if not (r.ctx.device_features & DeviceFeatures.RAY_QUERY):
+            if not (r.device.features & DeviceFeatures.RAY_QUERY):
                 self.gpu_usage &= ~(
                     BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
                 )

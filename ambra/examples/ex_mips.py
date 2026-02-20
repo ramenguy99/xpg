@@ -77,7 +77,7 @@ num_mips = max(width.bit_length(), height.bit_length())
 v = Viewer(config=Config(window=False))
 
 img = Image.from_data(
-    v.ctx,
+    v.device,
     data,
     ImageLayout.GENERAL,
     width,
@@ -91,7 +91,7 @@ img = Image.from_data(
 
 v.renderer.spd_pipeline.run_sync(v.renderer, img, ImageLayout.TRANSFER_SRC_OPTIMAL, MipGenerationFilter.AVERAGE)
 
-mips = readback_image_mips(v.ctx, img, ImageLayout.SHADER_READ_ONLY_OPTIMAL)
+mips = readback_image_mips(v.device, img, ImageLayout.SHADER_READ_ONLY_OPTIMAL)
 for m in mips:
     print(m.shape)
     print(m)
