@@ -1070,6 +1070,7 @@ VkResult CreateImage(Image* image, const Device& device, const ImageDesc&& desc)
 struct ImageUploadDesc {
     u32 width;
     u32 height;
+    u32 depth = 1;
     VkFormat format;
     VkImageLayout current_image_layout;
     VkImageLayout final_image_layout;

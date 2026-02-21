@@ -1215,9 +1215,28 @@ struct Image: GfxObject {
 
     static nb::ref<Image> from_data(nb::ref<Device> device, nb::object data, VkImageLayout layout,
         u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type,
-        u32 depth, u32 mip_levels, u32 array_layers, VkImageCreateFlagBits create_flags, int samples, std::optional<nb::str> name
+        u32 depth, u32 mip_levels, u32 array_layers, bool is_cube, VkImageCreateFlagBits create_flags, int samples, std::optional<nb::str> name
     )
     {
+        VkImageViewType view_type;
+        if (depth > 1) {
+            view_type = VK_IMAGE_VIEW_TYPE_3D;
+        } else {
+            if (is_cube) {
+                if (array_layers > 6) {
+                    view_type = VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+                } else {
+                    view_type = VK_IMAGE_VIEW_TYPE_CUBE;
+                }
+            } else {
+                if (array_layers > 1) {
+                    view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                } else {
+                    view_type = VK_IMAGE_VIEW_TYPE_2D;
+                }
+            }
+        }
+
         Py_buffer view;
         if (PyObject_GetBuffer(data.ptr(), &view, PyBUF_SIMPLE) != 0) {
             throw nb::python_error();
@@ -1238,6 +1257,7 @@ struct Image: GfxObject {
             .array_layers = array_layers,
             .samples = (VkSampleCountFlagBits)samples,
             .flags = (VkImageCreateFlags)create_flags,
+            .image_view_type = view_type,
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
         });
@@ -1259,6 +1279,7 @@ struct Image: GfxObject {
         self->alloc = new AllocInfo(alloc_info);
         self->mip_levels = mip_levels;
         self->array_layers = array_layers;
+        self->is_cube = is_cube;
 
         DEBUG_UTILS_OBJECT_NAME_WITH_NAME(VK_OBJECT_TYPE_IMAGE, self->image.image, self->name);
 
@@ -4798,6 +4819,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("depth") = 1,
             nb::arg("mip_levels") = 1,
             nb::arg("array_layers") = 1,
+            nb::arg("is_cube") = false,
             nb::arg("create_flags") = (VkImageCreateFlagBits)0,
             nb::arg("samples") = 1,
             nb::arg("name") = nb::none()

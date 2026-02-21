@@ -1661,7 +1661,10 @@ void DestroyQueryPool(VkQueryPool* pool, const Device& device) {
 }
 
 VkResult SubmitQueue1(VkQueue queue, const SubmitDesc1&& desc) {
-    assert(desc.wait_semaphores.length == desc.wait_stages.length);
+    if(desc.wait_semaphores.length != desc.wait_stages.length) {
+        logging::error("gfx", "Mismatch between wait_semaphores length and wait_stages length in gfx::SubmitQueue1");
+        return VK_ERROR_VALIDATION_FAILED;
+    }
 
     VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     submit_info.commandBufferCount = (u32)desc.cmd.length;
@@ -2373,7 +2376,7 @@ VkResult GetExternalHandleForSemaphore(ExternalHandle* handle, const Device& dev
 #ifdef XPG_MOLTENVK_STATIC
     return VK_ERROR_FEATURE_NOT_PRESENT;
 #else
-#if _WIN32
+#ifdef _WIN32
     VkSemaphoreGetWin32HandleInfoKHR semaphore_get_handle_info = { VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR };
     semaphore_get_handle_info.semaphore = semaphore;
     semaphore_get_handle_info.handleType = EXTERNAL_SEMAPHORE_HANDLE_TYPE_BIT;
@@ -2887,7 +2890,10 @@ UploadImage(const Image& image, const Device& device, ArrayView<u8> data, const 
         pitch = blocks_per_row * info.size_of_block_in_bytes;
         rows = DivCeil(desc.height, info.block_side_in_pixels);
     }
-    assert(pitch * rows == data.length);
+    if(pitch * rows * desc.depth != data.length) {
+        logging::error("gfx", "Data buffer size (%zu) does not match expected size for image (%zu x %zu x %u = %zu)", data.length, pitch, rows, desc.depth, pitch * rows * desc.depth);
+        return VK_ERROR_VALIDATION_FAILED;
+    }
 
     VkResult vkr;
 
@@ -2926,7 +2932,7 @@ UploadImage(const Image& image, const Device& device, ArrayView<u8> data, const 
     copy.imageSubresource.layerCount = 1;
     copy.imageExtent.width = desc.width;
     copy.imageExtent.height = desc.height;
-    copy.imageExtent.depth = 1;
+    copy.imageExtent.depth = desc.depth;
 
     vkCmdCopyBufferToImage(device.sync_command_buffer, staging_buffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
@@ -2954,7 +2960,10 @@ UploadImage(const Image& image, const Device& device, ArrayView<u8> data, const 
 VkResult
 CreateAndUploadImage(Image* image, const Device& device, ArrayView<u8> data, VkImageLayout layout, const ImageDesc&& desc)
 {
-    assert(desc.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+    if(!(desc.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) {
+        logging::error("gfx", "Image created for upload must be created with VK_IMAGE_USAGE_TRANSFER_DST_BIT set");
+        return VK_ERROR_VALIDATION_FAILED;
+    }
 
     VkResult vkr;
     vkr = CreateImage(image, device, move(desc));
@@ -2964,6 +2973,7 @@ CreateAndUploadImage(Image* image, const Device& device, ArrayView<u8> data, VkI
     vkr = UploadImage(*image, device, data, {
         .width = desc.width,
         .height = desc.height,
+        .depth = desc.depth,
         .format = desc.format,
         .final_image_layout = layout,
     });
@@ -3199,12 +3209,14 @@ DestroySampler(Sampler* sampler, const Device& device) {
 void
 WriteBufferDescriptor(DescriptorSet set, const Device& device, const BufferDescriptorWriteDesc&& write)
 {
-    assert(
+    if (!(
         write.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ||
         write.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ||
         write.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC ||
         write.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
-    );
+    )) {
+        logging::error("gfx", "WriteBufferDescriptor must be invoked with a buffer descriptor type. Got %s", string_VkDescriptorType(write.type));
+    }
 
     // Prepare descriptor and handle
     VkDescriptorBufferInfo desc_info = {};
@@ -3227,7 +3239,9 @@ WriteBufferDescriptor(DescriptorSet set, const Device& device, const BufferDescr
 void
 WriteImageDescriptor(DescriptorSet set, const Device& device, const ImageDescriptorWriteDesc&& write)
 {
-    assert(write.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || write.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+    if(!(write.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || write.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+        logging::error("gfx", "WriteImageDescriptor must be invoked with a buffer descriptor type. Got %s", string_VkDescriptorType(write.type));
+    }
 
     // Prepare descriptor and handle
     VkDescriptorImageInfo desc_info = {};
