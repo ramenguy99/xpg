@@ -59,11 +59,53 @@ static void log_impl(xpg::logging::LogLevel level, const char* ctx, const char* 
             level_str,
             ctx
         );
-        if (n < sizeof(buf)) {
+
+        if (n == -1) {
+#ifdef _WIN32
+            n = sizeof(buf) * 2;
+            int res = -1;
+            while (n <= 1024 * 1024) {
+                char* alloced_buf = (char*)malloc(n + 1);
+                res = snprintf(alloced_buf, n + 1, "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %-6s [%s] ",
+                    system_time.year,
+                    system_time.month,
+                    system_time.day,
+                    system_time.hour,
+                    system_time.minute,
+                    system_time.second,
+                    system_time.milliseconds,
+                    level_str,
+                    ctx
+                );
+                if (res >= 0) {
+                    PyFile_WriteString(alloced_buf, file.ptr());
+                    break;
+                }
+                free(alloced_buf);
+                n *= 2;
+            }
+            if (res < 0) {
+                PyFile_WriteString("<header: encoding error or message too large on old CRT>", file.ptr());
+            }
+#else
+            PyFile_WriteString("<header: encoding error>", file.ptr());
+#endif
+        }
+        else if (n < sizeof(buf)) {
             PyFile_WriteString(buf, file.ptr());
         } else {
             char* alloced_buf = (char*)malloc(n + 1);
-            vsnprintf(alloced_buf, n + 1, fmt, args);
+            n = snprintf(alloced_buf, n + 1, "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %-6s [%s] ",
+                system_time.year,
+                system_time.month,
+                system_time.day,
+                system_time.hour,
+                system_time.minute,
+                system_time.second,
+                system_time.milliseconds,
+                level_str,
+                ctx
+            );
             PyFile_WriteString(alloced_buf, file.ptr());
             free(alloced_buf);
         }
@@ -71,12 +113,42 @@ static void log_impl(xpg::logging::LogLevel level, const char* ctx, const char* 
 
     // Print format string
     {
-        int n = vsnprintf(buf, sizeof(buf), fmt, args);
-        if (n < sizeof(buf)) {
+        va_list args_first;
+        va_copy(args_first, args);
+        int n = vsnprintf(buf, sizeof(buf), fmt, args_first);
+        va_end(args_first);
+
+        if (n == -1) {
+#ifdef _WIN32
+            n = sizeof(buf) * 2;
+            int res = -1;
+            while (n <= 1024 * 1024) {
+                char* alloced_buf = (char*)malloc(n + 1);
+
+                va_list args_try;
+                va_copy(args_try, args);
+                res = vsnprintf(alloced_buf, n + 1, fmt, args_try);
+                va_end(args_try);
+
+                if (res >= 0) {
+                    PyFile_WriteString(alloced_buf, file.ptr());
+                    break;
+                }
+                free(alloced_buf);
+                n *= 2;
+            }
+            if (res < 0) {
+                PyFile_WriteString("<message: encoding error or message too large on old CRT>", file.ptr());
+            }
+#else
+        PyFile_WriteString("<message: encoding error>", file.ptr());
+#endif
+        }
+        else if (n < sizeof(buf)) {
             PyFile_WriteString(buf, file.ptr());
         } else {
             char* alloced_buf = (char*)malloc(n + 1);
-            vsnprintf(alloced_buf, n + 1, fmt, args);
+            n = vsnprintf(alloced_buf, n + 1, fmt, args);
             PyFile_WriteString(alloced_buf, file.ptr());
             free(alloced_buf);
         }
