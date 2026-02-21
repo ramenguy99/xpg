@@ -28,12 +28,6 @@ Build:
     - [x] conda build, likely require xcb dependency (similar to vulkan issue?),
             or at least check and document how to pip install in conda.
             conda install conda-forge::vulkan-tools
-- [ ] Fix / silence warnings (first enable all useful ones)
-    - [ ] MSVC
-    - [ ] clang on windows
-    - [ ] gcc on linux
-    - [ ] clang on linux
-    - [ ] clang on macos
 
 Maintenance:
 - [x] Update all deps (last: 11/10/2025)
@@ -51,9 +45,6 @@ C++:
 - [x] Debug case where frame count < swapchain frame count.
 - [x] Skip GLFW init if no presentation requested (fails if no compositor found)
 - [x] Expose swapchain image usage flgs
-- [ ] Expose swapchain format / colorspace creation info
-    - Read on proper way to do color management / hdr with vulkan
-    - Maybe expose lower level API to create a window without a swapchain, enumerate supported formats and color spaces and let application pick.
 
 Python:
 - [x] Check if there is a better way to do imports that works more intuitively
@@ -115,10 +106,8 @@ Python:
             - When allocating descriptor set need to specify how much to allocate with appended VkDescriptorSetVariableDescriptorCountAllocateInfo to VkDescriptorSetAllocateInfo.
     - [x] VulkanError exception type that wraps VkResult for better error reporting over all bindings
     - [x] Make index buffer offset consistent with vertex buffer offset (by using optional tuple)
-    - [ ] 3D image upload with from_data
-    - [ ] Expose push descriptors and update template
-    - [ ] AccelerationStructure build commands and types
-- [ ] Clean examples
+    - [x] 3D image upload with from_data
+- [x] Clean examples
     - [x] Headless graphics and compute
     - [x] Minimal
     - [x] Basic app
@@ -152,11 +141,9 @@ Python:
         - [x] Keyboard input
         - [x] Handle throws in threadpool jobs
         - [x] Integrated GPU does not have transfer queue, therefore prefers using CPU buffers directly. Use physical device type to switch strategy.
-    - [ ] Warp interop
-        - [ ] Requires instructions to build warp from our branch, or ask again to merge
-    - [ ] It's nice to have some simple small examples, but we also do not want a lot of duplicated logic with ambra.
-          Ambra also becomes a large example in some way. Right now I'm leaning towards simplifying this part as much as possible
-          and move more interesting examples over to ambra.
+    - It's nice to have some simple small examples, but we also do not want a lot of duplicated logic with ambra.
+      Ambra also becomes a large example in some way. Right now I'm leaning towards simplifying this part as much as possible
+      and move more interesting examples over to ambra.
 - [x] Slang:
     - [x] Compile from string
     - [x] Reflection of resource arrays and maybe other types -> look for descriptor set helper ideas
@@ -206,9 +193,7 @@ Python:
 - [x] Some API errors can cause hard segfaults in the driver. We can't really do much about these other
       than recommend users to enable validation layers (this normally prints before the crash).
       e.g. Create image with unsupported format -> Format.R8G8B8 (missing A8) is not supported
-        img = Image(device, W, H, Format.R8G8B8_UNORM,
-                    ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.TRANSFER_SRC,
-                    AllocType.DEVICE)
+        img = Image(device, W, H, Format.R8G8B8_UNORM, ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.TRANSFER_SRC, AllocType.DEVICE)
 - [ ] ImGui:
     - [x] vec2 / vec4
     - [x] Drawlist
@@ -231,8 +216,8 @@ Python:
                                                                           We could potentially expose an option to draw the gui twice instead.
     - [x] expose implot
     - [x] begin with empty string segfaults
+    - [x] scale fonts on DPI changes (likely coming soon to upstream imgui)
     - [ ] expose imguizmo and imnodes
-    - [ ] scale fonts on DPI changes (likely coming soon to upstream imgui)
     - [ ] unify and cleanup gen_imgui.py and gen_implot.py
 - [x] Nanobind:
     - [x] None converts to a nullptr nb::ref, makes a lot of our code potentially segfault
@@ -298,14 +283,11 @@ Python:
     - [x] Window callbacks with values from GLFW that we do not directly expose as python enums fail with std::runtime_error Bad Cast from nanobind
           trying to cast when converting arguments. We should either catch and handle this or make sure to expose all the options.
           Currently known potential issueare MouseButton and maybe some missing Key, Modifier, Action?
-    - [ ] See if there is a way to fix direct _pyxpg.imgui imports to use pyxpg.imgui instead, same for _pyxpg.DescriptorSet in imgui
-- [ ] Vulkan features to expose:
+- [x] Vulkan features to expose:
     - [x] VK_EXT_subgroup_size_control for forcing wave32 on AMD (wanted by sorting)
     - [x] Fragment shader barycentrics (available on macOS)
     - [x] Draw/dispatch indirect, draw indirect count and draw args for DrawID.
     - [x] Shader printf
-    - [ ] Raytracing pipelines
-    - [ ] Shader execution reordering
 
 ## Future
 
@@ -315,12 +297,18 @@ Build:
     - [ ] Set MVK_CONFIG_LOG_LEVEL env variable, if not set, to configure mvk log level
 - [x] Enable wayland in GLFW after merging this patch to the fix the build on manylinux: https://github.com/glfw/glfw/pull/2649
     -> it's not merged but is fixed by updating to manylinux_2_28.
+- [ ] Fix / silence warnings (first enable all useful ones)
+    - [ ] MSVC
+    - [ ] clang on windows
+    - [ ] gcc on linux
+    - [ ] clang on linux
+    - [ ] clang on macos
 
 Bugs:
 - [ ] Wayland GLFW issues:
-    - Slow to resize, people point to libdecor: https://github.com/glfw/glfw/issues/2493
-    - Window goes unresponsive when alt-tabbed on hyprland: https://github.com/glfw/glfw/issues/2723
-    - Window does not show immediately: need to draw before waiting for input. To fix this we can invert the loop or skip waiting the first frame (something that we might anyways do for imgui)
+    - [x] Window does not show immediately: need to draw before waiting for input. To fix this we can invert the loop or skip waiting the first frame (something that we might anyways do for imgui)
+    - [ ] Slow to resize, people point to libdecor: https://github.com/glfw/glfw/issues/2493
+    - [ ] Window goes unresponsive when alt-tabbed on hyprland: https://github.com/glfw/glfw/issues/2723
 
 Tests:
 - [ ] Add simple unit tests, pytest with a specific python version? Use lavapipe for rendering tests?
@@ -354,9 +342,14 @@ C++:
         - [ ] Completely switch to syncrhonization 2 for submission? Probably need to fix barriers for submit and present at COLOR_ATTACHMENT_OUTPUT stage
 - [ ] Controller support
 
-Gfx:
-- [ ] Color management / swapchain format colorspace
-- [ ] Finer grain descriptor pool / set support
+Vulkan:
+- [ ] Expose swapchain format / colorspace creation info
+    - Read on proper way to do color management / hdr with vulkan
+    - Maybe expose lower level API to create a window without a swapchain, enumerate supported formats and color spaces and let application pick.
+- [ ] Expose push descriptors and update template
+- [ ] AccelerationStructure build commands and types
+- [ ] Raytracing pipelines
+- [ ] Shader execution reordering
 
 Python:
 - [x] Mac wheels (not sure how to handle moltenvk yet)
@@ -373,8 +366,10 @@ Python:
     - [x] Low level combined barrier API?
 - [ ] Imgui
     - [ ] Expose all draw APIs with batched bindings -> have some but not all yet
-
-Nanobind:
-- [ ] Flags that do not have is_arithmetic (and maybe others as well) produce weird bindings
-      for default values. Stubgen fails on python3.8 cibuildwheel (not sure if other versions too)
-- [ ] Nanobind 2.10 onwards dropped support for python 3.8. At some point will need to drop too (or potentially hold back nanobind version just for 3.8 wheels).
+- [ ] Warp interop
+    - [ ] Requires instructions to build warp from our branch, or ask again to merge
+- [ ] Nanobind:
+    - [ ] See if there is a way to fix direct _pyxpg.imgui imports to use pyxpg.imgui instead, same for _pyxpg.DescriptorSet in imgui
+    - [ ] Flags that do not have is_arithmetic (and maybe others as well) produce weird bindings
+        for default values. Stubgen fails on python3.8 cibuildwheel (not sure if other versions too)
+    - [ ] Nanobind 2.10 onwards dropped support for python 3.8. At some point will need to drop too (or potentially hold back nanobind version just for 3.8 wheels).
