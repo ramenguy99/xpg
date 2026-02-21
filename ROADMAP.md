@@ -3,7 +3,6 @@
 ## Features needed for 0.1.0:
 
 Trivia:
-- [ ] Better name
 - [x] Better README
     - [x] Description
     - [x] C++:
@@ -21,20 +20,20 @@ Build:
 - [x] Add scripts / clean imgui bindings gen
     - [x] lz4 is dynamic for some reason -> does not happen in CI, likely my issue with vcpkg lz4
     - [x] Statically link with C++ runtime
+- [x] python builds
+    - [x] sdist:
+        - [x] make sdist
+            python -m build --sdist --verbose
+        - [x] cleanup and test build from sdist
+    - [x] conda build, likely require xcb dependency (similar to vulkan issue?),
+            or at least check and document how to pip install in conda.
+            conda install conda-forge::vulkan-tools
 - [ ] Fix / silence warnings (first enable all useful ones)
     - [ ] MSVC
     - [ ] clang on windows
     - [ ] gcc on linux
     - [ ] clang on linux
     - [ ] clang on macos
-- [ ] python builds
-    - [x] sdist:
-        - [x] make sdist
-            python -m build --sdist --verbose
-        - [x] cleanup and test build from sdist
-    - [-] conda build, likely require xcb dependency (similar to vulkan issue?),
-            or at least check and document how to pip install in conda.
-            conda install conda-forge::vulkan-tools
 
 Maintenance:
 - [x] Update all deps (last: 11/10/2025)
@@ -170,10 +169,10 @@ Python:
             [x] maybe add helpers that are commonly used in this kind of pipeline creation step
                 (keep in mind that often some inputs / logic comes from outside). Do this later with more apps / viewer.
     - [x] Fix reflection serialization / deserialization
-    - [-] Slang not outputting binding decoration when using parameter block, but reflection seems to get it? Bug in slang?
+    - [x] Slang not outputting binding decoration when using parameter block, but reflection seems to get it? Bug in slang?
           -> opened issue on github, seems to be in general related to directly nesting Resources in ParameterBlock, works fine
              with direct data and structs in between
-          [-] Should fix the ParameterBlock with data directly to create implicit constant buffer for completeness.
+          [x] Should fix the ParameterBlock with data directly to create implicit constant buffer for completeness.
     - [x] Expose spirv targets (does slang increase the target for us automatically if we just say spirv? maybe thats better?) -> no, this is now exposed
     - [x] Pipeline cache with all important inputs
     - [x] Cleaner handling of multiple entry points
@@ -207,7 +206,7 @@ Python:
 - [x] Some API errors can cause hard segfaults in the driver. We can't really do much about these other
       than recommend users to enable validation layers (this normally prints before the crash).
       e.g. Create image with unsupported format -> Format.R8G8B8 (missing A8) is not supported
-        img = Image(ctx, W, H, Format.R8G8B8_UNORM,
+        img = Image(device, W, H, Format.R8G8B8_UNORM,
                     ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.TRANSFER_SRC,
                     AllocType.DEVICE)
 - [ ] ImGui:
@@ -272,40 +271,41 @@ Python:
             - Bar groups
             - Error bars with err does not have the right name in errror messages
             - Error bars with neg pos
-    - [ ] Plot tools:
-        - Drag In/out API requires additional return values (potentially many, maybe better to make a struct to group them)
-        - [x] Annotations and tags should be easier, can maybe add batched version of them at some point
-    - [x] Plot Utils: all straight forward to expose
-    - [x] Legend Utils:
-        - Drag and drop: easy functions, more context managers
-        - Style:
-            - Push / Pop style easy to map
-            - Can expose light/dark/imgui style setters (also need styles in rest of ImGui anyways, maybe should be together)
-        - Colormaps:
-            - Can expose as numpy arrays, copied internally
-    - [ ] ImPlot input_map:
-        - [x] Expose similar to ImGuiIO
-        - [ ] Resets without arguments are easy, with not sure, maybe yes?
-    - [ ] Misc:
-        - [ ] Icons should be easy, but also not sure how useful
-        - [x] Draw list / clip rect also easy
-        - [ ] Selectors also should be easy but not sure how useful
-        - [x] User guide and windows also easy
-    - [ ] Decide what to do with bindgen, what can do manually
-        - Currently need manual steps to generate json
-            - Copy file to (maybe can specify imgui config manually from dear bindings cli)
-            - Remove deprecated stuff (breaks parsing)
-            - Remove usage of imgui macors (also breaksparsing)
-    - [ ] See if there is a way to fix direct _pyxpg.imgui imports to use pyxpg.imgui instead, same for _pyxpg.DescriptorSet in imgui
-    - [ ] Window callbacks with values from GLFW that we do not directly expose as python enums fail with std::runtime_error Bad Cast from nanobind
+        - [ ] Plot tools:
+            - Drag In/out API requires additional return values (potentially many, maybe better to make a struct to group them)
+            - [x] Annotations and tags should be easier, can maybe add batched version of them at some point
+        - [x] Plot Utils: all straight forward to expose
+        - [x] Legend Utils:
+            - Drag and drop: easy functions, more context managers
+            - Style:
+                - Push / Pop style easy to map
+                - Can expose light/dark/imgui style setters (also need styles in rest of ImGui anyways, maybe should be together)
+            - Colormaps:
+                - Can expose as numpy arrays, copied internally
+        - [ ] ImPlot input_map:
+            - [x] Expose similar to ImGuiIO
+            - [ ] Resets without arguments are easy, with not sure, maybe yes?
+        - [ ] Misc:
+            - [ ] Icons should be easy, but also not sure how useful
+            - [x] Draw list / clip rect also easy
+            - [ ] Selectors also should be easy but not sure how useful
+            - [x] User guide and windows also easy
+        - [x] Decide what to do with bindgen, what can do manually
+            - Currently need manual steps to generate json
+                - Copy file to (maybe can specify imgui config manually from dear bindings cli)
+                - Remove deprecated stuff (breaks parsing)
+                - Remove usage of imgui macors (also breaksparsing)
+    - [x] Window callbacks with values from GLFW that we do not directly expose as python enums fail with std::runtime_error Bad Cast from nanobind
           trying to cast when converting arguments. We should either catch and handle this or make sure to expose all the options.
           Currently known potential issueare MouseButton and maybe some missing Key, Modifier, Action?
+    - [ ] See if there is a way to fix direct _pyxpg.imgui imports to use pyxpg.imgui instead, same for _pyxpg.DescriptorSet in imgui
 - [ ] Vulkan features to expose:
-    - [ ] Fragment shader barycentrics (available on macOS)
+    - [x] VK_EXT_subgroup_size_control for forcing wave32 on AMD (wanted by sorting)
+    - [x] Fragment shader barycentrics (available on macOS)
+    - [x] Draw/dispatch indirect, draw indirect count and draw args for DrawID.
+    - [x] Shader printf
     - [ ] Raytracing pipelines
     - [ ] Shader execution reordering
-    - [ ] Draw/dispatch indirect, draw indirect count and draw args for DrawID.
-    - [ ] VK_EXT_subgroup_size_control for forcing wave32 on AMD (wanted by sorting)
 
 ## Future
 
@@ -316,15 +316,17 @@ Build:
 - [x] Enable wayland in GLFW after merging this patch to the fix the build on manylinux: https://github.com/glfw/glfw/pull/2649
     -> it's not merged but is fixed by updating to manylinux_2_28.
 
-Maintenance:
-- [ ] Add simple unit tests, pytest with a specific python version? Use lavapipe for rendering tests?
-- [ ] Add Vulkan API tests taking advantage of vulkan profiles simulation: https://vulkan.lunarg.com/doc/sdk/1.4.321.1/windows/profiles_layer.html
-    - Simulate multiple variants of supported extensions and features
-    - Check if possible to simulate different memory heaps and types too
+Bugs:
 - [ ] Wayland GLFW issues:
     - Slow to resize, people point to libdecor: https://github.com/glfw/glfw/issues/2493
     - Window goes unresponsive when alt-tabbed on hyprland: https://github.com/glfw/glfw/issues/2723
     - Window does not show immediately: need to draw before waiting for input. To fix this we can invert the loop or skip waiting the first frame (something that we might anyways do for imgui)
+
+Tests:
+- [ ] Add simple unit tests, pytest with a specific python version? Use lavapipe for rendering tests?
+- [ ] Add Vulkan API tests taking advantage of vulkan profiles simulation: https://vulkan.lunarg.com/doc/sdk/1.4.321.1/windows/profiles_layer.html
+    - Simulate multiple variants of supported extensions and features
+    - Check if possible to simulate different memory heaps and types too
 - [ ] Tests plan -> leverage pytest and pyxpg, we expect this to cover most use-cases:
     - [ ] Platform tests (macOS, ubuntu x11, ubuntu wayland, windows)
         - Create window, ideally resize, send input and capture framebuffer if possible
@@ -361,9 +363,9 @@ Python:
 - [ ] glslang bindings for compiling and reflection
     - [ ] fix slang build when using this
 - [ ] Tracy module built-in into xpg. Repackage their bindings for CPU stuff, expose vulkan API tracing, and add compat bindings with our GPU stuff.
-- [x] Expose host image copy and timeline semaphores?
+- [ ] Expose host image copy and timeline semaphores?
     - [x] timeline semaphores should be avilable everywhere. Ideally subclass / parameter of Semaphore and transparent to queue waits but with extra APIs on the object.
-    - [ ] expose ctx.wait_timeline_semaphores() for waiting on multiple semaphores (all sems or first). Easy to add but currently do not have a usecase for this.
+    - [x] expose device.wait_fences() and device.wait_timeline_semaphores() for waiting on multiple semaphores (all sems or first).
     - [ ] Host image copy can be used automatically for Image.with_data() to or manually with exposed host operations. Not available on AMD
 - [x] Barriers:
     - [x] Unify memory buffer and image API?
@@ -375,3 +377,4 @@ Python:
 Nanobind:
 - [ ] Flags that do not have is_arithmetic (and maybe others as well) produce weird bindings
       for default values. Stubgen fails on python3.8 cibuildwheel (not sure if other versions too)
+- [ ] Nanobind 2.10 onwards dropped support for python 3.8. At some point will need to drop too (or potentially hold back nanobind version just for 3.8 wheels).
