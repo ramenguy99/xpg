@@ -1,7 +1,5 @@
-import numpy as np
-from pyglm.glm import vec3
-
-from ambra.config import CameraConfig, CameraControlMode, Config, GuiConfig, PlaybackConfig
+from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig
+from ambra.geometry import create_axis3d_lines_and_colors
 from ambra.keybindings import KeyMap, Modifiers, MouseButton, MouseButtonBinding
 from ambra.primitives3d import Lines
 from ambra.viewer import Viewer
@@ -27,34 +25,6 @@ viewer = Viewer(
     ),
 )
 
-positions = np.array(
-    [
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    ],
-    np.float32,
-)
-
-colors = np.array(
-    [
-        0xFF0000FF,
-        0xFF0000FF,
-        0xFF00FF00,
-        0xFF00FF00,
-        0xFFFF0000,
-        0xFFFF0000,
-    ],
-    np.uint32,
-)
-
-line_width = 4
-
-line = Lines(positions, colors, line_width)
-
+line = Lines(*create_axis3d_lines_and_colors(), 4)
 viewer.scene.objects.extend([line])
-
 viewer.run()

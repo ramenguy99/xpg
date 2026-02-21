@@ -3078,7 +3078,7 @@ struct Gui: nb::intrusive_base {
         if (!imfont) {
             nb::raise("Failed to add font");
         }
-        nb::ref<Font> font = new Font(imfont, std::move(name));
+        nb::ref<Font> font = new Font(imfont, std::move(name), ttf_data);
         this->fonts.push_back(font);
         return font;
     }

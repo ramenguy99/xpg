@@ -143,9 +143,6 @@ def main():
 
         viewer = CustomViewer(
             config=Config(
-                playback=PlaybackConfig(
-                    playing=False,
-                ),
                 camera=CameraConfig(
                     position=vec3(3),
                     target=vec3(0),

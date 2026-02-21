@@ -8,7 +8,7 @@ from pyglm.glm import mat4x3, normalize, quatLookAtRH, vec3
 from pyxpg import *
 
 from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig
-from ambra.geometry import create_cube
+from ambra.geometry import create_axis3d_lines_and_colors, create_cube
 from ambra.lights import DirectionalLight, DirectionalShadowSettings, EnvironmentCubemaps
 from ambra.primitives3d import Lines
 from ambra.renderer import Renderer
@@ -16,6 +16,7 @@ from ambra.renderer_frame import RendererFrame
 from ambra.scene import BufferProperty, Object3D
 from ambra.utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from ambra.viewer import Viewer
+from ambra.viewport import Viewport
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
@@ -93,7 +94,9 @@ class DebugCube(Object3D):
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
-    def render(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render(
+        self, r: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
         vertex_buffers = [
             self.positions.get_current_gpu().buffer_and_offset(),
         ]
@@ -156,30 +159,6 @@ def main():
         ),
     )
 
-    positions = np.array(
-        [
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ],
-        np.float32,
-    )
-
-    colors = np.array(
-        [
-            0xFF0000FF,
-            0xFF0000FF,
-            0xFF00FF00,
-            0xFF00FF00,
-            0xFFFF0000,
-            0xFFFF0000,
-        ],
-        np.uint32,
-    )
-
     device = viewer.device
 
     # Load image
@@ -212,8 +191,8 @@ def main():
     cube_positions, _, cube_faces = create_cube(extents=(2.0, 2.0, 2.0))
     cube = DebugCube(result.specular_cubemap, cube_positions, cube_faces)
 
-    line_width = 4
-    line = Lines(positions * 3, colors, line_width, translation=(-1, -1, -1))
+    positions, colors = create_axis3d_lines_and_colors()
+    line = Lines(positions * 3, colors, 4, translation=(-1, -1, -1))
 
     light_position = vec3(5, 6, 7) * 4.0
     light_target = vec3(0, 0, 0)

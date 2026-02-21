@@ -3,18 +3,17 @@ import sys
 from pathlib import Path
 
 import cv2
-import gltf
 import numpy as np
+from common import gltf
 from pyglm.glm import angleAxis, vec3
 from pyxpg import Format
 
 from ambra.config import *
 from ambra.geometry import create_sphere
 from ambra.lights import EnvironmentLight
-from ambra.materials import DiffuseMaterial, PBRMaterial
+from ambra.materials import PBRMaterial
 from ambra.primitives3d import Grid, GridType, Mesh
 from ambra.property import ArrayImageProperty
-from ambra.utils.gpu import readback
 from ambra.viewer import Viewer
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
@@ -74,7 +73,7 @@ light_gray = PBRMaterial(
 )
 v, n, f = create_sphere(0.5, rings=32, sectors=64)
 spheres = [
-    Mesh(v, f, normals=n, translation=(2, 1, 0), material=mirror),
+    Mesh(v, f, normals=n, translation=(2, 1, 0.0), material=mirror),
     Mesh(v, f, normals=n, translation=(2, 1, 1.1), material=white),
     Mesh(v, f, normals=n, translation=(2, 1, 2.2), material=light_gray),
     Mesh(v, f, normals=n, translation=(2, 1, 3.3), material=dark_gray),

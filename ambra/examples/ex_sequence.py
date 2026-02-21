@@ -43,16 +43,17 @@ class FileStreamingProperty(BufferProperty):
     def _get_size_offset(frame_index: int):
         return V * 12, 12 + frame_index * V * 12
 
-    # def get_frame_by_index_into(self, frame_index: int, out: memoryview, thread_index: int = -1) -> int:
-    #     size, offset = FileStreamingProperty._get_size_offset(frame_index)
-    #     read_exact_at_offset_into(files[thread_index], offset, out[:size])
-    #     return size
-
-    def get_frame_by_index(self, frame_index: int, thread_index: int = -1):
+    def get_frame_by_index_into(self, frame_index: int, out: memoryview, thread_index: int = -1) -> int:
         size, offset = FileStreamingProperty._get_size_offset(frame_index)
-        buf = np.empty(size, np.uint8)
-        read_exact_at_offset_into(files[thread_index], offset, buf.data)
-        return buf.view(np.float32).reshape((-1, 3)) * scale
+        read_exact_at_offset_into(files[thread_index], offset, out[:size])
+        return size
+
+    # def get_frame_by_index(self, frame_index: int, thread_index: int = -1):
+    #     size, offset = FileStreamingProperty._get_size_offset(frame_index)
+    #     buf = np.empty(size, np.uint8)
+    #     print(offset, frame_index)
+    #     read_exact_at_offset_into(files[thread_index], offset, buf.data)
+    #     return buf.view(np.float32).reshape((-1, 3)) * scale
 
 
 positions = FileStreamingProperty(
@@ -131,12 +132,7 @@ class CustomViewer(Viewer):
 
 viewer = CustomViewer(
     config=Config(
-        window_x=10,
-        window_y=50,
-        window_width=1900,
-        window_height=1000,
-        # vsync = False,
-        preferred_frames_in_flight=3,
+        # preferred_frames_in_flight=3,
         playback=PlaybackConfig(
             playing=True,
             frames_per_second=25.0,
@@ -164,15 +160,12 @@ viewer = CustomViewer(
     ),
 )
 
-light_position = vec3(5, 5, 5)
-light_target = vec3(0, 0, 0)
-
-rotation = quatLookAtRH(normalize(light_target - light_position), vec3(0, 1, 0))
-light = DirectionalLight(
+light = DirectionalLight.look_at(
+    vec3(5, -5, 5),
+    vec3(0, 0, 0),
+    vec3(0, 1, 0),
     np.array([1.0, 1.0, 1.0]),
     shadow_settings=DirectionalShadowSettings(half_extent=5.0),
-    translation=light_position,
-    rotation=rotation,
 )
 
 viewer.scene.objects.append(mesh)

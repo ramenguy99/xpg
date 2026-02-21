@@ -2,6 +2,7 @@ import numpy as np
 from pyglm.glm import vec3
 
 from ambra.config import CameraConfig, CameraProjection, Config, PlaybackConfig
+from ambra.geometry import create_axis2d_lines_and_colors
 from ambra.primitives2d import Lines
 from ambra.property import AnimationBoundary, ArrayBufferProperty, FrameAnimation
 from ambra.transform3d import RigidTransform3D
@@ -22,28 +23,8 @@ viewer = Viewer(
     ),
 )
 
-positions = np.array(
-    [
-        [0.0, 0.0],
-        [1.0, 0.0],
-        [0.0, 0.0],
-        [0.0, 1.0],
-    ],
-    np.float32,
-)
-
+positions, colors = create_axis2d_lines_and_colors()
 positions = np.linspace(positions, positions * np.array([2, 1]), 100)
-
-colors = np.array(
-    [
-        0xFF0000FF,
-        0xFF0000FF,
-        0xFF00FF00,
-        0xFF00FF00,
-    ],
-    np.uint32,
-)
-
 line_width = np.linspace(1, 32, 100)
 
 scale = np.linspace(np.array([1, 1]), np.array([1, 3]), 100)

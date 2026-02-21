@@ -7,6 +7,7 @@ from pyxpg import imgui
 from scipy.spatial.transform import Rotation
 
 from ambra.config import CameraConfig, Config, GuiConfig, RendererConfig
+from ambra.geometry import create_axis3d_lines_and_colors
 from ambra.primitives3d import GaussianSplats, GaussianSplatsRenderFlags, Lines
 from ambra.property import ArrayBufferProperty, UploadSettings
 from ambra.utils.hook import hook
@@ -164,33 +165,7 @@ v = CustomViewer(
 )
 v.scene.objects.append(gs)
 
-positions = np.array(
-    [
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    ],
-    np.float32,
-)
-
-colors = np.array(
-    [
-        0xFF0000FF,
-        0xFF0000FF,
-        0xFF00FF00,
-        0xFF00FF00,
-        0xFFFF0000,
-        0xFFFF0000,
-    ],
-    np.uint32,
-)
-
-line_width = 1
-
-line = Lines(positions, colors, line_width)
+line = Lines(*create_axis3d_lines_and_colors(), 1)
 
 v.scene.objects.extend([line])
 

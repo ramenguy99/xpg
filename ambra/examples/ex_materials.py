@@ -7,7 +7,7 @@ from pyglm.glm import normalize, quatLookAtRH, vec3
 from pyxpg import *
 
 from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig, RendererConfig
-from ambra.geometry import create_sphere
+from ambra.geometry import create_axis3d_lines_and_colors, create_sphere
 from ambra.lights import DirectionalLight, DirectionalShadowSettings, EnvironmentLight, UniformEnvironmentLight
 from ambra.materials import PBRMaterial
 from ambra.primitives3d import Lines, Mesh
@@ -20,8 +20,6 @@ os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 def main():
     viewer = Viewer(
         config=Config(
-            window_width=1600,
-            window_height=900,
             playback=PlaybackConfig(
                 playing=True,
             ),
@@ -38,35 +36,7 @@ def main():
         ),
     )
 
-    origin_positions = (
-        np.array(
-            [
-                [0.0, 0.0, 0.0],
-                [1.0, 0.0, 0.0],
-                [0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ],
-            np.float32,
-        )
-        * 5.0
-    )
-
-    origin_colors = np.array(
-        [
-            0xFF0000FF,
-            0xFF0000FF,
-            0xFF00FF00,
-            0xFF00FF00,
-            0xFFFF0000,
-            0xFFFF0000,
-        ],
-        np.uint32,
-    )
-
     v, n, f = create_sphere(0.5, rings=32, sectors=64)
-
     p_v = ArrayBufferProperty(v[np.newaxis], np.float32)
     p_n = ArrayBufferProperty(n[np.newaxis], np.float32)
     p_f = ArrayBufferProperty(f[np.newaxis], np.uint32)
@@ -83,7 +53,7 @@ def main():
             sphere = Mesh(p_v, p_f, normals=p_n, translation=(t_x, t_y, 1), material=m)
             spheres.append(sphere)
 
-    o = Lines(origin_positions, origin_colors, 4.0)
+    o = Lines(*create_axis3d_lines_and_colors(), 4.0)
 
     light_position = vec3(5, 6, 7) * 4.0
     light_target = vec3(0, 0, 0)

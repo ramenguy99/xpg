@@ -27,6 +27,7 @@ else:
 img_data = ArrayImageProperty(
     data, upload=UploadSettings(preupload=False, async_load=True, cpu_prefetch_count=2, gpu_prefetch_count=2)
 )
+
 positions = (
     np.array(
         [

@@ -5,36 +5,49 @@ from numpy.typing import NDArray
 from pyglm.glm import mat3, mat4, normalize, vec3
 
 
-# TODO: replace with array version
 def create_sphere(
     radius: float = 1.0, rings: int = 16, sectors: int = 32
 ) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
     inv_r = 1.0 / (rings - 1)
     inv_s = 1.0 / (sectors - 1)
 
-    vertices = np.zeros((rings * sectors, 3), np.float32)
-    normals = np.zeros((rings * sectors, 3), np.float32)
+    r = np.arange(rings, dtype=np.float32)
+    s = np.arange(sectors, dtype=np.float32)
 
-    v, n = 0, 0
-    for r in range(rings):
-        for s in range(sectors):
-            y = np.sin(-np.pi / 2 + np.pi * r * inv_r)
-            x = np.cos(2 * np.pi * s * inv_s) * np.sin(np.pi * r * inv_r)
-            z = np.sin(2 * np.pi * s * inv_s) * np.sin(np.pi * r * inv_r)
+    sin_r = np.sin(np.pi * r * inv_r)
+    y_r = np.sin(-np.pi / 2 + np.pi * r * inv_r)
+    cos_s = np.cos(2 * np.pi * s * inv_s)
+    sin_s = np.sin(2 * np.pi * s * inv_s)
 
-            vertices[v] = np.array([x, y, z], np.float32) * radius
-            normals[v] = np.array([x, y, z], np.float32)
+    # Broadcasting (rings, 1) * (1, sectors)
+    x = (sin_r[:, None] * cos_s[None, :]).reshape(-1)
+    y = np.repeat(y_r, sectors)
+    z = (sin_r[:, None] * sin_s[None, :]).reshape(-1)
 
-            v += 1
-            n += 1
+    normals = np.empty((rings * sectors, 3), dtype=np.float32)
+    normals[:, 0] = x
+    normals[:, 1] = y
+    normals[:, 2] = z
 
-    faces = np.zeros([(rings - 1) * (sectors - 1) * 2, 3], dtype=np.uint32)
-    i = 0
-    for r in range(rings - 1):
-        for s in range(sectors - 1):
-            faces[i] = np.array([r * sectors + s, (r + 1) * sectors + (s + 1), r * sectors + (s + 1)], np.uint32)
-            faces[i + 1] = np.array([r * sectors + s, (r + 1) * sectors + s, (r + 1) * sectors + (s + 1)], np.uint32)
-            i += 2
+    vertices = normals * radius
+
+    r = np.arange(rings - 1, dtype=np.uint32)
+    s = np.arange(sectors - 1, dtype=np.uint32)
+
+    base = (r[:, None] * sectors + s[None, :]).reshape(-1)
+
+    v0 = base
+    v1 = base + sectors + 1
+    v2 = base + 1
+    v3 = base + sectors
+
+    faces = np.empty(((rings - 1) * (sectors - 1) * 2, 3), dtype=np.uint32)
+    faces[0::2, 0] = v0
+    faces[0::2, 1] = v1
+    faces[0::2, 2] = v2
+    faces[1::2, 0] = v0
+    faces[1::2, 1] = v3
+    faces[1::2, 2] = v1
 
     return vertices, normals, faces.flatten()
 
@@ -187,6 +200,34 @@ def create_arrow(
         ],
         [cap_f, cap_f, cylinder_f, tip_f],
     )
+    return v, n, f
+
+
+def create_plane(
+    position: Tuple[float, float, float] = (0, 0, 0), extents: Tuple[float, float] = (1, 1)
+) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.uint32]]:
+    v = np.array(
+        [
+            [-0.5, -0.5, 0.0],
+            [0.5, -0.5, 0.0],
+            [0.5, 0.5, 0.0],
+            [-0.5, 0.5, 0.0],
+        ],
+        np.float32,
+    ) * np.array([extents[0], extents[1], 0.0], np.float32) + np.array(position, np.float32)
+
+    n = np.array(
+        [
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0],
+        ],
+        np.float32,
+    )
+
+    f = np.array([0, 1, 2, 0, 2, 3], np.uint32)
+
     return v, n, f
 
 
@@ -395,10 +436,10 @@ def create_axis2d_lines_and_colors(
     lines = (
         np.array(
             [
-                [0.0, 0.0, 0.0],
-                [1.0, 0.0, 0.0],
-                [0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
+                [0.0, 0.0],
+                [1.0, 0.0],
+                [0.0, 0.0],
+                [0.0, 1.0],
             ],
             np.float32,
         )

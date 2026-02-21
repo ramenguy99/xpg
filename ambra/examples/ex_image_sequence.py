@@ -16,8 +16,6 @@ from ambra.viewer import Viewer
 
 viewer = Viewer(
     config=Config(
-        # vsync = False,
-        # preferred_frames_in_flight=3,
         playback=PlaybackConfig(
             playing=True,
         ),

@@ -428,7 +428,10 @@ class GpuEnvironmentCubemaps:
         irradiance_size = self.irradiance_cubemap.width
         irradiance_shape = (6, irradiance_size, irradiance_size, 4)
         irradiance_buffer = Buffer(
-            device, np.prod(irradiance_shape) * 2, BufferUsageFlags.TRANSFER_DST, AllocType.HOST  # type: ignore
+            device,
+            np.prod(irradiance_shape) * 2,  # type: ignore
+            BufferUsageFlags.TRANSFER_DST,
+            AllocType.HOST,
         )
 
         specular_size = self.specular_cubemap.width

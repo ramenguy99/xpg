@@ -104,7 +104,8 @@ struct DescriptorSet: GfxObject {
 
 struct ImFont;
 struct Font: nanobind::intrusive_base {
-    Font(ImFont* font, nanobind::str name): font(font), name(std::move(name)) {}
+    Font(ImFont* font, nanobind::str name, nanobind::bytes ttf_data): font(font), name(std::move(name)), ttf_data(std::move(ttf_data)) {}
     ImFont* font;
     nanobind::str name;
+    nanobind::bytes ttf_data;
 };

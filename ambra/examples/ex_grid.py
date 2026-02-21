@@ -29,9 +29,6 @@ class CustomViewer(Viewer):
 
 viewer = CustomViewer(
     config=Config(
-        playback=PlaybackConfig(
-            playing=True,
-        ),
         gui=GuiConfig(
             stats=True,
         ),

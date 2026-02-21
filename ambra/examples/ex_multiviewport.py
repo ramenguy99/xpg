@@ -1,8 +1,8 @@
 import numpy as np
 
-from ambra.config import CameraConfig, CameraProjection, Config, GuiConfig, PlaybackConfig, RendererConfig
+from ambra.config import Config, GuiConfig, PlaybackConfig, RendererConfig
+from ambra.geometry import create_axis3d_lines_and_colors
 from ambra.primitives3d import Lines
-from ambra.property import AnimationBoundary, ArrayBufferProperty, FrameAnimation
 from ambra.viewer import Viewer
 
 viewer = Viewer(
@@ -23,33 +23,7 @@ viewer = Viewer(
     ),
 )
 
-positions = np.array(
-    [
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0],
-    ],
-    np.float32,
-)
-
-colors = np.array(
-    [
-        0xFF0000FF,
-        0xFF0000FF,
-        0xFF00FF00,
-        0xFF00FF00,
-        0xFFFF0000,
-        0xFFFF0000,
-    ],
-    np.uint32,
-)
-
-line_width = 4
-
-line = Lines(positions, colors, line_width)
+line = Lines(*create_axis3d_lines_and_colors(), 4)
 
 viewer.scene.objects.extend([line])
 
