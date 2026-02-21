@@ -79,6 +79,9 @@ public struct DirectionalLight : ILight
     public uint32_t shadow_map_index;
     public float3 direction;
     public float _bias;
+    public float _padding0;
+    public float _padding1;
+    public float _padding2;
 
     public LightEvaluation eval(float3 world_position, float3 world_normal)
     {

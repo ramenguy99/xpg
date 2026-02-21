@@ -7,12 +7,12 @@ from .lights import DirectionalLight, DirectionalShadowSettings, UniformEnvironm
 
 
 def two_directional_lights_and_uniform_environment_light(
-    front_position: Tuple[float, float, float] = (5, 6, 7),
+    front_position: Tuple[float, float, float] = (2, 3, 4),
     front_target: Tuple[float, float, float] = (0, 0, 0),
     front_world_up: Tuple[float, float, float] = (0, 0, 1),
     front_radiance: Tuple[float, float, float] = (1, 1, 1),
     front_shadow_settings: Optional[DirectionalShadowSettings] = None,
-    back_position: Tuple[float, float, float] = (-5, -6, 7),
+    back_position: Tuple[float, float, float] = (-2, -3, 4),
     back_target: Tuple[float, float, float] = (0, 0, 0),
     back_world_up: Tuple[float, float, float] = (0, 0, 1),
     back_radiance: Tuple[float, float, float] = (0.75, 0.75, 0.75),
@@ -24,7 +24,7 @@ def two_directional_lights_and_uniform_environment_light(
         vec3(front_target),
         vec3(front_world_up),
         np.array(front_radiance),  # type: ignore
-        shadow_settings=front_shadow_settings or DirectionalShadowSettings(half_extent=10.0, z_near=1.0, z_far=100),
+        shadow_settings=front_shadow_settings or DirectionalShadowSettings(half_extent=5.0, z_near=1.0, z_far=10),
         name="Front light",
     )
 
@@ -33,7 +33,7 @@ def two_directional_lights_and_uniform_environment_light(
         vec3(back_target),
         vec3(back_world_up),
         np.array(back_radiance),  # type: ignore
-        shadow_settings=back_shadow_settings or DirectionalShadowSettings(half_extent=10.0, z_near=1.0, z_far=100),
+        shadow_settings=back_shadow_settings or DirectionalShadowSettings(half_extent=5.0, z_near=1.0, z_far=10),
         name="Back light",
     )
 

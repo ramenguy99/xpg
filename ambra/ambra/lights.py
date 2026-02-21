@@ -63,9 +63,11 @@ directional_light_dtype = np.dtype(
     {
         "orthographic_camera": (np.dtype((np.float32, (4, 4))), 0),
         "radiance": (np.dtype((np.float32, (3,))), 64),
-        "shadow_map_index": (np.dtype((np.int32, (1,))), 76),
+        "shadow_map_index": (np.int32, 76),
         "direction": (np.dtype((np.float32, (3,))), 80),
-        "bias": (np.dtype((np.float32, (1,))), 92),
+        "max_bias": (np.float32, 92),
+        "min_bias": (np.float32, 96),
+        "_padding": (np.dtype((np.float32, (3,))), 100),
     }
 )  # type: ignore
 
@@ -116,14 +118,15 @@ class SpotLight(Light):
         )
 
 
-@dataclass(frozen=True)
+@dataclass
 class DirectionalShadowSettings:
     casts_shadow: bool = True
     shadow_map_size: int = 2048
     half_extent: float = 100.0
     z_near: float = 0.0
     z_far: float = 1000.0
-    bias: float = 0.01
+    max_bias: float = 0.003
+    min_bias: float = 0.001
 
 
 class DirectionalLight(Light):
@@ -228,8 +231,9 @@ class DirectionalLight(Light):
         self.light_info["orthographic_camera"] = self.projection * view
         self.light_info["radiance"] = self.radiance.get_current()
         self.light_info["shadow_map_index"] = shadow_map_index
-        self.light_info["direction"] = direction
-        self.light_info["bias"] = self.shadow_settings.bias
+        self.light_info["direction"] = normalize(direction)
+        self.light_info["max_bias"] = self.shadow_settings.max_bias
+        self.light_info["min_bias"] = self.shadow_settings.min_bias
 
         buffer.upload(frame.cmd, MemoryUsage.NONE, view_bytes(self.light_info), offset)
 

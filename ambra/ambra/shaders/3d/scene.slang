@@ -45,7 +45,11 @@ public struct DirectionalLight : ILight
     public float3 radiance;
     public uint32_t shadow_map_index;
     public float3 direction;
-    public float bias;
+    public float max_bias;
+    public float min_bias;
+    public float _padding0;
+    public float _padding1;
+    public float _padding2;
 
     public LightEvaluation eval(float3 world_position, float3 world_normal)
     {
@@ -60,11 +64,28 @@ public struct DirectionalLight : ILight
             {
                 // Compute value to compared with taking bias into account
                 float z = light_pos.z;
-                float b = max(bias * 0.5 * (1.0 + dot(direction, world_normal)), bias);
+                float b = max(max_bias * (1.0 + dot(direction, world_normal)), min_bias);
                 float cmp_value = z - b;
 
                 // Sample shadow_map
+#if 1
                 float shadow = g_directional_shadow_maps[shadow_map_index].SampleCmpLevelZero(g_directional_shadow_map_sampler, light_pos.xy * 0.5 + 0.5, cmp_value);
+#else
+                float shadow = 0.0;
+                uint width, height;
+                g_directional_shadow_maps[shadow_map_index].GetDimensions(width, height);
+                float2 texel_size = 1.0 / float2(width, height);
+                float2 proj_coords = light_pos.xy * 0.5 + 0.5;
+                for(int x = -1; x <= 1; ++x)
+                {
+                    for(int y = -1; y <= 1; ++y)
+                    {
+                        float sample = g_directional_shadow_maps[shadow_map_index].SampleCmpLevelZero(g_directional_shadow_map_sampler, proj_coords.xy + float2(x, y) * texel_size, cmp_value);
+                        shadow += sample;
+                    }
+                }
+                shadow /= 9.0;
+#endif
 
                 // Weight radiance by shadow term
                 L *= shadow;
@@ -153,9 +174,9 @@ public struct DiffuseMaterial : IMaterial
 
         float3 outgoing_radiance = float3(0, 0, 0);
         for (uint32_t i = 0; i < g_constants.directional_lights_count; i++) {
-            LightEvaluation light = g_directional_lights[i].eval(world_position, N);
-            float cosine = max(dot(light.direction, N), 0.0);
-            outgoing_radiance += cosine * INV_PI * diffuse * light.L;
+            LightEvaluation l = g_directional_lights[i].eval(world_position, N);
+            float cosine = max(dot(l.direction, N), 0.0);
+            outgoing_radiance += cosine * INV_PI * diffuse * l.L;
         }
 
         float3 irradiance = 0.0;
