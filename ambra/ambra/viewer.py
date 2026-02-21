@@ -1081,6 +1081,10 @@ class Viewer:
 
         self.running = True
         while self.running:
+            # Draw first to display window on wayland
+            self.on_draw()
+
+            # Process events
             should_wait = self.wait_events and not (self.playback.playing and self.playback.num_frames > 1)
             if self.renderer.path_tracer:
                 should_wait = should_wait and not any(
@@ -1090,6 +1094,11 @@ class Viewer:
                 )
             process_events(should_wait)
 
+            # Check if window was closed
+            if self.window.should_close():
+                break
+
+            # Process server messages
             if self.server is not None:
                 while True:
                     try:
@@ -1097,11 +1106,6 @@ class Viewer:
                     except Empty:
                         break
                     self.on_raw_message(client, raw_message)
-
-            if self.window.should_close():
-                break
-
-            self.on_draw()
         self.device.wait_idle()
 
         if self.server is not None:
