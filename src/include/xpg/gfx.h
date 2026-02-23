@@ -494,6 +494,13 @@ struct Window
     u32 fb_height;
     VkSwapchainKHR swapchain;
 
+    // Full screen
+    bool is_fullscreen;
+    int before_fullscreen_width;
+    int before_fullscreen_height;
+    int before_fullscreen_x;
+    int before_fullscreen_y;
+
     // Per frame swapchain data
     Array<VkImage> images;
     Array<VkImageView> image_views;
@@ -544,6 +551,7 @@ void SetWindowCallbacks(Window* window, WindowCallbacks&& callbacks);
 void ProcessEvents(bool block);
 bool ShouldClose(const Window& window);
 Modifiers GetModifiersState(const Window& window);
+void ToggleFullscreen(Window& window);
 
 //- Queries
 struct QueryPoolDesc {

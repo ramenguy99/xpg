@@ -219,6 +219,20 @@ Modifiers GetModifiersState(const Window& window) {
     return (Modifiers)m;
 }
 
+void ToggleFullscreen(Window& window) {
+    if (!window.is_fullscreen) {    
+        glfwGetWindowSize(window.window, &window.before_fullscreen_width, &window.before_fullscreen_height);
+        glfwGetWindowPos(window.window, &window.before_fullscreen_x, &window.before_fullscreen_y);
+        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+        glfwSetWindowMonitor(window.window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+    } else {
+        glfwSetWindowMonitor(window.window, nullptr, window.before_fullscreen_x, window.before_fullscreen_y, window.before_fullscreen_width, window.before_fullscreen_height, 0);
+    }
+    
+    window.is_fullscreen = !window.is_fullscreen;
+}
+
 void CloseWindow(const Window& window) {
     glfwSetWindowShouldClose(window.window, 1);
 }

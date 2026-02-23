@@ -2855,6 +2855,10 @@ struct Window: nb::intrusive_base {
         return gfx::GetModifiersState(window);
     }
 
+    void toggle_fullscreen() {
+        gfx::ToggleFullscreen(window);
+    }
+
     nb::ref<Device> device;
     gfx::Window window;
 
@@ -4418,6 +4422,8 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("additional_signal_semaphores") = nb::list()
         )
         .def("post_empty_event", &Window::post_empty_event)
+        .def("toggle_fullscreen", &Window::toggle_fullscreen)
+        .def_prop_ro("is_fullscreen", [](Window& w) { return w.window.is_fullscreen; })
         .def_prop_ro("swapchain_format", [](Window& w) -> VkFormat { return w.window.swapchain_format; })
         .def_prop_ro("swapchain_usage_flags", [](Window& w) -> VkImageUsageFlagBits { return (VkImageUsageFlagBits)w.window.swapchain_usage_flags; })
         .def_prop_ro("num_swapchain_images", [](Window& w) -> usize { return w.window.image_views.length; })
