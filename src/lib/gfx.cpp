@@ -219,17 +219,126 @@ Modifiers GetModifiersState(const Window& window) {
     return (Modifiers)m;
 }
 
+// This functionality is builtin on windows and on macos only for foreground window, but should be good enough for most cases.
+// On X11 it's possible to emulate it with the following function, but on Wayland the window position is not available and this does not work.
+// Firefox and chrome are able to fullscreen and back on both x11 and wayland, so they must be doing something smarter.
+//
+// https://github.com/glfw/glfw/issues/1699
+static bool GetMonitorWithLargestOverlapWithWindow(GLFWmonitor** monitor, GLFWwindow* window) {
+    int window_rectangle[4] = {0};
+    glfwGetWindowPos(window, &window_rectangle[0], &window_rectangle[1]);
+    glfwGetWindowSize(window, &window_rectangle[2], &window_rectangle[3]);
+
+    int monitors_size = 0;
+    GLFWmonitor** monitors = glfwGetMonitors(&monitors_size);
+
+    GLFWmonitor* closest_monitor = NULL;
+    int max_overlap_area = 0;
+
+    for (int i = 0; i < monitors_size; ++i)
+    {
+        int monitor_rectangle[4] = {0};
+        glfwGetMonitorWorkarea(monitors[i], &monitor_rectangle[0], &monitor_rectangle[1], &monitor_rectangle[2], &monitor_rectangle[3]);
+
+        const GLFWvidmode* monitor_video_mode = glfwGetVideoMode(monitors[i]);
+
+        if (
+            !(
+                ((window_rectangle[0] + window_rectangle[2]) < monitor_rectangle[0]) ||
+                (window_rectangle[0] > (monitor_rectangle[0] + monitor_rectangle[2])) ||
+                ((window_rectangle[1] + window_rectangle[3]) < monitor_rectangle[1]) ||
+                (window_rectangle[1] > (monitor_rectangle[1] + monitor_rectangle[3]))
+            )
+        ) {
+            int intersection_rectangle[4] = {0};
+
+            // x, width
+            if (window_rectangle[0] < monitor_rectangle[0])
+            {
+                intersection_rectangle[0] = monitor_rectangle[0];
+
+                if ((window_rectangle[0] + window_rectangle[2]) < (monitor_rectangle[0] + monitor_rectangle[2]))
+                {
+                    intersection_rectangle[2] = (window_rectangle[0] + window_rectangle[2]) - intersection_rectangle[0];
+                }
+                else
+                {
+                    intersection_rectangle[2] = monitor_rectangle[2];
+                }
+            }
+            else
+            {
+                intersection_rectangle[0] = window_rectangle[0];
+
+                if ((monitor_rectangle[0] + monitor_rectangle[2]) < (window_rectangle[0] + window_rectangle[2]))
+                {
+                    intersection_rectangle[2] = (monitor_rectangle[0] + monitor_rectangle[2]) - intersection_rectangle[0];
+                }
+                else
+                {
+                    intersection_rectangle[2] = window_rectangle[2];
+                }
+            }
+
+            // y, height
+            if (window_rectangle[1] < monitor_rectangle[1])
+            {
+                intersection_rectangle[1] = monitor_rectangle[1];
+
+                if ((window_rectangle[1] + window_rectangle[3]) < (monitor_rectangle[1] + monitor_rectangle[3]))
+                {
+                    intersection_rectangle[3] = (window_rectangle[1] + window_rectangle[3]) - intersection_rectangle[1];
+                }
+                else
+                {
+                    intersection_rectangle[3] = monitor_rectangle[3];
+                }
+            }
+            else
+            {
+                intersection_rectangle[1] = window_rectangle[1];
+
+                if ((monitor_rectangle[1] + monitor_rectangle[3]) < (window_rectangle[1] + window_rectangle[3]))
+                {
+                    intersection_rectangle[3] = (monitor_rectangle[1] + monitor_rectangle[3]) - intersection_rectangle[1];
+                }
+                else
+                {
+                    intersection_rectangle[3] = window_rectangle[3];
+                }
+            }
+
+            int overlap_area = intersection_rectangle[2] * intersection_rectangle[3];
+            if (overlap_area > max_overlap_area)
+            {
+                closest_monitor = monitors[i];
+                max_overlap_area = overlap_area;
+            }
+        }
+    }
+
+    if (closest_monitor) {
+        *monitor = closest_monitor;
+        return true;
+    } else {
+        return false;
+    }
+}
+
 void ToggleFullscreen(Window& window) {
-    if (!window.is_fullscreen) {    
+    if (!window.is_fullscreen) {
         glfwGetWindowSize(window.window, &window.before_fullscreen_width, &window.before_fullscreen_height);
         glfwGetWindowPos(window.window, &window.before_fullscreen_x, &window.before_fullscreen_y);
-        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+        GLFWmonitor* monitor;
+        if (!GetMonitorWithLargestOverlapWithWindow(&monitor, window.window)) {
+            monitor = glfwGetPrimaryMonitor();
+        }
         const GLFWvidmode* mode = glfwGetVideoMode(monitor);
         glfwSetWindowMonitor(window.window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
     } else {
         glfwSetWindowMonitor(window.window, nullptr, window.before_fullscreen_x, window.before_fullscreen_y, window.before_fullscreen_width, window.before_fullscreen_height, 0);
     }
-    
+
     window.is_fullscreen = !window.is_fullscreen;
 }
 
