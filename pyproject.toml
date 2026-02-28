@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pyxpg"
-version = "0.0.7"
+version = "0.1.0"
 description = "XPG python bindings"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -44,7 +44,6 @@ sdist.exclude = [
 cmake.define.XPG_BUILD_APPS = "OFF"
 cmake.define.XPG_BUILD_PYTHON = "ON"
 cmake.define.XPG_BUILD_SLANG = "ON"
-# cmake.define.XPG_BUILD_SLANG = "OFF"
 
 [[tool.scikit-build.overrides]]
 if.platform-system = "^linux"
@@ -55,7 +54,6 @@ cmake.define.CMAKE_C_FLAGS="-D_POSIX_C_SOURCE=199309L -D_POSIX_SOURCE=199309L -D
 [tool.cibuildwheel]
 build-verbosity = 1
 archs = ["auto64"]
-#build = ["cp38-*" ]
 build = ["cp38-*", "cp39-*", "cp310-*", "cp311-*", "cp312-*"]
 skip = ["cp38-macosx_arm64"]
 

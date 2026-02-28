@@ -4,8 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ambra"
-version = "0.0.2"
+version = "0.1.0"
 description = "Ambra 3D Viewer"
+readme = "README.md"
 requires-python = ">= 3.8"
 authors = [
     { name = "Dario Mylonopoulos", email = "ramenguy99@gmail.com" },
@@ -15,7 +16,7 @@ dependencies = [
     "numpy>=1.22",      # Required for numpy.typing
     "pyglm>=2,<3",
     "platformdirs>=4,<5",
-    "pyxpg",
+    "pyxpg==0.1.0",
 ]
 
 [project.urls]

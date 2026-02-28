@@ -185,16 +185,23 @@ bindless resources.
 Ambra has minimal dependencies and should be easy to integrate into any Python
 3.8+ environment alongside other packages.
 
-### Setup
+### Quickstart
 
-Ambra is deep in development and Python wheels are not yet available. Currently
-`ambra` does not depend explicitly on `pyxpg` in its `pyproject.toml` to avoid
-downloading wheels from Pypi when installed.
+The easiest way to install Ambra is from prebuilt wheels on Pypi:
 
-The recommended way to install Ambra is to clone the repository and install from
-source both `pyxpg` and `ambra` to ensure the latest version of both is in use.
+```
+pip install ambra
+```
 
-Example setup:
+After the setup you can run the example scripts in `ambra/examples/` to
+test the installation and learn more about the library.
+
+### Build
+
+Ambra is still in development and changing rapidly, to get the latest version
+and for development, it is recommended to build from source both `pyxpg` and
+`ambra`:
+
 ```
 git clone --recursive https://github.com/ramenguy99/xpg.git
 cd xpg
@@ -204,6 +211,5 @@ cd ambra
 pip install -e .
 ```
 
-This will install `pyxpg` in debug and editable mode and `ambra` in editable
-mode. After the setup you can run the example scripts in `ambra/examples/` to
-test the installation.
+This will install `pyxpg` in debug and editable mode (automatically recompiling
+after changes) and `ambra` in editable mode.
