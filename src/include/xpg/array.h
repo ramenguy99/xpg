@@ -164,6 +164,10 @@ struct ObjArray {
     ObjArray& operator=(const ObjArray& other) = delete;
 
     ObjArray& operator=(ObjArray&& other) {
+        // Destroy existing elements before freeing
+        for (usize i = 0; i < length; i++) {
+            data[i].~T();
+        }
         AlignedFree(this->data);
 
         this->data = other.data;
@@ -200,13 +204,13 @@ struct ObjArray {
 
 	void extend(const ArrayView<T>& arr) {
 		if(length + arr.length > capacity) {
-			usize new_capacity = Max<usize>(8, MAX(capacity * 2, length + arr.length));
+			usize new_capacity = Max<usize>(8, Max<usize>(capacity * 2, length + arr.length));
 			grow_unchecked(new_capacity);
 		}
 
         // SUPPORT_NON_POD
         for (usize i = 0; i < arr.length; i++) {
-            new(data + length++) T(move(arr.data[i]));
+            new(data + length + i) T(move(arr.data[i]));
         }
         //
 
@@ -214,6 +218,10 @@ struct ObjArray {
 	}
 
     void resize(usize new_size) {
+        // Destroy excess elements when shrinking
+        for (usize i = new_size; i < length; i++) {
+            data[i].~T();
+        }
         grow(new_size);
         for (usize i = length; i < new_size; i++) {
             new (data + i) T();
@@ -351,7 +359,7 @@ struct Array {
 
 	void extend(const ArrayView<T>& arr) {
 		if(length + arr.length > capacity) {
-			usize new_capacity = Max<usize>(8, MAX(capacity * 2, length + arr.length));
+			usize new_capacity = Max<usize>(8, Max<usize>(capacity * 2, length + arr.length));
 			grow_unchecked(new_capacity);
 		}
 
@@ -447,7 +455,7 @@ struct ArrayFixed {
     }
 
     ArrayFixed(usize starting_length) {
-        if(length > N) {
+        if(starting_length > N) {
             OutOfSpace();
         }
         length = starting_length;
