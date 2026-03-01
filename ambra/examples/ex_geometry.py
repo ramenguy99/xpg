@@ -97,7 +97,6 @@ arrow_v, arrow_n, arrow_f = create_arrow()
 arrow = Mesh(arrow_v, arrow_f, arrow_n, cull_mode=cull_mode, polygon_mode=polygon_mode, translation=(2.5, 2.5, 0))
 arrow_normals = Lines(*create_normal_lines(arrow_v, arrow_n, length=0.05), line_width=2, translation=(2.5, 2.5, 0))
 
-ax2d = Lines(*create_axis2d_lines_and_colors(length=0.5), line_width=2, translation=(0, 0, 1.5))
 ax3d = Lines(*create_axis3d_lines_and_colors(), line_width=2, translation=(0, 0, 0))
 cube_edges = Lines(*create_cube_edges(), line_width=2, translation=(0, 0, 0))
 
@@ -120,7 +119,6 @@ viewer.scene.objects.extend(
         sphere_normals,
         arrow,
         arrow_normals,
-        ax2d,
         ax3d,
         cube_edges,
         *two_directional_lights_and_uniform_environment_light(),
