@@ -41,7 +41,14 @@ from pyxpg import (
     VertexInputRate,
 )
 
-from .geometry import concatenate_meshes, create_arrow, create_sphere, transform_mesh
+from .geometry import (
+    concatenate_meshes,
+    create_arrow,
+    create_capped_cylinder,
+    create_cylinder,
+    create_sphere,
+    transform_mesh,
+)
 from .gpu_sorting import GpuSortingPipeline, SortDataType, SortOptions
 from .marching_cubes import BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z, MarchingCubesPipeline
 from .materials import ColorMaterial, DiffuseMaterial, Material
@@ -336,6 +343,7 @@ class Mesh(Object3D):
         cull_mode: CullMode = CullMode.NONE,
         front_face: FrontFace = FrontFace.COUNTER_CLOCKWISE,
         polygon_mode: PolygonMode = PolygonMode.FILL,
+        casts_shadows: bool = True,
         material: Optional[Material] = None,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
@@ -348,6 +356,7 @@ class Mesh(Object3D):
         self.cull_mode = cull_mode
         self.front_face = front_face
         self.polygon_mode = polygon_mode
+        self.casts_shadows = casts_shadows
         self.constants_dtype = np.dtype(
             {
                 "transform": (np.dtype((np.float32, (3, 4))), 0),
@@ -604,6 +613,9 @@ class Mesh(Object3D):
         self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3(self.current_transform_matrix)))
 
     def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        if not self.casts_shadows:
+            return
+
         positions = self.positions.get_current_gpu()
         vertex_buffers = [
             positions.buffer_and_offset(),
@@ -681,6 +693,7 @@ class MarchingCubesMesh(Object3D):
         invert_normals: bool = False,
         max_vertices: Optional[int] = None,
         max_indices: Optional[int] = None,
+        casts_shadows: bool = False,
         material: Optional[Material] = None,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
@@ -713,6 +726,7 @@ class MarchingCubesMesh(Object3D):
         self.size = size
         self.level = level
         self.invert_normals = invert_normals
+        self.casts_shadows = casts_shadows
 
         # Add properties
         self.sdf = self.add_image_property(sdf, is_3d=True, name="sdf").use_gpu(
@@ -961,6 +975,9 @@ class MarchingCubesMesh(Object3D):
             self._need_marching = False
 
     def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        if not self.casts_shadows:
+            return
+
         frame.cmd.bind_graphics_pipeline(
             self.depth_pipeline,
             vertex_buffers=[self.positions_buf],
@@ -992,6 +1009,220 @@ class MarchingCubesMesh(Object3D):
         frame.cmd.draw_indexed_indirect(self.marching_cubes_instance.indices_counter_buf, 0, 1, 20)
 
 
+class ThickLines(Object3D):
+    def __init__(
+        self,
+        lines: BufferProperty,
+        colors: Optional[BufferProperty] = None,
+        radius: Union[BufferProperty, float] = 0.1,
+        is_strip: bool = False,
+        sectors: int = 8,
+        caps: bool = False,
+        cull_mode: CullMode = CullMode.NONE,
+        casts_shadows: bool = False,
+        material: Optional[Material] = None,
+        name: Optional[str] = None,
+        translation: Optional[BufferProperty] = None,
+        rotation: Optional[BufferProperty] = None,
+        scale: Optional[BufferProperty] = None,
+        enabled: Optional[BufferProperty] = None,
+        viewport_mask: Optional[int] = None,
+    ):
+        self.constants_dtype = np.dtype(
+            {
+                "transform": (np.dtype((np.float32, (3, 4))), 0),
+                "normal_matrix": (np.dtype((np.float32, (3, 4))), 48),
+                "radius": (np.float32, 96),
+            }
+        )  # type: ignore
+        self.constants = np.zeros((1,), self.constants_dtype)
+
+        self.cylinder_positions, self.cylinder_normals, self.cylinder_faces = (
+            create_cylinder(sectors=sectors) if not caps else create_capped_cylinder(sectors=sectors)
+        )
+
+        if material is None:
+            default_color = (0.5, 0.5, 0.5) if colors is None else (1.0, 1.0, 1.0)
+            material = DiffuseMaterial(default_color)
+
+        super().__init__(
+            name,
+            translation,
+            rotation,
+            scale,
+            material,
+            enabled,
+            viewport_mask,
+        )
+
+        self.lines = self.add_buffer_property(lines, np.float32, (-1, 3), name="lines").use_gpu(
+            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+        )
+        self.colors = (
+            self.add_buffer_property(colors, np.uint32, (-1,), name="colors").use_gpu(
+                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+            )
+            if colors is not None
+            else None
+        )
+        self.radius = self.add_buffer_property(radius, np.float32, name="radius")
+        self.is_strip = is_strip
+        self.cull_mode = cull_mode
+        self.casts_shadows = casts_shadows
+
+    def create(self, r: Renderer) -> None:
+        assert self.material is not None
+
+        defines: List[Tuple[str, str]] = [("IS_STRIP", str(int(self.is_strip)))]
+        defines.extend(self.material.shader_defines)
+        depth_defines: List[Tuple[str, str]] = [("IS_STRIP", str(int(self.is_strip)))]
+
+        self.positions_buf = Buffer.from_data(
+            r.device,
+            view_bytes(self.cylinder_positions),
+            BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+        )
+        self.normals_buf = Buffer.from_data(
+            r.device,
+            view_bytes(self.cylinder_normals),
+            BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+        )
+        self.indices_buf = Buffer.from_data(
+            r.device,
+            view_bytes(self.cylinder_faces),
+            BufferUsageFlags.INDEX | BufferUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+        )
+
+        vertex_bindings = [
+            VertexBinding(0, 12, VertexInputRate.VERTEX),
+            VertexBinding(1, 24 if not self.is_strip else 12, VertexInputRate.INSTANCE),
+        ]
+        vertex_attributes = [
+            VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
+            VertexAttribute(1, 1, Format.R32G32B32_SFLOAT),
+            VertexAttribute(2, 1, Format.R32G32B32_SFLOAT, offset=12),
+        ]
+
+        depth_vert = r.compile_builtin_shader("3d/lines_depth.slang", "vertex_main", defines=depth_defines)
+        self.depth_pipeline = GraphicsPipeline(
+            r.device,
+            stages=[
+                PipelineStage(Shader(r.device, depth_vert.code), Stage.VERTEX),
+            ],
+            vertex_bindings=vertex_bindings,
+            vertex_attributes=vertex_attributes,
+            rasterization=Rasterization(
+                polygon_mode=PolygonMode.FILL,
+                cull_mode=cull_mode_opposite_face(self.cull_mode),
+                front_face=FrontFace.COUNTER_CLOCKWISE,
+            ),
+            input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
+            attachments=[],
+            depth=Depth(r.shadow_map_format, True, True, r.depth_compare_op),
+            descriptor_set_layouts=[
+                r.scene_depth_descriptor_set_layout,
+            ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
+        )
+
+        vertex_bindings.append(VertexBinding(2, 12, VertexInputRate.VERTEX))
+        vertex_attributes.append(VertexAttribute(3, 2, Format.R32G32B32_SFLOAT))
+        if self.colors is not None:
+            defines.append(("COLORS", "1"))
+            vertex_bindings.append(VertexBinding(3, 8 if not self.is_strip else 4, VertexInputRate.INSTANCE))
+            vertex_attributes.append(VertexAttribute(4, 3, Format.R32_UINT))
+            vertex_attributes.append(VertexAttribute(5, 3, Format.R32_UINT, offset=4))
+
+        vert = r.compile_builtin_shader("3d/lines.slang", "vertex_main", defines=defines)
+        frag = r.compile_builtin_shader("3d/lines.slang", "pixel_main", defines=defines)
+        self.pipeline = GraphicsPipeline(
+            r.device,
+            stages=[
+                PipelineStage(Shader(r.device, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
+            ],
+            vertex_bindings=vertex_bindings,
+            vertex_attributes=vertex_attributes,
+            rasterization=Rasterization(
+                polygon_mode=PolygonMode.FILL,
+                cull_mode=self.cull_mode,
+                front_face=FrontFace.COUNTER_CLOCKWISE,
+            ),
+            input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
+            samples=r.msaa_samples,
+            attachments=[Attachment(format=r.output_format)],
+            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+                self.material.descriptor_set_layout,
+            ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
+        )
+
+    def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        if not self.casts_shadows:
+            return
+
+        lines = self.lines.get_current_gpu()
+        frame.cmd.bind_graphics_pipeline(
+            self.depth_pipeline,
+            vertex_buffers=[self.positions_buf, lines.buffer_and_offset()],
+            index_buffer=self.indices_buf,
+            descriptor_sets=[
+                scene_descriptor_set,
+            ],
+            push_constants=self.constants.tobytes(),
+        )
+
+        num_line_positions = lines.size // 12
+        if num_line_positions > 0:
+            frame.cmd.draw_indexed(
+                self.cylinder_faces.size, num_line_positions - 1 if self.is_strip else num_line_positions // 2
+            )
+
+    def render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
+        assert self.material is not None
+
+        lines = self.lines.get_current_gpu()
+        vertex_buffers: List[Union[Buffer, Tuple[Buffer, int]]] = [
+            self.positions_buf,
+            lines.buffer_and_offset(),
+            self.normals_buf,
+        ]
+        if self.colors is not None:
+            vertex_buffers.append(self.colors.get_current_gpu().buffer_and_offset())
+
+        frame.cmd.bind_graphics_pipeline(
+            self.pipeline,
+            vertex_buffers=vertex_buffers,
+            index_buffer=self.indices_buf,
+            descriptor_sets=[
+                scene_descriptor_set,
+                self.material.descriptor_set,
+            ],
+            push_constants=self.constants.tobytes(),
+        )
+
+        num_line_positions = lines.size // 12
+        if num_line_positions > 0:
+            frame.cmd.draw_indexed(
+                self.cylinder_faces.size, num_line_positions - 1 if self.is_strip else num_line_positions // 2
+            )
+
+    def update_transform(self, parent: Optional[Object]) -> None:
+        super().update_transform(parent)
+        self.constants["transform"] = mat4x3(self.current_transform_matrix)
+        self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3(self.current_transform_matrix)))
+
+    def upload(self, renderer: Renderer, frame: RendererFrame) -> None:
+        self.constants["radius"] = self.radius.get_current()
+
+
 class Sphere(Mesh):
     def __init__(
         self,
@@ -1000,6 +1231,7 @@ class Sphere(Mesh):
         rings: int = 16,
         sectors: int = 32,
         instance_positions: Optional[BufferProperty] = None,
+        casts_shadows: bool = False,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
@@ -1016,6 +1248,7 @@ class Sphere(Mesh):
             n,  # type: ignore
             vertex_colors=c,  # type: ignore
             instance_positions=instance_positions,
+            casts_shadows=casts_shadows,
             name=name,
             translation=translation,
             rotation=rotation,
@@ -1035,6 +1268,7 @@ class AxisGizmo(Mesh):
         x_axis_color: int = 0xFF0000FF,
         y_axis_color: int = 0xFF00FF00,
         z_axis_color: int = 0xFFFF0000,
+        casts_shadows: bool = False,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
@@ -1070,6 +1304,7 @@ class AxisGizmo(Mesh):
             mesh_f,  # type: ignore
             mesh_n,  # type: ignore
             vertex_colors=mesh_c,  # type: ignore
+            casts_shadows=casts_shadows,
             name=name,
             translation=translation,
             rotation=rotation,
@@ -1123,6 +1358,7 @@ class Image(Mesh):
             positions,  # type: ignore
             uvs=uvs,  # type: ignore
             primitive_topology=PrimitiveTopology.TRIANGLE_STRIP,
+            casts_shadows=False,
             material=material,
             name=name,
             translation=translation,

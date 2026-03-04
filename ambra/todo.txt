@@ -1,11 +1,11 @@
 Priority:
 - [x] Load URDF (can already do with object tree, but maybe want to do skinned object? Maybe start with tree)
-- [ ] Add missing primitives:
+- [x] Add missing primitives:
     - [x] cones and arrows
-    - [ ] 3D lines
+    - [x] 3D lines
 - [ ] UI improvements:
+    - [x] Images in GUI
     - [ ] Ortho views
-    - [ ] Images in GUI
     - [ ] More GUI
     - [ ] Better timeline with timestamp visualizers
 
@@ -75,7 +75,7 @@ TODO:
         - [x] thin points 3D
         - [x] thin lines 2D / 3D
         - [x] Spheres
-        - [ ] Cilinders (with/without caps)
+        - [x] Cilinders (with/without caps)
         - [x] Axis -> missing caps / cones
         - [-] Meshes
             - [ ] Handle optional params for:
@@ -366,11 +366,11 @@ TODO:
     - [ ] Re-organize utils directory, what really is a util anyway?
     - [ ] Re-export symbols to allow import ambra as am and just use am.Viewer? instead of requiring many imports
 - [ ] Extra Features (likely at viewer level with pyxpg helpers / wrappers (optional xpg features enabled on python release)):
+    - [x] Gaussian splats
+        - [x] Move into shaders/3d, it's integrated enough that we kinda need that.
+    - [x] Marching cubes
     - [ ] Meshoptimizer + meshlets
-    - [ ] Gaussian splats
-        - [ ] Move into shaders/3d, it's integrated enough that we kinda need that.
     - [ ] Ray marching / octrees
-    - [ ] Marching cubes
     - [ ] Pointclouds
     - [ ] Framegraph
 - [ ] Customization workflows
@@ -395,9 +395,9 @@ Bugs:
 - [ ] Playback with very few timestamped frames (sub 1 frame) can result in flicker without changing frame, think if there is a way to add that additional frame at least.
 
 Feature ideas:
+- [x] Better orthographic navigation (e.g. zoom, different panning speed logic from what we have now)
 - [ ] Client statistics (e.g. number of messages, bytes, etc.., maybe some ui like stats or in stats itself)
 - [ ] Quickly switch to ortho views and back (maybe with tunable grid size too)
-- [ ] Better orthographic navigation (e.g. zoom, different panning speed logic from what we have now)
 - [ ] Open3D style oneliner to create a viewer and run it (list of objects + config + other utils?)
 - [ ] Simpler property constructors, e.g. ArrayBufferProperty.streaming()
 - [ ] Gpu-generated properties:
