@@ -192,6 +192,58 @@ void imgui_create_bindings(nb::module_& mod_imgui)
         nb::arg("rounding")
     );
 
+    drawlist_class.def("add_circle_batch",
+        [](DrawList& self,
+           nb::ndarray<float, nb::shape<-1, 2>> center,
+           nb::ndarray<float, nb::shape<-1>> radius,
+           nb::ndarray<uint32_t, nb::shape<-1>> color,
+           int num_segments,
+           float thickness
+        ) {
+            bool col_per_object = color.shape(0) != 1;
+            bool radius_per_object = radius.shape(0) != 1;
+            for (size_t i = 0; i < center.shape(0); i++) {
+                self.list->AddCircle(
+                    ImVec2(center(i, 0), center(i, 1)),
+                    radius_per_object ? radius(i) : radius(0),
+                    col_per_object ? color(i) : color(0),
+                    num_segments,
+                    thickness
+                );
+            }
+        },
+        nb::arg("center"),
+        nb::arg("radius"),
+        nb::arg("color"),
+        nb::arg("num_segments") = 0,
+        nb::arg("thickness") = 1.0f
+    );
+
+    drawlist_class.def("add_circle_filled_batch",
+        [](DrawList& self,
+           nb::ndarray<float, nb::shape<-1, 2>> center,
+           nb::ndarray<float, nb::shape<-1>> radius,
+           nb::ndarray<uint32_t, nb::shape<-1>> color,
+           int num_segments
+        ) {
+            bool col_per_object = color.shape(0) != 1;
+            bool radius_per_object = radius.shape(0) != 1;
+            for (size_t i = 0; i < center.shape(0); i++) {
+                self.list->AddCircleFilled(
+                    ImVec2(center(i, 0), center(i, 1)),
+                    radius_per_object ? radius(i) : radius(0),
+                    col_per_object ? color(i) : color(0),
+                    num_segments
+                );
+            }
+        },
+        nb::arg("center"),
+        nb::arg("radius"),
+        nb::arg("color"),
+        nb::arg("num_segments") = 0
+    );
+
+
     // IO
     mod_imgui.def("get_io", ImGui::GetIO, nb::rv_policy::reference);
     mod_imgui.def("get_style", ImGui::GetStyle, nb::rv_policy::reference);
