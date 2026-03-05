@@ -77,10 +77,11 @@ struct VSOutput
 VSOutput vertex_main(VSInput in)
 {
     VSOutput out;
-    float3 world_position = mul(g_object_constants.transform, float4(in.position, 1.0));
+    float3 object_position = in.position;
 #ifdef INSTANCE_POSITIONS
-    world_position += in.instance_position;
+    object_position += in.instance_position;
 #endif
+    float3 world_position = mul(g_object_constants.transform, float4(object_position, 1.0));
     out.position = mul(g_constants.projection, mul(g_constants.view, float4(world_position, 1.0)));
     out.world_position = world_position;
 #ifdef VERTEX_NORMALS
