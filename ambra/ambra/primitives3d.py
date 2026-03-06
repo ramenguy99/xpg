@@ -1223,15 +1223,17 @@ class ThickLines(Object3D):
         self.constants["radius"] = self.radius.get_current()
 
 
-class Sphere(Mesh):
+class Spheres(Object3D):
     def __init__(
         self,
+        positions: BufferProperty,
+        colors: Optional[BufferProperty] = None,
         radius: float = 0.1,
-        color: int = 0xFFCCCCCC,
         rings: int = 16,
         sectors: int = 32,
-        instance_positions: Optional[BufferProperty] = None,
+        cull_mode: CullMode = CullMode.BACK,
         casts_shadows: bool = False,
+        material: Optional[Material] = None,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
@@ -1239,23 +1241,181 @@ class Sphere(Mesh):
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
     ):
-        v, n, f = create_sphere(radius, rings, sectors)
-        c = np.full(v.shape[0], color, np.uint32)
+        self.constants_dtype = np.dtype(
+            {
+                "transform": (np.dtype((np.float32, (3, 4))), 0),
+                "normal_matrix": (np.dtype((np.float32, (3, 4))), 48),
+                "radius": (np.float32, 96),
+            }
+        )  # type: ignore
+        self.constants = np.zeros((1,), self.constants_dtype)
+
+        self.sphere_positions, _, self.sphere_faces = create_sphere(1.0, rings, sectors)
+
+        if material is None:
+            default_color = (0.5, 0.5, 0.5) if colors is None else (1.0, 1.0, 1.0)
+            material = DiffuseMaterial(default_color)
 
         super().__init__(
-            v,  # type: ignore
-            f,  # type: ignore
-            n,  # type: ignore
-            vertex_colors=c,  # type: ignore
-            instance_positions=instance_positions,
-            casts_shadows=casts_shadows,
-            name=name,
-            translation=translation,
-            rotation=rotation,
-            scale=scale,
-            enabled=enabled,
-            viewport_mask=viewport_mask,
+            name,
+            translation,
+            rotation,
+            scale,
+            material,
+            enabled,
+            viewport_mask,
         )
+
+        self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
+            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+        )
+        self.colors = (
+            self.add_buffer_property(colors, np.uint32, (-1,), name="colors").use_gpu(
+                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+            )
+            if colors is not None
+            else None
+        )
+        self.radius = self.add_buffer_property(radius, np.float32, name="radius")
+        self.cull_mode = cull_mode
+        self.casts_shadows = casts_shadows
+
+    def create(self, r: Renderer) -> None:
+        assert self.material is not None
+
+        defines: List[Tuple[str, str]] = []
+        defines.extend(self.material.shader_defines)
+        depth_defines: List[Tuple[str, str]] = []
+
+        self.positions_buf = Buffer.from_data(
+            r.device,
+            view_bytes(self.sphere_positions),
+            BufferUsageFlags.VERTEX | BufferUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+        )
+        self.indices_buf = Buffer.from_data(
+            r.device,
+            view_bytes(self.sphere_faces),
+            BufferUsageFlags.INDEX | BufferUsageFlags.TRANSFER_DST,
+            AllocType.DEVICE,
+        )
+
+        vertex_bindings = [
+            VertexBinding(0, 12, VertexInputRate.VERTEX),
+            VertexBinding(1, 12, VertexInputRate.INSTANCE),
+        ]
+        vertex_attributes = [
+            VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
+            VertexAttribute(1, 1, Format.R32G32B32_SFLOAT),
+        ]
+
+        depth_vert = r.compile_builtin_shader("3d/spheres_depth.slang", "vertex_main", defines=depth_defines)
+        self.depth_pipeline = GraphicsPipeline(
+            r.device,
+            stages=[
+                PipelineStage(Shader(r.device, depth_vert.code), Stage.VERTEX),
+            ],
+            vertex_bindings=vertex_bindings,
+            vertex_attributes=vertex_attributes,
+            rasterization=Rasterization(
+                polygon_mode=PolygonMode.FILL,
+                cull_mode=cull_mode_opposite_face(self.cull_mode),
+                front_face=FrontFace.COUNTER_CLOCKWISE,
+            ),
+            input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
+            attachments=[],
+            depth=Depth(r.shadow_map_format, True, True, r.depth_compare_op),
+            descriptor_set_layouts=[
+                r.scene_depth_descriptor_set_layout,
+            ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
+        )
+
+        if self.colors is not None:
+            defines.append(("COLORS", "1"))
+            vertex_bindings.append(VertexBinding(2, 4, VertexInputRate.INSTANCE))
+            vertex_attributes.append(VertexAttribute(2, 2, Format.R32_UINT))
+
+        vert = r.compile_builtin_shader("3d/spheres.slang", "vertex_main", defines=defines)
+        frag = r.compile_builtin_shader("3d/spheres.slang", "pixel_main", defines=defines)
+        self.pipeline = GraphicsPipeline(
+            r.device,
+            stages=[
+                PipelineStage(Shader(r.device, vert.code), Stage.VERTEX),
+                PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
+            ],
+            vertex_bindings=vertex_bindings,
+            vertex_attributes=vertex_attributes,
+            rasterization=Rasterization(
+                polygon_mode=PolygonMode.FILL,
+                cull_mode=self.cull_mode,
+                front_face=FrontFace.COUNTER_CLOCKWISE,
+            ),
+            input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
+            samples=r.msaa_samples,
+            attachments=[Attachment(format=r.output_format)],
+            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
+            descriptor_set_layouts=[
+                r.scene_descriptor_set_layout,
+                self.material.descriptor_set_layout,
+            ],
+            push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
+        )
+
+    def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+        if not self.casts_shadows:
+            return
+
+        positions = self.positions.get_current_gpu()
+        frame.cmd.bind_graphics_pipeline(
+            self.depth_pipeline,
+            vertex_buffers=[self.positions_buf, positions.buffer_and_offset()],
+            index_buffer=self.indices_buf,
+            descriptor_sets=[
+                scene_descriptor_set,
+            ],
+            push_constants=self.constants.tobytes(),
+        )
+
+        num_spheres = positions.size // 12
+        if num_spheres > 0:
+            frame.cmd.draw_indexed(self.sphere_faces.size, num_spheres)
+
+    def render(
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+    ) -> None:
+        assert self.material is not None
+
+        positions = self.positions.get_current_gpu()
+        vertex_buffers: List[Union[Buffer, Tuple[Buffer, int]]] = [
+            self.positions_buf,
+            positions.buffer_and_offset(),
+        ]
+        if self.colors is not None:
+            vertex_buffers.append(self.colors.get_current_gpu().buffer_and_offset())
+
+        frame.cmd.bind_graphics_pipeline(
+            self.pipeline,
+            vertex_buffers=vertex_buffers,
+            index_buffer=self.indices_buf,
+            descriptor_sets=[
+                scene_descriptor_set,
+                self.material.descriptor_set,
+            ],
+            push_constants=self.constants.tobytes(),
+        )
+
+        num_spheres = positions.size // 12
+        if num_spheres > 0:
+            frame.cmd.draw_indexed(self.sphere_faces.size, num_spheres)
+
+    def update_transform(self, parent: Optional[Object]) -> None:
+        super().update_transform(parent)
+        self.constants["transform"] = mat4x3(self.current_transform_matrix)
+        self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3(self.current_transform_matrix)))
+
+    def upload(self, renderer: Renderer, frame: RendererFrame) -> None:
+        self.constants["radius"] = self.radius.get_current()
 
 
 class AxisGizmo(Mesh):
