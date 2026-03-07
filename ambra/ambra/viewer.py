@@ -351,6 +351,7 @@ class Viewer:
         # Server
         self.server = Server(self.on_raw_message_async, config.server)
         self.server_message_queue: Queue[Tuple[Client, RawMessage]] = Queue()
+        self.raw_message_callbacks: List[Callable[[Viewer, Client, RawMessage], None]] = []
 
         # Config
         self.wait_events = config.wait_events
@@ -670,6 +671,10 @@ class Viewer:
             self.window.post_empty_event()
 
     def on_raw_message(self, client: Client, raw_message: RawMessage) -> None:
+        # Call into registered callbacks
+        for callback in self.raw_message_callbacks:
+            callback(self, client, raw_message)
+
         message = parse_builtin_messages(raw_message)
         if message is not None:
             self.on_message(client, message)
