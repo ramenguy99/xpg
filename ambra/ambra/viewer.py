@@ -554,6 +554,55 @@ class Viewer:
         # Readback frame
         return frame.realize_readback()
 
+    def render_video_playback_range(self, on_frame: Callable[[NDArray[np.uint8]], bool], start_time: float, end_time: float) -> None:
+        # Set max time if not set
+        if self.playback.max_time is None:
+            self.playback.set_max_time(self.scene.end_animation_time(self.playback.frames_per_second))
+
+        # Get framebuffer size
+        width, height = self._get_framebuffer_size()
+
+        # Resize if needed
+        self.headless_swapchain.ensure_size(width, height)
+
+        io = imgui.get_io()
+        io.display_size = imgui.Vec2(width, height)
+        io.delta_time = 1.0 / 60.0
+
+        # Readback queue for pipelining rendering and readback.
+        readback_queue: Queue[Tuple[HeadlessSwapchainFrame, int, float]] = Queue()
+
+        def deque_frame() -> None:
+            old_frame, frame_index, time = readback_queue.get()
+            img = old_frame.realize_readback()
+            on_frame(img, frame_index, time)
+
+        self.playback.set_time(start_time)
+
+        while self.playback.current_time < end_time:
+            if readback_queue.qsize() >= self.headless_swapchain.num_frames_in_flight:
+                deque_frame()
+
+            # Update scene
+            self.scene.update(self.playback.current_time, self.playback.current_frame)
+
+            # Render to headless swapchain
+            self._render(False)
+
+            # Get current headless swapchain frame
+            frame = self.headless_swapchain.get_current_and_advance()
+
+            # Enqueue for future readback
+            readback_queue.put((frame, self.playback.current_frame, self.playback.current_time))
+
+            if self.playback.current_frame == self.playback.num_frames - 1:
+                break
+            self.playback.set_frame(self.playback.current_frame + 1)
+
+        # Drain readback queue
+        while not readback_queue.empty():
+            deque_frame()
+
     def render_video(self, on_frame: Callable[[NDArray[np.uint8]], bool]) -> None:
         # Set max time if not set
         if self.playback.max_time is None:
