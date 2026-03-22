@@ -99,11 +99,7 @@ class Object:
                 if mp.property.is_dynamic():
                     all_properties.add(mp.property)
 
-    def update(self, time: float, frame: int) -> None:
-        pass
-
     def update_transform(self, parent: Optional["Object"]) -> None:
-        # TODO: can merge with udpate? Where to find parent? With link?
         pass
 
     def upload(self, renderer: "Renderer", frame: RendererFrame) -> None:
@@ -299,6 +295,7 @@ class Scene:
         self.name = name
         self.objects: List[Object] = []
         self.widgets: List[Widget] = []
+        self.additional_properties: List[Property] = []
 
     def visit_objects_with_parent(self, function: Callable[[Optional[Object], Object], None]) -> None:
         def visit_recursive(p: Optional[Object], o: Object) -> None:
@@ -328,19 +325,31 @@ class Scene:
 
         for o in self.objects:
             visit_recursive(o)
-
-    def end_animation_time(self, frames_per_second: float) -> float:
-        time = 0.0
-
+        
+    def collect_dynamic_properties(self) -> Set[Property]:
         all_dynamic_properties: Set[Property] = set()
 
-        def visit(o: Object) -> None:
+        # Objects
+        def collect(o: Object) -> None:
             o.collect_dynamic_properties(all_dynamic_properties)
+        self.visit_objects(collect)
 
-        self.visit_objects(visit)
+        # Widgets
         for w in self.widgets:
             w.collect_dynamic_properties(all_dynamic_properties)
+        
+        # Additional properties
+        for p in self.additional_properties:
+            if p.is_dynamic():
+                all_dynamic_properties.add(p)
 
+        return all_dynamic_properties
+
+    def end_animation_time(self, frames_per_second: float) -> float:
+        all_dynamic_properties = self.collect_dynamic_properties()
+
+        # Compute max time
+        time = 0.0
         for p in all_dynamic_properties:
             t = p.end_animation_time(frames_per_second)
             time = max(time, t)
@@ -348,24 +357,19 @@ class Scene:
         return time
 
     def update(self, time: float, frame: int) -> List[Object]:
-        all_dynamic_properties: Set[Property] = set()
+        all_dynamic_properties = self.collect_dynamic_properties()
 
-        def collect(o: Object) -> None:
-            o.collect_dynamic_properties(all_dynamic_properties)
-
-        self.visit_objects(collect)
-        for w in self.widgets:
-            w.collect_dynamic_properties(all_dynamic_properties)
-
+        # Update properties
         for p in all_dynamic_properties:
             p.update(time, frame)
 
+        # Update and collect objects
         enabled_objects: List[Object] = []
-
-        def update(p: Optional[Object], o: Object) -> None:
+        def update_transform_and_collect_enabled(p: Optional[Object], o: Object) -> None:
             o.update_transform(p)
             if o.enabled.get_current():
                 enabled_objects.append(o)
+        self.visit_objects_with_parent(update_transform_and_collect_enabled)
 
-        self.visit_objects_with_parent(update)
+        # Return list of active objects
         return enabled_objects
