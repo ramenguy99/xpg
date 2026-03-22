@@ -20,6 +20,7 @@ __all__ = [
     "ConfigError",
     "MessageType",
     "QueueFullPolicy",
+    "SqliteConfig",
     "SqliteSubscriber",
     "Subscriber",
     "TcpSubscriber",
@@ -119,7 +120,7 @@ from ._serializer import (
     to_binary_into,
     to_sqlite,
 )
-from ._sqlite_subscriber import SqliteSubscriber
+from ._sqlite_subscriber import SqliteConfig, SqliteSubscriber
 from ._subscriber import Subscriber
 from ._tcp_subscriber import TcpSubscriber
 from ._tracer import TraceEmitter, Tracer

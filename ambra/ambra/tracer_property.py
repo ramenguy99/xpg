@@ -21,7 +21,6 @@ from .property import (
     UploadSettings,
 )
 from .server import Client, RawMessage
-from .utils.profile import profile
 from .viewer import Viewer
 
 logger = logging.getLogger(__name__)
@@ -133,15 +132,6 @@ class TracerSource:
         return super(TracerProperty, property).get_frame_by_index(frame_index, thread_index)
 
 
-@dataclass
-class SqliteConfig:
-    journal_mode: Optional[str] = "none"
-    synchronous: Optional[str] = "off"
-    wal_autocheckpoint: Optional[int] = 16384
-    page_size: Optional[int] = None
-    cache_size: Optional[int] = None
-
-
 class TracerLiveSource(TracerSource):
     def __init__(
         self,
@@ -150,7 +140,7 @@ class TracerLiveSource(TracerSource):
         collect_to_sqlite_db: bool = True,
         sqlite_db_path: Optional[Path] = None,
         persist_sqlite_db: bool = False,
-        sqlite_config: Optional[SqliteConfig] = None,
+        sqlite_config: Optional[tracer.SqliteConfig] = None,
     ):
         super().__init__(timestamp_column_name)
 
@@ -167,7 +157,9 @@ class TracerLiveSource(TracerSource):
                 sqlite_db_path = Path(f"tracer-live-source_{date_time}.db")
             self.db_path = sqlite_db_path
 
-            sqlite_config = SqliteConfig() if sqlite_config is None else sqlite_config
+            sqlite_config = (
+                tracer.SqliteConfig(journal_mode="none", synchronous="off") if sqlite_config is None else sqlite_config
+            )
 
             self.db = sqlite3.connect(self.db_path)
             if sqlite_config.journal_mode is not None:
@@ -219,9 +211,8 @@ class TracerLiveSource(TracerSource):
                 clock = self.timestamp_column_name
                 self.db.execute(f'CREATE UNIQUE INDEX IF NOT EXISTS "{topic}_{clock}" ON "{topic}" ({clock})')
                 self.db_known_tables.add(topic)
-            with profile("Write"):
-                tracer.to_sqlite(self.db, topic, **msg)
-                self.db.commit()
+            tracer.to_sqlite(self.db, topic, **msg)
+            self.db.commit()
 
         # Update properties
         for p in registered.properties:
@@ -268,10 +259,9 @@ class TracerLiveSource(TracerSource):
             assert self.db is not None
 
             raw_timestamps = self.registered_topics[property.topic].raw_timestamps
-            with profile("Query"):
-                v = tracer.from_sqlite(
-                    self.db, property.topic, where=f"{self.timestamp_column_name} == {raw_timestamps[frame_index]}"
-                )
+            v = tracer.from_sqlite(
+                self.db, property.topic, where=f"{self.timestamp_column_name} == {raw_timestamps[frame_index]}"
+            )
             return property.process(**v)
 
 
