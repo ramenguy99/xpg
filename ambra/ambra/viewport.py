@@ -57,7 +57,7 @@ class Playback:
         self.num_frames = max(int(self.max_time * self.frames_per_second), 1)
 
     def step(self, dt: float) -> None:
-        if self.lock_to_last_frame:
+        if self.lock_to_last_frame and self.max_time is not None:
             self.current_time = self.max_time
             self.current_frame = self.num_frames - 1
         else:

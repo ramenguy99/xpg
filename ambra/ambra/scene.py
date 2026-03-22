@@ -325,19 +325,20 @@ class Scene:
 
         for o in self.objects:
             visit_recursive(o)
-        
+
     def collect_dynamic_properties(self) -> Set[Property]:
         all_dynamic_properties: Set[Property] = set()
 
         # Objects
         def collect(o: Object) -> None:
             o.collect_dynamic_properties(all_dynamic_properties)
+
         self.visit_objects(collect)
 
         # Widgets
         for w in self.widgets:
             w.collect_dynamic_properties(all_dynamic_properties)
-        
+
         # Additional properties
         for p in self.additional_properties:
             if p.is_dynamic():
@@ -365,10 +366,12 @@ class Scene:
 
         # Update and collect objects
         enabled_objects: List[Object] = []
+
         def update_transform_and_collect_enabled(p: Optional[Object], o: Object) -> None:
             o.update_transform(p)
             if o.enabled.get_current():
                 enabled_objects.append(o)
+
         self.visit_objects_with_parent(update_transform_and_collect_enabled)
 
         # Return list of active objects

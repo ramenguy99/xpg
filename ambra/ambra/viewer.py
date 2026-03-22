@@ -185,7 +185,7 @@ class Viewer:
         self.gui_selected_obj: Optional[Object] = None
         self.gui_selected_gpu_property: Optional[GpuProperty[Any]] = None
         self.gui_playback_slider_held = False
-        self.gui_playback_slider_current_num_frames = None
+        self.gui_playback_slider_current_num_frames: Optional[int] = None
 
         # Disable ImGui asserts
         imgui.get_io().config_error_recovery_enable_assert = False
@@ -554,7 +554,9 @@ class Viewer:
         # Readback frame
         return frame.realize_readback()
 
-    def render_video_playback_range(self, on_frame: Callable[[NDArray[np.uint8]], bool], start_time: float, end_time: float) -> None:
+    def render_video_playback_range(
+        self, on_frame: Callable[[NDArray[np.uint8], int, float], bool], start_time: float, end_time: float
+    ) -> None:
         # Set max time if not set
         if self.playback.max_time is None:
             self.playback.set_max_time(self.scene.end_animation_time(self.playback.frames_per_second))
