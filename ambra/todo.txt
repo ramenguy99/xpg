@@ -442,6 +442,13 @@ Tools:
 
 Notes:
 
+Tracing:
+- Inside ambra vs outside ambra
+    + One version control (tracer and viewer need to be compatible anyway until protocol is stabilized)
+    + One less installation step when installing from source
+    + No need for new name
+    - Unneded pyxpg, glm and platformdirs dependencies
+
 Subgroups:
 - Max subgroup size is device_properties.subgroup_size, unless vulkan 1.3 or subgroup_size_control extension is supported.
   If it is need to use max_subgroup_size or force a required subgroup size (if supported for that shader stage)
