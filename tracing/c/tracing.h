@@ -51,6 +51,7 @@ typedef enum Result {
     CONNECT_WAITING = 7,
     INVALID_ADDRESS = 8,
     TIMEOUT = 9,
+    THREAD_CREATION_FAILED = 10,
 } Result;
 
 
@@ -352,12 +353,54 @@ socket_connect_blocking( const char* addr, uint16_t port, socket_t* connection_s
 
 
 // Threading
+#ifdef _WIN32
+#define THREAD_PROC(x) DWORD WINAPI x(LPVOID data)
+#else
+#define THREAD_PROC(x) void* x(void* data)
+#endif // _WIN32
 
-// Serialization
+typedef struct Thread
+{
+#ifdef _WIN32
+    HANDLE handle;
+#else
+    pthread_t thread;
+#endif
+} Thread;
+
+typedef THREAD_PROC(ThreadProc);
+
+Result create_thread(ThreadProc proc, void* user_data, Thread* thread) {
+#ifdef _WIN32
+    thread->handle = CreateThread(0, 0, proc, user_data, 0, 0);
+    if (thread->handle == NULL) {
+        return THREAD_CREATION_FAILED;
+    }
+#else
+    int result = pthread_create(&thread->thread, 0, proc, data);
+    if (result != 0) {
+        return THREAD_CREATION_FAILED;
+    }
+#endif
+
+    return SUCCESS;
+}
+
+void
+join_thread(Thread* thread) {
+#ifdef _WIN32
+    WaitForSingleObject(thread->handle, INFINITE);
+    CloseHandle(thread->handle);
+#else
+    pthread_join(thread->thread, 0);
+#endif
+}
 
 // MPSC ringbuffer with switchable wait and drop semantics
 
 // Reader writer lock for subscribers
+
+// Serialization
 
 // Tracing enabled semaphore
 
