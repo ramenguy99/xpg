@@ -1,3 +1,5 @@
+#include <stdlib.h>
+
 #define TRACING_IMPLEMENTATION
 #include "tracing.h"
 
