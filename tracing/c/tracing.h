@@ -1,3 +1,4 @@
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -396,7 +397,22 @@ join_thread(Thread* thread) {
 #endif
 }
 
-// MPSC ringbuffer with switchable wait and drop semantics
+// Pre-allocated MPSC ringbuffer with wait and drop semantics
+typedef struct MpscRingBuffer
+{
+    size_t allocated_offset;
+    size_t written_offset;
+    size_t read_offset;
+
+    Mutex writer_mutex;
+    ConditionVariable writer_condition_variable;
+
+    Mutex reader_mutex;
+    ConditionVariable reader_condition_variable;
+
+    uint8_t* buffer;
+    size_t size;
+} MpscRingBuffer;
 
 // Reader writer lock for subscribers
 
