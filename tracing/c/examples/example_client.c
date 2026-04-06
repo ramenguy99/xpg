@@ -1,4 +1,4 @@
-#include <stdbool.h>
+#include <stdlib.h>
 
 #define TRACING_IMPLEMENTATION
 #include "tracing.h"
