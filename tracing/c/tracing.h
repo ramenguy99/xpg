@@ -50,7 +50,7 @@
 #	include <mach/mach_vm.h>
 #	include <mach/vm_map.h>
 #	include <mach/vm_page_size.h>
-#elif
+#else
 #	include <sys/syscall.h>
 #	include <sys/mman.h>
 #	include <unistd.h>
@@ -472,11 +472,10 @@ inline bool futex_wait(Futex* futex, uint32_t expected) {
     return true;
 #else
     while (true) {
-        if (atomic_load_explicit(futex, memory_order_relaxed) == expected) {
+        if (atomic_load_explicit(futex, memory_order_relaxed) != expected) {
             break;
         }
 
-        int ret = (futex, expected, 4, OS_SYNC_WAIT_ON_ADDRESS_NONE);
         int ret = syscall(SYS_futex, futex, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, expected, NULL, NULL, 0);
         if ((ret < 0) && (errno == EINTR)) {
            continue;
@@ -515,7 +514,7 @@ inline void futex_wake_all(Futex* futex) {
 #elif defined(__APPLE__)
     os_sync_wake_by_address_all(futex, 4, OS_SYNC_WAKE_BY_ADDRESS_NONE);
 #else
-    syscall(SYS_futex, futex, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, INT32_MAX) > 0;
+    syscall(SYS_futex, futex, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, INT32_MAX);
 #endif
 }
 
@@ -525,7 +524,7 @@ inline void futex_wake_all(Futex* futex) {
 #define RWLOCK_DOWNGRADE          ((uint32_t)(RWLOCK_READ_LOCKED - RWLOCK_WRITE_LOCKED))
 #define RWLOCK_MAX_READERS        ((uint32_t)(RWLOCK_MASK - 1))
 #define RWLOCK_READERS_WAITING    ((uint32_t)(1 << 30))
-#define RWLOCK_WRITERS_WAITING    ((uint32_t)(1 << 31))
+#define RWLOCK_WRITERS_WAITING    ((uint32_t)1 << 31)
 
 typedef struct RWLock {
     // The state consists of a 30-bit reader counter, a 'readers waiting' flag, and a 'writers waiting' flag.
@@ -598,14 +597,14 @@ inline void rwlock_init(RWLock* rwlock) {
 inline bool rwlock_try_read(RWLock* rwlock) {
     uint32_t prev = atomic_load_explicit(&rwlock->state, memory_order_acquire);
     while (true) {
-        if (_rwlock_is_read_lockable(prev)) {
-            uint32_t desired = prev + RWLOCK_READ_LOCKED;
-            if (atomic_compare_exchange_weak_explicit(&rwlock->state, &prev, desired, memory_order_acquire, memory_order_relaxed)) {
-                return true;
-            }
+        if (!_rwlock_is_read_lockable(prev)) {
+            return false;
+        }
+        uint32_t desired = prev + RWLOCK_READ_LOCKED;
+        if (atomic_compare_exchange_weak_explicit(&rwlock->state, &prev, desired, memory_order_acquire, memory_order_relaxed)) {
+            return true;
         }
     }
-    return false;
 }
 
 // Spin for a while, but stop directly at the given condition.
@@ -632,6 +631,7 @@ inline uint32_t _rwlock_spin_write(RWLock* rwlock) {
             return state;
         }
         SpinlockHint();
+        spin--;
     }
 }
 
@@ -645,6 +645,7 @@ inline uint32_t _rwlock_spin_read(RWLock* rwlock) {
             return state;
         }
         SpinlockHint();
+        spin--;
     }
 }
 
@@ -670,8 +671,8 @@ inline void _rwlock_read_contended(RWLock* rwlock) {
         // Make sure the readers waiting bit is set before we go to sleep.
         if (!_rwlock_has_readers_waiting(state)) {
             uint32_t expected = state;
-            uint32_t desired = state + RWLOCK_READERS_WAITING;
-            if (!atomic_compare_exchange_weak_explicit(&rwlock->state, &expected, desired, memory_order_relaxed, memory_order_relaxed)) {
+            uint32_t desired = state | RWLOCK_READERS_WAITING;
+            if (!atomic_compare_exchange_strong_explicit(&rwlock->state, &expected, desired, memory_order_relaxed, memory_order_relaxed)) {
                 state = expected;
                 continue;
             }
@@ -780,14 +781,14 @@ inline static void rwlock_read_unlock(RWLock* rwlock) {
 inline bool rwlock_try_write(RWLock* rwlock) {
     uint32_t prev = atomic_load_explicit(&rwlock->state, memory_order_acquire);
     while (true) {
-        if (_rwlock_is_unlocked(prev)) {
-            uint32_t desired = prev + RWLOCK_WRITE_LOCKED;
-            if (atomic_compare_exchange_weak_explicit(&rwlock->state, &prev, desired, memory_order_acquire, memory_order_relaxed)) {
-                return true;
-            }
+        if (!_rwlock_is_unlocked(prev)) {
+            return false;
+        }
+        uint32_t desired = prev + RWLOCK_WRITE_LOCKED;
+        if (atomic_compare_exchange_weak_explicit(&rwlock->state, &prev, desired, memory_order_acquire, memory_order_relaxed)) {
+            return true;
         }
     }
-    return false;
 }
 
 static void _rwlock_write_contended(RWLock* rwlock) {
@@ -1014,7 +1015,7 @@ void free_ring_mapped_buffer(void* ptr, size_t size) {
 //    - ISSUE: we have to clear the whole buffer after finishing a consume operations because we don't know where the next doorbell might be.
 typedef struct MpscRingBuffer
 {
-    Futex allocated_offset; // Producers atomically increment this 
+    Futex allocated_offset; // Producers atomically increment this
     uint8_t __padding0[CACHE_LINE_SIZE - sizeof(atomic_uint)];
 
     Futex consumed_offset;  // Producers wait on this, incremented by consumer
@@ -1067,7 +1068,7 @@ mpsc_ring_buffer_create(MpscRingBuffer* mpsc, size_t size) {
     mpsc->ring_buffer = (uint8_t*)alloc_ring_mapped_buffer(size);
     mpsc->size = size;
 
-    mpsc->mask = ~(uint32_t)((size >> MPSC_ALLOCATION_ALIGNMENT_BITS) - 1);
+    mpsc->mask = (uint32_t)((size >> MPSC_ALLOCATION_ALIGNMENT_BITS) - 1);
 }
 
 static void
@@ -1091,13 +1092,18 @@ mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
 
     uint32_t alloc = (align_up(size, MPSC_ALLOCATION_ALIGNMENT) + MPSC_HEADER_TOTAL_SIZE) >> MPSC_ALLOCATION_ALIGNMENT_BITS;
 
+    uint32_t capacity = mpsc->size >> MPSC_ALLOCATION_ALIGNMENT_BITS;
+
     uint32_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
     uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
 
-    while (mpsc->size - (allocated - consumed) >= alloc) {
-        // Try to alloc 'size' bytes.
-        if (atomic_compare_exchange_weak_explicit(&mpsc->allocated_offset, &allocated, allocated + alloc, memory_order_acquire, memory_order_relaxed)) {
-            // Success
+    while (capacity - (allocated - consumed) >= alloc) {
+        // Try to alloc
+        if (atomic_compare_exchange_weak_explicit(&mpsc->allocated_offset, &allocated, allocated + alloc, memory_order_relaxed, memory_order_relaxed)) {
+            // Synchronize with the consumer's release store on consumed_offset to ensure
+            // the consumer's memset of the freed region is visible before we write to it.
+            atomic_thread_fence(memory_order_acquire);
+
             uint8_t* start = mpsc->ring_buffer + ((size_t)(allocated & mpsc->mask) << MPSC_ALLOCATION_ALIGNMENT_BITS);
 
             // Write out payload size at 8 bytes from allocation start (first 8 bytes reserved for commit doorbell)
@@ -1124,13 +1130,14 @@ mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
 
 
     uint32_t alloc = (align_up(size, MPSC_ALLOCATION_ALIGNMENT) + MPSC_HEADER_TOTAL_SIZE) >> MPSC_ALLOCATION_ALIGNMENT_BITS;
+    uint32_t capacity = mpsc->size >> MPSC_ALLOCATION_ALIGNMENT_BITS;
 
     uint32_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
     uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
 
     while (true) {
         // If not enough space available wait for consumed to increase
-        while (mpsc->size - (allocated - consumed) >= alloc) {
+        while (capacity - (allocated - consumed) < alloc) {
             // perf: could spin a bit here before sleeping
 
             // Wait for changes to consumed offset
@@ -1141,9 +1148,12 @@ mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
             consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
         }
 
-        // Try to alloc 'size' bytes.
-        if (atomic_compare_exchange_weak_explicit(&mpsc->allocated_offset, &allocated, allocated + size, memory_order_acquire, memory_order_relaxed)) {
-            // Success
+        // Try to alloc
+        if (atomic_compare_exchange_weak_explicit(&mpsc->allocated_offset, &allocated, allocated + alloc, memory_order_relaxed, memory_order_relaxed)) {
+            // Synchronize with the consumer's release store on consumed_offset to ensure
+            // the consumer's memset of the freed region is visible before we write to it.
+            atomic_thread_fence(memory_order_acquire);
+
             uint8_t* start = mpsc->ring_buffer + ((size_t)(allocated & mpsc->mask) << MPSC_ALLOCATION_ALIGNMENT_BITS);
 
             // Write out payload size at 8 bytes from allocation start (first 8 bytes reserved for commit doorbell)
@@ -1163,12 +1173,16 @@ mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
 
 static void
 mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, uint8_t* alloc) {
-    // Write doorbell
-    atomic_store_explicit((atomic_size_t*)alloc, 1, memory_order_relaxed);
+    // Write doorbell at header start (alloc points to payload, header is before it)
+    uint8_t* header = alloc - MPSC_HEADER_TOTAL_SIZE;
+    atomic_store_explicit((atomic_size_t*)(header + MPSC_HEADER_DOORBELL_OFFSET), 1, memory_order_release);
 
     // Notify consumer that there is potentially new data to consume
     atomic_store_explicit(&mpsc->consumer_notify, 1, memory_order_release);
     futex_wake(&mpsc->consumer_notify);
+
+    // Wake consumer if it was sleeping on an empty buffer
+    futex_wake(&mpsc->allocated_offset);
 }
 
 static size_t
