@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <inttypes.h>
 
-
 #ifdef _WIN32
 
 #ifndef NOMINMAX
@@ -36,8 +35,41 @@
 
 #endif
 
+// Futex
 #ifdef __APPLE__
 #include <os/os_sync_wait_on_address.h>
+#endif
+
+
+// Ring buffer
+#if defined(_WIN32)
+#	include <windows.h>
+#	pragma comment (lib, "onecore")
+#elif defined(__APPLE__)
+#	include <mach/mach.h>
+#	include <mach/mach_vm.h>
+#	include <mach/vm_map.h>
+#	include <mach/vm_page_size.h>
+#elif
+#	include <sys/syscall.h>
+#	include <sys/mman.h>
+#	include <unistd.h>
+#	include <fcntl.h>
+#endif
+
+// Assert
+#if !defined(ASSERT)
+#	if defined(_MSC_VER)
+#		if !defined(NDEBUG)
+#			include <intrin.h>
+#			define MRB_ASSERT(cond) do { if (!(cond)) __debugbreak(); } while (0)
+#		else
+#			define MRB_ASSERT(cond) do { (void)sizeof(cond); } while (0)
+#		endif
+#	else
+#		include <assert.h>
+#		define ASSERT(cond) assert(cond)
+#	endif
 #endif
 
 #ifdef __aarch64__
@@ -795,7 +827,6 @@ static void _rwlock_write_contended(RWLock* rwlock) {
     }
 }
 
-
 static inline void rwlock_write(RWLock* rwlock) {
     uint32_t expected = 0;
     if (!atomic_compare_exchange_weak_explicit(&rwlock->state, &expected, RWLOCK_WRITE_LOCKED, memory_order_acquire, memory_order_relaxed)) {
@@ -826,11 +857,56 @@ inline void downgrade(RWLock* rwlock) {
 }
 
 // Pre-allocated MPSC ringbuffer with wait and drop semantics
+//
+// Notes:
+// - If we allow concurrent allocs before commits, we need to allow out-of-order commit as well,
+//   otherwise you run into issues where you need to wait for previous writers to be done with
+//   their allocations before you are allowed to commit.
+//
+//   For example the worst case scenario would be something like 1GiB alloc followed by 8 bytes alloc.
+//   In this case the 8 bytes alloc would have to wait for the large 1GiB memcpy before going through.
+//
+// The underlying issue is that to have allocation and consumption be linear we have to commit in order.
+//
+// Actually the issue is mostly with the linear shared allocator, because it can be dealloced only in alloc
+// order, regardless of commit order.
+// We either use a different allocator or implement some sort of delegated deallocation (which requires a log).
+//
+// Potential solutions:
+// - Allow early return from commit by deferring actual commit to other writers
+//   -> would need a separate data structure to act as a log of uncommitted
+//   -> need to keep this sorted, or traverse in sorted order after every commit
+//   -> can tune number of "in-flight" allocations and potentially return a failure to try_alloc
+//   -> does not solve the general case when we run out of log slots (or need to allow unbounded growth)
+//      -> not bounded by the number of concurrent producers because you can run into limits even with 2 threads
+//          -> A allocs 1 GiB and holds the first commit slot
+//          -> B can alloc N small elements while A is holding the slot.
+//   -> need to make a "ticket" style API where you reserve a slot in the log
+// - Truth is that logging is cheap, we expect to be consumer bound in most cases, so we can allow these to block on commit in most-cases.
+//
+// Thoughts:
+// - maybe committed could be fully writer-owned? Ring-buffer is defined by allocated and consumed while
+//   committed ranges are enqueued to a writer. The writer then takes responsability of bumping consumed
+//   by keeping track of used chunks (fragmented to linear). After the chunks are used the writer
+//   could also manage a "free-list" of chunks to deallocate and to bump the consumed index. If we force
+//   a minimum alloc size the free list could also be stored by repurposing allocations (can reuse the memory
+//   after it's consumed).
+//   -> need an enqueue side channel (basically a fixed element-size mpsc)
+// - a general purpose allocator also solves this (this is what we do in python basically), but has no bounded cost guarantee
+//
+// - I want to avoid the weird edge case where a slow producer causes us to drop messages even if we would have memory to store them, we just
+//   don't have the side channel memory to store it.
+// - SOLUTION:
+//    - store the side-channel data inline with the payload, we would likely anyways need this to do message framing.
+//    - this also allows out-of-order commit because the producer will just mark the
+//    - do we still mutex wait on the counters, or is it even better to directly wait on the item marker?
+//    - this has to be the better design, no side-channel, simple metadata,
 typedef struct MpscRingBuffer
 {
-    size_t allocated_offset;
-    size_t written_offset;
-    size_t read_offset;
+    atomic_size_t allocated_offset;
+    atomic_size_t committed_offset;
+
+    atomic_size_t consumed_offset;
 
     // Mutex writer_mutex;
     // ConditionVariable writer_condition_variable;
@@ -838,11 +914,191 @@ typedef struct MpscRingBuffer
     // Mutex reader_mutex;
     // ConditionVariable reader_condition_variable;
 
-    uint8_t* buffer;
+    uint8_t* ring_buffer;
     size_t size;
 } MpscRingBuffer;
 
-// Reader writer lock for subscribers
+
+// Ring-mapped buffer from: https://gist.github.com/mmozeiko/3b09a340f3c53e5eaed699a1aea95250
+void* alloc_ring_mapped_buffer(size_t Size)
+{
+    void* data;
+#if defined(_WIN32)
+	SYSTEM_INFO SystemInfo;
+	GetSystemInfo(&SystemInfo);
+
+	const size_t PageSize = SystemInfo.dwPageSize;
+	Size = (Size + PageSize - 1) & ~(PageSize - 1);
+
+	char* Placeholder1 = (char*)VirtualAlloc2(NULL, NULL, 2 * Size, MEM_RESERVE | MEM_RESERVE_PLACEHOLDER, PAGE_NOACCESS, NULL, 0);
+	char* Placeholder2 = (char*)Placeholder1 + Size;
+	ASSERT(Placeholder1 && "failed to reserve placeholder");
+
+	BOOL Ok = VirtualFree(Placeholder1, Size, MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER);
+	ASSERT(Ok && "failed to split reservation into two placeholders");
+
+	HANDLE Section = CreateFileMappingW(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, (DWORD)(Size >> 32), (DWORD)Size, NULL);
+	ASSERT(Section && "failed to create mapping");
+
+	void* View1 = MapViewOfFile3(Section, NULL, Placeholder1, 0, Size, MEM_REPLACE_PLACEHOLDER, PAGE_READWRITE, NULL, 0);
+	ASSERT(View1 && "failed to map first half of mapping");
+
+	void* View2 = MapViewOfFile3(Section, NULL, Placeholder2, 0, Size, MEM_REPLACE_PLACEHOLDER, PAGE_READWRITE, NULL, 0);
+	ASSERT(View2 && "failed to map second half of mapping");
+
+	CloseHandle(Section);
+	VirtualFree(Placeholder1, 0, MEM_RELEASE);
+	VirtualFree(Placeholder2, 0, MEM_RELEASE);
+
+	data = View1;
+
+#elif defined(__APPLE__)
+
+	Size = mach_vm_round_page(Size);
+
+	mach_port_t Task = mach_task_self();
+
+	mach_vm_address_t Address;
+	int AllocateOk = mach_vm_allocate(Task, &Address, 2 * Size, VM_FLAGS_ANYWHERE);
+	ASSERT(AllocateOk == 0 && "failed to allocate memory");
+
+	int Mapping1 = mach_vm_allocate(Task, &Address, Size, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE);
+	ASSERT(Mapping1 == 0 && "failed to map first half of mapping");
+
+	const vm_prot_t PageProtection = VM_PROT_READ | VM_PROT_WRITE;
+
+	mach_port_t MemoryPort;
+	mach_vm_size_t MemorySize = Size;
+	int PortOk = mach_make_memory_entry_64(Task, &MemorySize, Address, PageProtection, &MemoryPort, MACH_PORT_NULL);
+	ASSERT(PortOk == 0 && "failed to create mach port");
+
+	mach_vm_address_t Address2 = Address + Size;
+	int Mapping2 = mach_vm_map(Task, &Address2, Size, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE, MemoryPort, 0, FALSE, PageProtection, PageProtection, VM_INHERIT_NONE);
+	ASSERT(Mapping2 == 0 && "failed to map second half of mapping");
+
+	mach_port_deallocate(Task, MemoryPort);
+
+	data = (void*)Address;
+
+#else
+
+	const size_t PageSize = sysconf(_SC_PAGESIZE);
+	Size = (Size + PageSize - 1) & ~(PageSize - 1);
+
+	int MemFd = syscall(__NR_memfd_create, "MagicRingBuffer", FD_CLOEXEC);
+	ASSERT(MemFd > 0 && "failed to create memfd");
+
+	int Ok = ftruncate(MemFd, Size);
+	ASSERT(Ok == 0 && "failed to set memfd size");
+
+	char* Base = (char*)mmap(NULL, 2 * Size, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+	ASSERT(Base != MAP_FAILED && "failed to create memory mapping");
+
+	void* Mapped1 = mmap(Base + 0 * Size, Size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, MemFd, 0);
+	ASSERT(Mapped1 != MAP_FAILED && "failed to map first half of mapping");
+
+	void* Mapped2 = mmap(Base + 1 * Size, Size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, MemFd, 0);
+	ASSERT(Mapped2 != MAP_FAILED && "failed to map second half of mapping");
+
+	close(MemFd);
+
+	data = Base;
+#endif
+    return data;
+}
+
+void free_ring_mapped_buffer(void* ptr, size_t size) {
+#if defined(_WIN32)
+	UnmapViewOfFileEx((char*)ptr, 0);
+	UnmapViewOfFileEx((char*)ptr + size, 0);
+#elif defined(__APPLE__)
+	mach_vm_deallocate(mach_task_self(), (mach_vm_address_t)ptr, 2 * size);
+#else
+	munmap(ptr, 2 * size);
+#endif
+}
+
+void mpsc_ring_buffer_create(MpscRingBuffer* mpsc, size_t size) {
+    mpsc->allocated_offset = 0;
+    mpsc->committed_offset = 0;
+    mpsc->consumed_offset = 0;
+
+    mpsc->ring_buffer = (uint8_t*)alloc_ring_mapped_buffer(mpsc->size);
+    mpsc->size = size;
+}
+
+void mpsc_ring_buffer_destroy(MpscRingBuffer* mpsc) {
+    free_ring_mapped_buffer((void*)mpsc->ring_buffer, mpsc->size);
+
+    mpsc->allocated_offset = 0;
+    mpsc->committed_offset = 0;
+    mpsc->consumed_offset = 0;
+    mpsc->ring_buffer = 0;
+    mpsc->size = 0;
+}
+
+uint8_t* mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
+    size_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
+    size_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
+    while (allocated - consumed >= size) {
+        // Try to alloc 'size' bytes.
+        if (atomic_compare_exchange_weak_explicit(&mpsc->allocated_offset, &allocated, allocated + size, memory_order_acquire, memory_order_relaxed)) {
+            // Success
+            return mpsc->ring_buffer + allocated % mpsc->size; // TODO: pow2
+        } else {
+            // Update current consumed value (consumer might have consumed while we were trying to reserve).
+            consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
+        }
+    }
+
+    // Not enough space in the buffer
+    return NULL;
+}
+
+uint8_t* mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
+    // Requested size does not fit in buffer.
+    if (size > mpsc->size) {
+        return NULL;
+    }
+
+    size_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
+    size_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
+
+    while (true) {
+        // If not enough space available wait for consumed to increase
+        while (allocated - consumed < size) {
+            // perf: could spin a bit here before sleeping
+
+            // Wait for changes to consumed offset
+            futex_wait(&mpsc->consumed_offset, consumed);
+
+            // Re-read allocated and consumed offsets
+            allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
+            consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
+        }
+
+        // Try to alloc 'size' bytes.
+        if (atomic_compare_exchange_weak_explicit(&mpsc->allocated_offset, &allocated, allocated + size, memory_order_acquire, memory_order_relaxed)) {
+            // Success
+            return mpsc->ring_buffer + allocated % mpsc->size; // TODO: pow2
+        } else {
+            // Update current consumed offset (consumer might have consumed while we were trying to reserve).
+            consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
+        }
+    }
+
+    // Not enough space in the buffer
+    return NULL;
+}
+
+void mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, size_t size) {
+}
+
+void mpsc_ring_buffer_lock_acquire_read(MpscRingBuffer* mpsc) {
+}
+
+void mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc) {
+}
 
 // Serialization
 
