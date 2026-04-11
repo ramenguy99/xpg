@@ -62,9 +62,9 @@
 #	if defined(_MSC_VER)
 #		if !defined(NDEBUG)
 #			include <intrin.h>
-#			define MRB_ASSERT(cond) do { if (!(cond)) __debugbreak(); } while (0)
+#			define ASSERT(cond) do { if (!(cond)) __debugbreak(); } while (0)
 #		else
-#			define MRB_ASSERT(cond) do { (void)sizeof(cond); } while (0)
+#			define ASSERT(cond) do { (void)sizeof(cond); } while (0)
 #		endif
 #	else
 #		include <assert.h>
@@ -455,7 +455,10 @@ inline void futex_init(Futex* futex, uint32_t initial_value) {
 // Could return false on timeout (not implemented yet)
 inline bool futex_wait(Futex* futex, uint32_t expected) {
 #ifdef _WIN32
+#pragma warning( push )
+#pragma warning( disable : 4090 )
     return WaitOnAddress(futex, &expected, 4, INFINITE) == TRUE;
+#pragma warning( pop )
 #elif defined(__APPLE__)
     while (true) {
         int ret = os_sync_wait_on_address(futex, expected, 4, OS_SYNC_WAIT_ON_ADDRESS_NONE);
@@ -485,8 +488,11 @@ inline bool futex_wait(Futex* futex, uint32_t expected) {
 // Returns true if we can guarantee a thread was awaked
 inline bool futex_wake(Futex* futex) {
 #ifdef _WIN32
+#pragma warning( push )
+#pragma warning( disable : 4090 )
     WakeByAddressSingle(futex);
-    return false
+#pragma warning( pop )
+    return false;
 #elif defined(__APPLE__)
     int ret = os_sync_wake_by_address_any(futex, 4, OS_SYNC_WAKE_BY_ADDRESS_NONE);
     if (ret < 0) {
@@ -500,7 +506,10 @@ inline bool futex_wake(Futex* futex) {
 
 inline void futex_wake_all(Futex* futex) {
 #ifdef _WIN32
+#pragma warning( push )
+#pragma warning( disable : 4090 )
     WakeByAddressAll(futex);
+#pragma warning( pop )
 #elif defined(__APPLE__)
     os_sync_wake_by_address_all(futex, 4, OS_SYNC_WAKE_BY_ADDRESS_NONE);
 #else
