@@ -90,6 +90,8 @@ typedef SOCKET socket_t;
 typedef int socket_t;
 #endif
 
+#define CACHE_LINE_SIZE 64
+
 typedef enum Result {
     SUCCESS = 0,
     SOCKET_INIT_FAILED = 1,
@@ -865,69 +867,6 @@ inline void downgrade(RWLock* rwlock) {
     }
 }
 
-// Pre-allocated MPSC ringbuffer with wait and drop semantics
-//
-// Notes:
-// - If we allow concurrent allocs before commits, we need to allow out-of-order commit as well,
-//   otherwise you run into issues where you need to wait for previous writers to be done with
-//   their allocations before you are allowed to commit.
-//
-//   For example the worst case scenario would be something like 1GiB alloc followed by 8 bytes alloc.
-//   In this case the 8 bytes alloc would have to wait for the large 1GiB memcpy before going through.
-//
-// The underlying issue is that to have allocation and consumption be linear we have to commit in order.
-//
-// Actually the issue is mostly with the linear shared allocator, because it can be dealloced only in alloc
-// order, regardless of commit order.
-// We either use a different allocator or implement some sort of delegated deallocation (which requires a log).
-//
-// Potential solutions:
-// - Allow early return from commit by deferring actual commit to other writers
-//   -> would need a separate data structure to act as a log of uncommitted
-//   -> need to keep this sorted, or traverse in sorted order after every commit
-//   -> can tune number of "in-flight" allocations and potentially return a failure to try_alloc
-//   -> does not solve the general case when we run out of log slots (or need to allow unbounded growth)
-//      -> not bounded by the number of concurrent producers because you can run into limits even with 2 threads
-//          -> A allocs 1 GiB and holds the first commit slot
-//          -> B can alloc N small elements while A is holding the slot.
-//   -> need to make a "ticket" style API where you reserve a slot in the log
-// - Truth is that logging is cheap, we expect to be consumer bound in most cases, so we can allow these to block on commit in most-cases.
-//
-// Thoughts:
-// - maybe committed could be fully writer-owned? Ring-buffer is defined by allocated and consumed while
-//   committed ranges are enqueued to a writer. The writer then takes responsability of bumping consumed
-//   by keeping track of used chunks (fragmented to linear). After the chunks are used the writer
-//   could also manage a "free-list" of chunks to deallocate and to bump the consumed index. If we force
-//   a minimum alloc size the free list could also be stored by repurposing allocations (can reuse the memory
-//   after it's consumed).
-//   -> need an enqueue side channel (basically a fixed element-size mpsc)
-// - a general purpose allocator also solves this (this is what we do in python basically), but has no bounded cost guarantee
-//
-// - I want to avoid the weird edge case where a slow producer causes us to drop messages even if we would have memory to store them, we just
-//   don't have the side channel memory to store it.
-// - SOLUTION:
-//    - store the side-channel data inline with the payload, we would likely anyways need this to do message framing.
-//    - this also allows out-of-order commit because the producer will just mark the
-//    - do we still mutex wait on the counters, or is it even better to directly wait on the item marker?
-//    - this has to be the better design, no side-channel, simple metadata,
-typedef struct MpscRingBuffer
-{
-    atomic_size_t allocated_offset;
-    atomic_size_t committed_offset;
-
-    atomic_size_t consumed_offset;
-
-    // Mutex writer_mutex;
-    // ConditionVariable writer_condition_variable;
-
-    // Mutex reader_mutex;
-    // ConditionVariable reader_condition_variable;
-
-    uint8_t* ring_buffer;
-    size_t size;
-} MpscRingBuffer;
-
-
 // Ring-mapped buffer from: https://gist.github.com/mmozeiko/3b09a340f3c53e5eaed699a1aea95250
 void* alloc_ring_mapped_buffer(size_t Size)
 {
@@ -1027,33 +966,145 @@ void free_ring_mapped_buffer(void* ptr, size_t size) {
 #endif
 }
 
-void mpsc_ring_buffer_create(MpscRingBuffer* mpsc, size_t size) {
-    mpsc->allocated_offset = 0;
-    mpsc->committed_offset = 0;
-    mpsc->consumed_offset = 0;
+// Pre-allocated MPSC ringbuffer with wait and drop semantics
+//
+// Notes:
+// - If we allow concurrent allocs before commits, we need to allow out-of-order commit as well,
+//   otherwise you run into issues where you need to wait for previous writers to be done with
+//   their allocations before you are allowed to commit.
+//
+//   For example the worst case scenario would be something like 1GiB alloc followed by 8 bytes alloc.
+//   In this case the 8 bytes alloc would have to wait for the large 1GiB memcpy before going through.
+//
+// The underlying issue is that to have allocation and consumption be linear we have to commit in order.
+//
+// Actually the issue is mostly with the linear shared allocator, because it can be dealloced only in alloc
+// order, regardless of commit order.
+// We either use a different allocator or implement some sort of delegated deallocation (which requires a log).
+//
+// Potential solutions:
+// - Allow early return from commit by deferring actual commit to other writers
+//   -> would need a separate data structure to act as a log of uncommitted
+//   -> need to keep this sorted, or traverse in sorted order after every commit
+//   -> can tune number of "in-flight" allocations and potentially return a failure to try_alloc
+//   -> does not solve the general case when we run out of log slots (or need to allow unbounded growth)
+//      -> not bounded by the number of concurrent producers because you can run into limits even with 2 threads
+//          -> A allocs 1 GiB and holds the first commit slot
+//          -> B can alloc N small elements while A is holding the slot.
+//   -> need to make a "ticket" style API where you reserve a slot in the log
+// - Truth is that logging is cheap, we expect to be consumer bound in most cases, so we can allow these to block on commit in most-cases.
+//
+// Thoughts:
+// - maybe committed could be fully writer-owned? Ring-buffer is defined by allocated and consumed while
+//   committed ranges are enqueued to a writer. The writer then takes responsability of bumping consumed
+//   by keeping track of used chunks (fragmented to linear). After the chunks are used the writer
+//   could also manage a "free-list" of chunks to deallocate and to bump the consumed index. If we force
+//   a minimum alloc size the free list could also be stored by repurposing allocations (can reuse the memory
+//   after it's consumed).
+//   -> need an enqueue side channel (basically a fixed element-size mpsc)
+// - a general purpose allocator also solves this (this is what we do in python basically), but has no bounded cost guarantee
+//
+// - I want to avoid the weird edge case where a slow producer causes us to drop messages even if we would have memory to store them, we just
+//   don't have the side channel memory to store it.
+// - SOLUTION:
+//    - store the side-channel data inline with the payload, we would likely anyways need this to do message framing.
+//    - this also allows out-of-order commit because the producer will just mark the entry
+//    - do we still mutex wait on the counters, or is it even better to directly wait on the item marker?
+//    - this has to be the better design, no side-channel, simple metadata,
+//    - ISSUE: we have to clear the whole buffer after finishing a consume operations because we don't know where the next doorbell might be.
+typedef struct MpscRingBuffer
+{
+    Futex allocated_offset; // Producers atomically increment this 
+    uint8_t __padding0[CACHE_LINE_SIZE - sizeof(atomic_uint)];
 
-    mpsc->ring_buffer = (uint8_t*)alloc_ring_mapped_buffer(mpsc->size);
-    mpsc->size = size;
+    Futex consumed_offset;  // Producers wait on this, incremented by consumer
+    uint8_t __padding1[CACHE_LINE_SIZE - sizeof(atomic_uint)];
+
+    Futex consumer_notify; // Producers notify by storing one to this, waited on by consumer
+    uint8_t __padding2[CACHE_LINE_SIZE - sizeof(atomic_uint)];
+
+    uint8_t* ring_buffer;
+    size_t size;
+    uint32_t mask;
+} MpscRingBuffer;
+
+#define MPSC_HEADER_TOTAL_SIZE 16
+#define MPSC_HEADER_DOORBELL_OFFSET 0
+#define MPSC_HEADER_PAYLOAD_SIZE_OFFSET 8
+
+#define MPSC_ALLOCATION_ALIGNMENT_BITS 4
+#define MPSC_ALLOCATION_ALIGNMENT (1 << MPSC_ALLOCATION_ALIGNMENT_BITS)
+#define MPSC_ALLOCATION_ALIGNMENT_MASK (MPSC_ALLOCATION_ALIGNMENT - 1)
+#define MPSC_RING_BUFFER_MIN_SIZE 4096
+
+static inline
+bool is_pow2(size_t n) {
+    return (n & (n - 1)) == 0;
 }
 
-void mpsc_ring_buffer_destroy(MpscRingBuffer* mpsc) {
+static inline
+size_t align_up(size_t v, size_t a) {
+    return (v + (a - 1)) & ~(a - 1);
+}
+
+static void
+mpsc_ring_buffer_create(MpscRingBuffer* mpsc, size_t size) {
+    mpsc->allocated_offset = 0;
+    mpsc->consumed_offset = 0;
+    mpsc->consumer_notify = 0;
+
+    // Buffer must be power of two.
+    ASSERT(is_pow2(size));
+
+    // We have 32 bits of addressing due to futex being 4 bytes.
+    // We must leave a bit free to distinguish the queue full and queue empty case.
+    // We index 16 byte blocks.
+    // We thus have 2**31 * 16 = 32 GiB of max buffer size.
+    ASSERT((uint64_t)size <= ((uint64_t)(32ull * 1024ull * 1024ull * 1024ull)));
+
+    size = size < MPSC_RING_BUFFER_MIN_SIZE ? MPSC_RING_BUFFER_MIN_SIZE : size;
+
+    mpsc->ring_buffer = (uint8_t*)alloc_ring_mapped_buffer(size);
+    mpsc->size = size;
+
+    mpsc->mask = ~(uint32_t)((size >> MPSC_ALLOCATION_ALIGNMENT_BITS) - 1);
+}
+
+static void
+mpsc_ring_buffer_destroy(MpscRingBuffer* mpsc) {
     free_ring_mapped_buffer((void*)mpsc->ring_buffer, mpsc->size);
 
     mpsc->allocated_offset = 0;
-    mpsc->committed_offset = 0;
     mpsc->consumed_offset = 0;
+    mpsc->consumer_notify = 0;
+
     mpsc->ring_buffer = 0;
     mpsc->size = 0;
 }
 
-uint8_t* mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
-    size_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
-    size_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
-    while (allocated - consumed >= size) {
+static uint8_t*
+mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
+    // Zero allocs or allocs that are bigger than the max payload size are not valid.
+    if (size == 0 || size > (mpsc->size - MPSC_HEADER_TOTAL_SIZE)) {
+        return NULL;
+    }
+
+    uint32_t alloc = (align_up(size, MPSC_ALLOCATION_ALIGNMENT) + MPSC_HEADER_TOTAL_SIZE) >> MPSC_ALLOCATION_ALIGNMENT_BITS;
+
+    uint32_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
+    uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
+
+    while (mpsc->size - (allocated - consumed) >= alloc) {
         // Try to alloc 'size' bytes.
-        if (atomic_compare_exchange_weak_explicit(&mpsc->allocated_offset, &allocated, allocated + size, memory_order_acquire, memory_order_relaxed)) {
+        if (atomic_compare_exchange_weak_explicit(&mpsc->allocated_offset, &allocated, allocated + alloc, memory_order_acquire, memory_order_relaxed)) {
             // Success
-            return mpsc->ring_buffer + allocated % mpsc->size; // TODO: pow2
+            uint8_t* start = mpsc->ring_buffer + ((size_t)(allocated & mpsc->mask) << MPSC_ALLOCATION_ALIGNMENT_BITS);
+
+            // Write out payload size at 8 bytes from allocation start (first 8 bytes reserved for commit doorbell)
+            *(uint64_t*)(start + MPSC_HEADER_PAYLOAD_SIZE_OFFSET) = size;
+
+            // Return pointer to payload
+            return start + MPSC_HEADER_TOTAL_SIZE;
         } else {
             // Update current consumed value (consumer might have consumed while we were trying to reserve).
             consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
@@ -1064,18 +1115,22 @@ uint8_t* mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
     return NULL;
 }
 
-uint8_t* mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
-    // Requested size does not fit in buffer.
-    if (size > mpsc->size) {
+static uint8_t*
+mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
+    // Zero allocs or allocs that are bigger than the max payload size are not valid.
+    if (size == 0 || size > (mpsc->size - MPSC_HEADER_TOTAL_SIZE)) {
         return NULL;
     }
 
-    size_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
-    size_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
+
+    uint32_t alloc = (align_up(size, MPSC_ALLOCATION_ALIGNMENT) + MPSC_HEADER_TOTAL_SIZE) >> MPSC_ALLOCATION_ALIGNMENT_BITS;
+
+    uint32_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
+    uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
 
     while (true) {
         // If not enough space available wait for consumed to increase
-        while (allocated - consumed < size) {
+        while (mpsc->size - (allocated - consumed) >= alloc) {
             // perf: could spin a bit here before sleeping
 
             // Wait for changes to consumed offset
@@ -1089,7 +1144,13 @@ uint8_t* mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) 
         // Try to alloc 'size' bytes.
         if (atomic_compare_exchange_weak_explicit(&mpsc->allocated_offset, &allocated, allocated + size, memory_order_acquire, memory_order_relaxed)) {
             // Success
-            return mpsc->ring_buffer + allocated % mpsc->size; // TODO: pow2
+            uint8_t* start = mpsc->ring_buffer + ((size_t)(allocated & mpsc->mask) << MPSC_ALLOCATION_ALIGNMENT_BITS);
+
+            // Write out payload size at 8 bytes from allocation start (first 8 bytes reserved for commit doorbell)
+            *(uint64_t*)(start + MPSC_HEADER_PAYLOAD_SIZE_OFFSET) = size;
+
+            // Return pointer to payload
+            return start + MPSC_HEADER_TOTAL_SIZE;
         } else {
             // Update current consumed offset (consumer might have consumed while we were trying to reserve).
             consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
@@ -1100,13 +1161,64 @@ uint8_t* mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) 
     return NULL;
 }
 
-void mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, size_t size) {
+static void
+mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, uint8_t* alloc) {
+    // Write doorbell
+    atomic_store_explicit((atomic_size_t*)alloc, 1, memory_order_relaxed);
+
+    // Notify consumer that there is potentially new data to consume
+    atomic_store_explicit(&mpsc->consumer_notify, 1, memory_order_release);
+    futex_wake(&mpsc->consumer_notify);
 }
 
-void mpsc_ring_buffer_lock_acquire_read(MpscRingBuffer* mpsc) {
+static size_t
+mpsc_ring_buffer_lock_acquire_read(MpscRingBuffer* mpsc, uint8_t** data) {
+    uint32_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
+    uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
+
+    // Sleep while empty
+    while (allocated == consumed) {
+        futex_wait(&mpsc->allocated_offset, allocated);
+        allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
+    }
+
+    // There is data to be read, check the doorbell
+    uint8_t* start = mpsc->ring_buffer + ((size_t)(consumed & mpsc->mask) << MPSC_ALLOCATION_ALIGNMENT_BITS);
+
+    // Wait until doorbel is signaled
+    while (atomic_load_explicit((atomic_size_t*)start, memory_order_relaxed) == 0) {
+        futex_wait(&mpsc->consumer_notify, 0);
+
+        // Reset the notification (if any).
+        //
+        // This can race with other notifications, but it does not matter because
+        // dropping notifications is safe if we always check the doorbell before waiting,
+        // and the futex is only signaled by a producer after setting the doorbell.
+        atomic_store_explicit(&mpsc->consumer_notify, 0, memory_order_relaxed);
+    }
+    // Ensure rest of the data (including the size) is visible
+    atomic_thread_fence(memory_order_acquire);
+
+    // Return the data
+    size_t size = *(size_t*)(start + MPSC_HEADER_PAYLOAD_SIZE_OFFSET);
+    *data = start + MPSC_HEADER_TOTAL_SIZE;
+
+    return size;
 }
 
-void mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc) {
+static void
+mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc, uint8_t* data, size_t size) {
+    // Clear the whole allocation (we don't know where the next doorbell will be).
+    uint8_t* start = data - MPSC_HEADER_TOTAL_SIZE;
+    memset(start, 0, size + MPSC_HEADER_TOTAL_SIZE);
+
+    // Increment the counter
+    uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
+    uint32_t alloc = (align_up(size, MPSC_ALLOCATION_ALIGNMENT) + MPSC_HEADER_TOTAL_SIZE) >> MPSC_ALLOCATION_ALIGNMENT_BITS;
+    atomic_store_explicit(&mpsc->consumed_offset, consumed + alloc, memory_order_release);
+
+    // Wake any potential waiting reader
+    futex_wake_all(&mpsc->consumed_offset);
 }
 
 // Serialization
