@@ -1124,7 +1124,6 @@ mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
                 expected = allocated;
                 SpinlockHint();
             }
-            futex_wake(&mpsc->visible_offset);
 
             // Return pointer to payload
             return start + MPSC_HEADER_TOTAL_SIZE;
@@ -1186,7 +1185,6 @@ mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
                 expected = allocated;
                 SpinlockHint();
             }
-            futex_wake(&mpsc->visible_offset);
 
             // Return pointer to payload
             return start + MPSC_HEADER_TOTAL_SIZE;
@@ -1207,8 +1205,12 @@ mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, uint8_t* alloc) {
     // Set doorbell to mark entry as committed.
     atomic_store_explicit((atomic_size_t*)(header + MPSC_HEADER_DOORBELL_OFFSET), 1, memory_order_release);
 
-    // Notify consumer that there is potentially new data to consume
+    // Wake the consumer. It may be blocked on either:
+    // - visible_offset (hasn't seen the entry yet)
+    // - consumer_notify (saw the entry, waiting for doorbell)
+    // We wake both since we don't know which state it's in.
     atomic_store_explicit(&mpsc->consumer_notify, 1, memory_order_release);
+    futex_wake(&mpsc->visible_offset);
     futex_wake(&mpsc->consumer_notify);
 }
 
