@@ -8,6 +8,7 @@
 #include <signal.h>
 #endif
 
+#define TRACING_IMPLEMENTATION
 #include "tracing.h"
 
 // ============================================================

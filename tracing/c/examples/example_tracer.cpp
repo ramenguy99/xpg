@@ -5,6 +5,7 @@
 #include <sqlite3.h>
 #endif
 
+#define TRACING_IMPLEMENTATION
 #include "tracing.h"
 
 TRACEPOINT_DEFINE(tp_physics, "physics.step");
@@ -22,7 +23,6 @@ static void sleep_ms(int ms) {
 }
 
 int main() {
-    socket_init();
     tracer_init();
 
     int tcp = tracer_add_tcp_subscriber("127.0.0.1", 9168);
