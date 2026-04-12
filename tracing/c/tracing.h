@@ -2426,6 +2426,7 @@ static inline void _trace_emit(Tracepoint* tp, const TraceField* fields, size_t 
         uint8_t* p = trace_write_header(buf, tp->name, tp->name_len, nfields);
         for (size_t i = 0; i < nfields; i++)
             p = _trace_field_write(p, &fields[i]);
+        ASSERT(p <= buf + sz);
 
         mpsc_ring_buffer_commit_write(&sub->ring_buffer, buf);
     }
