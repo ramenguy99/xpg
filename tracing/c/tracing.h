@@ -1099,18 +1099,14 @@ void free_ring_mapped_buffer(void* ptr, size_t size) {
 typedef struct MpscRingBuffer
 {
     Mutex alloc_mutex;
-
-    atomic_uint allocated_offset; // Producers atomically increment this
-    uint8_t __padding0[CACHE_LINE_SIZE - sizeof(atomic_uint)];
+    uint32_t allocated_offset; // Producers increment this
+    uint8_t __padding0[CACHE_LINE_SIZE - sizeof(uint32_t) - sizeof(Mutex)];
 
     Futex visible_offset;   // Producers advance this after initializing headers (sequential)
     uint8_t __padding1[CACHE_LINE_SIZE - sizeof(Futex)];
 
     Futex consumed_offset;  // Producers wait on this, incremented by consumer
     uint8_t __padding2[CACHE_LINE_SIZE - sizeof(Futex)];
-
-    Futex consumer_notify; // Producers notify by storing one to this, waited on by consumer
-    uint8_t __padding3[CACHE_LINE_SIZE - sizeof(Futex)];
 
     uint8_t* ring_buffer;
     size_t size;
@@ -1120,6 +1116,11 @@ typedef struct MpscRingBuffer
 #define MPSC_HEADER_TOTAL_SIZE 16
 #define MPSC_HEADER_DOORBELL_OFFSET 0
 #define MPSC_HEADER_PAYLOAD_SIZE_OFFSET 8
+
+// Doorbell values (per-entry, in header at MPSC_HEADER_DOORBELL_OFFSET)
+#define MPSC_DOORBELL_EMPTY            ((uint32_t)0) // not committed
+#define MPSC_DOORBELL_COMMITTED        ((uint32_t)1) // committed
+#define MPSC_DOORBELL_CONSUMER_WAITING ((uint32_t)2) // consumer waiting for commit
 
 #define MPSC_ALLOCATION_ALIGNMENT_BITS 4
 #define MPSC_ALLOCATION_ALIGNMENT (1 << MPSC_ALLOCATION_ALIGNMENT_BITS)
@@ -1142,7 +1143,6 @@ mpsc_ring_buffer_create(MpscRingBuffer* mpsc, size_t size) {
     mpsc->allocated_offset = 0;
     mpsc->visible_offset = 0;
     mpsc->consumed_offset = 0;
-    mpsc->consumer_notify = 0;
 
     // Buffer must be power of two.
     ASSERT(is_pow2(size));
@@ -1168,7 +1168,6 @@ mpsc_ring_buffer_destroy(MpscRingBuffer* mpsc) {
     mpsc->allocated_offset = 0;
     mpsc->visible_offset = 0;
     mpsc->consumed_offset = 0;
-    mpsc->consumer_notify = 0;
 
     mpsc->ring_buffer = 0;
     mpsc->size = 0;
@@ -1187,7 +1186,7 @@ mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
     // Try to alloc
     mutex_lock(&mpsc->alloc_mutex);
 
-    uint32_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
+    uint32_t allocated = mpsc->allocated_offset;
     uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
 
     // Check for space in buffer
@@ -1197,14 +1196,13 @@ mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
     }
 
     uint32_t new_offset = allocated + alloc;
-
-    atomic_store_explicit(&mpsc->allocated_offset, new_offset, memory_order_relaxed);
+    mpsc->allocated_offset = new_offset;
 
     uint8_t* start = mpsc->ring_buffer + ((size_t)(allocated & mpsc->mask) << MPSC_ALLOCATION_ALIGNMENT_BITS);
 
     // Initialize header: clear doorbell and write payload size.
-    *(uint64_t*)(start + MPSC_HEADER_DOORBELL_OFFSET) = 0;
-    *(uint64_t*)(start + MPSC_HEADER_PAYLOAD_SIZE_OFFSET) = size;
+    *(atomic_uint*)(start + MPSC_HEADER_DOORBELL_OFFSET) = 0;
+    *(size_t*)(start + MPSC_HEADER_PAYLOAD_SIZE_OFFSET) = size;
 
     // Make the entry visible to the consumer.
     atomic_store_explicit(&mpsc->visible_offset, allocated + alloc, memory_order_release);
@@ -1227,8 +1225,8 @@ mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
 
     while (true) {
         mutex_lock(&mpsc->alloc_mutex);
+        uint32_t allocated = mpsc->allocated_offset;
 
-        uint32_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
         uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
 
         // If not enough space available wait for consumed to increase
@@ -1243,19 +1241,18 @@ mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
             mutex_lock(&mpsc->alloc_mutex);
 
             // Re-read allocated and consumed offsets
-            allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
+            allocated = mpsc->allocated_offset;
             consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
         }
 
         uint32_t new_offset = allocated + alloc;
-
-        atomic_store_explicit(&mpsc->allocated_offset, new_offset, memory_order_relaxed);
+        mpsc->allocated_offset = new_offset;
 
         uint8_t* start = mpsc->ring_buffer + ((size_t)(allocated & mpsc->mask) << MPSC_ALLOCATION_ALIGNMENT_BITS);
 
         // Initialize header: clear doorbell and write payload size.
-        *(uint64_t*)(start + MPSC_HEADER_DOORBELL_OFFSET) = 0;
-        *(uint64_t*)(start + MPSC_HEADER_PAYLOAD_SIZE_OFFSET) = size;
+        *(atomic_uint*)(start + MPSC_HEADER_DOORBELL_OFFSET) = 0;
+        *(size_t*)(start + MPSC_HEADER_PAYLOAD_SIZE_OFFSET) = size;
 
         // Make the entry visible to the consumer.
         atomic_store_explicit(&mpsc->visible_offset, allocated + alloc, memory_order_release);
@@ -1271,18 +1268,16 @@ static void
 mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, uint8_t* alloc) {
     uint8_t* header = alloc - MPSC_HEADER_TOTAL_SIZE;
 
-    // Set doorbell to mark entry as committed.
-    atomic_store_explicit((atomic_size_t*)(header + MPSC_HEADER_DOORBELL_OFFSET), 1, memory_order_release);
-
-    // Wake the consumer. It may be blocked on either:
-    // - visible_offset (hasn't seen the entry yet)
-    // - consumer_notify (saw the entry, waiting for doorbell)
-    // We wake both since we don't know which state it's in.
-    atomic_store_explicit(&mpsc->consumer_notify, 1, memory_order_release);
-
-    // TODO: make the wakes optional using special values in these variables
-    futex_wake(&mpsc->visible_offset);
-    futex_wake(&mpsc->consumer_notify);
+    // Swap doorbell to COMMITTED. If the consumer was waiting on this entry
+    // (prev == CONSUMER_WAITING), wake the doorbell futex.
+    Futex* doorbell = (Futex*)(header + MPSC_HEADER_DOORBELL_OFFSET);
+    uint32_t prev = atomic_exchange_explicit(doorbell, MPSC_DOORBELL_COMMITTED, memory_order_release);
+    if (prev == MPSC_DOORBELL_CONSUMER_WAITING) {
+        futex_wake((Futex*)doorbell);
+    } else {
+        // Consumer is not waiting on doorbell, he might be waiting on visible data.
+        futex_wake(&mpsc->visible_offset);
+    }
 }
 
 static size_t
@@ -1298,21 +1293,19 @@ mpsc_ring_buffer_lock_acquire_read(MpscRingBuffer* mpsc, uint8_t** data) {
         visible = atomic_load_explicit(&mpsc->visible_offset, memory_order_relaxed);
     }
 
-    // There is a visible entry with an initialized header, check if it's committed
+    // There is a visible entry with an initialized header, check if it's committed.
     uint8_t* start = mpsc->ring_buffer + ((size_t)(consumed & mpsc->mask) << MPSC_ALLOCATION_ALIGNMENT_BITS);
+    Futex* doorbell = (Futex*)start;
 
-    // Wait until doorbell is set (entry committed). The doorbell was cleared to 0 during
-    // reservation before the entry was made visible, so 0 always means "not yet committed".
-    while (atomic_load_explicit((atomic_size_t*)start, memory_order_relaxed) == 0) {
-        futex_wait(&mpsc->consumer_notify, 0);
+    // Wait until doorbell is committed.
+    while (true) {
+        uint32_t prev = atomic_exchange_explicit(doorbell, MPSC_DOORBELL_CONSUMER_WAITING, memory_order_relaxed);
+        if (prev == MPSC_DOORBELL_COMMITTED) break;
 
-        // Reset the notification (if any).
-        //
-        // This can race with other notifications, but it does not matter because
-        // dropping notifications is safe if we always check the doorbell before waiting,
-        // and the futex is only signaled by a producer after setting the doorbell.
-        atomic_store_explicit(&mpsc->consumer_notify, 0, memory_order_relaxed);
+        // Doorbell is now CONSUMER_WAITING. Sleep until the producer swaps it to COMMITTED.
+        futex_wait(doorbell, MPSC_DOORBELL_CONSUMER_WAITING);
     }
+
     // Ensure rest of the data (including the size) is visible
     atomic_thread_fence(memory_order_acquire);
 
