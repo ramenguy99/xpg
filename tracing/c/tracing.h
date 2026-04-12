@@ -114,18 +114,18 @@ typedef struct TcpConnection
     struct addrinfo* picked_address;
 } TcpConnection;
 
-Result socket_init();
-Result socket_listen(uint16_t port, int backlog, bool only_ipv4, bool only_localhost, socket_t* socket);
-Result socket_accept(socket_t listening_socket, int timeout, socket_t* socket);
-Result socket_connect( const char* addr, uint16_t port, TcpConnection* connection_socket);
-void socket_close(socket_t socket);
-Result socket_connect_blocking( const char* addr, uint16_t port, socket_t* connection_socket);
-void socket_close_connection(TcpConnection* connection);
+static Result socket_init();
+static Result socket_listen(uint16_t port, int backlog, bool only_ipv4, bool only_localhost, socket_t* socket);
+static Result socket_accept(socket_t listening_socket, int timeout, socket_t* socket);
+static Result socket_connect( const char* addr, uint16_t port, TcpConnection* connection_socket);
+static void socket_close(socket_t socket);
+static Result socket_connect_blocking( const char* addr, uint16_t port, socket_t* connection_socket);
+static void socket_close_connection(TcpConnection* connection);
 
 #if 1
 // #ifdef TRACING_IMPLEMENTATION
 
-Result
+static Result
 socket_init() {
 #ifdef _WIN32
     WSADATA wsaData;
@@ -157,7 +157,7 @@ __addrinfo_and_socket_for_family(uint16_t port, int ai_family, bool only_localho
     return sock;
 }
 
-Result
+static Result
 socket_listen(uint16_t port, int backlog, bool only_ipv4, bool only_localhost, socket_t* socket) {
     socket_t sock = -1;
     struct addrinfo* res = NULL;
@@ -199,7 +199,7 @@ socket_listen(uint16_t port, int backlog, bool only_ipv4, bool only_localhost, s
     return SUCCESS;
 }
 
-Result
+static Result
 socket_accept(socket_t listening_socket, int timeout, socket_t* socket)
 {
     struct sockaddr_storage remote;
@@ -227,7 +227,7 @@ socket_accept(socket_t listening_socket, int timeout, socket_t* socket)
     }
 }
 
-void
+static void
 socket_close(socket_t socket)
 {
 #ifdef _WIN32
@@ -237,7 +237,7 @@ socket_close(socket_t socket)
 #endif
 }
 
-Result
+static Result
 socket_connect( const char* addr, uint16_t port, TcpConnection* connection)
 {
     if(connection->picked_address)
@@ -353,7 +353,7 @@ socket_connect( const char* addr, uint16_t port, TcpConnection* connection)
     return SUCCESS;
 }
 
-void
+static void
 socket_close_connection(TcpConnection* connection) {
     socket_close(connection->socket);
     if (connection->addresses) {
@@ -363,7 +363,7 @@ socket_close_connection(TcpConnection* connection) {
     connection->picked_address = 0;
 }
 
-Result
+static Result
 socket_connect_blocking( const char* addr, uint16_t port, socket_t* connection_socket)
 {
     struct addrinfo hints;
@@ -422,7 +422,7 @@ typedef struct Thread
 
 typedef THREAD_PROC(ThreadProc);
 
-Result create_thread(ThreadProc proc, void* user_data, Thread* thread) {
+static Result create_thread(ThreadProc proc, void* user_data, Thread* thread) {
 #ifdef _WIN32
     thread->handle = CreateThread(0, 0, proc, user_data, 0, 0);
     if (thread->handle == NULL) {
@@ -438,7 +438,7 @@ Result create_thread(ThreadProc proc, void* user_data, Thread* thread) {
     return SUCCESS;
 }
 
-void
+static void
 join_thread(Thread* thread) {
 #ifdef _WIN32
     WaitForSingleObject(thread->handle, INFINITE);
@@ -450,12 +450,12 @@ join_thread(Thread* thread) {
 
 typedef atomic_uint Futex;
 
-inline void futex_init(Futex* futex, uint32_t initial_value) {
+static inline void futex_init(Futex* futex, uint32_t initial_value) {
     atomic_store_explicit(futex, initial_value, memory_order_relaxed);
 }
 
 // Could return false on timeout (not implemented yet)
-inline bool futex_wait(Futex* futex, uint32_t expected) {
+static inline bool futex_wait(Futex* futex, uint32_t expected) {
 #ifdef _WIN32
 #pragma warning( push )
 #pragma warning( disable : 4090 )
@@ -487,7 +487,7 @@ inline bool futex_wait(Futex* futex, uint32_t expected) {
 }
 
 // Returns true if we can guarantee a thread was awaked
-inline bool futex_wake(Futex* futex) {
+static inline bool futex_wake(Futex* futex) {
 #ifdef _WIN32
 #pragma warning( push )
 #pragma warning( disable : 4090 )
@@ -505,7 +505,7 @@ inline bool futex_wake(Futex* futex) {
 #endif
 }
 
-inline void futex_wake_all(Futex* futex) {
+static inline void futex_wake_all(Futex* futex) {
 #ifdef _WIN32
 #pragma warning( push )
 #pragma warning( disable : 4090 )
@@ -624,23 +624,23 @@ typedef struct RWLock {
     Futex writer_notify;
 } RWLock;
 
-inline bool _rwlock_is_unlocked(uint32_t state) {
+static inline bool _rwlock_is_unlocked(uint32_t state) {
     return (state & RWLOCK_MASK) == 0;
 }
 
-inline bool _rwlock_is_write_locked(uint32_t state) {
+static inline bool _rwlock_is_write_locked(uint32_t state) {
     return (state & RWLOCK_MASK) == RWLOCK_WRITE_LOCKED;
 }
 
-inline bool _rwlock_has_readers_waiting(uint32_t state) {
+static inline bool _rwlock_has_readers_waiting(uint32_t state) {
     return (state & RWLOCK_READERS_WAITING) != 0;
 }
 
-inline bool _rwlock_has_writers_waiting(uint32_t state) {
+static inline bool _rwlock_has_writers_waiting(uint32_t state) {
     return (state & RWLOCK_WRITERS_WAITING) != 0;
 }
 
-inline bool _rwlock_is_read_lockable(uint32_t state) {
+static inline bool _rwlock_is_read_lockable(uint32_t state) {
     // This also returns false if the counter could overflow if we tried to read lock it.
     //
     // We don't allow read-locking if there's readers waiting, even if the lock is unlocked
@@ -650,7 +650,7 @@ inline bool _rwlock_is_read_lockable(uint32_t state) {
     return (state & RWLOCK_MASK) < RWLOCK_MAX_READERS && !_rwlock_has_readers_waiting(state) && !_rwlock_has_writers_waiting(state);
 }
 
-inline bool _rwlock_is_read_lockable_after_wakeup(uint32_t state){
+static inline bool _rwlock_is_read_lockable_after_wakeup(uint32_t state){
     // We make a special case for checking if we can read-lock _after_ a reader thread that went to
     // sleep has been woken up by a call to `downgrade`.
     //
@@ -667,17 +667,17 @@ inline bool _rwlock_is_read_lockable_after_wakeup(uint32_t state){
         && !_rwlock_is_unlocked(state);
 }
 
-inline bool _rwlock_has_reached_max_readers(uint32_t state) {
+static inline bool _rwlock_has_reached_max_readers(uint32_t state) {
     return (state & RWLOCK_MASK) == RWLOCK_MAX_READERS;
 }
 
 
-inline void rwlock_init(RWLock* rwlock) {
+static inline void rwlock_init(RWLock* rwlock) {
     futex_init(&rwlock->state, 0);
     futex_init(&rwlock->writer_notify, 0);
 }
 
-inline bool rwlock_try_read(RWLock* rwlock) {
+static inline bool rwlock_try_read(RWLock* rwlock) {
     uint32_t prev = atomic_load_explicit(&rwlock->state, memory_order_acquire);
     while (true) {
         if (!_rwlock_is_read_lockable(prev)) {
@@ -848,7 +848,7 @@ static void _rwlock_wake_writer_or_readers(RWLock* rwlock, uint32_t state) {
     }
 }
 
-inline static void rwlock_read_unlock(RWLock* rwlock) {
+static inline void rwlock_read_unlock(RWLock* rwlock) {
     uint32_t state = atomic_fetch_sub_explicit(&rwlock->state, RWLOCK_READ_LOCKED, memory_order_release) - RWLOCK_READ_LOCKED;
 
     // It's impossible for a reader to be waiting on a read-locked RwLock,
@@ -1039,7 +1039,7 @@ static void* alloc_ring_mapped_buffer(size_t Size)
     return data;
 }
 
-void free_ring_mapped_buffer(void* ptr, size_t size) {
+static void free_ring_mapped_buffer(void* ptr, size_t size) {
 #if defined(_WIN32)
 	UnmapViewOfFileEx((char*)ptr, 0);
 	UnmapViewOfFileEx((char*)ptr + size, 0);
