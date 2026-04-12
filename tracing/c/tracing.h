@@ -1,6 +1,9 @@
-#include <stdatomic.h>
+#ifndef TRACING_H
+#define TRACING_H
+
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
@@ -30,6 +33,7 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <poll.h>
+#include <sys/uio.h>
 
 #include <pthread.h>
 
@@ -83,6 +87,26 @@
 #define SpinlockHint() _mm_pause()
 #endif
 
+#ifdef __cplusplus
+#include <atomic>
+#define _Atomic(T) std::atomic<T>
+#define atomic_uint std::atomic<unsigned int>
+#define atomic_load_explicit(p, o) (p)->load(o)
+#define atomic_store_explicit(p, v, o) (p)->store(v, o)
+#define atomic_exchange_explicit(p, v, o) (p)->exchange(v, o)
+#define atomic_compare_exchange_strong_explicit(p, e, d, s, f) (p)->compare_exchange_strong(*(e), d, s, f)
+#define atomic_compare_exchange_weak_explicit(p, e, d, s, f) (p)->compare_exchange_weak(*(e), d, s, f)
+#define atomic_fetch_add_explicit(p, v, o) (p)->fetch_add(v, o)
+#define atomic_fetch_sub_explicit(p, v, o) (p)->fetch_sub(v, o)
+#define atomic_fetch_or_explicit(p, v, o)  (p)->fetch_or(v, o)
+#define atomic_fetch_and_explicit(p, v, o) (p)->fetch_and(v, o)
+using std::memory_order_relaxed;
+using std::memory_order_acquire;
+using std::memory_order_release;
+#else
+#include <stdatomic.h>
+#endif
+
 // Socket utils
 #ifdef _WIN32
 typedef SOCKET socket_t;
@@ -91,6 +115,30 @@ typedef int socket_t;
 #endif
 
 #define CACHE_LINE_SIZE 64
+
+// Tracer compile-time configuration
+#ifndef TRACER_MAX_SUBSCRIBERS
+#define TRACER_MAX_SUBSCRIBERS 4
+#endif
+#ifndef TRACER_MAX_TRACEPOINTS
+#define TRACER_MAX_TRACEPOINTS 256
+#endif
+#ifndef TRACER_HASH_TABLE_CAPACITY
+#define TRACER_HASH_TABLE_CAPACITY 512
+#endif
+#ifndef TRACER_SUBSCRIBER_BUFFER_SIZE
+#define TRACER_SUBSCRIBER_BUFFER_SIZE (1 << 20)
+#endif
+// 0 = DROP, 1 = WAIT
+#ifndef TRACER_QUEUE_FULL_POLICY
+#define TRACER_QUEUE_FULL_POLICY 1
+#endif
+#ifndef TRACER_TCP_RECONNECT_MS
+#define TRACER_TCP_RECONNECT_MS 1000
+#endif
+#ifndef TRACER_MAX_NDIM
+#define TRACER_MAX_NDIM 8
+#endif
 
 typedef enum Result {
     SUCCESS = 0,
@@ -122,8 +170,7 @@ static void socket_close(socket_t socket);
 static Result socket_connect_blocking( const char* addr, uint16_t port, socket_t* connection_socket);
 static void socket_close_connection(TcpConnection* connection);
 
-#if 1
-// #ifdef TRACING_IMPLEMENTATION
+#ifdef TRACING_IMPLEMENTATION
 
 static Result
 socket_init() {
@@ -1317,20 +1364,1073 @@ mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc, size_t size) {
     futex_wake_all(&mpsc->consumed_offset);
 }
 
+// ---------------------------------------------------------------------------
 // Serialization
+// ---------------------------------------------------------------------------
 
-// Tracing enabled semaphore
+typedef enum TraceType {
+    TRACE_TYPE_NONE    = 0,
+    TRACE_TYPE_I64     = 1,
+    TRACE_TYPE_F64     = 2,
+    TRACE_TYPE_STR     = 3,
+    TRACE_TYPE_BYTES   = 7,
+    TRACE_TYPE_NDARRAY = 8,
+    TRACE_TYPE_I32     = 9,
+    TRACE_TYPE_F32     = 10,
+    TRACE_TYPE_U64     = 11,
+    TRACE_TYPE_U32     = 12,
+    TRACE_TYPE_BOOL    = 13,
+} TraceType;
 
-// Sqlite
+typedef struct TraceFieldStr { const char* data; size_t len; } TraceFieldStr;
+typedef struct TraceFieldBytes { const uint8_t* data; size_t len; } TraceFieldBytes;
+typedef struct TraceFieldNdarray {
+    size_t ndim;
+    const size_t* shape;
+    const size_t* strides;
+    const void* data;
+    size_t elem_size;
+    const char* descr;
+} TraceFieldNdarray;
 
-// Subscribers
+typedef struct TraceField {
+    uint8_t type;
+    const char* key;
+    size_t key_len;
+    union {
+        int32_t          as_i32;
+        int64_t          as_i64;
+        uint32_t         as_u32;
+        uint64_t         as_u64;
+        float            as_f32;
+        double           as_f64;
+        bool             as_bool;
+        TraceFieldStr    as_str;
+        TraceFieldBytes  as_bytes;
+        TraceFieldNdarray as_ndarray;
+    } val;
+} TraceField;
 
-// SQLite subscriber
+// Field macros
+#ifdef __cplusplus
+static inline TraceField _tf_i32(const char* k, int32_t v)  { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_I32;  f.key=k; f.key_len=__builtin_strlen(k); f.val.as_i32=v;  return f; }
+static inline TraceField _tf_i64(const char* k, int64_t v)  { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_I64;  f.key=k; f.key_len=__builtin_strlen(k); f.val.as_i64=v;  return f; }
+static inline TraceField _tf_u32(const char* k, uint32_t v) { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_U32;  f.key=k; f.key_len=__builtin_strlen(k); f.val.as_u32=v;  return f; }
+static inline TraceField _tf_u64(const char* k, uint64_t v) { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_U64;  f.key=k; f.key_len=__builtin_strlen(k); f.val.as_u64=v;  return f; }
+static inline TraceField _tf_f32(const char* k, float v)    { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_F32;  f.key=k; f.key_len=__builtin_strlen(k); f.val.as_f32=v;  return f; }
+static inline TraceField _tf_f64(const char* k, double v)   { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_F64;  f.key=k; f.key_len=__builtin_strlen(k); f.val.as_f64=v;  return f; }
+static inline TraceField _tf_bool(const char* k, bool v)    { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_BOOL; f.key=k; f.key_len=__builtin_strlen(k); f.val.as_bool=v; return f; }
+static inline TraceField _tf_none(const char* k)            { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_NONE; f.key=k; f.key_len=__builtin_strlen(k); return f; }
+static inline TraceField _tf_str(const char* k, const char* s, size_t l) {
+    TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_STR; f.key=k; f.key_len=__builtin_strlen(k); f.val.as_str.data=s; f.val.as_str.len=l; return f;
+}
+static inline TraceField _tf_bytes(const char* k, const uint8_t* d, size_t l) {
+    TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_BYTES; f.key=k; f.key_len=__builtin_strlen(k); f.val.as_bytes.data=d; f.val.as_bytes.len=l; return f;
+}
+static inline TraceField _tf_ndarray(const char* k, size_t nd, const size_t* sh, const size_t* st, const void* d, size_t es, const char* de) {
+    TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_NDARRAY; f.key=k; f.key_len=__builtin_strlen(k);
+    f.val.as_ndarray.ndim=nd; f.val.as_ndarray.shape=sh; f.val.as_ndarray.strides=st; f.val.as_ndarray.data=d; f.val.as_ndarray.elem_size=es; f.val.as_ndarray.descr=de;
+    return f;
+}
+#define TI32(key, v)    _tf_i32(key, v)
+#define TI64(key, v)    _tf_i64(key, v)
+#define TU32(key, v)    _tf_u32(key, v)
+#define TU64(key, v)    _tf_u64(key, v)
+#define TF32(key, v)    _tf_f32(key, v)
+#define TF64(key, v)    _tf_f64(key, v)
+#define TBOOL(key, v)   _tf_bool(key, v)
+#define TNONE(key)      _tf_none(key)
+#define TSTR(key, s, l) _tf_str(key, s, l)
+#define TBYTES(key, d, l) _tf_bytes(key, d, l)
+#define TNDARRAY(key, nd, sh, st, d, es, de) _tf_ndarray(key, nd, sh, st, d, es, de)
+#else
+#define TI32(k, v)     { .type=TRACE_TYPE_I32,  .key=(k), .key_len=sizeof(k)-1, .val={.as_i32=(v)} }
+#define TI64(k, v)     { .type=TRACE_TYPE_I64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_i64=(v)} }
+#define TU32(k, v)     { .type=TRACE_TYPE_U32,  .key=(k), .key_len=sizeof(k)-1, .val={.as_u32=(v)} }
+#define TU64(k, v)     { .type=TRACE_TYPE_U64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_u64=(v)} }
+#define TF32(k, v)     { .type=TRACE_TYPE_F32,  .key=(k), .key_len=sizeof(k)-1, .val={.as_f32=(v)} }
+#define TF64(k, v)     { .type=TRACE_TYPE_F64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_f64=(v)} }
+#define TBOOL(k, v)    { .type=TRACE_TYPE_BOOL, .key=(k), .key_len=sizeof(k)-1, .val={.as_bool=(v)} }
+#define TNONE(k)       { .type=TRACE_TYPE_NONE, .key=(k), .key_len=sizeof(k)-1 }
+#define TSTR(k, s, l)  { .type=TRACE_TYPE_STR,  .key=(k), .key_len=sizeof(k)-1, .val={.as_str={(s),(l)}} }
+#define TBYTES(k, d, l){ .type=TRACE_TYPE_BYTES,.key=(k), .key_len=sizeof(k)-1, .val={.as_bytes={(d),(l)}} }
+#define TNDARRAY(k, nd, sh, st, d, es, de) \
+    { .type=TRACE_TYPE_NDARRAY, .key=(k), .key_len=sizeof(k)-1, \
+      .val={.as_ndarray={ (nd),(sh),(st),(d),(es),(de) }} }
+#endif
 
-// TCP subscriber
+// Low-level size helpers
+static inline size_t _trace_key_size(size_t key_len) {
+    return 8 + align_up(key_len, 8);
+}
 
-// Tracer
+static inline size_t trace_size_header(size_t id_len, size_t num_entries) {
+    (void)num_entries;
+    return 8 + id_len + 8;
+}
 
-// Default global tracer
+static inline size_t trace_size_none(size_t key_len)  { return _trace_key_size(key_len) + 8; }
+static inline size_t trace_size_i32(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
+static inline size_t trace_size_i64(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
+static inline size_t trace_size_u32(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
+static inline size_t trace_size_u64(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
+static inline size_t trace_size_f32(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
+static inline size_t trace_size_f64(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
+static inline size_t trace_size_bool(size_t key_len)  { return _trace_key_size(key_len) + 8 + 8; }
+static inline size_t trace_size_str(size_t key_len, size_t str_len)   { return _trace_key_size(key_len) + 8 + 8 + align_up(str_len, 8); }
+static inline size_t trace_size_bytes(size_t key_len, size_t data_len){ return _trace_key_size(key_len) + 8 + 8 + align_up(data_len, 8); }
+
+// .npy header size: magic(6) + version(2) + header_len_field(2) + header_content (padded to 64B alignment)
+static size_t _npy_header_size(size_t ndim, const char* descr) {
+    // header dict: "{'descr': 'XX', 'fortran_order': False, 'shape': (N, M, ...), }\n"
+    // We compute worst-case shape string: each dim up to 20 digits + ", "
+    size_t dict_len = 10 + strlen(descr) + 3 + 25 + 10; // {'descr': '...',  'fortran_order': False, 'shape': (
+    dict_len += ndim * 22; // each dim: up to 20 digits + ", "
+    dict_len += 4; // ), }
+    // Total preamble before dict content: magic(6) + version(2) + header_len(2) = 10
+    size_t total = 10 + dict_len;
+    // Pad to 64 byte alignment
+    return align_up(total, 64);
+}
+
+static size_t _npy_total_data_size(size_t ndim, const size_t* shape, size_t elem_size) {
+    size_t total = elem_size;
+    for (size_t i = 0; i < ndim; i++) total *= shape[i];
+    return total;
+}
+
+static inline size_t trace_size_ndarray(size_t key_len, size_t ndim, const size_t* shape, size_t elem_size, const char* descr) {
+    if (ndim > TRACER_MAX_NDIM) return 0;
+    size_t npy_size = _npy_header_size(ndim, descr) + _npy_total_data_size(ndim, shape, elem_size);
+    return _trace_key_size(key_len) + 8 + 8 + align_up(npy_size, 8);
+}
+
+// Low-level write helpers
+static inline uint8_t* trace_write_key(uint8_t* buf, const char* key, size_t key_len) {
+    uint64_t kl = (uint64_t)key_len;
+    memcpy(buf, &kl, 8); buf += 8;
+    memcpy(buf, key, key_len);
+    size_t padded = align_up(key_len, 8);
+    if (padded > key_len) memset(buf + key_len, 0, padded - key_len);
+    buf += padded;
+    return buf;
+}
+
+static inline uint8_t* trace_write_header(uint8_t* buf, const char* id, size_t id_len, size_t num_entries) {
+    uint64_t il = (uint64_t)id_len;
+    memcpy(buf, &il, 8); buf += 8;
+    memcpy(buf, id, id_len); buf += id_len;
+    uint64_t ne = (uint64_t)num_entries;
+    memcpy(buf, &ne, 8); buf += 8;
+    return buf;
+}
+
+static inline uint8_t* _trace_write_type(uint8_t* buf, uint64_t type_code) {
+    memcpy(buf, &type_code, 8);
+    return buf + 8;
+}
+
+static inline uint8_t* trace_write_none(uint8_t* buf, const char* key, size_t key_len) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = _trace_write_type(buf, TRACE_TYPE_NONE);
+    return buf;
+}
+
+static inline uint8_t* trace_write_i64(uint8_t* buf, const char* key, size_t key_len, int64_t val) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = _trace_write_type(buf, TRACE_TYPE_I64);
+    memcpy(buf, &val, 8); buf += 8;
+    return buf;
+}
+
+static inline uint8_t* trace_write_f64(uint8_t* buf, const char* key, size_t key_len, double val) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = _trace_write_type(buf, TRACE_TYPE_F64);
+    memcpy(buf, &val, 8); buf += 8;
+    return buf;
+}
+
+static inline uint8_t* trace_write_i32(uint8_t* buf, const char* key, size_t key_len, int32_t val) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = _trace_write_type(buf, TRACE_TYPE_I32);
+    int64_t v64 = val;
+    memcpy(buf, &v64, 8); buf += 8;
+    return buf;
+}
+
+static inline uint8_t* trace_write_u32(uint8_t* buf, const char* key, size_t key_len, uint32_t val) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = _trace_write_type(buf, TRACE_TYPE_U32);
+    uint64_t v64 = val;
+    memcpy(buf, &v64, 8); buf += 8;
+    return buf;
+}
+
+static inline uint8_t* trace_write_u64(uint8_t* buf, const char* key, size_t key_len, uint64_t val) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = _trace_write_type(buf, TRACE_TYPE_U64);
+    memcpy(buf, &val, 8); buf += 8;
+    return buf;
+}
+
+static inline uint8_t* trace_write_f32(uint8_t* buf, const char* key, size_t key_len, float val) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = _trace_write_type(buf, TRACE_TYPE_F32);
+    double v64 = val;
+    memcpy(buf, &v64, 8); buf += 8;
+    return buf;
+}
+
+static inline uint8_t* trace_write_bool(uint8_t* buf, const char* key, size_t key_len, bool val) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = _trace_write_type(buf, TRACE_TYPE_BOOL);
+    int64_t v64 = val ? 1 : 0;
+    memcpy(buf, &v64, 8); buf += 8;
+    return buf;
+}
+
+static inline uint8_t* trace_write_str(uint8_t* buf, const char* key, size_t key_len, const char* str, size_t str_len) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = _trace_write_type(buf, TRACE_TYPE_STR);
+    uint64_t sl = (uint64_t)str_len;
+    memcpy(buf, &sl, 8); buf += 8;
+    memcpy(buf, str, str_len);
+    size_t padded = align_up(str_len, 8);
+    if (padded > str_len) memset(buf + str_len, 0, padded - str_len);
+    buf += padded;
+    return buf;
+}
+
+static inline uint8_t* trace_write_bytes(uint8_t* buf, const char* key, size_t key_len, const uint8_t* data, size_t data_len) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = _trace_write_type(buf, TRACE_TYPE_BYTES);
+    uint64_t dl = (uint64_t)data_len;
+    memcpy(buf, &dl, 8); buf += 8;
+    memcpy(buf, data, data_len);
+    size_t padded = align_up(data_len, 8);
+    if (padded > data_len) memset(buf + data_len, 0, padded - data_len);
+    buf += padded;
+    return buf;
+}
+
+// Write .npy header and copy strided data into contiguous layout
+static uint8_t* trace_write_ndarray(uint8_t* buf, const char* key, size_t key_len,
+                                     size_t ndim, const size_t* shape, const size_t* strides,
+                                     const void* data, size_t elem_size, const char* descr)
+{
+    buf = trace_write_key(buf, key, key_len);
+    buf = _trace_write_type(buf, TRACE_TYPE_NDARRAY);
+
+    size_t npy_hdr_size = _npy_header_size(ndim, descr);
+    size_t data_size = _npy_total_data_size(ndim, shape, elem_size);
+    size_t npy_total = npy_hdr_size + data_size;
+    uint64_t npy_len = (uint64_t)npy_total;
+    memcpy(buf, &npy_len, 8); buf += 8;
+
+    uint8_t* npy_start = buf;
+
+    // .npy magic and version
+    buf[0] = 0x93; buf[1] = 'N'; buf[2] = 'U'; buf[3] = 'M'; buf[4] = 'P'; buf[5] = 'Y';
+    buf[6] = 1; buf[7] = 0; // version 1.0
+    buf += 8;
+
+    // Build header dict
+    uint8_t* dict_start = buf + 2; // skip header_len field
+    int dict_len = 0;
+
+    // Shape string
+    char shape_buf[512];
+    int spos = 0;
+    shape_buf[spos++] = '(';
+    for (size_t i = 0; i < ndim; i++) {
+        if (i > 0) { shape_buf[spos++] = ','; shape_buf[spos++] = ' '; }
+        spos += snprintf(shape_buf + spos, sizeof(shape_buf) - (size_t)spos, "%zu", shape[i]);
+    }
+    if (ndim == 1) shape_buf[spos++] = ',';
+    shape_buf[spos++] = ')';
+    shape_buf[spos] = '\0';
+
+    dict_len = snprintf((char*)dict_start, npy_hdr_size - 10,
+        "{'descr': '%s', 'fortran_order': False, 'shape': %s, }", descr, shape_buf);
+
+    // Pad with spaces to align total header to 64 bytes, end with \n
+    size_t used = 10 + (size_t)dict_len;
+    size_t padded_total = align_up(used + 1, 64); // +1 for the \n
+    size_t pad_count = padded_total - used - 1;
+    memset(dict_start + dict_len, ' ', pad_count);
+    dict_start[dict_len + pad_count] = '\n';
+
+    // Write header_len (2 bytes LE) = padded_total - 10
+    uint16_t header_len_val = (uint16_t)(padded_total - 10);
+    memcpy(buf, &header_len_val, 2);
+
+    buf = npy_start + padded_total;
+
+    // Copy data using strides (element by element for non-contiguous)
+    if (ndim == 0) {
+        memcpy(buf, data, elem_size);
+        buf += elem_size;
+    } else {
+        // Recursive strided copy using iterative approach with index array
+        size_t total_elems = 1;
+        for (size_t i = 0; i < ndim; i++) total_elems *= shape[i];
+
+        size_t indices[TRACER_MAX_NDIM];
+        if (ndim > TRACER_MAX_NDIM) return npy_start; // graceful fail: return without writing data
+        memset(indices, 0, ndim * sizeof(size_t));
+
+        for (size_t e = 0; e < total_elems; e++) {
+            // Compute source offset from indices and strides
+            size_t src_offset = 0;
+            for (size_t d = 0; d < ndim; d++) src_offset += indices[d] * strides[d];
+            memcpy(buf, (const uint8_t*)data + src_offset, elem_size);
+            buf += elem_size;
+
+            // Increment indices (last dimension first, C-order)
+            for (size_t d = ndim; d > 0; d--) {
+                indices[d-1]++;
+                if (indices[d-1] < shape[d-1]) break;
+                indices[d-1] = 0;
+            }
+        }
+    }
+
+    // Pad npy data to 8-byte alignment
+    size_t npy_padded = align_up(npy_total, 8);
+    if (npy_padded > npy_total) {
+        memset(npy_start + npy_total, 0, npy_padded - npy_total);
+    }
+    return npy_start + npy_padded;
+}
+
+// _trace_field_size / _trace_field_write dispatch on TraceField.type
+static inline size_t _trace_field_size(const TraceField* f) {
+    switch (f->type) {
+        case TRACE_TYPE_NONE:    return trace_size_none(f->key_len);
+        case TRACE_TYPE_I32:     return trace_size_i32(f->key_len);
+        case TRACE_TYPE_I64:     return trace_size_i64(f->key_len);
+        case TRACE_TYPE_U32:     return trace_size_u32(f->key_len);
+        case TRACE_TYPE_U64:     return trace_size_u64(f->key_len);
+        case TRACE_TYPE_F32:     return trace_size_f32(f->key_len);
+        case TRACE_TYPE_F64:     return trace_size_f64(f->key_len);
+        case TRACE_TYPE_BOOL:    return trace_size_bool(f->key_len);
+        case TRACE_TYPE_STR:     return trace_size_str(f->key_len, f->val.as_str.len);
+        case TRACE_TYPE_BYTES:   return trace_size_bytes(f->key_len, f->val.as_bytes.len);
+        case TRACE_TYPE_NDARRAY: return trace_size_ndarray(f->key_len, f->val.as_ndarray.ndim, f->val.as_ndarray.shape, f->val.as_ndarray.elem_size, f->val.as_ndarray.descr);
+        default: ASSERT(0 && "unknown trace type"); return 0;
+    }
+}
+
+static inline uint8_t* _trace_field_write(uint8_t* buf, const TraceField* f) {
+    switch (f->type) {
+        case TRACE_TYPE_NONE:    return trace_write_none(buf, f->key, f->key_len);
+        case TRACE_TYPE_I32:     return trace_write_i32(buf, f->key, f->key_len, f->val.as_i32);
+        case TRACE_TYPE_I64:     return trace_write_i64(buf, f->key, f->key_len, f->val.as_i64);
+        case TRACE_TYPE_U32:     return trace_write_u32(buf, f->key, f->key_len, f->val.as_u32);
+        case TRACE_TYPE_U64:     return trace_write_u64(buf, f->key, f->key_len, f->val.as_u64);
+        case TRACE_TYPE_F32:     return trace_write_f32(buf, f->key, f->key_len, f->val.as_f32);
+        case TRACE_TYPE_F64:     return trace_write_f64(buf, f->key, f->key_len, f->val.as_f64);
+        case TRACE_TYPE_BOOL:    return trace_write_bool(buf, f->key, f->key_len, f->val.as_bool);
+        case TRACE_TYPE_STR:     return trace_write_str(buf, f->key, f->key_len, f->val.as_str.data, f->val.as_str.len);
+        case TRACE_TYPE_BYTES:   return trace_write_bytes(buf, f->key, f->key_len, f->val.as_bytes.data, f->val.as_bytes.len);
+        case TRACE_TYPE_NDARRAY: return trace_write_ndarray(buf, f->key, f->key_len, f->val.as_ndarray.ndim, f->val.as_ndarray.shape, f->val.as_ndarray.strides, f->val.as_ndarray.data, f->val.as_ndarray.elem_size, f->val.as_ndarray.descr);
+        default: ASSERT(0 && "unknown trace type"); return buf;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tracepoint registry and hash table
+// ---------------------------------------------------------------------------
+
+typedef struct Tracepoint {
+    const char* name;
+    size_t      name_len;
+    _Atomic(uint32_t) subscriber_mask;
+} Tracepoint;
+
+typedef struct TracepointRegistry {
+    Tracepoint tracepoints[TRACER_MAX_TRACEPOINTS];
+    _Atomic(uint32_t) count;
+    bool frozen;
+} TracepointRegistry;
+
+typedef struct TracepointHashEntry {
+    const char* key;
+    size_t      key_len;
+    Tracepoint* tracepoint;
+} TracepointHashEntry;
+
+typedef struct TracepointHashTable {
+    TracepointHashEntry entries[TRACER_HASH_TABLE_CAPACITY];
+} TracepointHashTable;
+
+// ---------------------------------------------------------------------------
+// Subscribers, TLV protocol, and global tracer (defined here so that
+// tracepoint_register can access g_tracer before the function bodies)
+// ---------------------------------------------------------------------------
+
+typedef enum SubscriberType { SUBSCRIBER_NONE = 0, SUBSCRIBER_TCP, SUBSCRIBER_SQLITE } SubscriberType;
+
+typedef struct Subscriber {
+    SubscriberType type;
+    MpscRingBuffer ring_buffer;
+    Thread         consumer_thread;
+    _Atomic(bool)  active;
+    _Atomic(bool)  connected;
+    uint32_t       index;
+    union {
+        struct { char host[256]; uint16_t port; socket_t sock; } tcp;
+#ifdef TRACER_SQLITE_ENABLED
+        struct { void* db; char path[512]; } sqlite;
+#endif
+    } cfg;
+} Subscriber;
+
+#define TLV_HEADER_SIZE          16
+#define MSG_TRACE_EVENT          0x200001
+#define MSG_LIST_TRACEPOINTS     0x200002
+#define MSG_LIST_TP_RESPONSE     0x200003
+#define MSG_ENABLE_PATTERN       0x200004
+#define MSG_ENABLE_PATTERN_RESP  0x200005
+#define MSG_DISABLE_PATTERN      0x200006
+#define MSG_DISABLE_PATTERN_RESP 0x200007
+
+typedef struct Tracer {
+    TracepointRegistry  registry;
+    TracepointHashTable hash_table;
+    Subscriber          subscribers[TRACER_MAX_SUBSCRIBERS];
+    _Atomic(bool)       initialized;
+} Tracer;
+
+static Tracer g_tracer;
+
+static inline bool tracepoint_enabled(const Tracepoint* tp) {
+    return atomic_load_explicit(&((Tracepoint*)tp)->subscriber_mask, memory_order_relaxed) != 0;
+}
+
+static Tracepoint* tracepoint_register(const char* name) {
+    uint32_t idx = atomic_fetch_add_explicit(&g_tracer.registry.count, 1, memory_order_relaxed);
+    ASSERT(idx < TRACER_MAX_TRACEPOINTS && "too many tracepoints");
+    ASSERT(!g_tracer.registry.frozen && "cannot register tracepoints after tracer_init()");
+    Tracepoint* tp = &g_tracer.registry.tracepoints[idx];
+    tp->name = name;
+    tp->name_len = strlen(name);
+    atomic_store_explicit(&tp->subscriber_mask, 0, memory_order_relaxed);
+    return tp;
+}
+
+#ifdef _MSC_VER
+#define TRACEPOINT_DEFINE(varname, namestr) \
+    static Tracepoint* varname; \
+    static void __cdecl _tp_init_##varname(void) { varname = tracepoint_register(namestr); } \
+    __pragma(section(".CRT$XCU", read)) \
+    __declspec(allocate(".CRT$XCU")) static void(__cdecl* _tp_ptr_##varname)(void) = _tp_init_##varname;
+#elif defined(__cplusplus)
+#define TRACEPOINT_DEFINE(varname, namestr) \
+    static Tracepoint* varname; \
+    namespace { struct _tp_reg_##varname { _tp_reg_##varname() { varname = tracepoint_register(namestr); } } _tp_inst_##varname; }
+#else
+#define TRACEPOINT_DEFINE(varname, namestr) \
+    static Tracepoint* varname; \
+    __attribute__((constructor)) static void _tp_init_##varname(void) { varname = tracepoint_register(namestr); }
+#endif
+
+// Hash table (FNV-1a, open addressing, linear probing)
+static inline uint32_t _hash_fnv1a(const char* key, size_t len) {
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < len; i++) {
+        h ^= (uint8_t)key[i];
+        h *= 16777619u;
+    }
+    return h;
+}
+
+static void _tracepoint_ht_init(TracepointHashTable* ht) {
+    memset(ht->entries, 0, sizeof(ht->entries));
+}
+
+static void _tracepoint_ht_insert(TracepointHashTable* ht, Tracepoint* tp) {
+    uint32_t mask = TRACER_HASH_TABLE_CAPACITY - 1;
+    uint32_t idx = _hash_fnv1a(tp->name, tp->name_len) & mask;
+    while (ht->entries[idx].key != NULL) {
+        idx = (idx + 1) & mask;
+    }
+    ht->entries[idx].key = tp->name;
+    ht->entries[idx].key_len = tp->name_len;
+    ht->entries[idx].tracepoint = tp;
+}
+
+static Tracepoint* _tracepoint_ht_find(const TracepointHashTable* ht, const char* name, size_t name_len) {
+    uint32_t mask = TRACER_HASH_TABLE_CAPACITY - 1;
+    uint32_t idx = _hash_fnv1a(name, name_len) & mask;
+    while (ht->entries[idx].key != NULL) {
+        if (ht->entries[idx].key_len == name_len && memcmp(ht->entries[idx].key, name, name_len) == 0) {
+            return ht->entries[idx].tracepoint;
+        }
+        idx = (idx + 1) & mask;
+    }
+    return NULL;
+}
+
+// ---------------------------------------------------------------------------
+// Sleep helper
+// ---------------------------------------------------------------------------
+
+static void _tracer_sleep_ms(int ms) {
+#ifdef _WIN32
+    Sleep((DWORD)ms);
+#else
+    struct timespec ts;
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (ms % 1000) * 1000000L;
+    while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {}
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// TCP subscriber consumer thread
+// ---------------------------------------------------------------------------
+
+static bool _tcp_send_all(socket_t sock, const void* data, size_t len) {
+    const uint8_t* p = (const uint8_t*)data;
+    while (len > 0) {
+#ifdef _WIN32
+        int sent = send(sock, (const char*)p, (int)len, 0);
+#else
+        ssize_t sent = send(sock, p, len, 0);
+#endif
+        if (sent < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        }
+        if (sent == 0) return false;
+        p += sent;
+        len -= (size_t)sent;
+    }
+    return true;
+}
+
+static bool _tcp_send_handshake(socket_t sock) {
+    uint8_t hs[14];
+    memcpy(hs, "AMBR", 4);
+    uint32_t name_len = 6;
+    memcpy(hs + 4, &name_len, 4);
+    memcpy(hs + 8, "tracer", 6);
+    return _tcp_send_all(sock, hs, sizeof(hs));
+}
+
+static bool _tcp_sendv(socket_t sock, const void* a, size_t a_len, const void* b, size_t b_len) {
+#ifdef _WIN32
+    WSABUF bufs[2];
+    DWORD count = 0;
+    bufs[0].buf = (char*)a; bufs[0].len = (ULONG)a_len;
+    bufs[1].buf = (char*)b; bufs[1].len = (ULONG)b_len;
+    int nbufs = b_len > 0 ? 2 : 1;
+    size_t total = a_len + b_len;
+    while (total > 0) {
+        DWORD sent = 0;
+        if (WSASend(sock, bufs, nbufs, &sent, 0, NULL, NULL) == SOCKET_ERROR) return false;
+        if (sent == 0) return false;
+        total -= sent;
+        // Advance buffers
+        for (int i = 0; i < nbufs && sent > 0; i++) {
+            if (sent >= bufs[i].len) { sent -= bufs[i].len; bufs[i].len = 0; bufs[i].buf += bufs[i].len; }
+            else { bufs[i].buf += sent; bufs[i].len -= (ULONG)sent; sent = 0; }
+        }
+    }
+    return true;
+#else
+    struct iovec iov[2];
+    iov[0].iov_base = (void*)a; iov[0].iov_len = a_len;
+    iov[1].iov_base = (void*)b; iov[1].iov_len = b_len;
+    int nbufs = b_len > 0 ? 2 : 1;
+    size_t total = a_len + b_len;
+    while (total > 0) {
+        ssize_t sent = writev(sock, iov, nbufs);
+        if (sent < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        }
+        if (sent == 0) return false;
+        total -= (size_t)sent;
+        // Advance buffers
+        for (int i = 0; i < nbufs && sent > 0; i++) {
+            if ((size_t)sent >= iov[i].iov_len) { sent -= (ssize_t)iov[i].iov_len; iov[i].iov_len = 0; }
+            else { iov[i].iov_base = (uint8_t*)iov[i].iov_base + sent; iov[i].iov_len -= (size_t)sent; sent = 0; }
+        }
+    }
+    return true;
+#endif
+}
+
+static bool _tcp_send_tlv(socket_t sock, uint32_t msg_type, const uint8_t* payload, size_t payload_len) {
+    uint8_t header[TLV_HEADER_SIZE];
+    uint32_t format = 0;
+    uint64_t length = (uint64_t)payload_len;
+    memcpy(header + 0, &msg_type, 4);
+    memcpy(header + 4, &format, 4);
+    memcpy(header + 8, &length, 8);
+    return _tcp_sendv(sock, header, TLV_HEADER_SIZE, payload, payload_len);
+}
+
+static THREAD_PROC(_tcp_consumer_thread) {
+    Subscriber* sub = (Subscriber*)data;
+
+    while (atomic_load_explicit(&sub->active, memory_order_relaxed)) {
+        // Connect phase
+        if (!atomic_load_explicit(&sub->connected, memory_order_relaxed)) {
+            socket_t sock = 0;
+            Result res = socket_connect_blocking(sub->cfg.tcp.host, sub->cfg.tcp.port, &sock);
+            if (res != SUCCESS) {
+                _tracer_sleep_ms(TRACER_TCP_RECONNECT_MS);
+                continue;
+            }
+            sub->cfg.tcp.sock = sock;
+            if (!_tcp_send_handshake(sock)) {
+                socket_close(sock);
+                continue;
+            }
+            atomic_store_explicit(&sub->connected, true, memory_order_release);
+        }
+
+        // Drain ring buffer
+        uint8_t* payload;
+        size_t sz = mpsc_ring_buffer_lock_acquire_read(&sub->ring_buffer, &payload);
+
+        if (!atomic_load_explicit(&sub->active, memory_order_relaxed)) {
+            mpsc_ring_buffer_lock_release_read(&sub->ring_buffer, sz);
+            break;
+        }
+
+        if (!_tcp_send_tlv(sub->cfg.tcp.sock, MSG_TRACE_EVENT, payload, sz)) {
+            atomic_store_explicit(&sub->connected, false, memory_order_relaxed);
+            socket_close(sub->cfg.tcp.sock);
+        }
+
+        mpsc_ring_buffer_lock_release_read(&sub->ring_buffer, sz);
+    }
+
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// SQLite subscriber consumer thread
+// ---------------------------------------------------------------------------
+
+#ifdef TRACER_SQLITE_ENABLED
+#include <sqlite3.h>
+
+#define SQLITE_MAX_TABLES 64
+#define SQLITE_MAX_COLUMNS 64
+
+typedef struct SqliteTableInfo {
+    char name[256];
+    size_t name_len;
+    sqlite3_stmt* insert_stmt;
+} SqliteTableInfo;
+
+typedef struct SqliteState {
+    SqliteTableInfo tables[SQLITE_MAX_TABLES];
+    uint32_t        table_count;
+} SqliteState;
+
+static uint64_t _read_u64(const uint8_t* p) {
+    uint64_t v; memcpy(&v, p, 8); return v;
+}
+
+// Deserialize binary payload and insert into SQLite
+static void _sqlite_process_entry(sqlite3* db, SqliteState* state, const uint8_t* payload, size_t payload_len) {
+    const uint8_t* p = payload;
+    const uint8_t* end = payload + payload_len;
+
+    // Read identifier
+    uint64_t id_len = _read_u64(p); p += 8;
+    const char* identifier = (const char*)p; p += id_len;
+
+    // Read num_entries
+    uint64_t num_entries = _read_u64(p); p += 8;
+
+    // Find existing table
+    SqliteTableInfo* table = NULL;
+    for (uint32_t i = 0; i < state->table_count; i++) {
+        if (state->tables[i].name_len == id_len && memcmp(state->tables[i].name, identifier, id_len) == 0) {
+            table = &state->tables[i];
+            break;
+        }
+    }
+
+    // Read all keys and values into temp arrays
+    const char* keys[SQLITE_MAX_COLUMNS];
+    size_t key_lens[SQLITE_MAX_COLUMNS];
+    uint64_t types[SQLITE_MAX_COLUMNS];
+    const uint8_t* value_ptrs[SQLITE_MAX_COLUMNS];
+
+    ASSERT(num_entries <= SQLITE_MAX_COLUMNS);
+
+    for (uint64_t i = 0; i < num_entries; i++) {
+        if (p >= end) return;
+        uint64_t kl = _read_u64(p); p += 8;
+        keys[i] = (const char*)p;
+        key_lens[i] = (size_t)kl;
+        p += align_up(kl, 8);
+
+        types[i] = _read_u64(p); p += 8;
+        value_ptrs[i] = p;
+
+        switch (types[i]) {
+            case TRACE_TYPE_NONE: break;
+            case TRACE_TYPE_I32: case TRACE_TYPE_I64: case TRACE_TYPE_U32:
+            case TRACE_TYPE_U64: case TRACE_TYPE_F32: case TRACE_TYPE_F64:
+            case TRACE_TYPE_BOOL: p += 8; break;
+            case TRACE_TYPE_STR: case TRACE_TYPE_BYTES: case TRACE_TYPE_NDARRAY: {
+                uint64_t dl = _read_u64(p); p += 8;
+                p += align_up(dl, 8);
+            } break;
+            default: return; // unknown type, skip entry
+        }
+    }
+
+    // Create table if new
+    if (!table) {
+        if (state->table_count >= SQLITE_MAX_TABLES) return;
+        table = &state->tables[state->table_count++];
+        memcpy(table->name, identifier, id_len);
+        table->name[id_len] = '\0';
+        table->name_len = id_len;
+        table->column_count = (uint32_t)num_entries;
+        table->insert_stmt = NULL;
+
+        // Build CREATE TABLE
+        char sql[4096];
+        int pos = snprintf(sql, sizeof(sql), "CREATE TABLE IF NOT EXISTS \"%.*s\" (", (int)id_len, identifier);
+        for (uint64_t i = 0; i < num_entries; i++) {
+            if (i > 0) { sql[pos++] = ','; sql[pos++] = ' '; }
+            pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, "\"%.*s\"", (int)key_lens[i], keys[i]);
+            memcpy(table->columns[i], keys[i], key_lens[i]);
+            table->columns[i][key_lens[i]] = '\0';
+
+            switch (types[i]) {
+                case TRACE_TYPE_I32: case TRACE_TYPE_I64: case TRACE_TYPE_U32:
+                case TRACE_TYPE_U64: case TRACE_TYPE_BOOL:
+                    pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, " INTEGER"); break;
+                case TRACE_TYPE_F32: case TRACE_TYPE_F64:
+                    pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, " REAL"); break;
+                case TRACE_TYPE_STR:
+                    pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, " TEXT"); break;
+                default:
+                    pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, " BLOB"); break;
+            }
+        }
+        pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, ")");
+        sqlite3_exec(db, sql, NULL, NULL, NULL);
+
+        // Prepare INSERT statement
+        pos = snprintf(sql, sizeof(sql), "INSERT INTO \"%.*s\" VALUES (", (int)id_len, identifier);
+        for (uint64_t i = 0; i < num_entries; i++) {
+            if (i > 0) sql[pos++] = ',';
+            sql[pos++] = '?';
+        }
+        sql[pos++] = ')';
+        sql[pos] = '\0';
+        sqlite3_prepare_v2(db, sql, pos, &table->insert_stmt, NULL);
+    } else {
+        // Verify schema matches
+        ASSERT(table->column_count == (uint32_t)num_entries && "tracepoint schema mismatch");
+        for (uint64_t i = 0; i < num_entries; i++) {
+            ASSERT(key_lens[i] == strlen(table->columns[i]) &&
+                   memcmp(keys[i], table->columns[i], key_lens[i]) == 0 &&
+                   "tracepoint column mismatch");
+        }
+    }
+
+    // Bind values and execute
+    sqlite3_reset(table->insert_stmt);
+    for (uint64_t i = 0; i < num_entries; i++) {
+        int col = (int)(i + 1);
+        const uint8_t* vp = value_ptrs[i];
+        switch (types[i]) {
+            case TRACE_TYPE_NONE: sqlite3_bind_null(table->insert_stmt, col); break;
+            case TRACE_TYPE_I32: case TRACE_TYPE_I64: case TRACE_TYPE_BOOL: {
+                int64_t v; memcpy(&v, vp, 8);
+                sqlite3_bind_int64(table->insert_stmt, col, v);
+            } break;
+            case TRACE_TYPE_U32: case TRACE_TYPE_U64: {
+                int64_t v; memcpy(&v, vp, 8);
+                sqlite3_bind_int64(table->insert_stmt, col, v);
+            } break;
+            case TRACE_TYPE_F32: case TRACE_TYPE_F64: {
+                double v; memcpy(&v, vp, 8);
+                sqlite3_bind_double(table->insert_stmt, col, v);
+            } break;
+            case TRACE_TYPE_STR: {
+                uint64_t sl = _read_u64(vp);
+                sqlite3_bind_text(table->insert_stmt, col, (const char*)(vp + 8), (int)sl, SQLITE_TRANSIENT);
+            } break;
+            case TRACE_TYPE_BYTES: case TRACE_TYPE_NDARRAY: {
+                uint64_t dl = _read_u64(vp);
+                sqlite3_bind_blob(table->insert_stmt, col, vp + 8, (int)dl, SQLITE_TRANSIENT);
+            } break;
+            default: break;
+        }
+    }
+    sqlite3_step(table->insert_stmt);
+}
+
+static THREAD_PROC(_sqlite_consumer_thread) {
+    Subscriber* sub = (Subscriber*)data;
+    sqlite3* db = (sqlite3*)sub->cfg.sqlite.db;
+
+    sqlite3_exec(db, "PRAGMA journal_mode=WAL", NULL, NULL, NULL);
+    sqlite3_exec(db, "PRAGMA synchronous=NORMAL", NULL, NULL, NULL);
+
+    SqliteState* state = (SqliteState*)calloc(1, sizeof(SqliteState));
+    ASSERT(state && "failed to allocate sqlite state");
+    uint32_t commit_counter = 0;
+
+    while (atomic_load_explicit(&sub->active, memory_order_relaxed)) {
+        uint8_t* payload;
+        size_t sz = mpsc_ring_buffer_lock_acquire_read(&sub->ring_buffer, &payload);
+
+        if (!atomic_load_explicit(&sub->active, memory_order_relaxed)) {
+            mpsc_ring_buffer_lock_release_read(&sub->ring_buffer, sz);
+            break;
+        }
+
+        _sqlite_process_entry(db, state, payload, sz);
+        mpsc_ring_buffer_lock_release_read(&sub->ring_buffer, sz);
+
+        if (++commit_counter >= 64) {
+            sqlite3_exec(db, "COMMIT; BEGIN", NULL, NULL, NULL);
+            commit_counter = 0;
+        }
+    }
+
+    // Final commit and cleanup
+    sqlite3_exec(db, "COMMIT", NULL, NULL, NULL);
+    for (uint32_t i = 0; i < state->table_count; i++) {
+        if (state->tables[i].insert_stmt) sqlite3_finalize(state->tables[i].insert_stmt);
+    }
+    free(state);
+
+    return 0;
+}
+#endif // TRACER_SQLITE_ENABLED
+
+// ---------------------------------------------------------------------------
+// Subscriber management
+// ---------------------------------------------------------------------------
+
+static int tracer_add_tcp_subscriber(const char* host, uint16_t port) {
+    for (int i = 0; i < TRACER_MAX_SUBSCRIBERS; i++) {
+        if (g_tracer.subscribers[i].type == SUBSCRIBER_NONE) {
+            Subscriber* sub = &g_tracer.subscribers[i];
+            sub->type = SUBSCRIBER_TCP;
+            sub->index = (uint32_t)i;
+            atomic_store_explicit(&sub->active, true, memory_order_relaxed);
+            atomic_store_explicit(&sub->connected, false, memory_order_relaxed);
+            snprintf(sub->cfg.tcp.host, sizeof(sub->cfg.tcp.host), "%s", host);
+            sub->cfg.tcp.port = port;
+            mpsc_ring_buffer_create(&sub->ring_buffer, TRACER_SUBSCRIBER_BUFFER_SIZE);
+            create_thread(_tcp_consumer_thread, sub, &sub->consumer_thread);
+            return i;
+        }
+    }
+    return -1;
+}
+
+#ifdef TRACER_SQLITE_ENABLED
+static int tracer_add_sqlite_subscriber(const char* db_path) {
+    for (int i = 0; i < TRACER_MAX_SUBSCRIBERS; i++) {
+        if (g_tracer.subscribers[i].type == SUBSCRIBER_NONE) {
+            Subscriber* sub = &g_tracer.subscribers[i];
+            sub->type = SUBSCRIBER_SQLITE;
+            sub->index = (uint32_t)i;
+            atomic_store_explicit(&sub->active, true, memory_order_relaxed);
+            snprintf(sub->cfg.sqlite.path, sizeof(sub->cfg.sqlite.path), "%s", db_path);
+
+            sqlite3* db;
+            int rc = sqlite3_open(db_path, &db);
+            ASSERT(rc == SQLITE_OK && "failed to open sqlite database");
+            sub->cfg.sqlite.db = db;
+
+            sqlite3_exec(db, "BEGIN", NULL, NULL, NULL);
+
+            mpsc_ring_buffer_create(&sub->ring_buffer, TRACER_SUBSCRIBER_BUFFER_SIZE);
+            create_thread(_sqlite_consumer_thread, sub, &sub->consumer_thread);
+            return i;
+        }
+    }
+    return -1;
+}
+#endif
+
+static bool tracer_subscribe(int subscriber_idx, const char* tracepoint_name) {
+    Tracepoint* tp = _tracepoint_ht_find(&g_tracer.hash_table, tracepoint_name, strlen(tracepoint_name));
+    if (!tp) return false;
+    uint32_t bit = 1u << (uint32_t)subscriber_idx;
+    atomic_fetch_or_explicit(&tp->subscriber_mask, bit, memory_order_relaxed);
+    return true;
+}
+
+static bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name) {
+    Tracepoint* tp = _tracepoint_ht_find(&g_tracer.hash_table, tracepoint_name, strlen(tracepoint_name));
+    if (!tp) return false;
+    uint32_t bit = 1u << (uint32_t)subscriber_idx;
+    atomic_fetch_and_explicit(&tp->subscriber_mask, ~bit, memory_order_relaxed);
+    return true;
+}
+
+static void tracer_subscribe_all(int subscriber_idx) {
+    uint32_t count = atomic_load_explicit(&g_tracer.registry.count, memory_order_relaxed);
+    uint32_t bit = 1u << (uint32_t)subscriber_idx;
+    for (uint32_t i = 0; i < count; i++) {
+        atomic_fetch_or_explicit(&g_tracer.registry.tracepoints[i].subscriber_mask, bit, memory_order_relaxed);
+    }
+}
+
+static void tracer_unsubscribe_all(int subscriber_idx) {
+    uint32_t count = atomic_load_explicit(&g_tracer.registry.count, memory_order_relaxed);
+    uint32_t bit = 1u << (uint32_t)subscriber_idx;
+    for (uint32_t i = 0; i < count; i++) {
+        atomic_fetch_and_explicit(&g_tracer.registry.tracepoints[i].subscriber_mask, ~bit, memory_order_relaxed);
+    }
+}
+
+static void tracer_remove_subscriber(int idx) {
+    Subscriber* sub = &g_tracer.subscribers[idx];
+    if (sub->type == SUBSCRIBER_NONE) return;
+
+    // Unsubscribe from all tracepoints
+    tracer_unsubscribe_all(idx);
+
+    // Signal consumer thread to stop
+    atomic_store_explicit(&sub->active, false, memory_order_release);
+
+    // Write a dummy entry to wake the consumer if it's blocked
+    uint8_t* dummy = mpsc_ring_buffer_try_reserve_write(&sub->ring_buffer, 1);
+    if (dummy) {
+        dummy[0] = 0;
+        mpsc_ring_buffer_commit_write(&sub->ring_buffer, dummy);
+    }
+
+    join_thread(&sub->consumer_thread);
+
+    if (sub->type == SUBSCRIBER_TCP) {
+        if (atomic_load_explicit(&sub->connected, memory_order_relaxed)) {
+            socket_close(sub->cfg.tcp.sock);
+        }
+    }
+#ifdef TRACER_SQLITE_ENABLED
+    if (sub->type == SUBSCRIBER_SQLITE) {
+        sqlite3_close((sqlite3*)sub->cfg.sqlite.db);
+    }
+#endif
+
+    mpsc_ring_buffer_destroy(&sub->ring_buffer);
+    sub->type = SUBSCRIBER_NONE;
+}
+
+// ---------------------------------------------------------------------------
+// Tracer lifecycle
+// ---------------------------------------------------------------------------
+
+static void tracer_init(void) {
+    ASSERT(!atomic_load_explicit(&g_tracer.initialized, memory_order_relaxed));
+
+    g_tracer.registry.frozen = true;
+
+    _tracepoint_ht_init(&g_tracer.hash_table);
+    uint32_t count = atomic_load_explicit(&g_tracer.registry.count, memory_order_relaxed);
+    for (uint32_t i = 0; i < count; i++) {
+        _tracepoint_ht_insert(&g_tracer.hash_table, &g_tracer.registry.tracepoints[i]);
+    }
+
+    memset(g_tracer.subscribers, 0, sizeof(g_tracer.subscribers));
+    atomic_store_explicit(&g_tracer.initialized, true, memory_order_release);
+}
+
+static void tracer_close(void) {
+    for (int i = 0; i < TRACER_MAX_SUBSCRIBERS; i++) {
+        tracer_remove_subscriber(i);
+    }
+    atomic_store_explicit(&g_tracer.initialized, false, memory_order_relaxed);
+}
+
+// ---------------------------------------------------------------------------
+// TRACE macro
+// ---------------------------------------------------------------------------
+#ifdef _MSC_VER
+#include <intrin.h>
+static inline int _trace_ctz_msvc(uint32_t x) { unsigned long idx; _BitScanForward(&idx, x); return (int)idx; }
+#define _TRACE_CTZ(x) _trace_ctz_msvc(x)
+#else
+#define _TRACE_CTZ(x) __builtin_ctz(x)
+#endif
+
+static inline void _trace_emit(Tracepoint* tp, const TraceField* fields, size_t nfields) {
+    uint32_t mask = atomic_load_explicit(&tp->subscriber_mask, memory_order_relaxed);
+
+    // Compute total size once (same for all subscribers)
+    size_t sz = trace_size_header(tp->name_len, nfields);
+    for (size_t i = 0; i < nfields; i++)
+        sz += _trace_field_size(&fields[i]);
+
+    while (mask) {
+        int idx = _TRACE_CTZ(mask);
+        mask &= mask - 1;
+        Subscriber* sub = &g_tracer.subscribers[idx];
+
+        uint8_t* buf;
+#if TRACER_QUEUE_FULL_POLICY
+        buf = mpsc_ring_buffer_wait_reserve_write(&sub->ring_buffer, sz);
+#else
+        buf = mpsc_ring_buffer_try_reserve_write(&sub->ring_buffer, sz);
+#endif
+        if (!buf) continue;
+
+        uint8_t* p = trace_write_header(buf, tp->name, tp->name_len, nfields);
+        for (size_t i = 0; i < nfields; i++)
+            p = _trace_field_write(p, &fields[i]);
+
+        mpsc_ring_buffer_commit_write(&sub->ring_buffer, buf);
+    }
+}
+
+#define TRACE(tp, ...) \
+    do { \
+        if (tracepoint_enabled(tp)) { \
+            TraceField _trace_fields[] = { __VA_ARGS__ }; \
+            _trace_emit((tp), _trace_fields, sizeof(_trace_fields)/sizeof(_trace_fields[0])); \
+        } \
+    } while (0)
+
+// Low-level manual API
+#define TRACE_BEGIN(tp) \
+    do { \
+        uint32_t _trace_mask = atomic_load_explicit(&(tp)->subscriber_mask, memory_order_relaxed); \
+        if (_trace_mask) { \
+            while (_trace_mask) { \
+                int _trace_sub_idx = _TRACE_CTZ(_trace_mask); \
+                _trace_mask &= _trace_mask - 1; \
+                Subscriber* _trace_sub = &g_tracer.subscribers[_trace_sub_idx]; \
+                SubscriberType _trace_sub_type = _trace_sub->type; \
+                (void)_trace_sub_type;
+
+#define TRACE_RESERVE(sz) \
+                uint8_t* _trace_buf; \
+                if (TRACER_QUEUE_FULL_POLICY) \
+                    _trace_buf = mpsc_ring_buffer_wait_reserve_write(&_trace_sub->ring_buffer, (sz)); \
+                else \
+                    _trace_buf = mpsc_ring_buffer_try_reserve_write(&_trace_sub->ring_buffer, (sz)); \
+                if (_trace_buf) {
+
+#define TRACE_END() \
+                    mpsc_ring_buffer_commit_write(&_trace_sub->ring_buffer, _trace_buf); \
+                } \
+            } \
+        } \
+    } while (0)
 
 #endif
+
+#endif // TRACING_H
