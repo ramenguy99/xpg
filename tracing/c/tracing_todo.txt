@@ -1,0 +1,19 @@
+Maintenance:
+- Fix include from multiple files
+- Write unit tests
+
+TCP:
+- Write cross platform sendv wrapper to send tcp messages in a single call
+- Unsubscribe from all tracepoints while tcp disconnected
+- Use non-blocking tcp connect
+- Add tcp reader thread, use atomics to enable / disable tracepoints at runtime
+
+SQLite:
+- Remove calloc (not sure why we need to keep track of tables, just error checking?)
+- No unnecessary string formatting for sqlite sub
+- Fallback to dynamic allocation for table creation if does not fit in stack-allocated buffer (snprintf helper)
+- No table verification (just use sqlite internal verification?)
+
+Robustness:
+- Global max ndim and ensure that tracing fails gracefully if not respected at runtime
+    -> maybe even one macro per dim
