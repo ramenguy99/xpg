@@ -621,7 +621,7 @@ inline bool rwlock_try_read(RWLock* rwlock) {
 //     }
 // }
 
-inline uint32_t _rwlock_spin_write(RWLock* rwlock) {
+static inline uint32_t _rwlock_spin_write(RWLock* rwlock) {
     size_t spin = 100;
     while(true) {
         uint32_t state = atomic_load_explicit(&rwlock->state, memory_order_relaxed);
@@ -635,7 +635,7 @@ inline uint32_t _rwlock_spin_write(RWLock* rwlock) {
     }
 }
 
-inline uint32_t _rwlock_spin_read(RWLock* rwlock) {
+static inline uint32_t _rwlock_spin_read(RWLock* rwlock) {
     size_t spin = 100;
     while(true) {
         uint32_t state = atomic_load_explicit(&rwlock->state, memory_order_relaxed);
@@ -649,7 +649,7 @@ inline uint32_t _rwlock_spin_read(RWLock* rwlock) {
     }
 }
 
-inline void _rwlock_read_contended(RWLock* rwlock) {
+static void _rwlock_read_contended(RWLock* rwlock) {
     bool has_slept = false;
     uint32_t state = _rwlock_spin_read(rwlock);
 
@@ -687,7 +687,7 @@ inline void _rwlock_read_contended(RWLock* rwlock) {
     }
 }
 
-inline void rwlock_read(RWLock* rwlock) {
+static inline void rwlock_read(RWLock* rwlock) {
     uint32_t state = atomic_load_explicit(&rwlock->state, memory_order_relaxed);
     if (!_rwlock_is_read_lockable(state) || !atomic_compare_exchange_weak_explicit(&rwlock->state, &state, state + RWLOCK_READ_LOCKED, memory_order_acquire, memory_order_relaxed))
     {
@@ -702,7 +702,7 @@ inline void rwlock_read(RWLock* rwlock) {
 //
 // If this returns false, it might still be the case that we notified a
 // writer that was about to go to sleep.
-inline bool _rwlock_wake_writer(RWLock* rwlock) {
+static inline bool _rwlock_wake_writer(RWLock* rwlock) {
     atomic_fetch_add_explicit(&rwlock->writer_notify, 1, memory_order_release);
     return futex_wake(&rwlock->writer_notify);
     // Note that some platforms don't tell us whether they woke
@@ -778,7 +778,7 @@ inline static void rwlock_read_unlock(RWLock* rwlock) {
     }
 }
 
-inline bool rwlock_try_write(RWLock* rwlock) {
+static inline bool rwlock_try_write(RWLock* rwlock) {
     uint32_t prev = atomic_load_explicit(&rwlock->state, memory_order_acquire);
     while (true) {
         if (!_rwlock_is_unlocked(prev)) {
@@ -855,7 +855,7 @@ static inline void rwlock_write_unlock(RWLock* rwlock) {
     }
 }
 
-inline void downgrade(RWLock* rwlock) {
+static inline void downgrade(RWLock* rwlock) {
     // Removes all write bits and adds a single read bit.
     uint32_t state = atomic_fetch_add_explicit(&rwlock->state, RWLOCK_DOWNGRADE, memory_order_release);
 
@@ -869,7 +869,7 @@ inline void downgrade(RWLock* rwlock) {
 }
 
 // Ring-mapped buffer from: https://gist.github.com/mmozeiko/3b09a340f3c53e5eaed699a1aea95250
-void* alloc_ring_mapped_buffer(size_t Size)
+static void* alloc_ring_mapped_buffer(size_t Size)
 {
     void* data;
 #if defined(_WIN32)
@@ -1015,17 +1015,19 @@ void free_ring_mapped_buffer(void* ptr, size_t size) {
 //    - ISSUE: we have to clear the whole buffer after finishing a consume operations because we don't know where the next doorbell might be.
 typedef struct MpscRingBuffer
 {
-    Futex allocated_offset; // Producers atomically increment this
+    Mutex alloc_mutex;
+
+    atomic_uint allocated_offset; // Producers atomically increment this
     uint8_t __padding0[CACHE_LINE_SIZE - sizeof(atomic_uint)];
 
     Futex visible_offset;   // Producers advance this after initializing headers (sequential)
-    uint8_t __padding1[CACHE_LINE_SIZE - sizeof(atomic_uint)];
+    uint8_t __padding1[CACHE_LINE_SIZE - sizeof(Futex)];
 
     Futex consumed_offset;  // Producers wait on this, incremented by consumer
-    uint8_t __padding2[CACHE_LINE_SIZE - sizeof(atomic_uint)];
+    uint8_t __padding2[CACHE_LINE_SIZE - sizeof(Futex)];
 
     Futex consumer_notify; // Producers notify by storing one to this, waited on by consumer
-    uint8_t __padding3[CACHE_LINE_SIZE - sizeof(atomic_uint)];
+    uint8_t __padding3[CACHE_LINE_SIZE - sizeof(Futex)];
 
     uint8_t* ring_buffer;
     size_t size;
@@ -1096,45 +1098,37 @@ mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
     }
 
     uint32_t alloc = (align_up(size, MPSC_ALLOCATION_ALIGNMENT) + MPSC_HEADER_TOTAL_SIZE) >> MPSC_ALLOCATION_ALIGNMENT_BITS;
-
     uint32_t capacity = mpsc->size >> MPSC_ALLOCATION_ALIGNMENT_BITS;
 
+    // Try to alloc
+    mutex_lock(&mpsc->alloc_mutex);
+    
     uint32_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
     uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
 
-    while (capacity - (allocated - consumed) >= alloc) {
-        // Try to alloc
-        if (atomic_compare_exchange_weak_explicit(&mpsc->allocated_offset, &allocated, allocated + alloc, memory_order_relaxed, memory_order_relaxed)) {
-            // Synchronize with the consumer's release store on consumed_offset to ensure
-            // the consumer's reads of the previous payload at this region are complete
-            // before we write to it.
-            atomic_thread_fence(memory_order_acquire);
-
-            uint8_t* start = mpsc->ring_buffer + ((size_t)(allocated & mpsc->mask) << MPSC_ALLOCATION_ALIGNMENT_BITS);
-
-            // Initialize header: clear doorbell and write payload size.
-            *(uint64_t*)(start + MPSC_HEADER_DOORBELL_OFFSET) = 0;
-            *(uint64_t*)(start + MPSC_HEADER_PAYLOAD_SIZE_OFFSET) = size;
-
-            // Make the entry visible to the consumer. This must be sequential:
-            // we spin until all prior producers have made their entries visible.
-            // The window is bounded by 2 memory writes (the header init above).
-            uint32_t expected = allocated;
-            while (!atomic_compare_exchange_weak_explicit(&mpsc->visible_offset, &expected, allocated + alloc, memory_order_release, memory_order_relaxed)) {
-                expected = allocated;
-                SpinlockHint();
-            }
-
-            // Return pointer to payload
-            return start + MPSC_HEADER_TOTAL_SIZE;
-        } else {
-            // Update current consumed value (consumer might have consumed while we were trying to reserve).
-            consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
-        }
+    // Check for space in buffer
+    if (capacity - (allocated - consumed) >= alloc) {
+        mutex_unlock(&mpsc->alloc_mutex);
+        return NULL;
     }
 
-    // Not enough space in the buffer
-    return NULL;
+    uint32_t new_offset = allocated + alloc;
+
+    atomic_store_explicit(&mpsc->allocated_offset, new_offset, memory_order_relaxed);
+
+    uint8_t* start = mpsc->ring_buffer + ((size_t)(allocated & mpsc->mask) << MPSC_ALLOCATION_ALIGNMENT_BITS);
+
+    // Initialize header: clear doorbell and write payload size.
+    *(uint64_t*)(start + MPSC_HEADER_DOORBELL_OFFSET) = 0;
+    *(uint64_t*)(start + MPSC_HEADER_PAYLOAD_SIZE_OFFSET) = size;
+
+    // Make the entry visible to the consumer.
+    atomic_store_explicit(&mpsc->visible_offset, allocated + alloc, memory_order_release);
+
+    mutex_unlock(&mpsc->alloc_mutex);
+
+    // Return pointer to payload
+    return start + MPSC_HEADER_TOTAL_SIZE;
 }
 
 static uint8_t*
@@ -1144,58 +1138,49 @@ mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
         return NULL;
     }
 
-
     uint32_t alloc = (align_up(size, MPSC_ALLOCATION_ALIGNMENT) + MPSC_HEADER_TOTAL_SIZE) >> MPSC_ALLOCATION_ALIGNMENT_BITS;
     uint32_t capacity = mpsc->size >> MPSC_ALLOCATION_ALIGNMENT_BITS;
 
-    uint32_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
-    uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
-
     while (true) {
+        mutex_lock(&mpsc->alloc_mutex);
+        
+        uint32_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
+        uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
+
         // If not enough space available wait for consumed to increase
         while (capacity - (allocated - consumed) < alloc) {
-            // perf: could spin a bit here before sleeping
+            // Release the lock before going to sleep
+            mutex_unlock(&mpsc->alloc_mutex);
 
             // Wait for changes to consumed offset
             futex_wait(&mpsc->consumed_offset, consumed);
+
+            // Re-acquire the lock before reading offsets again
+            mutex_lock(&mpsc->alloc_mutex);
 
             // Re-read allocated and consumed offsets
             allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
             consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
         }
 
-        // Try to alloc
-        if (atomic_compare_exchange_weak_explicit(&mpsc->allocated_offset, &allocated, allocated + alloc, memory_order_relaxed, memory_order_relaxed)) {
-            // Synchronize with the consumer's release store on consumed_offset to ensure
-            // the consumer's reads of the previous payload at this region are complete
-            // before we write to it.
-            atomic_thread_fence(memory_order_acquire);
+        uint32_t new_offset = allocated + alloc;
 
-            uint8_t* start = mpsc->ring_buffer + ((size_t)(allocated & mpsc->mask) << MPSC_ALLOCATION_ALIGNMENT_BITS);
+        atomic_store_explicit(&mpsc->allocated_offset, new_offset, memory_order_relaxed);
 
-            // Initialize header: clear doorbell and write payload size.
-            *(uint64_t*)(start + MPSC_HEADER_DOORBELL_OFFSET) = 0;
-            *(uint64_t*)(start + MPSC_HEADER_PAYLOAD_SIZE_OFFSET) = size;
+        uint8_t* start = mpsc->ring_buffer + ((size_t)(allocated & mpsc->mask) << MPSC_ALLOCATION_ALIGNMENT_BITS);
 
-            // Make the entry visible to the consumer. This must be sequential:
-            // we spin until all prior producers have made their entries visible.
-            // The window is bounded by 2 memory writes (the header init above).
-            uint32_t expected = allocated;
-            while (!atomic_compare_exchange_weak_explicit(&mpsc->visible_offset, &expected, allocated + alloc, memory_order_release, memory_order_relaxed)) {
-                expected = allocated;
-                SpinlockHint();
-            }
+        // Initialize header: clear doorbell and write payload size.
+        *(uint64_t*)(start + MPSC_HEADER_DOORBELL_OFFSET) = 0;
+        *(uint64_t*)(start + MPSC_HEADER_PAYLOAD_SIZE_OFFSET) = size;
 
-            // Return pointer to payload
-            return start + MPSC_HEADER_TOTAL_SIZE;
-        } else {
-            // Update current consumed offset (consumer might have consumed while we were trying to reserve).
-            consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
-        }
+        // Make the entry visible to the consumer.
+        atomic_store_explicit(&mpsc->visible_offset, allocated + alloc, memory_order_release);
+
+        mutex_unlock(&mpsc->alloc_mutex);
+
+        // Return pointer to payload
+        return start + MPSC_HEADER_TOTAL_SIZE;
     }
-
-    // Not enough space in the buffer
-    return NULL;
 }
 
 static void
@@ -1210,6 +1195,8 @@ mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, uint8_t* alloc) {
     // - consumer_notify (saw the entry, waiting for doorbell)
     // We wake both since we don't know which state it's in.
     atomic_store_explicit(&mpsc->consumer_notify, 1, memory_order_release);
+
+    // TODO: make the wakes optional using special values in these variables
     futex_wake(&mpsc->visible_offset);
     futex_wake(&mpsc->consumer_notify);
 }
