@@ -6,6 +6,17 @@
 
 TRACEPOINT_DEFINE(tp_worker, "worker.tick");
 
+static void sleep_ms(int ms) {
+#ifdef _WIN32
+    Sleep((DWORD)ms);
+#else
+    struct timespec ts;
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (ms % 1000) * 1000000L;
+    while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {}
+#endif
+}
+
 static THREAD_PROC(worker_proc) {
     WorkerContext* ctx = (WorkerContext*)data;
     int tick = 0;
@@ -23,8 +34,7 @@ static THREAD_PROC(worker_proc) {
 
         tick++;
 
-        struct timespec ts = { 0, 500000000L };
-        while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {}
+        sleep_ms(500);
     }
 
     printf("[worker] stopped after %d ticks\n", tick);

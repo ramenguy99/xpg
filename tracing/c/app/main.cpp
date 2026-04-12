@@ -16,11 +16,16 @@ static void signal_handler(int) {
 }
 
 static void sleep_ms(int ms) {
+#ifdef _WIN32
+    Sleep((DWORD)ms);
+#else
     struct timespec ts;
     ts.tv_sec = ms / 1000;
     ts.tv_nsec = (ms % 1000) * 1000000L;
     while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {}
+#endif
 }
+
 
 int main() {
     tracer_init();
