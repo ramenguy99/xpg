@@ -162,15 +162,16 @@ typedef struct TcpConnection
     struct addrinfo* picked_address;
 } TcpConnection;
 
+#ifdef TRACING_IMPLEMENTATION
+
 static Result socket_init();
+static void socket_deinit();
 static Result socket_listen(uint16_t port, int backlog, bool only_ipv4, bool only_localhost, socket_t* socket);
 static Result socket_accept(socket_t listening_socket, int timeout, socket_t* socket);
 static Result socket_connect( const char* addr, uint16_t port, TcpConnection* connection_socket);
 static void socket_close(socket_t socket);
 static Result socket_connect_blocking( const char* addr, uint16_t port, socket_t* connection_socket);
 static void socket_close_connection(TcpConnection* connection);
-
-#ifdef TRACING_IMPLEMENTATION
 
 static Result
 socket_init() {
@@ -182,6 +183,13 @@ socket_init() {
     }
 #endif
     return SUCCESS;
+}
+
+static void
+socket_deinit() {
+#ifdef _WIN32
+    WSACleanup();
+#endif
 }
 
 static socket_t
@@ -449,6 +457,71 @@ socket_connect_blocking( const char* addr, uint16_t port, socket_t* connection_s
     *connection_socket = sock;
     return SUCCESS;
 }
+
+static bool socket_send_all(socket_t sock, const void* data, size_t len) {
+    const uint8_t* p = (const uint8_t*)data;
+    while (len > 0) {
+#ifdef _WIN32
+        int sent = send(sock, (const char*)p, (int)len, 0);
+#else
+        ssize_t sent = send(sock, p, len, 0);
+#endif
+        if (sent < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        }
+        if (sent == 0) return false;
+        p += sent;
+        len -= (size_t)sent;
+    }
+    return true;
+}
+
+static bool socket_sendv(socket_t sock, const void* a, size_t a_len, const void* b, size_t b_len) {
+#ifdef _WIN32
+    WSABUF bufs[2];
+    DWORD count = 0;
+    bufs[0].buf = (char*)a; bufs[0].len = (ULONG)a_len;
+    bufs[1].buf = (char*)b; bufs[1].len = (ULONG)b_len;
+    int nbufs = b_len > 0 ? 2 : 1;
+    size_t total = a_len + b_len;
+    while (total > 0) {
+        DWORD sent = 0;
+        if (WSASend(sock, bufs, nbufs, &sent, 0, NULL, NULL) == SOCKET_ERROR) return false;
+        if (sent == 0) return false;
+        total -= sent;
+        // Advance buffers
+        for (int i = 0; i < nbufs && sent > 0; i++) {
+            if (sent >= bufs[i].len) { sent -= bufs[i].len; bufs[i].len = 0; bufs[i].buf += bufs[i].len; }
+            else { bufs[i].buf += sent; bufs[i].len -= (ULONG)sent; sent = 0; }
+        }
+    }
+    return true;
+#else
+    struct iovec iov[2];
+    iov[0].iov_base = (void*)a; iov[0].iov_len = a_len;
+    iov[1].iov_base = (void*)b; iov[1].iov_len = b_len;
+    int nbufs = b_len > 0 ? 2 : 1;
+    size_t total = a_len + b_len;
+    while (total > 0) {
+        ssize_t sent = writev(sock, iov, nbufs);
+        if (sent < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        }
+        if (sent == 0) return false;
+        total -= (size_t)sent;
+        // Advance buffers
+        for (int i = 0; i < nbufs && sent > 0; i++) {
+            if ((size_t)sent >= iov[i].iov_len) { sent -= (ssize_t)iov[i].iov_len; iov[i].iov_len = 0; }
+            else { iov[i].iov_base = (uint8_t*)iov[i].iov_base + sent; iov[i].iov_len -= (size_t)sent; sent = 0; }
+        }
+    }
+    return true;
+#endif
+}
+
+#endif // TRACING_IMPLEMENTATION (sockets)
 
 
 // Threading
@@ -1802,7 +1875,7 @@ typedef struct Tracer {
     _Atomic(bool)       initialized;
 } Tracer;
 
-static Tracer g_tracer;
+extern Tracer g_tracer;
 
 static inline bool tracepoint_enabled(const Tracepoint* tp) {
     return atomic_load_explicit(&((Tracepoint*)tp)->subscriber_mask, memory_order_relaxed) != 0;
@@ -1834,6 +1907,25 @@ static Tracepoint* tracepoint_register(const char* name) {
     static Tracepoint* varname; \
     __attribute__((constructor)) static void _tp_init_##varname(void) { varname = tracepoint_register(namestr); }
 #endif
+
+// ---------------------------------------------------------------------------
+// Public API forward declarations
+// ---------------------------------------------------------------------------
+void tracer_init(void);
+void tracer_close(void);
+int tracer_add_tcp_subscriber(const char* host, uint16_t port);
+#ifdef TRACER_SQLITE_ENABLED
+int tracer_add_sqlite_subscriber(const char* db_path);
+#endif
+bool tracer_subscribe(int subscriber_idx, const char* tracepoint_name);
+bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name);
+void tracer_subscribe_all(int subscriber_idx);
+void tracer_unsubscribe_all(int subscriber_idx);
+void tracer_remove_subscriber(int idx);
+
+#ifdef TRACING_IMPLEMENTATION
+
+Tracer g_tracer;
 
 // Hash table (FNV-1a, open addressing, linear probing)
 static inline uint32_t _hash_fnv1a(const char* key, size_t len) {
@@ -1891,86 +1983,23 @@ static void _tracer_sleep_ms(int ms) {
 // TCP subscriber consumer thread
 // ---------------------------------------------------------------------------
 
-static bool _tcp_send_all(socket_t sock, const void* data, size_t len) {
-    const uint8_t* p = (const uint8_t*)data;
-    while (len > 0) {
-#ifdef _WIN32
-        int sent = send(sock, (const char*)p, (int)len, 0);
-#else
-        ssize_t sent = send(sock, p, len, 0);
-#endif
-        if (sent < 0) {
-            if (errno == EINTR) continue;
-            return false;
-        }
-        if (sent == 0) return false;
-        p += sent;
-        len -= (size_t)sent;
-    }
-    return true;
-}
-
-static bool _tcp_send_handshake(socket_t sock) {
+static bool socket_send_handshake(socket_t sock) {
     uint8_t hs[14];
     memcpy(hs, "AMBR", 4);
     uint32_t name_len = 6;
     memcpy(hs + 4, &name_len, 4);
     memcpy(hs + 8, "tracer", 6);
-    return _tcp_send_all(sock, hs, sizeof(hs));
+    return socket_send_all(sock, hs, sizeof(hs));
 }
 
-static bool _tcp_sendv(socket_t sock, const void* a, size_t a_len, const void* b, size_t b_len) {
-#ifdef _WIN32
-    WSABUF bufs[2];
-    DWORD count = 0;
-    bufs[0].buf = (char*)a; bufs[0].len = (ULONG)a_len;
-    bufs[1].buf = (char*)b; bufs[1].len = (ULONG)b_len;
-    int nbufs = b_len > 0 ? 2 : 1;
-    size_t total = a_len + b_len;
-    while (total > 0) {
-        DWORD sent = 0;
-        if (WSASend(sock, bufs, nbufs, &sent, 0, NULL, NULL) == SOCKET_ERROR) return false;
-        if (sent == 0) return false;
-        total -= sent;
-        // Advance buffers
-        for (int i = 0; i < nbufs && sent > 0; i++) {
-            if (sent >= bufs[i].len) { sent -= bufs[i].len; bufs[i].len = 0; bufs[i].buf += bufs[i].len; }
-            else { bufs[i].buf += sent; bufs[i].len -= (ULONG)sent; sent = 0; }
-        }
-    }
-    return true;
-#else
-    struct iovec iov[2];
-    iov[0].iov_base = (void*)a; iov[0].iov_len = a_len;
-    iov[1].iov_base = (void*)b; iov[1].iov_len = b_len;
-    int nbufs = b_len > 0 ? 2 : 1;
-    size_t total = a_len + b_len;
-    while (total > 0) {
-        ssize_t sent = writev(sock, iov, nbufs);
-        if (sent < 0) {
-            if (errno == EINTR) continue;
-            return false;
-        }
-        if (sent == 0) return false;
-        total -= (size_t)sent;
-        // Advance buffers
-        for (int i = 0; i < nbufs && sent > 0; i++) {
-            if ((size_t)sent >= iov[i].iov_len) { sent -= (ssize_t)iov[i].iov_len; iov[i].iov_len = 0; }
-            else { iov[i].iov_base = (uint8_t*)iov[i].iov_base + sent; iov[i].iov_len -= (size_t)sent; sent = 0; }
-        }
-    }
-    return true;
-#endif
-}
-
-static bool _tcp_send_tlv(socket_t sock, uint32_t msg_type, const uint8_t* payload, size_t payload_len) {
+static bool socket_send_tlv(socket_t sock, uint32_t msg_type, const uint8_t* payload, size_t payload_len) {
     uint8_t header[TLV_HEADER_SIZE];
     uint32_t format = 0;
     uint64_t length = (uint64_t)payload_len;
     memcpy(header + 0, &msg_type, 4);
     memcpy(header + 4, &format, 4);
     memcpy(header + 8, &length, 8);
-    return _tcp_sendv(sock, header, TLV_HEADER_SIZE, payload, payload_len);
+    return socket_sendv(sock, header, TLV_HEADER_SIZE, payload, payload_len);
 }
 
 static THREAD_PROC(_tcp_consumer_thread) {
@@ -1986,7 +2015,7 @@ static THREAD_PROC(_tcp_consumer_thread) {
                 continue;
             }
             sub->cfg.tcp.sock = sock;
-            if (!_tcp_send_handshake(sock)) {
+            if (!socket_send_handshake(sock)) {
                 socket_close(sock);
                 continue;
             }
@@ -2002,7 +2031,7 @@ static THREAD_PROC(_tcp_consumer_thread) {
             break;
         }
 
-        if (!_tcp_send_tlv(sub->cfg.tcp.sock, MSG_TRACE_EVENT, payload, sz)) {
+        if (!socket_send_tlv(sub->cfg.tcp.sock, MSG_TRACE_EVENT, payload, sz)) {
             atomic_store_explicit(&sub->connected, false, memory_order_relaxed);
             socket_close(sub->cfg.tcp.sock);
         }
@@ -2026,6 +2055,8 @@ static THREAD_PROC(_tcp_consumer_thread) {
 typedef struct SqliteTableInfo {
     char name[256];
     size_t name_len;
+    uint32_t column_count;
+    char columns[SQLITE_MAX_COLUMNS][256];
     sqlite3_stmt* insert_stmt;
 } SqliteTableInfo;
 
@@ -2220,9 +2251,10 @@ static THREAD_PROC(_sqlite_consumer_thread) {
 // Subscriber management
 // ---------------------------------------------------------------------------
 
-static int tracer_add_tcp_subscriber(const char* host, uint16_t port) {
+int tracer_add_tcp_subscriber(const char* host, uint16_t port) {
     for (int i = 0; i < TRACER_MAX_SUBSCRIBERS; i++) {
         if (g_tracer.subscribers[i].type == SUBSCRIBER_NONE) {
+            socket_init();
             Subscriber* sub = &g_tracer.subscribers[i];
             sub->type = SUBSCRIBER_TCP;
             sub->index = (uint32_t)i;
@@ -2239,7 +2271,7 @@ static int tracer_add_tcp_subscriber(const char* host, uint16_t port) {
 }
 
 #ifdef TRACER_SQLITE_ENABLED
-static int tracer_add_sqlite_subscriber(const char* db_path) {
+int tracer_add_sqlite_subscriber(const char* db_path) {
     for (int i = 0; i < TRACER_MAX_SUBSCRIBERS; i++) {
         if (g_tracer.subscribers[i].type == SUBSCRIBER_NONE) {
             Subscriber* sub = &g_tracer.subscribers[i];
@@ -2264,7 +2296,7 @@ static int tracer_add_sqlite_subscriber(const char* db_path) {
 }
 #endif
 
-static bool tracer_subscribe(int subscriber_idx, const char* tracepoint_name) {
+bool tracer_subscribe(int subscriber_idx, const char* tracepoint_name) {
     Tracepoint* tp = _tracepoint_ht_find(&g_tracer.hash_table, tracepoint_name, strlen(tracepoint_name));
     if (!tp) return false;
     uint32_t bit = 1u << (uint32_t)subscriber_idx;
@@ -2272,7 +2304,7 @@ static bool tracer_subscribe(int subscriber_idx, const char* tracepoint_name) {
     return true;
 }
 
-static bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name) {
+bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name) {
     Tracepoint* tp = _tracepoint_ht_find(&g_tracer.hash_table, tracepoint_name, strlen(tracepoint_name));
     if (!tp) return false;
     uint32_t bit = 1u << (uint32_t)subscriber_idx;
@@ -2280,7 +2312,7 @@ static bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name) 
     return true;
 }
 
-static void tracer_subscribe_all(int subscriber_idx) {
+void tracer_subscribe_all(int subscriber_idx) {
     uint32_t count = atomic_load_explicit(&g_tracer.registry.count, memory_order_relaxed);
     uint32_t bit = 1u << (uint32_t)subscriber_idx;
     for (uint32_t i = 0; i < count; i++) {
@@ -2288,7 +2320,7 @@ static void tracer_subscribe_all(int subscriber_idx) {
     }
 }
 
-static void tracer_unsubscribe_all(int subscriber_idx) {
+void tracer_unsubscribe_all(int subscriber_idx) {
     uint32_t count = atomic_load_explicit(&g_tracer.registry.count, memory_order_relaxed);
     uint32_t bit = 1u << (uint32_t)subscriber_idx;
     for (uint32_t i = 0; i < count; i++) {
@@ -2296,7 +2328,7 @@ static void tracer_unsubscribe_all(int subscriber_idx) {
     }
 }
 
-static void tracer_remove_subscriber(int idx) {
+void tracer_remove_subscriber(int idx) {
     Subscriber* sub = &g_tracer.subscribers[idx];
     if (sub->type == SUBSCRIBER_NONE) return;
 
@@ -2319,6 +2351,7 @@ static void tracer_remove_subscriber(int idx) {
         if (atomic_load_explicit(&sub->connected, memory_order_relaxed)) {
             socket_close(sub->cfg.tcp.sock);
         }
+        socket_deinit();
     }
 #ifdef TRACER_SQLITE_ENABLED
     if (sub->type == SUBSCRIBER_SQLITE) {
@@ -2334,7 +2367,7 @@ static void tracer_remove_subscriber(int idx) {
 // Tracer lifecycle
 // ---------------------------------------------------------------------------
 
-static void tracer_init(void) {
+void tracer_init(void) {
     ASSERT(!atomic_load_explicit(&g_tracer.initialized, memory_order_relaxed));
 
     g_tracer.registry.frozen = true;
@@ -2349,12 +2382,14 @@ static void tracer_init(void) {
     atomic_store_explicit(&g_tracer.initialized, true, memory_order_release);
 }
 
-static void tracer_close(void) {
+void tracer_close(void) {
     for (int i = 0; i < TRACER_MAX_SUBSCRIBERS; i++) {
         tracer_remove_subscriber(i);
     }
     atomic_store_explicit(&g_tracer.initialized, false, memory_order_relaxed);
 }
+
+#endif // TRACING_IMPLEMENTATION (tracer)
 
 // ---------------------------------------------------------------------------
 // TRACE macro
@@ -2430,7 +2465,5 @@ static inline void _trace_emit(Tracepoint* tp, const TraceField* fields, size_t 
             } \
         } \
     } while (0)
-
-#endif
 
 #endif // TRACING_H
