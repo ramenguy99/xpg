@@ -518,6 +518,89 @@ inline void futex_wake_all(Futex* futex) {
 #endif
 }
 
+// Mutex
+#define MUTEX_UNLOCKED  ((uint32_t)0)
+#define MUTEX_LOCKED    ((uint32_t)1)  // locked, no other threads waiting
+#define MUTEX_CONTENDED ((uint32_t)2)  // locked, and other threads waiting (contended)
+
+typedef struct Mutex {
+    Futex futex;
+} Mutex;
+
+static inline void mutex_init(Mutex* mutex) {
+    futex_init(&mutex->futex, MUTEX_UNLOCKED);
+}
+
+static inline bool mutex_try_lock(Mutex* mutex) {
+    uint32_t expected = MUTEX_UNLOCKED;
+    return atomic_compare_exchange_strong_explicit(&mutex->futex, &expected, MUTEX_LOCKED, memory_order_acquire, memory_order_relaxed);
+}
+
+static uint32_t _mutex_spin(Mutex* mutex) {
+    int spin = 100;
+    while (true) {
+        // We only use `load` (and not `swap` or `compare_exchange`)
+        // while spinning, to be easier on the caches.
+        uint32_t state = atomic_load_explicit(&mutex->futex, memory_order_relaxed);
+
+        // We stop spinning when the mutex is UNLOCKED,
+        // but also when it's CONTENDED.
+        if (state != MUTEX_LOCKED || spin == 0) {
+            return state;
+        }
+        SpinlockHint();
+        spin--;
+    }
+}
+
+static void _mutex_lock_contended(Mutex* mutex) {
+    // Spin first to speed things up if the lock is released quickly.
+    uint32_t state = _mutex_spin(mutex);
+
+    // If it's unlocked now, attempt to take the lock
+    // without marking it as contended.
+    if (state == MUTEX_UNLOCKED) {
+        uint32_t expected = MUTEX_UNLOCKED;
+        if (atomic_compare_exchange_strong_explicit(&mutex->futex, &expected, MUTEX_LOCKED, memory_order_acquire, memory_order_relaxed)) {
+            return; // Locked!
+        }
+        state = expected;
+    }
+
+    while (true) {
+        // Put the lock in contended state.
+        // We avoid an unnecessary write if it's already set to CONTENDED,
+        // to be friendlier for the caches.
+        if (state != MUTEX_CONTENDED && atomic_exchange_explicit(&mutex->futex, MUTEX_CONTENDED, memory_order_acquire) == MUTEX_UNLOCKED) {
+            // We changed it from UNLOCKED to CONTENDED, so we just successfully locked it.
+            return;
+        }
+
+        // Wait for the futex to change state, assuming it is still CONTENDED.
+        futex_wait(&mutex->futex, MUTEX_CONTENDED);
+
+        // Spin again after waking up.
+        state = _mutex_spin(mutex);
+    }
+}
+
+static inline void mutex_lock(Mutex* mutex) {
+    uint32_t expected = MUTEX_UNLOCKED;
+    if (!atomic_compare_exchange_strong_explicit(&mutex->futex, &expected, MUTEX_LOCKED, memory_order_acquire, memory_order_relaxed)) {
+        _mutex_lock_contended(mutex);
+    }
+}
+
+static inline void mutex_unlock(Mutex* mutex) {
+    if (atomic_exchange_explicit(&mutex->futex, MUTEX_UNLOCKED, memory_order_release) == MUTEX_CONTENDED) {
+        // We only wake up one thread. When that thread locks the mutex, it
+        // will mark the mutex as CONTENDED (see _mutex_lock_contended above),
+        // which makes sure that any other waiting threads will also be
+        // woken up eventually.
+        futex_wake(&mutex->futex);
+    }
+}
+
 #define RWLOCK_READ_LOCKED        ((uint32_t)1)
 #define RWLOCK_MASK               ((uint32_t)((1 << 30) - 1))
 #define RWLOCK_WRITE_LOCKED       RWLOCK_MASK
@@ -1055,6 +1138,7 @@ size_t align_up(size_t v, size_t a) {
 
 static void
 mpsc_ring_buffer_create(MpscRingBuffer* mpsc, size_t size) {
+    mutex_init(&mpsc->alloc_mutex);
     mpsc->allocated_offset = 0;
     mpsc->visible_offset = 0;
     mpsc->consumed_offset = 0;
@@ -1102,7 +1186,7 @@ mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
 
     // Try to alloc
     mutex_lock(&mpsc->alloc_mutex);
-    
+
     uint32_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
     uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
 
@@ -1143,7 +1227,7 @@ mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
 
     while (true) {
         mutex_lock(&mpsc->alloc_mutex);
-        
+
         uint32_t allocated = atomic_load_explicit(&mpsc->allocated_offset, memory_order_relaxed);
         uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
 
