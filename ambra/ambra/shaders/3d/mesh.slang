@@ -49,9 +49,9 @@ struct VSInput
     uint32_t color;
 #endif
 
-#ifdef INSTANCE_POSITIONS
-    [[vk::location(INSTANCE_POSITIONS)]]
-    float3 instance_position;
+#ifdef INSTANCE_TRANSFORMS
+    [[vk::location(INSTANCE_TRANSFORMS)]]
+    float3x4 instance_transform;
 #endif
 };
 
@@ -78,14 +78,19 @@ VSOutput vertex_main(VSInput in)
 {
     VSOutput out;
     float3 object_position = in.position;
-#ifdef INSTANCE_POSITIONS
-    object_position += in.instance_position;
+#ifdef INSTANCE_TRANSFORMS
+    object_position = mul(in.instance_transform, float4(object_position, 1.0));
 #endif
     float3 world_position = mul(g_object_constants.transform, float4(object_position, 1.0));
     out.position = mul(g_constants.projection, mul(g_constants.view, float4(world_position, 1.0)));
     out.world_position = world_position;
 #ifdef VERTEX_NORMALS
-    out.world_normal = mul(g_object_constants.normal_matrix, in.normal);
+    float3 object_normal = in.normal;
+#ifdef INSTANCE_TRANSFORMS
+    // TODO: right now assuming no non-uniform scale here (would need to pass this as well or compute inverse here)
+    object_normal = mul(float3x3(in.instance_transform), object_normal);
+#endif
+    out.world_normal = mul(g_object_constants.normal_matrix, object_normal);
 #endif
 #ifdef VERTEX_TANGENTS
     out.world_tangent = mul(g_object_constants.transform, float4(in.tangent, 0.0));

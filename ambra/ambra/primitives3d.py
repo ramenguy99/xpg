@@ -338,7 +338,7 @@ class Mesh(Object3D):
         tangents: Optional[BufferProperty] = None,
         uvs: Optional[BufferProperty] = None,
         vertex_colors: Optional[BufferProperty] = None,
-        instance_positions: Optional[BufferProperty] = None,
+        instance_transforms: Optional[BufferProperty] = None,
         primitive_topology: PrimitiveTopology = PrimitiveTopology.TRIANGLE_LIST,
         cull_mode: CullMode = CullMode.NONE,
         front_face: FrontFace = FrontFace.COUNTER_CLOCKWISE,
@@ -424,11 +424,11 @@ class Mesh(Object3D):
             if vertex_colors is not None
             else None
         )
-        self.instance_positions = (
-            self.add_buffer_property(instance_positions, np.float32, (-1, 3), name="instance_positions").use_gpu(
+        self.instance_transforms = (
+            self.add_buffer_property(instance_transforms, np.float32, (-1, 3, 4), name="instance_transforms").use_gpu(
                 BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
             )
-            if instance_positions is not None
+            if instance_transforms is not None
             else None
         )
 
@@ -482,20 +482,18 @@ class Mesh(Object3D):
             vertex_attributes.append(VertexAttribute(vertex_binding_index, vertex_binding_index, Format.R32_UINT))
             vertex_binding_index += 1
 
-        if self.instance_positions is not None:
-            defines.append(("INSTANCE_POSITIONS", str(vertex_binding_index)))
-            vertex_bindings.append(VertexBinding(vertex_binding_index, 12, VertexInputRate.INSTANCE))
-            vertex_attributes.append(
-                VertexAttribute(vertex_binding_index, vertex_binding_index, Format.R32G32B32_SFLOAT)
-            )
-            vertex_binding_index += 1
+        if self.instance_transforms is not None:
+            defines.append(("INSTANCE_TRANSFORMS", str(vertex_binding_index)))
+            vertex_bindings.append(VertexBinding(vertex_binding_index, 48, VertexInputRate.INSTANCE))
+            vertex_attributes.append(VertexAttribute(vertex_binding_index + 0, vertex_binding_index, Format.R32G32B32A32_SFLOAT, 0))
+            vertex_attributes.append(VertexAttribute(vertex_binding_index + 1, vertex_binding_index, Format.R32G32B32A32_SFLOAT, 16))
+            vertex_attributes.append(VertexAttribute(vertex_binding_index + 2, vertex_binding_index, Format.R32G32B32A32_SFLOAT, 32))
 
-            depth_defines.append(("INSTANCE_POSITIONS", str(depth_vertex_binding_index)))
-            depth_vertex_bindings.append(VertexBinding(depth_vertex_binding_index, 12, VertexInputRate.INSTANCE))
-            depth_vertex_attributes.append(
-                VertexAttribute(depth_vertex_binding_index, depth_vertex_binding_index, Format.R32G32B32_SFLOAT)
-            )
-            depth_vertex_binding_index += 1
+            depth_defines.append(("INSTANCE_TRANSFORMS", str(depth_vertex_binding_index)))
+            depth_vertex_bindings.append(VertexBinding(depth_vertex_binding_index, 48, VertexInputRate.INSTANCE))
+            depth_vertex_attributes.append(VertexAttribute(depth_vertex_binding_index + 0, depth_vertex_binding_index, Format.R32G32B32A32_SFLOAT))
+            depth_vertex_attributes.append(VertexAttribute(depth_vertex_binding_index + 1, depth_vertex_binding_index, Format.R32G32B32A32_SFLOAT, 16))
+            depth_vertex_attributes.append(VertexAttribute(depth_vertex_binding_index + 2, depth_vertex_binding_index, Format.R32G32B32A32_SFLOAT, 32))
 
         vert = r.compile_builtin_shader("3d/mesh.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
@@ -570,15 +568,20 @@ class Mesh(Object3D):
             primitive_count = positions_count // 3
 
         # TODO: proper instances without duplicating blases
-        if self.instance_positions is not None:
-            instance_positions = self.instance_positions.get_current()
-            for pos in instance_positions:
-                transform = self.constants["transform"][0].copy()
-                transform[:3, 3] += pos
+        if self.instance_transforms is not None:
+            instance_transforms = self.instance_transforms.get_current()
+
+            transform = np.eye(4, dtype=np.float32)
+            transform[:3, :] = self.constants["transform"][0]
+            normal_matrix = mat3(self.constants["normal_matrix"][0, :3, :3])
+
+            instance_t = np.eye(4, dtype=np.float32)
+            for t in instance_transforms:
+                instance_t[:3, :] = t
                 instances.append(
                     AccelerationStructureInstanceInfo(
-                        transform,
-                        self.constants["normal_matrix"],
+                        (transform @ instance_t)[:3, :],
+                        np.array(mat4x3(normal_matrix @ mat3(t[:3, :3])), np.float32),
                         positions_count,
                         positions.buffer.address + positions.offset,
                         buffer_address_or_null(self.normals),
@@ -621,11 +624,10 @@ class Mesh(Object3D):
             positions.buffer_and_offset(),
         ]
         num_instances = 1
-        if self.instance_positions is not None:
-            vertex_buffers.append(self.instance_positions.get_current_gpu().buffer_and_offset())
-            instance_positions_buf = self.instance_positions.get_current_gpu()
-            vertex_buffers.append(instance_positions_buf.buffer_and_offset())
-            num_instances = instance_positions_buf.size // 12
+        if self.instance_transforms is not None:
+            instance_transforms_buf = self.instance_transforms.get_current_gpu()
+            vertex_buffers.append(instance_transforms_buf.buffer_and_offset())
+            num_instances = instance_transforms_buf.size // 12
 
         indices = self.indices.get_current_gpu() if self.indices is not None else None
         frame.cmd.bind_graphics_pipeline(
@@ -661,10 +663,10 @@ class Mesh(Object3D):
             vertex_buffers.append(self.uvs.get_current_gpu().buffer_and_offset())
         if self.vertex_colors is not None:
             vertex_buffers.append(self.vertex_colors.get_current_gpu().buffer_and_offset())
-        if self.instance_positions is not None:
-            instance_positions_buf = self.instance_positions.get_current_gpu()
-            vertex_buffers.append(instance_positions_buf.buffer_and_offset())
-            num_instances = instance_positions_buf.size // 12
+        if self.instance_transforms is not None:
+            instance_transforms_buf = self.instance_transforms.get_current_gpu()
+            vertex_buffers.append(instance_transforms_buf.buffer_and_offset())
+            num_instances = instance_transforms_buf.size // 12
 
         indices = self.indices.get_current_gpu() if self.indices is not None else None
         frame.cmd.bind_graphics_pipeline(
@@ -1428,6 +1430,7 @@ class AxisGizmo(Mesh):
         x_axis_color: int = 0xFF0000FF,
         y_axis_color: int = 0xFF00FF00,
         z_axis_color: int = 0xFFFF0000,
+        instance_transforms: Optional[BufferProperty] = None,
         casts_shadows: bool = False,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
@@ -1464,6 +1467,7 @@ class AxisGizmo(Mesh):
             mesh_f,  # type: ignore
             mesh_n,  # type: ignore
             vertex_colors=mesh_c,  # type: ignore
+            instance_transforms=instance_transforms,
             casts_shadows=casts_shadows,
             name=name,
             translation=translation,
