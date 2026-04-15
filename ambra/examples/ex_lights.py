@@ -97,7 +97,21 @@ viewer = CustomViewer(
 )
 
 translation = np.linspace((0, 0, 0.0), (5, 5, 0), num=50)
-instance_positions = np.array([(-2, 0, 0), (2, 0, 0)])
+instance_transforms = np.array(
+    [
+        [
+            [1, 0, 0, -2],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+        ],
+        [
+            [1, 0, 0, 2],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+        ],
+    ],
+    np.float32,
+)
 
 # material = PBRMaterial((1, 1, 1), 1.0, 0.0)
 material = DiffuseMaterial((1, 1, 1))
@@ -109,7 +123,7 @@ m = Mesh(
     translation=translation,
     cull_mode=CullMode.BACK,
     front_face=FrontFace.COUNTER_CLOCKWISE,
-    instance_positions=instance_positions,
+    instance_transforms=instance_transforms,
     material=material,
 )
 

@@ -485,15 +485,31 @@ class Mesh(Object3D):
         if self.instance_transforms is not None:
             defines.append(("INSTANCE_TRANSFORMS", str(vertex_binding_index)))
             vertex_bindings.append(VertexBinding(vertex_binding_index, 48, VertexInputRate.INSTANCE))
-            vertex_attributes.append(VertexAttribute(vertex_binding_index + 0, vertex_binding_index, Format.R32G32B32A32_SFLOAT, 0))
-            vertex_attributes.append(VertexAttribute(vertex_binding_index + 1, vertex_binding_index, Format.R32G32B32A32_SFLOAT, 16))
-            vertex_attributes.append(VertexAttribute(vertex_binding_index + 2, vertex_binding_index, Format.R32G32B32A32_SFLOAT, 32))
+            vertex_attributes.append(
+                VertexAttribute(vertex_binding_index + 0, vertex_binding_index, Format.R32G32B32A32_SFLOAT, 0)
+            )
+            vertex_attributes.append(
+                VertexAttribute(vertex_binding_index + 1, vertex_binding_index, Format.R32G32B32A32_SFLOAT, 16)
+            )
+            vertex_attributes.append(
+                VertexAttribute(vertex_binding_index + 2, vertex_binding_index, Format.R32G32B32A32_SFLOAT, 32)
+            )
 
             depth_defines.append(("INSTANCE_TRANSFORMS", str(depth_vertex_binding_index)))
             depth_vertex_bindings.append(VertexBinding(depth_vertex_binding_index, 48, VertexInputRate.INSTANCE))
-            depth_vertex_attributes.append(VertexAttribute(depth_vertex_binding_index + 0, depth_vertex_binding_index, Format.R32G32B32A32_SFLOAT))
-            depth_vertex_attributes.append(VertexAttribute(depth_vertex_binding_index + 1, depth_vertex_binding_index, Format.R32G32B32A32_SFLOAT, 16))
-            depth_vertex_attributes.append(VertexAttribute(depth_vertex_binding_index + 2, depth_vertex_binding_index, Format.R32G32B32A32_SFLOAT, 32))
+            depth_vertex_attributes.append(
+                VertexAttribute(depth_vertex_binding_index + 0, depth_vertex_binding_index, Format.R32G32B32A32_SFLOAT)
+            )
+            depth_vertex_attributes.append(
+                VertexAttribute(
+                    depth_vertex_binding_index + 1, depth_vertex_binding_index, Format.R32G32B32A32_SFLOAT, 16
+                )
+            )
+            depth_vertex_attributes.append(
+                VertexAttribute(
+                    depth_vertex_binding_index + 2, depth_vertex_binding_index, Format.R32G32B32A32_SFLOAT, 32
+                )
+            )
 
         vert = r.compile_builtin_shader("3d/mesh.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
