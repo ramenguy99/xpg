@@ -206,9 +206,7 @@ struct Instance: nb::intrusive_base {
     }
 
     ~Instance() {
-        logging::info("gfx", "destroying instance");
         gfx::DestroyInstance(&instance);
-        logging::info("gfx", "instance destroyed");
     }
 
     gfx::Instance instance;
@@ -269,9 +267,7 @@ struct Device: nb::intrusive_base {
 
     ~Device() {
         gfx::WaitIdle(device);
-        logging::info("gfx", "destroying device");
         gfx::DestroyDevice(&device);
-        logging::info("gfx", "device destroyed");
     }
 
     nb::ref<Instance> instance;
@@ -2836,10 +2832,8 @@ struct Window: nb::intrusive_base {
     ~Window()
     {
         if (device) {
-            logging::info("gfx/window", "destroying window");
             gfx::WaitIdle(device->device);
             gfx::DestroyWindowWithSwapchain(&window, device->instance->instance, device->device);
-            logging::info("gfx/window", "window destroyed");
         }
     }
 

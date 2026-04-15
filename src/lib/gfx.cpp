@@ -1495,15 +1495,21 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
 }
 
 void DestroyInstance(Instance* instance) {
+    logging::info("gfx/instance", "Destroying instance");
+
     if (instance->debug_messenger) {
         vkDestroyDebugUtilsMessengerEXT(instance->instance, instance->debug_messenger, 0);
     }
     vkDestroyInstance(instance->instance, 0);
 
     *instance = {};
+
+    logging::info("gfx/instance", "Destroyed instance");
 }
 
 void DestroyDevice(Device* device) {
+    logging::info("gfx/device", "Destroying device");
+
     // Sync commands
     vkFreeCommandBuffers(device->device, device->sync_command_pool, 1, &device->sync_command_buffer);
     vkDestroyCommandPool(device->device, device->sync_command_pool, 0);
@@ -1516,6 +1522,8 @@ void DestroyDevice(Device* device) {
     vkDestroyDevice(device->device, 0);
 
     *device = {};
+
+    logging::info("gfx/device", "Destroyed device");
 }
 
 void WaitIdle(const Device& device) {
@@ -2166,6 +2174,8 @@ CreateWindowWithSwapchain(Window* w, const Instance& instance, const Device& dev
 void
 DestroyWindowWithSwapchain(Window* w, const Instance& instance, const Device& device)
 {
+    logging::info("gfx/window", "Destroying window");
+
     // Swapchain
     for (usize i = 0; i < w->image_views.length; i++) {
         vkDestroyImageView(device.device, w->image_views[i], 0);
@@ -2199,6 +2209,8 @@ DestroyWindowWithSwapchain(Window* w, const Instance& instance, const Device& de
     }
 
     *w = {};
+
+    logging::info("gfx/window", "Destroyed window");
 }
 
 void CmdMemoryBarrier(VkCommandBuffer cmd, const MemoryBarrierDesc &&desc)
