@@ -141,12 +141,13 @@ inline void generate_camera_ray(float2 p, out float3 origin, out float3 directio
     float2 film_size = float2(1.0, 1.0);
     film_size.x = (float)size.x / (float)size.y;
     float2 half_film = film_size * 0.5f;
-    float3 film_center = camera_p - film_dist * camera_forward;
+    float3 film_center = camera_p + film_dist * camera_forward;
 
-    origin = film_center + offset.x * half_film.x * camera_right
-                         + offset.y * half_film.y * camera_up;
+    float3 film_p = film_center - offset.x * half_film.x * camera_right
+                         - offset.y * half_film.y * camera_up;
 
-    direction = normalize(camera_p - origin);
+    origin = camera_p;
+    direction = normalize(film_p - camera_p);
 }
 
 [shader("compute")]
