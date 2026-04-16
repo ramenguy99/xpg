@@ -643,7 +643,7 @@ class Mesh(Object3D):
         if self.instance_transforms is not None:
             instance_transforms_buf = self.instance_transforms.get_current_gpu()
             vertex_buffers.append(instance_transforms_buf.buffer_and_offset())
-            num_instances = instance_transforms_buf.size // 12
+            num_instances = instance_transforms_buf.size // 48
 
         indices = self.indices.get_current_gpu() if self.indices is not None else None
         frame.cmd.bind_graphics_pipeline(
@@ -682,7 +682,7 @@ class Mesh(Object3D):
         if self.instance_transforms is not None:
             instance_transforms_buf = self.instance_transforms.get_current_gpu()
             vertex_buffers.append(instance_transforms_buf.buffer_and_offset())
-            num_instances = instance_transforms_buf.size // 12
+            num_instances = instance_transforms_buf.size // 48
 
         indices = self.indices.get_current_gpu() if self.indices is not None else None
         frame.cmd.bind_graphics_pipeline(
