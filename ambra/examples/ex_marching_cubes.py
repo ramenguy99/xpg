@@ -27,7 +27,7 @@ else:
         # (A, Z, Y, X, C)
         sdf = sdf.reshape((1, z, y, x, 1))
 
-        N = 32
+        N = 8
         sdf = np.repeat(sdf, N, axis=0)
         for i in range(N):
             sdf[i] += i / N
