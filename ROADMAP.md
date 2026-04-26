@@ -230,7 +230,7 @@ Python:
     - [x] Can cover ImPlotStyle similar to ImGuiIO, with setters, likely generate setters for ImPlotCol instead of array, which we
         can't actually do from python directly
     - [x] Context -> no need to cover
-    - [ ] Begin/End plot and subplots -> expose manually + context manager
+    - [ ] Begin/End plot and subplots context manager
     - [ ] Setup:
         - [ ] axis links -> can expose with return value -> needs multiple return values
         - [x] axis format -> no custom formatter first
@@ -240,25 +240,30 @@ Python:
         - [x] set next api should be the same as this
     - [ ] Plot:
         - [x] Accept / convert automatically to double numpy arrays (use computed offset / stride)
-        - [x] Types:
-            - Line / Scatter / Stairs / Bars Y and XY
-            - Shaded Y, XY and XYY
-            - Bar groups -> 2D numpy array
-            - Stems XY
-            - Infinite lines X
-            - Pie chart / heatmap -> values
-            - Histogram and Histogram 2D
-            - PlotImage -> bind with custom Texture type
-        - [ ] Missing:
-            - Pie chart
-            - Image
-            - Histogram 2D
-            - Bar groups
-            - Error bars with err does not have the right name in errror messages
-            - Error bars with neg pos
+        - [x] Plot types
+            - [x] Line
+            - [x] Scatter
+            - [x] Stairs
+            - [x] Bars Y and XY
+            - [x] Stems XY
+            - [x] Shaded Y, XY and XYY
+            - [x] Infinite lines X
+            - [x] Histogram
+            - [x] Digital
+            - [x] Text
+            - [x] Dummy
+            - [x] Error bars
+            - [x] Error bars with neg pos
+            - [x] Pie chart
+            - [x] Image
+            - [x] Histogram 2D
+            - [x] Bar groups
+            - [x] Bubbles
+            - [x] Polygon
         - [ ] Plot tools:
-            - Drag In/out API requires additional return values (potentially many, maybe better to make a struct to group them)
-            - [x] Annotations and tags should be easier, can maybe add batched version of them at some point
+            - [ ] Drag In/out API requires additional return values (potentially many, maybe better to make a struct to group them)
+            - [x] Annotations and tags should be easier
+                - [ ] batched version
         - [x] Plot Utils: all straight forward to expose
         - [x] Legend Utils:
             - Drag and drop: easy functions, more context managers

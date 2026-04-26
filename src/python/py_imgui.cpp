@@ -50,6 +50,7 @@ struct Texture: nb::intrusive_base {
     ImTextureRef tex_ref;
 };
 
+
 static const char* dtype_code_to_str(u8 code) {
     switch(code) {
         case (int)nb::dlpack::dtype_code::Int: return "int";
@@ -266,496 +267,60 @@ void imgui_create_bindings(nb::module_& mod_imgui)
     nb::module_ mod_implot = mod_imgui.def_submodule("implot", "ImPlot bindings for XPG");
     #include "generated_implot.inc"
 
-    #define ONE_ARRAY(func, ...) \
-            size_t ndim = values.ndim(); \
-            if (ndim != 1) { \
-                nb::raise("Invalid array shape for parameter \"values\". Expected 1 dimension, got %zu", ndim); \
-            } \
-            size_t stride = values.stride(0); \
-            size_t count = values.shape(0); \
-            nb::dlpack::dtype dtype = values.dtype(); \
-            switch (dtype.code) { \
-                case (int)nb::dlpack::dtype_code::Int: { \
-                    switch(dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (ImS8 *)values.data(), count, __VA_ARGS__, 0, stride * 1); break; \
-                        case 16: ImPlot::func(name.c_str(), (ImS16*)values.data(), count, __VA_ARGS__, 0, stride * 2); break; \
-                        case 32: ImPlot::func(name.c_str(), (ImS32*)values.data(), count, __VA_ARGS__, 0, stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (ImS64*)values.data(), count, __VA_ARGS__, 0, stride * 8); break; \
-                        default: nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); break; \
-                    } \
-                } break; \
-                case (int)nb::dlpack::dtype_code::UInt: { \
-                    switch(dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (ImU8 *)values.data(), count, __VA_ARGS__, 0, stride * 1); break; \
-                        case 16: ImPlot::func(name.c_str(), (ImU16*)values.data(), count, __VA_ARGS__, 0, stride * 2); break; \
-                        case 32: ImPlot::func(name.c_str(), (ImU32*)values.data(), count, __VA_ARGS__, 0, stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (ImU64*)values.data(), count, __VA_ARGS__, 0, stride * 8); break; \
-                        default: nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); break; \
-                    } \
-                } break; \
-                case (int)nb::dlpack::dtype_code::Float: { \
-                    switch(dtype.bits) { \
-                        case 32: ImPlot::func(name.c_str(), (float *)values.data(), count, __VA_ARGS__, 0, stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (double*)values.data(), count, __VA_ARGS__, 0, stride * 8); break; \
-                        default: nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); break; \
-                    } \
-                } break; \
-                default: { \
-                    nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); \
-                } break; \
+    mod_implot.def("plot_heatmap",
+        [] (nb::str label_id, nb::ndarray<nb::ndim<2>, nb::c_contig, nb::device::cpu> values, double scale_min, double scale_max, nb::str label_fmt, double min_x, double min_y, double max_x, double max_y, ImPlotHeatmapFlags_ flags) {
+            size_t rows = values.shape(0);
+            size_t cols = values.shape(1);
+            nb::dlpack::dtype dtype = values.dtype();
+            ImPlotSpec spec;
+            spec.Flags = flags;
+            switch (dtype.code) {
+                case (int)nb::dlpack::dtype_code::Int: {
+                    switch (dtype.bits) {
+                        case  8: ImPlot::PlotHeatmap(label_id.c_str(), (ImS8*)values.data(), rows, cols, scale_min, scale_max, label_fmt.c_str(), ImPlotPoint(min_x, min_y), ImPlotPoint(max_x, max_y), spec); break;
+                        case 16: ImPlot::PlotHeatmap(label_id.c_str(), (ImS16*)values.data(), rows, cols, scale_min, scale_max, label_fmt.c_str(), ImPlotPoint(min_x, min_y), ImPlotPoint(max_x, max_y), spec); break;
+                        case 32: ImPlot::PlotHeatmap(label_id.c_str(), (ImS32*)values.data(), rows, cols, scale_min, scale_max, label_fmt.c_str(), ImPlotPoint(min_x, min_y), ImPlotPoint(max_x, max_y), spec); break;
+                        case 64: ImPlot::PlotHeatmap(label_id.c_str(), (ImS64*)values.data(), rows, cols, scale_min, scale_max, label_fmt.c_str(), ImPlotPoint(min_x, min_y), ImPlotPoint(max_x, max_y), spec); break;
+                    }
+                } break;
+                case (int)nb::dlpack::dtype_code::UInt: {
+                    switch (dtype.bits) {
+                        case  8: ImPlot::PlotHeatmap(label_id.c_str(), (ImU8*)values.data(), rows, cols, scale_min, scale_max, label_fmt.c_str(), ImPlotPoint(min_x, min_y), ImPlotPoint(max_x, max_y), spec); break;
+                        case 16: ImPlot::PlotHeatmap(label_id.c_str(), (ImU16*)values.data(), rows, cols, scale_min, scale_max, label_fmt.c_str(), ImPlotPoint(min_x, min_y), ImPlotPoint(max_x, max_y), spec); break;
+                        case 32: ImPlot::PlotHeatmap(label_id.c_str(), (ImU32*)values.data(), rows, cols, scale_min, scale_max, label_fmt.c_str(), ImPlotPoint(min_x, min_y), ImPlotPoint(max_x, max_y), spec); break;
+                        case 64: ImPlot::PlotHeatmap(label_id.c_str(), (ImU64*)values.data(), rows, cols, scale_min, scale_max, label_fmt.c_str(), ImPlotPoint(min_x, min_y), ImPlotPoint(max_x, max_y), spec); break;
+                    }
+                } break;
+                case (int)nb::dlpack::dtype_code::Float: {
+                    switch (dtype.bits) {
+                        case 32: ImPlot::PlotHeatmap(label_id.c_str(), (float*)values.data(), rows, cols, scale_min, scale_max, label_fmt.c_str(), ImPlotPoint(min_x, min_y), ImPlotPoint(max_x, max_y), spec); break;
+                        case 64: ImPlot::PlotHeatmap(label_id.c_str(), (double*)values.data(), rows, cols, scale_min, scale_max, label_fmt.c_str(), ImPlotPoint(min_x, min_y), ImPlotPoint(max_x, max_y), spec); break;
+                    }
+                } break;
+                default: { nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); } break;
             }
+        }, nb::arg("label_id"), nb::arg("values"), nb::arg("scale_min") = 0, nb::arg("scale_max") = 0, nb::arg("label_fmt") = "%.1f", nb::arg("min_x") = 0, nb::arg("min_y") = 0, nb::arg("max_x") = 1, nb::arg("max_y") = 1, nb::arg("flags") = ImPlotHeatmapFlags_None);
 
-    #define ONE_ARRAY_NO_OFFSET_STRIDE(func, ...) \
-            size_t ndim = values.ndim(); \
-            if (ndim != 1) { \
-                nb::raise("Invalid array shape for parameter \"values\". Expected 1 dimension, got %zu", ndim); \
-            } \
-            size_t count = values.shape(0); \
-            nb::dlpack::dtype dtype = values.dtype(); \
-            switch (dtype.code) { \
-                case (int)nb::dlpack::dtype_code::Int: { \
-                    switch(dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (ImS8 *)values.data(), count, __VA_ARGS__); break; \
-                        case 16: ImPlot::func(name.c_str(), (ImS16*)values.data(), count, __VA_ARGS__); break; \
-                        case 32: ImPlot::func(name.c_str(), (ImS32*)values.data(), count, __VA_ARGS__); break; \
-                        case 64: ImPlot::func(name.c_str(), (ImS64*)values.data(), count, __VA_ARGS__); break; \
-                        default: nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); break; \
-                    } \
-                } break; \
-                case (int)nb::dlpack::dtype_code::UInt: { \
-                    switch(dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (ImU8 *)values.data(), count, __VA_ARGS__); break; \
-                        case 16: ImPlot::func(name.c_str(), (ImU16*)values.data(), count, __VA_ARGS__); break; \
-                        case 32: ImPlot::func(name.c_str(), (ImU32*)values.data(), count, __VA_ARGS__); break; \
-                        case 64: ImPlot::func(name.c_str(), (ImU64*)values.data(), count, __VA_ARGS__); break; \
-                        default: nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); break; \
-                    } \
-                } break; \
-                case (int)nb::dlpack::dtype_code::Float: { \
-                    switch(dtype.bits) { \
-                        case 32: ImPlot::func(name.c_str(), (float *)values.data(), count, __VA_ARGS__); break; \
-                        case 64: ImPlot::func(name.c_str(), (double*)values.data(), count, __VA_ARGS__); break; \
-                        default: nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); break; \
-                    } \
-                } break; \
-                default: { \
-                    nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); \
-                } break; \
-            }
+    mod_implot.def("plot_image",
+        [] (nb::str label_id, const Texture& texture, double min_x, double min_y, double max_x, double max_y, const ImVec2& uv0, const ImVec2& uv1, const ImVec4& tint_col, ImPlotLineFlags_ flags) {
+            ImPlotSpec spec;
+            spec.Flags = flags;
+            ImPlot::PlotImage(label_id.c_str(), texture.tex_ref, ImPlotPoint(min_x, min_y), ImPlotPoint(max_x, max_y), uv0, uv1, tint_col, spec);
+        }, nb::arg("name"), nb::arg("texture"), nb::arg("min_x"), nb::arg("min_y"), nb::arg("max_x"), nb::arg("max_y"), nb::arg("uv0") = ImVec2(0, 0), nb::arg("uv1") = ImVec2(1, 1), nb::arg("tint_col") = ImVec4(1, 1, 1, 1), nb::arg("flags") = ImPlotLineFlags_None);
 
-    #define TWO_ARRAYS(func, ...) \
-            size_t x_ndim = xs.ndim(); \
-            if (x_ndim != 1) { \
-                nb::raise("Invalid array shape for parameter \"xs\". Expected 1 dimension, got %zu", x_ndim); \
-            } \
-            size_t x_stride = xs.stride(0); \
-            size_t x_count = xs.shape(0); \
-            nb::dlpack::dtype x_dtype = xs.dtype(); \
-            size_t y_ndim = ys.ndim(); \
-            if (y_ndim != 1) { \
-                nb::raise("Invalid array shape for parameter \"ys\". Expected 1 dimension, got %zu", y_ndim); \
-            } \
-            size_t y_stride = ys.stride(0); \
-            size_t y_count = ys.shape(0); \
-            nb::dlpack::dtype y_dtype = ys.dtype(); \
-            if (x_dtype != y_dtype) { \
-                nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(x_dtype.bits), x_dtype.bits, dtype_code_to_str(y_dtype.code), y_dtype.bits); \
-            } \
-            if (x_stride != y_stride || x_count != y_count) { \
-                nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu) and shape (xs = %zu, ys = %zu)", x_stride, y_stride, x_count, y_count); \
-            } \
-            switch (x_dtype.code) { \
-                case (int)nb::dlpack::dtype_code::Int: { \
-                    switch(x_dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (ImS8 *)xs.data(), (ImS8 *)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 1); break; \
-                        case 16: ImPlot::func(name.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 2); break; \
-                        case 32: ImPlot::func(name.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
-                        default: nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", x_dtype.code, x_dtype.bits); break; \
-                    } \
-                } break; \
-                case (int)nb::dlpack::dtype_code::UInt: { \
-                    switch(x_dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (ImU8 *)xs.data(), (ImU8 *)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 1); break; \
-                        case 16: ImPlot::func(name.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 2); break; \
-                        case 32: ImPlot::func(name.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
-                        default: nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", x_dtype.code, x_dtype.bits); break; \
-                    } \
-                } break; \
-                case (int)nb::dlpack::dtype_code::Float: { \
-                    switch(x_dtype.bits) { \
-                        case 32: ImPlot::func(name.c_str(), (float *)xs.data(), (float *)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (double*)xs.data(), (double*)ys.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
-                        default: nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", x_dtype.code, x_dtype.bits); break; \
-                    } \
-                } break; \
-                default: { \
-                    nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", x_dtype.code, x_dtype.bits); \
-                } break; \
-            }
+    mod_implot.def("plot_text",
+        [] (nb::str text, float x, float y, const ImVec2& pix_offset, ImPlotTextFlags_ flags) -> void {
+            ImPlotSpec spec;
+            spec.Flags = flags;
+            ImPlot::PlotText(text.c_str(), x, y, pix_offset, spec);
+        }, nb::arg("text"), nb::arg("x"), nb::arg("y"), nb::arg("pix_offset") = ImVec2(0, 0), nb::arg("flags") = 0);
 
-    #define THREE_ARRAYS(func, ...) \
-            size_t x_ndim = xs.ndim(); \
-            if (x_ndim != 1) { \
-                nb::raise("Invalid array shape for parameter \"xs\". Expected 1 dimension, got %zu", x_ndim); \
-            } \
-            size_t x_stride = xs.stride(0); \
-            size_t x_count = xs.shape(0); \
-            nb::dlpack::dtype x_dtype = xs.dtype(); \
-            size_t y_ndim = ys1.ndim(); \
-            if (y_ndim != 1) { \
-                nb::raise("Invalid array shape for parameter \"ys1\". Expected 1 dimension, got %zu", y_ndim); \
-            } \
-            size_t y_stride = ys1.stride(0); \
-            size_t y_count = ys1.shape(0); \
-            nb::dlpack::dtype y_dtype = ys1.dtype(); \
-            if (x_dtype != y_dtype) { \
-                nb::raise("xs and ys1 array must have the same dtype (xs = %s%u, ys1 = %s%u)", dtype_code_to_str(x_dtype.bits), x_dtype.bits, dtype_code_to_str(y_dtype.code), y_dtype.bits); \
-            } \
-            if (x_stride != y_stride || y_count != x_count) { \
-                nb::raise("xs and ys1 array must have the same stride (xs = %zu, ys1 = %zu) and shape (xs = %zu, ys1 = %zu)", x_stride, y_stride, x_count, y_count); \
-            } \
-            size_t y2_ndim = ys2.ndim(); \
-            if (y2_ndim != 1) { \
-                nb::raise("Invalid array shape for parameter \"ys2\". Expected 1 dimension, got %zu", y2_ndim); \
-            } \
-            size_t y2_stride = ys2.stride(0); \
-            size_t y2_count = ys2.shape(0); \
-            nb::dlpack::dtype y2_dtype = ys2.dtype(); \
-            if (x_dtype != y2_dtype) { \
-                nb::raise("xs and ys2 array must have the same dtype (xs = %s%u, ys2 = %s%u)", dtype_code_to_str(x_dtype.bits), x_dtype.bits, dtype_code_to_str(y2_dtype.code), y2_dtype.bits); \
-            } \
-            if (x_stride != y2_stride || x_count != y2_count) { \
-                nb::raise("xs and ys2 array must have the same stride (xs = %zu, ys2 = %zu) and shape (xs = %zu, ys2 = %zu)", x_stride, y2_stride, x_count, y2_count); \
-            } \
-            switch (x_dtype.code) { \
-                case (int)nb::dlpack::dtype_code::Int: { \
-                    switch(x_dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (ImS8 *)xs.data(), (ImS8 *)ys1.data(), (ImS8 *)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 1); break; \
-                        case 16: ImPlot::func(name.c_str(), (ImS16*)xs.data(), (ImS16*)ys1.data(), (ImS16*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 2); break; \
-                        case 32: ImPlot::func(name.c_str(), (ImS32*)xs.data(), (ImS32*)ys1.data(), (ImS32*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (ImS64*)xs.data(), (ImS64*)ys1.data(), (ImS64*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
-                        default: nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", x_dtype.code, x_dtype.bits); break; \
-                    } \
-                } break; \
-                case (int)nb::dlpack::dtype_code::UInt: { \
-                    switch(x_dtype.bits) { \
-                        case  8: ImPlot::func(name.c_str(), (ImU8 *)xs.data(), (ImU8 *)ys1.data(), (ImU8 *)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 1); break; \
-                        case 16: ImPlot::func(name.c_str(), (ImU16*)xs.data(), (ImU16*)ys1.data(), (ImU16*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 2); break; \
-                        case 32: ImPlot::func(name.c_str(), (ImU32*)xs.data(), (ImU32*)ys1.data(), (ImU32*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (ImU64*)xs.data(), (ImU64*)ys1.data(), (ImU64*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
-                        default: nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", x_dtype.code, x_dtype.bits); break; \
-                    } \
-                } break; \
-                case (int)nb::dlpack::dtype_code::Float: { \
-                    switch(x_dtype.bits) { \
-                        case 32: ImPlot::func(name.c_str(), (float *)xs.data(), (float *)ys1.data(), (float *)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 4); break; \
-                        case 64: ImPlot::func(name.c_str(), (double*)xs.data(), (double*)ys1.data(), (double*)ys2.data(), x_count, __VA_ARGS__, 0, x_stride * 8); break; \
-                        default: nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", x_dtype.code, x_dtype.bits); break; \
-                    } \
-                } break; \
-                default: { \
-                    nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", x_dtype.code, x_dtype.bits); \
-                } break; \
-            }
-
-    mod_implot.def("plot_line",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> values,
-           double xscale,
-           double xstart,
-           ImPlotLineFlags flags
-        ) {
-            ONE_ARRAY(PlotLine, xscale, xstart, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("values"),
-        nb::arg("xscale") = 1,
-        nb::arg("xstart") = 0,
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_line",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> xs,
-           nb::ndarray<nb::any_contig, nb::device::cpu> ys,
-           ImPlotLineFlags flags
-        ) {
-            TWO_ARRAYS(PlotLine, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("xs"),
-        nb::arg("ys"),
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_scatter",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> values,
-           double xscale,
-           double xstart,
-           ImPlotScatterFlags flags
-        ) {
-            ONE_ARRAY(PlotScatter, xscale, xstart, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("values"),
-        nb::arg("xscale") = 1,
-        nb::arg("xstart") = 0,
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_scatter",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> xs,
-           nb::ndarray<nb::any_contig, nb::device::cpu> ys,
-           ImPlotScatterFlags flags
-        ) {
-            TWO_ARRAYS(PlotScatter, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("xs"),
-        nb::arg("ys"),
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_stairs",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> values,
-           double xscale,
-           double xstart,
-           ImPlotStairsFlags flags
-        ) {
-            ONE_ARRAY(PlotStairs, xscale, xstart, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("values"),
-        nb::arg("xscale") = 1,
-        nb::arg("xstart") = 0,
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_stairs",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> xs,
-           nb::ndarray<nb::any_contig, nb::device::cpu> ys,
-           ImPlotStairsFlags flags
-        ) {
-            TWO_ARRAYS(PlotStairs, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("xs"),
-        nb::arg("ys"),
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_shaded",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> values,
-           double yref,
-           double xscale,
-           double xstart,
-           ImPlotShadedFlags flags
-        ) {
-            ONE_ARRAY(PlotShaded, yref, xscale, xstart, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("values"),
-        nb::arg("yref") = 0,
-        nb::arg("xscale") = 1,
-        nb::arg("xstart") = 0,
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_shaded",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> xs,
-           nb::ndarray<nb::any_contig, nb::device::cpu> ys,
-           ImPlotShadedFlags flags
-        ) {
-            TWO_ARRAYS(PlotShaded, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("xs"),
-        nb::arg("ys"),
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_shaded",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> xs,
-           nb::ndarray<nb::any_contig, nb::device::cpu> ys1,
-           nb::ndarray<nb::any_contig, nb::device::cpu> ys2,
-           ImPlotShadedFlags flags
-        ) {
-            THREE_ARRAYS(PlotShaded, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("xs"),
-        nb::arg("ys1") = 1,
-        nb::arg("ys2") = 1,
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_bars",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> values,
-           double bar_size,
-           double shift,
-           ImPlotBarsFlags flags
-        ) {
-            ONE_ARRAY(PlotBars, bar_size, shift, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("values"),
-        nb::arg("bar_size") = 0.67,
-        nb::arg("shift") = 0,
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_bars",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> xs,
-           nb::ndarray<nb::any_contig, nb::device::cpu> ys,
-           double bar_size,
-           ImPlotBarsFlags flags
-        ) {
-            TWO_ARRAYS(PlotBars, bar_size, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("xs"),
-        nb::arg("ys"),
-        nb::arg("bar_size") = 0.67,
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_bars",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> values,
-           double bar_size,
-           double shift,
-           ImPlotBarsFlags flags
-        ) {
-            ONE_ARRAY(PlotBars, bar_size, shift, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("values"),
-        nb::arg("bar_size") = 0.67,
-        nb::arg("shift") = 0,
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_bars",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> xs,
-           nb::ndarray<nb::any_contig, nb::device::cpu> ys,
-           double bar_size,
-           ImPlotBarsFlags flags
-        ) {
-            TWO_ARRAYS(PlotBars, bar_size, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("xs"),
-        nb::arg("ys"),
-        nb::arg("bar_size") = 0.67,
-        nb::arg("flags") = 0
-    );
-
-    // TODO: ys1 and ys2 will be printed in errors instead of ys and err
-    mod_implot.def("plot_error_bars",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> xs,
-           nb::ndarray<nb::any_contig, nb::device::cpu> ys1,
-           nb::ndarray<nb::any_contig, nb::device::cpu> ys2,
-           ImPlotErrorBarsFlags flags
-        ) {
-            THREE_ARRAYS(PlotErrorBars, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("xs"),
-        nb::arg("ys"),
-        nb::arg("err"),
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_stems",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> values,
-           double ref,
-           double scale,
-           double start,
-           ImPlotStemsFlags flags
-        ) {
-            ONE_ARRAY(PlotStems, ref, scale, start, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("values"),
-        nb::arg("ref") = 0,
-        nb::arg("scale") = 1,
-        nb::arg("start") = 0,
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_stems",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> xs,
-           nb::ndarray<nb::any_contig, nb::device::cpu> ys,
-           double ref,
-           ImPlotStemsFlags flags
-        ) {
-            TWO_ARRAYS(PlotStems, ref, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("xs"),
-        nb::arg("ys"),
-        nb::arg("ref") = 0,
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_inf_lines",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> values,
-           ImPlotInfLinesFlags flags
-        ) {
-            ONE_ARRAY(PlotInfLines, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("values"),
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_histogram",
-        [](nb::str name,
-           nb::ndarray<nb::c_contig, nb::device::cpu, nb::shape<-1>> values,
-           int bins,
-           double bar_scale,
-           std::tuple<double, double> range,
-           ImPlotHistogramFlags flags
-        ) {
-            ImPlotRange implot_range(std::get<0>(range), std::get<1>(range));
-            ONE_ARRAY_NO_OFFSET_STRIDE(PlotHistogram, bins, bar_scale, implot_range, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("values").noconvert(),
-        nb::arg("bins") = ImPlotBin_Sturges,
-        nb::arg("bar_scale") = 1.0,
-        nb::arg("range") = std::make_tuple(0, 0),
-        nb::arg("flags") = 0
-    );
-
-    mod_implot.def("plot_digital",
-        [](nb::str name,
-           nb::ndarray<nb::any_contig, nb::device::cpu> xs,
-           nb::ndarray<nb::any_contig, nb::device::cpu> ys,
-           ImPlotStemsFlags flags
-        ) {
-            TWO_ARRAYS(PlotDigital, flags)
-        },
-        nb::arg("label_id"),
-        nb::arg("xs"),
-        nb::arg("ys"),
-        nb::arg("flags") = 0
-    );
+    mod_implot.def("plot_dummy",
+        [] (nb::str label_id, ImPlotDummyFlags_ flags) -> void {
+            ImPlotSpec spec;
+            spec.Flags = flags;
+            return ImPlot::PlotDummy(label_id.c_str(), spec);
+        }, nb::arg("label_id"), nb::arg("flags") = 0);
+    
 
 }

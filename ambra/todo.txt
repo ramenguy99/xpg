@@ -8,7 +8,14 @@ Priority:
     - [ ] Ortho views
     - [ ] More GUI
     - [ ] Better timeline with timestamp visualizers
-
+- [ ] Property:
+    - [ ] Ring-buffer / trajectory style property with bounded past. Primitives just see this as a normal property,
+          difference is in how this is stored and updated.
+          - Appending only appends a single frame (same as usual)
+          - Getting a frame returns the last up to N frames
+          - Streamed to GPU every frame (need to roll buffer)
+          - Sqlite properties need to use range queries to fill history and then can do normal appends / rolls
+          
 TODO:
 - [x] Subgroups:
     - [x] Allow forcing subgroup size (if supported) when creating compute pipelines (or maybe arbitrary shaders too)

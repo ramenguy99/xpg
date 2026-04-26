@@ -1,8 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 import json
 import os
 import re
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from enum import Flag, auto
 import io
 import sys
@@ -10,7 +10,7 @@ import sys
 DEFINES = {}
 
 OUT = True
-PRINT = True
+PRINT = False
 
 module = "mod_implot"
 
@@ -234,6 +234,10 @@ def read_type(typ: dict) -> TypeInfo:
             name = "int"
             flags |= TypeFlag.IS_BUILTIN
             flags |= TypeFlag.IS_OUTPUT
+        elif inner["name"] == "ImU32":
+            name = "unsigned int"
+            flags |= TypeFlag.IS_BUILTIN
+            flags |= TypeFlag.IS_OUTPUT
         elif "storage_classes" in inner and "const" in inner["storage_classes"]:
             name = inner["name"]
             flags |= TypeFlag.IS_USER_TYPE
@@ -250,6 +254,7 @@ def read_type(typ: dict) -> TypeInfo:
                 "ImGuiStyle",
                 "ImGuiMultiSelectIO",
                 "ImFontBaked",
+                "ImPlotSpec",
                 # "ImDrawListSplitter",
                 # "ImGuiIO",
                 # "ImGuiInputTextCallbackData",
@@ -291,8 +296,142 @@ def read_type(typ: dict) -> TypeInfo:
 all_funcs = set()
 overloads = []
 
-drawlist_started = False
-drawlist_ended = False
+spec_started = False
+spec_ended = False
+
+# Types:
+#-heatmap
+#   - 2d values, [rows, cols, sclaemin, scalemax, format, bounds min, boundsmax]
+
+@dataclass
+class PlotOverload:
+    arrays: List[str]
+    scalars: List[Tuple[str, Any]] = dataclass_field(default_factory=list)
+
+@dataclass
+class PlotSpecField:
+    name: str
+    type: str
+    default_value: str
+    arr_type: Optional[str] = None
+
+@dataclass
+class PlotInfo:
+    overloads: List[PlotOverload] = dataclass_field(default_factory=list)
+    specs: List[PlotSpecField] = dataclass_field(default_factory=list)
+
+Spec_LineColor = PlotSpecField("LineColor", "ImVec4", "IMPLOT_AUTO_COL", "ImU32")
+Spec_LineWeight = PlotSpecField("LineWeight", "float", 1.0)
+Spec_FillColor = PlotSpecField("FillColor", "ImVec4", "IMPLOT_AUTO_COL", "ImU32")
+Spec_FillAlpha = PlotSpecField("FillAlpha", "float", 1.0)
+Spec_Marker = PlotSpecField("Marker", "ImPlotMarker", "ImPlotMarker_None")
+Spec_MarkerSize = PlotSpecField("MarkerSize", "float", 4, "float")
+Spec_MarkerLineColor = PlotSpecField("MarkerLineColor", "ImVec4", "IMPLOT_AUTO_COL", "ImU32")
+Spec_MarkerFillColor = PlotSpecField("MarkerFillColor", "ImVec4", "IMPLOT_AUTO_COL", "ImU32")
+Spec_Size = PlotSpecField("Size", "float", 4)
+
+plot_functions: Dict[str, PlotInfo] = {
+    "PlotLine": PlotInfo(
+        overloads=[
+            PlotOverload(["values"], scalars=[("xscale", 1), ("xstart", "0")]),
+            PlotOverload(["xs", "ys"]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight, Spec_FillAlpha, Spec_Marker, Spec_MarkerSize, Spec_MarkerLineColor, Spec_MarkerFillColor],
+    ),
+    "PlotLineInt": None,
+    "PlotScatter": PlotInfo(
+        overloads=[
+            PlotOverload(["values"], scalars=[("xscale", 1), ("xstart", "0")]),
+            PlotOverload(["xs", "ys"]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight, Spec_FillAlpha, Spec_Marker, Spec_MarkerSize, Spec_MarkerLineColor, Spec_MarkerFillColor]
+    ),
+    "PlotScatterInt": None,
+    "PlotStairs": PlotInfo(
+        overloads=[
+            PlotOverload(["values"], scalars=[("xscale", 1), ("xstart", "0")]),
+            PlotOverload(["xs", "ys"]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight, Spec_FillAlpha, Spec_Marker, Spec_MarkerSize, Spec_MarkerLineColor, Spec_MarkerFillColor],
+    ),
+    "PlotStairsInt": None,
+    "PlotShaded": PlotInfo(
+        overloads=[
+            PlotOverload(["values"], scalars=[("yref", 0), ("xscale", 1), ("xstart", "0")]),
+            PlotOverload(["xs", "ys"], scalars=[("yref", 0)]),
+            PlotOverload(["xs", "ys1", "ys2"]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight, Spec_FillColor, Spec_FillAlpha, Spec_Marker, Spec_MarkerSize, Spec_MarkerLineColor, Spec_MarkerFillColor],
+    ),
+    "PlotShadedInt": None,
+    "PlotBars": PlotInfo(
+        overloads = [
+            PlotOverload(["values"], scalars=[("barsize", 0.67), ("shift", 0)]),
+            PlotOverload(["xs", "ys"], scalars=[("barsize", None)]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight, Spec_FillColor, Spec_FillAlpha],
+    ),
+    "PlotBarGroups": PlotInfo(),
+    "PlotErrorBars": PlotInfo(
+        overloads = [
+            PlotOverload(["xs", "ys", "err"]),
+            PlotOverload(["xs", "ys", "neg", "pos"]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight, Spec_FillColor, Spec_FillAlpha, Spec_Size],
+    ),
+    "PlotStems": PlotInfo(
+        overloads=[
+            PlotOverload(["values"], scalars=[("ref", 0), ("xscale", 1), ("xstart", "0")]),
+            PlotOverload(["xs", "ys"], scalars=[("ref", 0)]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight, Spec_FillAlpha, Spec_Marker, Spec_MarkerSize, Spec_MarkerLineColor, Spec_MarkerFillColor],
+    ),
+    "PlotStemsInt": None,
+    "PlotInfLines": PlotInfo(
+        overloads=[
+            PlotOverload(["values"]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight],
+    ),
+    "PlotPieChart": PlotInfo(),
+    "PlotPieChartImPlotFormatter": None,
+    "PlotHeatmap": PlotInfo(),
+    "PlotHistogram": PlotInfo(
+        overloads=[
+            PlotOverload(["values"], scalars=[("bins", "ImPlotBin_Sturges", "ImPlotBin_"), ("bar_scale", 1), ("min_value", 0), ("max_value", 0)]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight, Spec_FillColor, Spec_FillAlpha],
+    ),
+    "PlotHistogram2D": PlotInfo(
+        overloads=[
+            PlotOverload(["xs", "ys"], scalars=[("x_bins", "ImPlotBin_Sturges", "ImPlotBin_"), ("y_bins", "ImPlotBin_Sturges", "ImPlotBin_"), ("min_x", 0), ("max_x", 0), ("min_y", 0), ("max_y", 0)]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight, Spec_FillColor, Spec_FillAlpha],
+    ),
+    "PlotDigital": PlotInfo(
+        overloads=[
+            PlotOverload(["xs", "ys"]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight, Spec_FillColor, Spec_FillAlpha, Spec_Size],
+    ),
+    "PlotImage": None,
+    "PlotBubblesInt": None,
+    "PlotBubbles": PlotInfo(
+        overloads=[
+            PlotOverload(["values", "szs"], scalars=[("xscale", 1), ("xstart", "0")]),
+            PlotOverload(["xs", "ys", "szs"]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight, Spec_FillColor, Spec_FillAlpha]
+    ),
+    "PlotPolygon": PlotInfo(
+        overloads=[
+            PlotOverload(["xs", "ys"]),
+        ],
+        specs=[Spec_LineColor, Spec_LineWeight, Spec_FillColor, Spec_FillAlpha, Spec_Marker, Spec_MarkerSize, Spec_MarkerLineColor, Spec_MarkerFillColor]
+    ),
+    "PlotText": None,
+    "PlotDummy": None,
+}
 
 # Functions
 for f in data["functions"]:
@@ -309,7 +448,8 @@ for f in data["functions"]:
     if f["is_default_argument_helper"]:
         continue
 
-    print(func_name)
+    # print(func_name)
+
     # Skip specific functions we dont need
     if func_name in {
         # Context stuff (don't need)
@@ -391,31 +531,6 @@ for f in data["functions"]:
 
         # Function pointer
         "ImPlotSetupAxisScaleImPlotTransform",
-
-        # Plot functions
-        "ImPlotPlotLine",
-        "ImPlotPlotLineInt",
-        "ImPlotPlotScatter",
-        "ImPlotPlotScatterInt",
-        "ImPlotPlotStairs",
-        "ImPlotPlotStairsInt",
-        "ImPlotPlotShaded",
-        "ImPlotPlotShadedInt",
-        "ImPlotPlotBars",
-        "ImPlotPlotBarGroups",
-        "ImPlotPlotErrorBars",
-        "ImPlotPlotStems",
-        "ImPlotPlotStemsInt",
-        "ImPlotPlotInfLines",
-        "ImPlotPlotPieChart",
-        "ImPlotPlotPieChartImPlotFormatter",
-        "ImPlotPlotHeatmap",
-        "ImPlotPlotHistogram",
-        "ImPlotPlotHistogram2D",
-        "ImPlotPlotDigital",
-        "ImPlotPlotImage",
-        # "ImPlotPlotText",
-        # "ImPlotPlotDummy",
 
         # Demo
         "ImPlotShowDemoWindow",
@@ -603,22 +718,139 @@ for f in data["functions"]:
         else:
             return type_str_to_cpp(typ.name)
 
-    if py_func_name.startswith("list__"):
-        if drawlist_started == False:
-            drawlist_started = True
-            out(f"""auto drawlist_class = nb::class_<DrawList>({module}, "DrawList",
-    nb::intrusive_ptr<DrawList>([](DrawList *o, PyObject *po) noexcept {{ o->set_self_py(po); }}))
+    if func_name in plot_functions.keys():
+        # Skip int and formatter overloads
+        if func_name.endswith("Int") or func_name.endswith("Formatter"):
+            continue
+
+        info = plot_functions[func_name]
+        if info is None:
+            continue
+
+        # def out_check_1dim(name: str):
+        #     out(" " * 8 + f'if ({name}.ndim() != 1) {{ nb::raise("Invalid array shape for parameter \\"{name}\\". Expected 1 dimension, got %zu", {name}.ndim()); }}')
+
+        def out_count_stride_dtype(name: str):
+            out(" " * 8 + f"size_t stride = {name}.stride(0);")
+            out(" " * 8 + f"size_t count = {name}.shape(0);")
+            out(" " * 8 + f"nb::dlpack::dtype dtype = {name}.dtype();")
+
+        def out_check_count_stride_dtype(first: str, name: str):
+            out(" " * 8 + f'if (dtype != {name}.dtype()) {{ nb::raise("{first} and {name} array must have the same dtype ({first} = %s%u, {name} = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str({name}.dtype().code), {name}.dtype().bits); }}')
+            out(" " * 8 + f'if (count != {name}.shape(0)) {{ nb::raise("{first} and {name} array must have the same count ({first} = %zu, {name} = %zu)", count, {name}.shape(0)); }}')
+            out(" " * 8 + f'if (stride != {name}.stride(0)) {{ nb::raise("{first} and {name} array must have the same stride ({first} = %zu, {name} = %zu)", stride, {name}.stride(0)); }}')
+
+        if func_name.endswith("2D"):
+            flag_type_name = f"Im{func_name[:-2]}Flags" 
+        else:
+            flag_type_name = f"Im{func_name}Flags" 
+
+        for ov in info.overloads:
+            out(f"{module}.def(\"{py_func_name}\",")
+            nb_args = [ "nb::str label_id" ]
+            for a in ov.arrays:
+                nb_args.append(f"nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> {a}")
+            for x in ov.scalars:
+                t = "double"
+                if len(x) > 2:
+                    t = x[2]
+                nb_args.append(f"{t} {x[0]}")
+
+            # Spec args
+            for spec in info.specs:
+                nb_args.append(f"{spec.type} {spec.name}")
+                if spec.arr_type is not None:
+                    nb_args.append(f"std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, {spec.arr_type}, nb::device::cpu>> {spec.name}s")
+            nb_args.append(f"{flag_type_name}_ flags")
+
+            out(" " * 4 + "[] (" + ", ".join(nb_args) + ") {")
+            # for a in ov.arrays:
+            #     out_check_1dim(a)
+            out_count_stride_dtype(ov.arrays[0])
+            for a in ov.arrays[1:]:
+                out_check_count_stride_dtype(ov.arrays[0], a)
+
+            out(" " * 8 + "ImPlotSpec spec;")
+            out(" " * 8 + "spec.Flags = flags;")
+            for spec in info.specs:
+                out(" " * 8 + f"spec.{spec.name} = {spec.name};")
+                if spec.arr_type is not None:
+                    out(" " * 8 + f"if ({spec.name}s.has_value()) {{")
+                    out(" " * 12 + f'if (count != {spec.name}s.value().shape(0)) {{ nb::raise("{ov.arrays[0]} and {pascal_to_snake_case(spec.name)}s array must have the same count ({ov.arrays[0]} = %zu, {spec.name}s = %zu)", count, {spec.name}s.value().shape(0)); }}')
+                    out(" " * 12 + f"spec.{spec.name}s = {spec.name}s.value().data();")
+                    out(" " * 8 + "}")
+
+            # Dispatch
+            out(" " * 8 + "switch (dtype.code) {")
+
+            for t, sizes in [ ("Int", (8, 16, 32, 64)), ("UInt", [8, 16, 32, 64]), ("Float", [32, 64]) ]:
+                out(" " * 12 + f"case (int)nb::dlpack::dtype_code::{t}: {{")
+                out(" " * 16 + "switch (dtype.bits) {")
+                for s in sizes:
+                    if t == "Float":
+                        im_t = "float" if s == 32 else "double"
+                    else:
+                        im_t = ("ImS" if t == "Int" else "ImU") + str(s)
+                    disp_args = [ "label_id.c_str()" ]
+                    for a in ov.arrays:
+                        disp_args.append(f"({im_t}*){a}.data()")
+                    disp_args.append("count")
+                    for x in ov.scalars:
+                        if x[0] == "min_value":
+                            disp_args.append(f"ImPlotRange(min_value, max_value)")
+                        elif x[0] == "min_x":
+                            disp_args.append(f"ImPlotRect(min_x, max_x, min_y, max_y)")
+                        elif x[0] == "max_value" or x[0] == "max_x" or x[0] == "min_y" or x[0] == "max_y":
+                            continue
+                        else:
+                            disp_args.append(f"{x[0]}")
+                    disp_args.append("spec")
+                    out(" " * 20 + f"case {s:2d}: " + f"spec.Stride = stride * {s // 8}; ImPlot::{func_name}(" + ", ".join(disp_args) + "); break;")
+
+                out(" " * 16 + "}")
+                out(" " * 12 + "} break;")
+            out(" " * 12 + f'default: {{ nb::raise("Invalid array dtype for parameter \\"{ov.arrays[0]}\\" with code %u and %u bits", dtype.code, dtype.bits); }} break;')
+            out(" " * 8 + "}")
+
+            params = ['nb::arg("label_id")']
+            for a in ov.arrays:
+                params.append(f'nb::arg("{a}")')
+            for sc in ov.scalars:
+                dv = ""
+                if sc[1] is not None:
+                    dv = f" = {sc[1]}"
+                params.append(f'nb::arg("{sc[0]}"){dv}')
+            for spec in info.specs:
+                params.append(f'nb::arg("{pascal_to_snake_case(spec.name)}") = {spec.default_value}')
+                if spec.arr_type is not None:
+                    params.append(f'nb::arg("{pascal_to_snake_case(spec.name)}s") = nb::none()')
+            params.append(f'nb::arg("flags") = {flag_type_name}_None')
+
+
+            out(" " * 4 + "}, " + ", ".join(params) + ");")
+            out("")
+        continue
+
+    # PlotSpec
+    if py_func_name.startswith("spec__"):
+        continue
+        # For now spec will be fully manual
+        if spec_started == False:
+            spec_started = True
+            out(f"""auto plotspec_class = nb::class_<PlotSpec>({module}, "PlotSpec",
+    nb::intrusive_ptr<PlotSpec>([](PlotSpec *o, PyObject *po) noexcept {{ o->set_self_py(po); }}))
 """)
         # Skip protected member functions
-        if py_func_name.startswith("list___"):
+        if py_func_name.startswith("spec___"):
             continue
 
         out(" " * 4 + f".def(\"{py_func_name[6:]}\",")
     else:
-        if drawlist_started and drawlist_ended == False:
-            drawlist_ended = True
+        if spec_started and spec_ended == False:
+            spec_ended = True
             out(";")
         out(f"{module}.def(\"{py_func_name}\",")
+
 
     out(" " * 4 + "[] (", end="")
     cpp_args_str: List[str] = []

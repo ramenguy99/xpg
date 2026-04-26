@@ -8,6 +8,27 @@ nb::enum_<ImAxis_>(mod_implot, "Axis", nb::is_arithmetic() )
 ;
 
 
+nb::enum_<ImPlotProp_>(mod_implot, "Prop", nb::is_arithmetic() )
+    .value("LINE_COLOR", ImPlotProp_LineColor)
+    .value("LINE_COLORS", ImPlotProp_LineColors)
+    .value("LINE_WEIGHT", ImPlotProp_LineWeight)
+    .value("FILL_COLOR", ImPlotProp_FillColor)
+    .value("FILL_COLORS", ImPlotProp_FillColors)
+    .value("FILL_ALPHA", ImPlotProp_FillAlpha)
+    .value("MARKER", ImPlotProp_Marker)
+    .value("MARKER_SIZE", ImPlotProp_MarkerSize)
+    .value("MARKER_SIZES", ImPlotProp_MarkerSizes)
+    .value("MARKER_LINE_COLOR", ImPlotProp_MarkerLineColor)
+    .value("MARKER_LINE_COLORS", ImPlotProp_MarkerLineColors)
+    .value("MARKER_FILL_COLOR", ImPlotProp_MarkerFillColor)
+    .value("MARKER_FILL_COLORS", ImPlotProp_MarkerFillColors)
+    .value("SIZE", ImPlotProp_Size)
+    .value("OFFSET", ImPlotProp_Offset)
+    .value("STRIDE", ImPlotProp_Stride)
+    .value("FLAGS", ImPlotProp_Flags)
+;
+
+
 nb::enum_<ImPlotFlags_>(mod_implot, "PlotFlags", nb::is_arithmetic() , nb::is_flag())
     .value("NONE", ImPlotFlags_None)
     .value("NO_TITLE", ImPlotFlags_NoTitle)
@@ -124,6 +145,17 @@ nb::enum_<ImPlotScatterFlags_>(mod_implot, "ScatterFlags", nb::is_arithmetic() ,
 ;
 
 
+nb::enum_<ImPlotBubblesFlags_>(mod_implot, "BubblesFlags", nb::is_arithmetic() , nb::is_flag())
+    .value("NONE", ImPlotBubblesFlags_None)
+;
+
+
+nb::enum_<ImPlotPolygonFlags_>(mod_implot, "PolygonFlags", nb::is_arithmetic() , nb::is_flag())
+    .value("NONE", ImPlotPolygonFlags_None)
+    .value("CONCAVE", ImPlotPolygonFlags_Concave)
+;
+
+
 nb::enum_<ImPlotStairsFlags_>(mod_implot, "StairsFlags", nb::is_arithmetic() , nb::is_flag())
     .value("NONE", ImPlotStairsFlags_None)
     .value("PRE_STEP", ImPlotStairsFlags_PreStep)
@@ -172,6 +204,7 @@ nb::enum_<ImPlotPieChartFlags_>(mod_implot, "PieChartFlags", nb::is_arithmetic()
     .value("NORMALIZE", ImPlotPieChartFlags_Normalize)
     .value("IGNORE_HIDDEN", ImPlotPieChartFlags_IgnoreHidden)
     .value("EXPLODING", ImPlotPieChartFlags_Exploding)
+    .value("NO_SLICE_BORDER", ImPlotPieChartFlags_NoSliceBorder)
 ;
 
 
@@ -220,11 +253,6 @@ nb::enum_<ImPlotCond_>(mod_implot, "Cond", nb::is_arithmetic() )
 
 
 nb::enum_<ImPlotCol_>(mod_implot, "Color", nb::is_arithmetic() )
-    .value("LINE", ImPlotCol_Line)
-    .value("FILL", ImPlotCol_Fill)
-    .value("MARKER_OUTLINE", ImPlotCol_MarkerOutline)
-    .value("MARKER_FILL", ImPlotCol_MarkerFill)
-    .value("ERROR_BAR", ImPlotCol_ErrorBar)
     .value("FRAME_BG", ImPlotCol_FrameBg)
     .value("PLOT_BG", ImPlotCol_PlotBg)
     .value("PLOT_BORDER", ImPlotCol_PlotBorder)
@@ -245,15 +273,8 @@ nb::enum_<ImPlotCol_>(mod_implot, "Color", nb::is_arithmetic() )
 
 
 nb::enum_<ImPlotStyleVar_>(mod_implot, "StyleVar", nb::is_arithmetic() )
-    .value("LINE_WEIGHT", ImPlotStyleVar_LineWeight)
-    .value("MARKER", ImPlotStyleVar_Marker)
-    .value("MARKER_SIZE", ImPlotStyleVar_MarkerSize)
-    .value("MARKER_WEIGHT", ImPlotStyleVar_MarkerWeight)
-    .value("FILL_ALPHA", ImPlotStyleVar_FillAlpha)
-    .value("ERROR_BAR_SIZE", ImPlotStyleVar_ErrorBarSize)
-    .value("ERROR_BAR_WEIGHT", ImPlotStyleVar_ErrorBarWeight)
-    .value("DIGITAL_BIT_HEIGHT", ImPlotStyleVar_DigitalBitHeight)
-    .value("DIGITAL_BIT_GAP", ImPlotStyleVar_DigitalBitGap)
+    .value("PLOT_DEFAULT_SIZE", ImPlotStyleVar_PlotDefaultSize)
+    .value("PLOT_MIN_SIZE", ImPlotStyleVar_PlotMinSize)
     .value("PLOT_BORDER_SIZE", ImPlotStyleVar_PlotBorderSize)
     .value("MINOR_ALPHA", ImPlotStyleVar_MinorAlpha)
     .value("MAJOR_TICK_LEN", ImPlotStyleVar_MajorTickLen)
@@ -270,8 +291,8 @@ nb::enum_<ImPlotStyleVar_>(mod_implot, "StyleVar", nb::is_arithmetic() )
     .value("MOUSE_POS_PADDING", ImPlotStyleVar_MousePosPadding)
     .value("ANNOTATION_PADDING", ImPlotStyleVar_AnnotationPadding)
     .value("FIT_PADDING", ImPlotStyleVar_FitPadding)
-    .value("PLOT_DEFAULT_SIZE", ImPlotStyleVar_PlotDefaultSize)
-    .value("PLOT_MIN_SIZE", ImPlotStyleVar_PlotMinSize)
+    .value("DIGITAL_PADDING", ImPlotStyleVar_DigitalPadding)
+    .value("DIGITAL_SPACING", ImPlotStyleVar_DigitalSpacing)
 ;
 
 
@@ -285,6 +306,7 @@ nb::enum_<ImPlotScale_>(mod_implot, "Scale", nb::is_arithmetic() )
 
 nb::enum_<ImPlotMarker_>(mod_implot, "Marker", nb::is_arithmetic() )
     .value("NONE", ImPlotMarker_None)
+    .value("AUTO", ImPlotMarker_Auto)
     .value("CIRCLE", ImPlotMarker_Circle)
     .value("SQUARE", ImPlotMarker_Square)
     .value("DIAMOND", ImPlotMarker_Diamond)
@@ -340,15 +362,8 @@ nb::enum_<ImPlotBin_>(mod_implot, "Bin", nb::is_arithmetic() )
 
 
 nb::class_<ImPlotStyle>(mod_implot, "Style")
-    .def_rw("line_weight", &ImPlotStyle::LineWeight)
-    .def_rw("marker", &ImPlotStyle::Marker)
-    .def_rw("marker_size", &ImPlotStyle::MarkerSize)
-    .def_rw("marker_weight", &ImPlotStyle::MarkerWeight)
-    .def_rw("fill_alpha", &ImPlotStyle::FillAlpha)
-    .def_rw("error_bar_size", &ImPlotStyle::ErrorBarSize)
-    .def_rw("error_bar_weight", &ImPlotStyle::ErrorBarWeight)
-    .def_rw("digital_bit_height", &ImPlotStyle::DigitalBitHeight)
-    .def_rw("digital_bit_gap", &ImPlotStyle::DigitalBitGap)
+    .def_rw("plot_default_size", &ImPlotStyle::PlotDefaultSize)
+    .def_rw("plot_min_size", &ImPlotStyle::PlotMinSize)
     .def_rw("plot_border_size", &ImPlotStyle::PlotBorderSize)
     .def_rw("minor_alpha", &ImPlotStyle::MinorAlpha)
     .def_rw("major_tick_len", &ImPlotStyle::MajorTickLen)
@@ -365,13 +380,8 @@ nb::class_<ImPlotStyle>(mod_implot, "Style")
     .def_rw("mouse_pos_padding", &ImPlotStyle::MousePosPadding)
     .def_rw("annotation_padding", &ImPlotStyle::AnnotationPadding)
     .def_rw("fit_padding", &ImPlotStyle::FitPadding)
-    .def_rw("plot_default_size", &ImPlotStyle::PlotDefaultSize)
-    .def_rw("plot_min_size", &ImPlotStyle::PlotMinSize)
-    .def_prop_rw("color_line", [](ImPlotStyle& s) -> ImVec4 { return s.Colors[ImPlotCol_Line]; }, [](ImPlotStyle& s, ImVec4 value){ s.Colors[ImPlotCol_Line] = value; })
-    .def_prop_rw("color_fill", [](ImPlotStyle& s) -> ImVec4 { return s.Colors[ImPlotCol_Fill]; }, [](ImPlotStyle& s, ImVec4 value){ s.Colors[ImPlotCol_Fill] = value; })
-    .def_prop_rw("color_marker_outline", [](ImPlotStyle& s) -> ImVec4 { return s.Colors[ImPlotCol_MarkerOutline]; }, [](ImPlotStyle& s, ImVec4 value){ s.Colors[ImPlotCol_MarkerOutline] = value; })
-    .def_prop_rw("color_marker_fill", [](ImPlotStyle& s) -> ImVec4 { return s.Colors[ImPlotCol_MarkerFill]; }, [](ImPlotStyle& s, ImVec4 value){ s.Colors[ImPlotCol_MarkerFill] = value; })
-    .def_prop_rw("color_error_bar", [](ImPlotStyle& s) -> ImVec4 { return s.Colors[ImPlotCol_ErrorBar]; }, [](ImPlotStyle& s, ImVec4 value){ s.Colors[ImPlotCol_ErrorBar] = value; })
+    .def_rw("digital_padding", &ImPlotStyle::DigitalPadding)
+    .def_rw("digital_spacing", &ImPlotStyle::DigitalSpacing)
     .def_prop_rw("color_frame_bg", [](ImPlotStyle& s) -> ImVec4 { return s.Colors[ImPlotCol_FrameBg]; }, [](ImPlotStyle& s, ImVec4 value){ s.Colors[ImPlotCol_FrameBg] = value; })
     .def_prop_rw("color_plot_bg", [](ImPlotStyle& s) -> ImVec4 { return s.Colors[ImPlotCol_PlotBg]; }, [](ImPlotStyle& s, ImVec4 value){ s.Colors[ImPlotCol_PlotBg] = value; })
     .def_prop_rw("color_plot_border", [](ImPlotStyle& s) -> ImVec4 { return s.Colors[ImPlotCol_PlotBorder]; }, [](ImPlotStyle& s, ImVec4 value){ s.Colors[ImPlotCol_PlotBorder] = value; })
@@ -504,15 +514,1223 @@ mod_implot.def("set_next_axes_to_fit",
         return ImPlot::SetNextAxesToFit();
     });
 
-mod_implot.def("plot_text",
-    [] (const char* text, float x, float y, ImVec2 pix_offset, ImPlotTextFlags_ flags) -> void {
-        return ImPlot::PlotText(text, x, y, pix_offset, flags);
-    }, nb::arg("text"), nb::arg("x"), nb::arg("y"), nb::arg("pix_offset") = nb::make_tuple(0, 0), nb::arg("flags") = 0);
+mod_implot.def("plot_line",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> values, double xscale, double xstart, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, float FillAlpha, ImPlotMarker Marker, float MarkerSize, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, float, nb::device::cpu>> MarkerSizes, ImVec4 MarkerLineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerLineColors, ImVec4 MarkerFillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerFillColors, ImPlotLineFlags_ flags) {
+        size_t stride = values.stride(0);
+        size_t count = values.shape(0);
+        nb::dlpack::dtype dtype = values.dtype();
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("values and line_colors array must have the same count (values = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillAlpha = FillAlpha;
+        spec.Marker = Marker;
+        spec.MarkerSize = MarkerSize;
+        if (MarkerSizes.has_value()) {
+            if (count != MarkerSizes.value().shape(0)) { nb::raise("values and marker_sizes array must have the same count (values = %zu, MarkerSizes = %zu)", count, MarkerSizes.value().shape(0)); }
+            spec.MarkerSizes = MarkerSizes.value().data();
+        }
+        spec.MarkerLineColor = MarkerLineColor;
+        if (MarkerLineColors.has_value()) {
+            if (count != MarkerLineColors.value().shape(0)) { nb::raise("values and marker_line_colors array must have the same count (values = %zu, MarkerLineColors = %zu)", count, MarkerLineColors.value().shape(0)); }
+            spec.MarkerLineColors = MarkerLineColors.value().data();
+        }
+        spec.MarkerFillColor = MarkerFillColor;
+        if (MarkerFillColors.has_value()) {
+            if (count != MarkerFillColors.value().shape(0)) { nb::raise("values and marker_fill_colors array must have the same count (values = %zu, MarkerFillColors = %zu)", count, MarkerFillColors.value().shape(0)); }
+            spec.MarkerFillColors = MarkerFillColors.value().data();
+        }
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotLine(label_id.c_str(), (ImS8*)values.data(), count, xscale, xstart, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotLine(label_id.c_str(), (ImS16*)values.data(), count, xscale, xstart, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotLine(label_id.c_str(), (ImS32*)values.data(), count, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotLine(label_id.c_str(), (ImS64*)values.data(), count, xscale, xstart, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotLine(label_id.c_str(), (ImU8*)values.data(), count, xscale, xstart, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotLine(label_id.c_str(), (ImU16*)values.data(), count, xscale, xstart, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotLine(label_id.c_str(), (ImU32*)values.data(), count, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotLine(label_id.c_str(), (ImU64*)values.data(), count, xscale, xstart, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotLine(label_id.c_str(), (float*)values.data(), count, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotLine(label_id.c_str(), (double*)values.data(), count, xscale, xstart, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("values"), nb::arg("xscale") = 1, nb::arg("xstart") = 0, nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_alpha") = 1.0, nb::arg("marker") = ImPlotMarker_None, nb::arg("marker_size") = 4, nb::arg("marker_sizes") = nb::none(), nb::arg("marker_line_color") = IMPLOT_AUTO_COL, nb::arg("marker_line_colors") = nb::none(), nb::arg("marker_fill_color") = IMPLOT_AUTO_COL, nb::arg("marker_fill_colors") = nb::none(), nb::arg("flags") = ImPlotLineFlags_None);
 
-mod_implot.def("plot_dummy",
-    [] (const char* label_id, ImPlotDummyFlags_ flags) -> void {
-        return ImPlot::PlotDummy(label_id, flags);
-    }, nb::arg("label_id"), nb::arg("flags") = 0);
+mod_implot.def("plot_line",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, float FillAlpha, ImPlotMarker Marker, float MarkerSize, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, float, nb::device::cpu>> MarkerSizes, ImVec4 MarkerLineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerLineColors, ImVec4 MarkerFillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerFillColors, ImPlotLineFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys.dtype()) { nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys.dtype().code), ys.dtype().bits); }
+        if (count != ys.shape(0)) { nb::raise("xs and ys array must have the same count (xs = %zu, ys = %zu)", count, ys.shape(0)); }
+        if (stride != ys.stride(0)) { nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu)", stride, ys.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillAlpha = FillAlpha;
+        spec.Marker = Marker;
+        spec.MarkerSize = MarkerSize;
+        if (MarkerSizes.has_value()) {
+            if (count != MarkerSizes.value().shape(0)) { nb::raise("xs and marker_sizes array must have the same count (xs = %zu, MarkerSizes = %zu)", count, MarkerSizes.value().shape(0)); }
+            spec.MarkerSizes = MarkerSizes.value().data();
+        }
+        spec.MarkerLineColor = MarkerLineColor;
+        if (MarkerLineColors.has_value()) {
+            if (count != MarkerLineColors.value().shape(0)) { nb::raise("xs and marker_line_colors array must have the same count (xs = %zu, MarkerLineColors = %zu)", count, MarkerLineColors.value().shape(0)); }
+            spec.MarkerLineColors = MarkerLineColors.value().data();
+        }
+        spec.MarkerFillColor = MarkerFillColor;
+        if (MarkerFillColors.has_value()) {
+            if (count != MarkerFillColors.value().shape(0)) { nb::raise("xs and marker_fill_colors array must have the same count (xs = %zu, MarkerFillColors = %zu)", count, MarkerFillColors.value().shape(0)); }
+            spec.MarkerFillColors = MarkerFillColors.value().data();
+        }
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotLine(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotLine(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotLine(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotLine(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotLine(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotLine(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotLine(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotLine(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotLine(label_id.c_str(), (float*)xs.data(), (float*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotLine(label_id.c_str(), (double*)xs.data(), (double*)ys.data(), count, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys"), nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_alpha") = 1.0, nb::arg("marker") = ImPlotMarker_None, nb::arg("marker_size") = 4, nb::arg("marker_sizes") = nb::none(), nb::arg("marker_line_color") = IMPLOT_AUTO_COL, nb::arg("marker_line_colors") = nb::none(), nb::arg("marker_fill_color") = IMPLOT_AUTO_COL, nb::arg("marker_fill_colors") = nb::none(), nb::arg("flags") = ImPlotLineFlags_None);
+
+mod_implot.def("plot_scatter",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> values, double xscale, double xstart, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, float FillAlpha, ImPlotMarker Marker, float MarkerSize, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, float, nb::device::cpu>> MarkerSizes, ImVec4 MarkerLineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerLineColors, ImVec4 MarkerFillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerFillColors, ImPlotScatterFlags_ flags) {
+        size_t stride = values.stride(0);
+        size_t count = values.shape(0);
+        nb::dlpack::dtype dtype = values.dtype();
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("values and line_colors array must have the same count (values = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillAlpha = FillAlpha;
+        spec.Marker = Marker;
+        spec.MarkerSize = MarkerSize;
+        if (MarkerSizes.has_value()) {
+            if (count != MarkerSizes.value().shape(0)) { nb::raise("values and marker_sizes array must have the same count (values = %zu, MarkerSizes = %zu)", count, MarkerSizes.value().shape(0)); }
+            spec.MarkerSizes = MarkerSizes.value().data();
+        }
+        spec.MarkerLineColor = MarkerLineColor;
+        if (MarkerLineColors.has_value()) {
+            if (count != MarkerLineColors.value().shape(0)) { nb::raise("values and marker_line_colors array must have the same count (values = %zu, MarkerLineColors = %zu)", count, MarkerLineColors.value().shape(0)); }
+            spec.MarkerLineColors = MarkerLineColors.value().data();
+        }
+        spec.MarkerFillColor = MarkerFillColor;
+        if (MarkerFillColors.has_value()) {
+            if (count != MarkerFillColors.value().shape(0)) { nb::raise("values and marker_fill_colors array must have the same count (values = %zu, MarkerFillColors = %zu)", count, MarkerFillColors.value().shape(0)); }
+            spec.MarkerFillColors = MarkerFillColors.value().data();
+        }
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotScatter(label_id.c_str(), (ImS8*)values.data(), count, xscale, xstart, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotScatter(label_id.c_str(), (ImS16*)values.data(), count, xscale, xstart, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotScatter(label_id.c_str(), (ImS32*)values.data(), count, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotScatter(label_id.c_str(), (ImS64*)values.data(), count, xscale, xstart, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotScatter(label_id.c_str(), (ImU8*)values.data(), count, xscale, xstart, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotScatter(label_id.c_str(), (ImU16*)values.data(), count, xscale, xstart, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotScatter(label_id.c_str(), (ImU32*)values.data(), count, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotScatter(label_id.c_str(), (ImU64*)values.data(), count, xscale, xstart, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotScatter(label_id.c_str(), (float*)values.data(), count, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotScatter(label_id.c_str(), (double*)values.data(), count, xscale, xstart, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("values"), nb::arg("xscale") = 1, nb::arg("xstart") = 0, nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_alpha") = 1.0, nb::arg("marker") = ImPlotMarker_None, nb::arg("marker_size") = 4, nb::arg("marker_sizes") = nb::none(), nb::arg("marker_line_color") = IMPLOT_AUTO_COL, nb::arg("marker_line_colors") = nb::none(), nb::arg("marker_fill_color") = IMPLOT_AUTO_COL, nb::arg("marker_fill_colors") = nb::none(), nb::arg("flags") = ImPlotScatterFlags_None);
+
+mod_implot.def("plot_scatter",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, float FillAlpha, ImPlotMarker Marker, float MarkerSize, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, float, nb::device::cpu>> MarkerSizes, ImVec4 MarkerLineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerLineColors, ImVec4 MarkerFillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerFillColors, ImPlotScatterFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys.dtype()) { nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys.dtype().code), ys.dtype().bits); }
+        if (count != ys.shape(0)) { nb::raise("xs and ys array must have the same count (xs = %zu, ys = %zu)", count, ys.shape(0)); }
+        if (stride != ys.stride(0)) { nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu)", stride, ys.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillAlpha = FillAlpha;
+        spec.Marker = Marker;
+        spec.MarkerSize = MarkerSize;
+        if (MarkerSizes.has_value()) {
+            if (count != MarkerSizes.value().shape(0)) { nb::raise("xs and marker_sizes array must have the same count (xs = %zu, MarkerSizes = %zu)", count, MarkerSizes.value().shape(0)); }
+            spec.MarkerSizes = MarkerSizes.value().data();
+        }
+        spec.MarkerLineColor = MarkerLineColor;
+        if (MarkerLineColors.has_value()) {
+            if (count != MarkerLineColors.value().shape(0)) { nb::raise("xs and marker_line_colors array must have the same count (xs = %zu, MarkerLineColors = %zu)", count, MarkerLineColors.value().shape(0)); }
+            spec.MarkerLineColors = MarkerLineColors.value().data();
+        }
+        spec.MarkerFillColor = MarkerFillColor;
+        if (MarkerFillColors.has_value()) {
+            if (count != MarkerFillColors.value().shape(0)) { nb::raise("xs and marker_fill_colors array must have the same count (xs = %zu, MarkerFillColors = %zu)", count, MarkerFillColors.value().shape(0)); }
+            spec.MarkerFillColors = MarkerFillColors.value().data();
+        }
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotScatter(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotScatter(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotScatter(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotScatter(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotScatter(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotScatter(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotScatter(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotScatter(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotScatter(label_id.c_str(), (float*)xs.data(), (float*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotScatter(label_id.c_str(), (double*)xs.data(), (double*)ys.data(), count, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys"), nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_alpha") = 1.0, nb::arg("marker") = ImPlotMarker_None, nb::arg("marker_size") = 4, nb::arg("marker_sizes") = nb::none(), nb::arg("marker_line_color") = IMPLOT_AUTO_COL, nb::arg("marker_line_colors") = nb::none(), nb::arg("marker_fill_color") = IMPLOT_AUTO_COL, nb::arg("marker_fill_colors") = nb::none(), nb::arg("flags") = ImPlotScatterFlags_None);
+
+mod_implot.def("plot_bubbles",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> values, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> szs, double xscale, double xstart, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, ImPlotBubblesFlags_ flags) {
+        size_t stride = values.stride(0);
+        size_t count = values.shape(0);
+        nb::dlpack::dtype dtype = values.dtype();
+        if (dtype != szs.dtype()) { nb::raise("values and szs array must have the same dtype (values = %s%u, szs = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(szs.dtype().code), szs.dtype().bits); }
+        if (count != szs.shape(0)) { nb::raise("values and szs array must have the same count (values = %zu, szs = %zu)", count, szs.shape(0)); }
+        if (stride != szs.stride(0)) { nb::raise("values and szs array must have the same stride (values = %zu, szs = %zu)", stride, szs.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("values and line_colors array must have the same count (values = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("values and fill_colors array must have the same count (values = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotBubbles(label_id.c_str(), (ImS8*)values.data(), (ImS8*)szs.data(), count, xscale, xstart, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotBubbles(label_id.c_str(), (ImS16*)values.data(), (ImS16*)szs.data(), count, xscale, xstart, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotBubbles(label_id.c_str(), (ImS32*)values.data(), (ImS32*)szs.data(), count, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotBubbles(label_id.c_str(), (ImS64*)values.data(), (ImS64*)szs.data(), count, xscale, xstart, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotBubbles(label_id.c_str(), (ImU8*)values.data(), (ImU8*)szs.data(), count, xscale, xstart, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotBubbles(label_id.c_str(), (ImU16*)values.data(), (ImU16*)szs.data(), count, xscale, xstart, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotBubbles(label_id.c_str(), (ImU32*)values.data(), (ImU32*)szs.data(), count, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotBubbles(label_id.c_str(), (ImU64*)values.data(), (ImU64*)szs.data(), count, xscale, xstart, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotBubbles(label_id.c_str(), (float*)values.data(), (float*)szs.data(), count, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotBubbles(label_id.c_str(), (double*)values.data(), (double*)szs.data(), count, xscale, xstart, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("values"), nb::arg("szs"), nb::arg("xscale") = 1, nb::arg("xstart") = 0, nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("flags") = ImPlotBubblesFlags_None);
+
+mod_implot.def("plot_bubbles",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> szs, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, ImPlotBubblesFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys.dtype()) { nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys.dtype().code), ys.dtype().bits); }
+        if (count != ys.shape(0)) { nb::raise("xs and ys array must have the same count (xs = %zu, ys = %zu)", count, ys.shape(0)); }
+        if (stride != ys.stride(0)) { nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu)", stride, ys.stride(0)); }
+        if (dtype != szs.dtype()) { nb::raise("xs and szs array must have the same dtype (xs = %s%u, szs = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(szs.dtype().code), szs.dtype().bits); }
+        if (count != szs.shape(0)) { nb::raise("xs and szs array must have the same count (xs = %zu, szs = %zu)", count, szs.shape(0)); }
+        if (stride != szs.stride(0)) { nb::raise("xs and szs array must have the same stride (xs = %zu, szs = %zu)", stride, szs.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("xs and fill_colors array must have the same count (xs = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotBubbles(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys.data(), (ImS8*)szs.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotBubbles(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), (ImS16*)szs.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotBubbles(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), (ImS32*)szs.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotBubbles(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), (ImS64*)szs.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotBubbles(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys.data(), (ImU8*)szs.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotBubbles(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), (ImU16*)szs.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotBubbles(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), (ImU32*)szs.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotBubbles(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), (ImU64*)szs.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotBubbles(label_id.c_str(), (float*)xs.data(), (float*)ys.data(), (float*)szs.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotBubbles(label_id.c_str(), (double*)xs.data(), (double*)ys.data(), (double*)szs.data(), count, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys"), nb::arg("szs"), nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("flags") = ImPlotBubblesFlags_None);
+
+mod_implot.def("plot_polygon",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, ImPlotMarker Marker, float MarkerSize, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, float, nb::device::cpu>> MarkerSizes, ImVec4 MarkerLineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerLineColors, ImVec4 MarkerFillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerFillColors, ImPlotPolygonFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys.dtype()) { nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys.dtype().code), ys.dtype().bits); }
+        if (count != ys.shape(0)) { nb::raise("xs and ys array must have the same count (xs = %zu, ys = %zu)", count, ys.shape(0)); }
+        if (stride != ys.stride(0)) { nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu)", stride, ys.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("xs and fill_colors array must have the same count (xs = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        spec.Marker = Marker;
+        spec.MarkerSize = MarkerSize;
+        if (MarkerSizes.has_value()) {
+            if (count != MarkerSizes.value().shape(0)) { nb::raise("xs and marker_sizes array must have the same count (xs = %zu, MarkerSizes = %zu)", count, MarkerSizes.value().shape(0)); }
+            spec.MarkerSizes = MarkerSizes.value().data();
+        }
+        spec.MarkerLineColor = MarkerLineColor;
+        if (MarkerLineColors.has_value()) {
+            if (count != MarkerLineColors.value().shape(0)) { nb::raise("xs and marker_line_colors array must have the same count (xs = %zu, MarkerLineColors = %zu)", count, MarkerLineColors.value().shape(0)); }
+            spec.MarkerLineColors = MarkerLineColors.value().data();
+        }
+        spec.MarkerFillColor = MarkerFillColor;
+        if (MarkerFillColors.has_value()) {
+            if (count != MarkerFillColors.value().shape(0)) { nb::raise("xs and marker_fill_colors array must have the same count (xs = %zu, MarkerFillColors = %zu)", count, MarkerFillColors.value().shape(0)); }
+            spec.MarkerFillColors = MarkerFillColors.value().data();
+        }
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotPolygon(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotPolygon(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotPolygon(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotPolygon(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotPolygon(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotPolygon(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotPolygon(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotPolygon(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotPolygon(label_id.c_str(), (float*)xs.data(), (float*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotPolygon(label_id.c_str(), (double*)xs.data(), (double*)ys.data(), count, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys"), nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("marker") = ImPlotMarker_None, nb::arg("marker_size") = 4, nb::arg("marker_sizes") = nb::none(), nb::arg("marker_line_color") = IMPLOT_AUTO_COL, nb::arg("marker_line_colors") = nb::none(), nb::arg("marker_fill_color") = IMPLOT_AUTO_COL, nb::arg("marker_fill_colors") = nb::none(), nb::arg("flags") = ImPlotPolygonFlags_None);
+
+mod_implot.def("plot_stairs",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> values, double xscale, double xstart, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, float FillAlpha, ImPlotMarker Marker, float MarkerSize, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, float, nb::device::cpu>> MarkerSizes, ImVec4 MarkerLineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerLineColors, ImVec4 MarkerFillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerFillColors, ImPlotStairsFlags_ flags) {
+        size_t stride = values.stride(0);
+        size_t count = values.shape(0);
+        nb::dlpack::dtype dtype = values.dtype();
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("values and line_colors array must have the same count (values = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillAlpha = FillAlpha;
+        spec.Marker = Marker;
+        spec.MarkerSize = MarkerSize;
+        if (MarkerSizes.has_value()) {
+            if (count != MarkerSizes.value().shape(0)) { nb::raise("values and marker_sizes array must have the same count (values = %zu, MarkerSizes = %zu)", count, MarkerSizes.value().shape(0)); }
+            spec.MarkerSizes = MarkerSizes.value().data();
+        }
+        spec.MarkerLineColor = MarkerLineColor;
+        if (MarkerLineColors.has_value()) {
+            if (count != MarkerLineColors.value().shape(0)) { nb::raise("values and marker_line_colors array must have the same count (values = %zu, MarkerLineColors = %zu)", count, MarkerLineColors.value().shape(0)); }
+            spec.MarkerLineColors = MarkerLineColors.value().data();
+        }
+        spec.MarkerFillColor = MarkerFillColor;
+        if (MarkerFillColors.has_value()) {
+            if (count != MarkerFillColors.value().shape(0)) { nb::raise("values and marker_fill_colors array must have the same count (values = %zu, MarkerFillColors = %zu)", count, MarkerFillColors.value().shape(0)); }
+            spec.MarkerFillColors = MarkerFillColors.value().data();
+        }
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotStairs(label_id.c_str(), (ImS8*)values.data(), count, xscale, xstart, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotStairs(label_id.c_str(), (ImS16*)values.data(), count, xscale, xstart, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotStairs(label_id.c_str(), (ImS32*)values.data(), count, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotStairs(label_id.c_str(), (ImS64*)values.data(), count, xscale, xstart, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotStairs(label_id.c_str(), (ImU8*)values.data(), count, xscale, xstart, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotStairs(label_id.c_str(), (ImU16*)values.data(), count, xscale, xstart, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotStairs(label_id.c_str(), (ImU32*)values.data(), count, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotStairs(label_id.c_str(), (ImU64*)values.data(), count, xscale, xstart, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotStairs(label_id.c_str(), (float*)values.data(), count, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotStairs(label_id.c_str(), (double*)values.data(), count, xscale, xstart, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("values"), nb::arg("xscale") = 1, nb::arg("xstart") = 0, nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_alpha") = 1.0, nb::arg("marker") = ImPlotMarker_None, nb::arg("marker_size") = 4, nb::arg("marker_sizes") = nb::none(), nb::arg("marker_line_color") = IMPLOT_AUTO_COL, nb::arg("marker_line_colors") = nb::none(), nb::arg("marker_fill_color") = IMPLOT_AUTO_COL, nb::arg("marker_fill_colors") = nb::none(), nb::arg("flags") = ImPlotStairsFlags_None);
+
+mod_implot.def("plot_stairs",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, float FillAlpha, ImPlotMarker Marker, float MarkerSize, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, float, nb::device::cpu>> MarkerSizes, ImVec4 MarkerLineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerLineColors, ImVec4 MarkerFillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerFillColors, ImPlotStairsFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys.dtype()) { nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys.dtype().code), ys.dtype().bits); }
+        if (count != ys.shape(0)) { nb::raise("xs and ys array must have the same count (xs = %zu, ys = %zu)", count, ys.shape(0)); }
+        if (stride != ys.stride(0)) { nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu)", stride, ys.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillAlpha = FillAlpha;
+        spec.Marker = Marker;
+        spec.MarkerSize = MarkerSize;
+        if (MarkerSizes.has_value()) {
+            if (count != MarkerSizes.value().shape(0)) { nb::raise("xs and marker_sizes array must have the same count (xs = %zu, MarkerSizes = %zu)", count, MarkerSizes.value().shape(0)); }
+            spec.MarkerSizes = MarkerSizes.value().data();
+        }
+        spec.MarkerLineColor = MarkerLineColor;
+        if (MarkerLineColors.has_value()) {
+            if (count != MarkerLineColors.value().shape(0)) { nb::raise("xs and marker_line_colors array must have the same count (xs = %zu, MarkerLineColors = %zu)", count, MarkerLineColors.value().shape(0)); }
+            spec.MarkerLineColors = MarkerLineColors.value().data();
+        }
+        spec.MarkerFillColor = MarkerFillColor;
+        if (MarkerFillColors.has_value()) {
+            if (count != MarkerFillColors.value().shape(0)) { nb::raise("xs and marker_fill_colors array must have the same count (xs = %zu, MarkerFillColors = %zu)", count, MarkerFillColors.value().shape(0)); }
+            spec.MarkerFillColors = MarkerFillColors.value().data();
+        }
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotStairs(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotStairs(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotStairs(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotStairs(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotStairs(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotStairs(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotStairs(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotStairs(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotStairs(label_id.c_str(), (float*)xs.data(), (float*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotStairs(label_id.c_str(), (double*)xs.data(), (double*)ys.data(), count, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys"), nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_alpha") = 1.0, nb::arg("marker") = ImPlotMarker_None, nb::arg("marker_size") = 4, nb::arg("marker_sizes") = nb::none(), nb::arg("marker_line_color") = IMPLOT_AUTO_COL, nb::arg("marker_line_colors") = nb::none(), nb::arg("marker_fill_color") = IMPLOT_AUTO_COL, nb::arg("marker_fill_colors") = nb::none(), nb::arg("flags") = ImPlotStairsFlags_None);
+
+mod_implot.def("plot_shaded",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> values, double yref, double xscale, double xstart, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, ImPlotMarker Marker, float MarkerSize, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, float, nb::device::cpu>> MarkerSizes, ImVec4 MarkerLineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerLineColors, ImVec4 MarkerFillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerFillColors, ImPlotShadedFlags_ flags) {
+        size_t stride = values.stride(0);
+        size_t count = values.shape(0);
+        nb::dlpack::dtype dtype = values.dtype();
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("values and line_colors array must have the same count (values = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("values and fill_colors array must have the same count (values = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        spec.Marker = Marker;
+        spec.MarkerSize = MarkerSize;
+        if (MarkerSizes.has_value()) {
+            if (count != MarkerSizes.value().shape(0)) { nb::raise("values and marker_sizes array must have the same count (values = %zu, MarkerSizes = %zu)", count, MarkerSizes.value().shape(0)); }
+            spec.MarkerSizes = MarkerSizes.value().data();
+        }
+        spec.MarkerLineColor = MarkerLineColor;
+        if (MarkerLineColors.has_value()) {
+            if (count != MarkerLineColors.value().shape(0)) { nb::raise("values and marker_line_colors array must have the same count (values = %zu, MarkerLineColors = %zu)", count, MarkerLineColors.value().shape(0)); }
+            spec.MarkerLineColors = MarkerLineColors.value().data();
+        }
+        spec.MarkerFillColor = MarkerFillColor;
+        if (MarkerFillColors.has_value()) {
+            if (count != MarkerFillColors.value().shape(0)) { nb::raise("values and marker_fill_colors array must have the same count (values = %zu, MarkerFillColors = %zu)", count, MarkerFillColors.value().shape(0)); }
+            spec.MarkerFillColors = MarkerFillColors.value().data();
+        }
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotShaded(label_id.c_str(), (ImS8*)values.data(), count, yref, xscale, xstart, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotShaded(label_id.c_str(), (ImS16*)values.data(), count, yref, xscale, xstart, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotShaded(label_id.c_str(), (ImS32*)values.data(), count, yref, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotShaded(label_id.c_str(), (ImS64*)values.data(), count, yref, xscale, xstart, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotShaded(label_id.c_str(), (ImU8*)values.data(), count, yref, xscale, xstart, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotShaded(label_id.c_str(), (ImU16*)values.data(), count, yref, xscale, xstart, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotShaded(label_id.c_str(), (ImU32*)values.data(), count, yref, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotShaded(label_id.c_str(), (ImU64*)values.data(), count, yref, xscale, xstart, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotShaded(label_id.c_str(), (float*)values.data(), count, yref, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotShaded(label_id.c_str(), (double*)values.data(), count, yref, xscale, xstart, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("values"), nb::arg("yref") = 0, nb::arg("xscale") = 1, nb::arg("xstart") = 0, nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("marker") = ImPlotMarker_None, nb::arg("marker_size") = 4, nb::arg("marker_sizes") = nb::none(), nb::arg("marker_line_color") = IMPLOT_AUTO_COL, nb::arg("marker_line_colors") = nb::none(), nb::arg("marker_fill_color") = IMPLOT_AUTO_COL, nb::arg("marker_fill_colors") = nb::none(), nb::arg("flags") = ImPlotShadedFlags_None);
+
+mod_implot.def("plot_shaded",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys, double yref, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, ImPlotMarker Marker, float MarkerSize, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, float, nb::device::cpu>> MarkerSizes, ImVec4 MarkerLineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerLineColors, ImVec4 MarkerFillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerFillColors, ImPlotShadedFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys.dtype()) { nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys.dtype().code), ys.dtype().bits); }
+        if (count != ys.shape(0)) { nb::raise("xs and ys array must have the same count (xs = %zu, ys = %zu)", count, ys.shape(0)); }
+        if (stride != ys.stride(0)) { nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu)", stride, ys.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("xs and fill_colors array must have the same count (xs = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        spec.Marker = Marker;
+        spec.MarkerSize = MarkerSize;
+        if (MarkerSizes.has_value()) {
+            if (count != MarkerSizes.value().shape(0)) { nb::raise("xs and marker_sizes array must have the same count (xs = %zu, MarkerSizes = %zu)", count, MarkerSizes.value().shape(0)); }
+            spec.MarkerSizes = MarkerSizes.value().data();
+        }
+        spec.MarkerLineColor = MarkerLineColor;
+        if (MarkerLineColors.has_value()) {
+            if (count != MarkerLineColors.value().shape(0)) { nb::raise("xs and marker_line_colors array must have the same count (xs = %zu, MarkerLineColors = %zu)", count, MarkerLineColors.value().shape(0)); }
+            spec.MarkerLineColors = MarkerLineColors.value().data();
+        }
+        spec.MarkerFillColor = MarkerFillColor;
+        if (MarkerFillColors.has_value()) {
+            if (count != MarkerFillColors.value().shape(0)) { nb::raise("xs and marker_fill_colors array must have the same count (xs = %zu, MarkerFillColors = %zu)", count, MarkerFillColors.value().shape(0)); }
+            spec.MarkerFillColors = MarkerFillColors.value().data();
+        }
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotShaded(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys.data(), count, yref, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotShaded(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), count, yref, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotShaded(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), count, yref, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotShaded(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), count, yref, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotShaded(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys.data(), count, yref, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotShaded(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), count, yref, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotShaded(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), count, yref, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotShaded(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), count, yref, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotShaded(label_id.c_str(), (float*)xs.data(), (float*)ys.data(), count, yref, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotShaded(label_id.c_str(), (double*)xs.data(), (double*)ys.data(), count, yref, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys"), nb::arg("yref") = 0, nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("marker") = ImPlotMarker_None, nb::arg("marker_size") = 4, nb::arg("marker_sizes") = nb::none(), nb::arg("marker_line_color") = IMPLOT_AUTO_COL, nb::arg("marker_line_colors") = nb::none(), nb::arg("marker_fill_color") = IMPLOT_AUTO_COL, nb::arg("marker_fill_colors") = nb::none(), nb::arg("flags") = ImPlotShadedFlags_None);
+
+mod_implot.def("plot_shaded",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys1, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys2, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, ImPlotMarker Marker, float MarkerSize, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, float, nb::device::cpu>> MarkerSizes, ImVec4 MarkerLineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerLineColors, ImVec4 MarkerFillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerFillColors, ImPlotShadedFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys1.dtype()) { nb::raise("xs and ys1 array must have the same dtype (xs = %s%u, ys1 = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys1.dtype().code), ys1.dtype().bits); }
+        if (count != ys1.shape(0)) { nb::raise("xs and ys1 array must have the same count (xs = %zu, ys1 = %zu)", count, ys1.shape(0)); }
+        if (stride != ys1.stride(0)) { nb::raise("xs and ys1 array must have the same stride (xs = %zu, ys1 = %zu)", stride, ys1.stride(0)); }
+        if (dtype != ys2.dtype()) { nb::raise("xs and ys2 array must have the same dtype (xs = %s%u, ys2 = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys2.dtype().code), ys2.dtype().bits); }
+        if (count != ys2.shape(0)) { nb::raise("xs and ys2 array must have the same count (xs = %zu, ys2 = %zu)", count, ys2.shape(0)); }
+        if (stride != ys2.stride(0)) { nb::raise("xs and ys2 array must have the same stride (xs = %zu, ys2 = %zu)", stride, ys2.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("xs and fill_colors array must have the same count (xs = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        spec.Marker = Marker;
+        spec.MarkerSize = MarkerSize;
+        if (MarkerSizes.has_value()) {
+            if (count != MarkerSizes.value().shape(0)) { nb::raise("xs and marker_sizes array must have the same count (xs = %zu, MarkerSizes = %zu)", count, MarkerSizes.value().shape(0)); }
+            spec.MarkerSizes = MarkerSizes.value().data();
+        }
+        spec.MarkerLineColor = MarkerLineColor;
+        if (MarkerLineColors.has_value()) {
+            if (count != MarkerLineColors.value().shape(0)) { nb::raise("xs and marker_line_colors array must have the same count (xs = %zu, MarkerLineColors = %zu)", count, MarkerLineColors.value().shape(0)); }
+            spec.MarkerLineColors = MarkerLineColors.value().data();
+        }
+        spec.MarkerFillColor = MarkerFillColor;
+        if (MarkerFillColors.has_value()) {
+            if (count != MarkerFillColors.value().shape(0)) { nb::raise("xs and marker_fill_colors array must have the same count (xs = %zu, MarkerFillColors = %zu)", count, MarkerFillColors.value().shape(0)); }
+            spec.MarkerFillColors = MarkerFillColors.value().data();
+        }
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotShaded(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys1.data(), (ImS8*)ys2.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotShaded(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys1.data(), (ImS16*)ys2.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotShaded(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys1.data(), (ImS32*)ys2.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotShaded(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys1.data(), (ImS64*)ys2.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotShaded(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys1.data(), (ImU8*)ys2.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotShaded(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys1.data(), (ImU16*)ys2.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotShaded(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys1.data(), (ImU32*)ys2.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotShaded(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys1.data(), (ImU64*)ys2.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotShaded(label_id.c_str(), (float*)xs.data(), (float*)ys1.data(), (float*)ys2.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotShaded(label_id.c_str(), (double*)xs.data(), (double*)ys1.data(), (double*)ys2.data(), count, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys1"), nb::arg("ys2"), nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("marker") = ImPlotMarker_None, nb::arg("marker_size") = 4, nb::arg("marker_sizes") = nb::none(), nb::arg("marker_line_color") = IMPLOT_AUTO_COL, nb::arg("marker_line_colors") = nb::none(), nb::arg("marker_fill_color") = IMPLOT_AUTO_COL, nb::arg("marker_fill_colors") = nb::none(), nb::arg("flags") = ImPlotShadedFlags_None);
+
+mod_implot.def("plot_bars",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> values, double barsize, double shift, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, ImPlotBarsFlags_ flags) {
+        size_t stride = values.stride(0);
+        size_t count = values.shape(0);
+        nb::dlpack::dtype dtype = values.dtype();
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("values and line_colors array must have the same count (values = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("values and fill_colors array must have the same count (values = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotBars(label_id.c_str(), (ImS8*)values.data(), count, barsize, shift, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotBars(label_id.c_str(), (ImS16*)values.data(), count, barsize, shift, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotBars(label_id.c_str(), (ImS32*)values.data(), count, barsize, shift, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotBars(label_id.c_str(), (ImS64*)values.data(), count, barsize, shift, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotBars(label_id.c_str(), (ImU8*)values.data(), count, barsize, shift, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotBars(label_id.c_str(), (ImU16*)values.data(), count, barsize, shift, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotBars(label_id.c_str(), (ImU32*)values.data(), count, barsize, shift, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotBars(label_id.c_str(), (ImU64*)values.data(), count, barsize, shift, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotBars(label_id.c_str(), (float*)values.data(), count, barsize, shift, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotBars(label_id.c_str(), (double*)values.data(), count, barsize, shift, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("values"), nb::arg("barsize") = 0.67, nb::arg("shift") = 0, nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("flags") = ImPlotBarsFlags_None);
+
+mod_implot.def("plot_bars",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys, double barsize, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, ImPlotBarsFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys.dtype()) { nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys.dtype().code), ys.dtype().bits); }
+        if (count != ys.shape(0)) { nb::raise("xs and ys array must have the same count (xs = %zu, ys = %zu)", count, ys.shape(0)); }
+        if (stride != ys.stride(0)) { nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu)", stride, ys.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("xs and fill_colors array must have the same count (xs = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotBars(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys.data(), count, barsize, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotBars(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), count, barsize, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotBars(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), count, barsize, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotBars(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), count, barsize, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotBars(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys.data(), count, barsize, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotBars(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), count, barsize, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotBars(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), count, barsize, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotBars(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), count, barsize, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotBars(label_id.c_str(), (float*)xs.data(), (float*)ys.data(), count, barsize, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotBars(label_id.c_str(), (double*)xs.data(), (double*)ys.data(), count, barsize, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys"), nb::arg("barsize"), nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("flags") = ImPlotBarsFlags_None);
+
+mod_implot.def("plot_error_bars",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> err, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, float Size, ImPlotErrorBarsFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys.dtype()) { nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys.dtype().code), ys.dtype().bits); }
+        if (count != ys.shape(0)) { nb::raise("xs and ys array must have the same count (xs = %zu, ys = %zu)", count, ys.shape(0)); }
+        if (stride != ys.stride(0)) { nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu)", stride, ys.stride(0)); }
+        if (dtype != err.dtype()) { nb::raise("xs and err array must have the same dtype (xs = %s%u, err = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(err.dtype().code), err.dtype().bits); }
+        if (count != err.shape(0)) { nb::raise("xs and err array must have the same count (xs = %zu, err = %zu)", count, err.shape(0)); }
+        if (stride != err.stride(0)) { nb::raise("xs and err array must have the same stride (xs = %zu, err = %zu)", stride, err.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("xs and fill_colors array must have the same count (xs = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        spec.Size = Size;
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotErrorBars(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys.data(), (ImS8*)err.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotErrorBars(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), (ImS16*)err.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotErrorBars(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), (ImS32*)err.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotErrorBars(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), (ImS64*)err.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotErrorBars(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys.data(), (ImU8*)err.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotErrorBars(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), (ImU16*)err.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotErrorBars(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), (ImU32*)err.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotErrorBars(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), (ImU64*)err.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotErrorBars(label_id.c_str(), (float*)xs.data(), (float*)ys.data(), (float*)err.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotErrorBars(label_id.c_str(), (double*)xs.data(), (double*)ys.data(), (double*)err.data(), count, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys"), nb::arg("err"), nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("size") = 4, nb::arg("flags") = ImPlotErrorBarsFlags_None);
+
+mod_implot.def("plot_error_bars",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> neg, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> pos, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, float Size, ImPlotErrorBarsFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys.dtype()) { nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys.dtype().code), ys.dtype().bits); }
+        if (count != ys.shape(0)) { nb::raise("xs and ys array must have the same count (xs = %zu, ys = %zu)", count, ys.shape(0)); }
+        if (stride != ys.stride(0)) { nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu)", stride, ys.stride(0)); }
+        if (dtype != neg.dtype()) { nb::raise("xs and neg array must have the same dtype (xs = %s%u, neg = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(neg.dtype().code), neg.dtype().bits); }
+        if (count != neg.shape(0)) { nb::raise("xs and neg array must have the same count (xs = %zu, neg = %zu)", count, neg.shape(0)); }
+        if (stride != neg.stride(0)) { nb::raise("xs and neg array must have the same stride (xs = %zu, neg = %zu)", stride, neg.stride(0)); }
+        if (dtype != pos.dtype()) { nb::raise("xs and pos array must have the same dtype (xs = %s%u, pos = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(pos.dtype().code), pos.dtype().bits); }
+        if (count != pos.shape(0)) { nb::raise("xs and pos array must have the same count (xs = %zu, pos = %zu)", count, pos.shape(0)); }
+        if (stride != pos.stride(0)) { nb::raise("xs and pos array must have the same stride (xs = %zu, pos = %zu)", stride, pos.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("xs and fill_colors array must have the same count (xs = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        spec.Size = Size;
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotErrorBars(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys.data(), (ImS8*)neg.data(), (ImS8*)pos.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotErrorBars(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), (ImS16*)neg.data(), (ImS16*)pos.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotErrorBars(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), (ImS32*)neg.data(), (ImS32*)pos.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotErrorBars(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), (ImS64*)neg.data(), (ImS64*)pos.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotErrorBars(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys.data(), (ImU8*)neg.data(), (ImU8*)pos.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotErrorBars(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), (ImU16*)neg.data(), (ImU16*)pos.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotErrorBars(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), (ImU32*)neg.data(), (ImU32*)pos.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotErrorBars(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), (ImU64*)neg.data(), (ImU64*)pos.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotErrorBars(label_id.c_str(), (float*)xs.data(), (float*)ys.data(), (float*)neg.data(), (float*)pos.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotErrorBars(label_id.c_str(), (double*)xs.data(), (double*)ys.data(), (double*)neg.data(), (double*)pos.data(), count, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys"), nb::arg("neg"), nb::arg("pos"), nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("size") = 4, nb::arg("flags") = ImPlotErrorBarsFlags_None);
+
+mod_implot.def("plot_stems",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> values, double ref, double xscale, double xstart, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, float FillAlpha, ImPlotMarker Marker, float MarkerSize, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, float, nb::device::cpu>> MarkerSizes, ImVec4 MarkerLineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerLineColors, ImVec4 MarkerFillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerFillColors, ImPlotStemsFlags_ flags) {
+        size_t stride = values.stride(0);
+        size_t count = values.shape(0);
+        nb::dlpack::dtype dtype = values.dtype();
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("values and line_colors array must have the same count (values = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillAlpha = FillAlpha;
+        spec.Marker = Marker;
+        spec.MarkerSize = MarkerSize;
+        if (MarkerSizes.has_value()) {
+            if (count != MarkerSizes.value().shape(0)) { nb::raise("values and marker_sizes array must have the same count (values = %zu, MarkerSizes = %zu)", count, MarkerSizes.value().shape(0)); }
+            spec.MarkerSizes = MarkerSizes.value().data();
+        }
+        spec.MarkerLineColor = MarkerLineColor;
+        if (MarkerLineColors.has_value()) {
+            if (count != MarkerLineColors.value().shape(0)) { nb::raise("values and marker_line_colors array must have the same count (values = %zu, MarkerLineColors = %zu)", count, MarkerLineColors.value().shape(0)); }
+            spec.MarkerLineColors = MarkerLineColors.value().data();
+        }
+        spec.MarkerFillColor = MarkerFillColor;
+        if (MarkerFillColors.has_value()) {
+            if (count != MarkerFillColors.value().shape(0)) { nb::raise("values and marker_fill_colors array must have the same count (values = %zu, MarkerFillColors = %zu)", count, MarkerFillColors.value().shape(0)); }
+            spec.MarkerFillColors = MarkerFillColors.value().data();
+        }
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotStems(label_id.c_str(), (ImS8*)values.data(), count, ref, xscale, xstart, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotStems(label_id.c_str(), (ImS16*)values.data(), count, ref, xscale, xstart, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotStems(label_id.c_str(), (ImS32*)values.data(), count, ref, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotStems(label_id.c_str(), (ImS64*)values.data(), count, ref, xscale, xstart, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotStems(label_id.c_str(), (ImU8*)values.data(), count, ref, xscale, xstart, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotStems(label_id.c_str(), (ImU16*)values.data(), count, ref, xscale, xstart, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotStems(label_id.c_str(), (ImU32*)values.data(), count, ref, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotStems(label_id.c_str(), (ImU64*)values.data(), count, ref, xscale, xstart, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotStems(label_id.c_str(), (float*)values.data(), count, ref, xscale, xstart, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotStems(label_id.c_str(), (double*)values.data(), count, ref, xscale, xstart, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("values"), nb::arg("ref") = 0, nb::arg("xscale") = 1, nb::arg("xstart") = 0, nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_alpha") = 1.0, nb::arg("marker") = ImPlotMarker_None, nb::arg("marker_size") = 4, nb::arg("marker_sizes") = nb::none(), nb::arg("marker_line_color") = IMPLOT_AUTO_COL, nb::arg("marker_line_colors") = nb::none(), nb::arg("marker_fill_color") = IMPLOT_AUTO_COL, nb::arg("marker_fill_colors") = nb::none(), nb::arg("flags") = ImPlotStemsFlags_None);
+
+mod_implot.def("plot_stems",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys, double ref, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, float FillAlpha, ImPlotMarker Marker, float MarkerSize, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, float, nb::device::cpu>> MarkerSizes, ImVec4 MarkerLineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerLineColors, ImVec4 MarkerFillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> MarkerFillColors, ImPlotStemsFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys.dtype()) { nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys.dtype().code), ys.dtype().bits); }
+        if (count != ys.shape(0)) { nb::raise("xs and ys array must have the same count (xs = %zu, ys = %zu)", count, ys.shape(0)); }
+        if (stride != ys.stride(0)) { nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu)", stride, ys.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillAlpha = FillAlpha;
+        spec.Marker = Marker;
+        spec.MarkerSize = MarkerSize;
+        if (MarkerSizes.has_value()) {
+            if (count != MarkerSizes.value().shape(0)) { nb::raise("xs and marker_sizes array must have the same count (xs = %zu, MarkerSizes = %zu)", count, MarkerSizes.value().shape(0)); }
+            spec.MarkerSizes = MarkerSizes.value().data();
+        }
+        spec.MarkerLineColor = MarkerLineColor;
+        if (MarkerLineColors.has_value()) {
+            if (count != MarkerLineColors.value().shape(0)) { nb::raise("xs and marker_line_colors array must have the same count (xs = %zu, MarkerLineColors = %zu)", count, MarkerLineColors.value().shape(0)); }
+            spec.MarkerLineColors = MarkerLineColors.value().data();
+        }
+        spec.MarkerFillColor = MarkerFillColor;
+        if (MarkerFillColors.has_value()) {
+            if (count != MarkerFillColors.value().shape(0)) { nb::raise("xs and marker_fill_colors array must have the same count (xs = %zu, MarkerFillColors = %zu)", count, MarkerFillColors.value().shape(0)); }
+            spec.MarkerFillColors = MarkerFillColors.value().data();
+        }
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotStems(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys.data(), count, ref, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotStems(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), count, ref, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotStems(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), count, ref, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotStems(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), count, ref, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotStems(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys.data(), count, ref, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotStems(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), count, ref, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotStems(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), count, ref, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotStems(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), count, ref, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotStems(label_id.c_str(), (float*)xs.data(), (float*)ys.data(), count, ref, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotStems(label_id.c_str(), (double*)xs.data(), (double*)ys.data(), count, ref, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys"), nb::arg("ref") = 0, nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_alpha") = 1.0, nb::arg("marker") = ImPlotMarker_None, nb::arg("marker_size") = 4, nb::arg("marker_sizes") = nb::none(), nb::arg("marker_line_color") = IMPLOT_AUTO_COL, nb::arg("marker_line_colors") = nb::none(), nb::arg("marker_fill_color") = IMPLOT_AUTO_COL, nb::arg("marker_fill_colors") = nb::none(), nb::arg("flags") = ImPlotStemsFlags_None);
+
+mod_implot.def("plot_inf_lines",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> values, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImPlotInfLinesFlags_ flags) {
+        size_t stride = values.stride(0);
+        size_t count = values.shape(0);
+        nb::dlpack::dtype dtype = values.dtype();
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("values and line_colors array must have the same count (values = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotInfLines(label_id.c_str(), (ImS8*)values.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotInfLines(label_id.c_str(), (ImS16*)values.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotInfLines(label_id.c_str(), (ImS32*)values.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotInfLines(label_id.c_str(), (ImS64*)values.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotInfLines(label_id.c_str(), (ImU8*)values.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotInfLines(label_id.c_str(), (ImU16*)values.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotInfLines(label_id.c_str(), (ImU32*)values.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotInfLines(label_id.c_str(), (ImU64*)values.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotInfLines(label_id.c_str(), (float*)values.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotInfLines(label_id.c_str(), (double*)values.data(), count, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("values"), nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("flags") = ImPlotInfLinesFlags_None);
+
+mod_implot.def("plot_histogram",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> values, ImPlotBin_ bins, double bar_scale, double min_value, double max_value, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, ImPlotHistogramFlags_ flags) {
+        size_t stride = values.stride(0);
+        size_t count = values.shape(0);
+        nb::dlpack::dtype dtype = values.dtype();
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("values and line_colors array must have the same count (values = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("values and fill_colors array must have the same count (values = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotHistogram(label_id.c_str(), (ImS8*)values.data(), count, bins, bar_scale, ImPlotRange(min_value, max_value), spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotHistogram(label_id.c_str(), (ImS16*)values.data(), count, bins, bar_scale, ImPlotRange(min_value, max_value), spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotHistogram(label_id.c_str(), (ImS32*)values.data(), count, bins, bar_scale, ImPlotRange(min_value, max_value), spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotHistogram(label_id.c_str(), (ImS64*)values.data(), count, bins, bar_scale, ImPlotRange(min_value, max_value), spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotHistogram(label_id.c_str(), (ImU8*)values.data(), count, bins, bar_scale, ImPlotRange(min_value, max_value), spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotHistogram(label_id.c_str(), (ImU16*)values.data(), count, bins, bar_scale, ImPlotRange(min_value, max_value), spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotHistogram(label_id.c_str(), (ImU32*)values.data(), count, bins, bar_scale, ImPlotRange(min_value, max_value), spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotHistogram(label_id.c_str(), (ImU64*)values.data(), count, bins, bar_scale, ImPlotRange(min_value, max_value), spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotHistogram(label_id.c_str(), (float*)values.data(), count, bins, bar_scale, ImPlotRange(min_value, max_value), spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotHistogram(label_id.c_str(), (double*)values.data(), count, bins, bar_scale, ImPlotRange(min_value, max_value), spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"values\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("values"), nb::arg("bins") = ImPlotBin_Sturges, nb::arg("bar_scale") = 1, nb::arg("min_value") = 0, nb::arg("max_value") = 0, nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("flags") = ImPlotHistogramFlags_None);
+
+mod_implot.def("plot_histogram2_d",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys, ImPlotBin_ x_bins, ImPlotBin_ y_bins, double min_x, double max_x, double min_y, double max_y, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, ImPlotHistogramFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys.dtype()) { nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys.dtype().code), ys.dtype().bits); }
+        if (count != ys.shape(0)) { nb::raise("xs and ys array must have the same count (xs = %zu, ys = %zu)", count, ys.shape(0)); }
+        if (stride != ys.stride(0)) { nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu)", stride, ys.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("xs and fill_colors array must have the same count (xs = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotHistogram2D(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys.data(), count, x_bins, y_bins, ImPlotRect(min_x, max_x, min_y, max_y), spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotHistogram2D(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), count, x_bins, y_bins, ImPlotRect(min_x, max_x, min_y, max_y), spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotHistogram2D(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), count, x_bins, y_bins, ImPlotRect(min_x, max_x, min_y, max_y), spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotHistogram2D(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), count, x_bins, y_bins, ImPlotRect(min_x, max_x, min_y, max_y), spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotHistogram2D(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys.data(), count, x_bins, y_bins, ImPlotRect(min_x, max_x, min_y, max_y), spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotHistogram2D(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), count, x_bins, y_bins, ImPlotRect(min_x, max_x, min_y, max_y), spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotHistogram2D(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), count, x_bins, y_bins, ImPlotRect(min_x, max_x, min_y, max_y), spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotHistogram2D(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), count, x_bins, y_bins, ImPlotRect(min_x, max_x, min_y, max_y), spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotHistogram2D(label_id.c_str(), (float*)xs.data(), (float*)ys.data(), count, x_bins, y_bins, ImPlotRect(min_x, max_x, min_y, max_y), spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotHistogram2D(label_id.c_str(), (double*)xs.data(), (double*)ys.data(), count, x_bins, y_bins, ImPlotRect(min_x, max_x, min_y, max_y), spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys"), nb::arg("x_bins") = ImPlotBin_Sturges, nb::arg("y_bins") = ImPlotBin_Sturges, nb::arg("min_x") = 0, nb::arg("max_x") = 0, nb::arg("min_y") = 0, nb::arg("max_y") = 0, nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("flags") = ImPlotHistogramFlags_None);
+
+mod_implot.def("plot_digital",
+    [] (nb::str label_id, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> xs, nb::ndarray<nb::ndim<1>, nb::any_contig, nb::device::cpu> ys, ImVec4 LineColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> LineColors, float LineWeight, ImVec4 FillColor, std::optional<nb::ndarray<nb::ndim<1>, nb::c_contig, ImU32, nb::device::cpu>> FillColors, float FillAlpha, float Size, ImPlotDigitalFlags_ flags) {
+        size_t stride = xs.stride(0);
+        size_t count = xs.shape(0);
+        nb::dlpack::dtype dtype = xs.dtype();
+        if (dtype != ys.dtype()) { nb::raise("xs and ys array must have the same dtype (xs = %s%u, ys = %s%u)", dtype_code_to_str(dtype.bits), dtype.bits, dtype_code_to_str(ys.dtype().code), ys.dtype().bits); }
+        if (count != ys.shape(0)) { nb::raise("xs and ys array must have the same count (xs = %zu, ys = %zu)", count, ys.shape(0)); }
+        if (stride != ys.stride(0)) { nb::raise("xs and ys array must have the same stride (xs = %zu, ys = %zu)", stride, ys.stride(0)); }
+        ImPlotSpec spec;
+        spec.Flags = flags;
+        spec.LineColor = LineColor;
+        if (LineColors.has_value()) {
+            if (count != LineColors.value().shape(0)) { nb::raise("xs and line_colors array must have the same count (xs = %zu, LineColors = %zu)", count, LineColors.value().shape(0)); }
+            spec.LineColors = LineColors.value().data();
+        }
+        spec.LineWeight = LineWeight;
+        spec.FillColor = FillColor;
+        if (FillColors.has_value()) {
+            if (count != FillColors.value().shape(0)) { nb::raise("xs and fill_colors array must have the same count (xs = %zu, FillColors = %zu)", count, FillColors.value().shape(0)); }
+            spec.FillColors = FillColors.value().data();
+        }
+        spec.FillAlpha = FillAlpha;
+        spec.Size = Size;
+        switch (dtype.code) {
+            case (int)nb::dlpack::dtype_code::Int: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotDigital(label_id.c_str(), (ImS8*)xs.data(), (ImS8*)ys.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotDigital(label_id.c_str(), (ImS16*)xs.data(), (ImS16*)ys.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotDigital(label_id.c_str(), (ImS32*)xs.data(), (ImS32*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotDigital(label_id.c_str(), (ImS64*)xs.data(), (ImS64*)ys.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::UInt: {
+                switch (dtype.bits) {
+                    case  8: spec.Stride = stride * 1; ImPlot::PlotDigital(label_id.c_str(), (ImU8*)xs.data(), (ImU8*)ys.data(), count, spec); break;
+                    case 16: spec.Stride = stride * 2; ImPlot::PlotDigital(label_id.c_str(), (ImU16*)xs.data(), (ImU16*)ys.data(), count, spec); break;
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotDigital(label_id.c_str(), (ImU32*)xs.data(), (ImU32*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotDigital(label_id.c_str(), (ImU64*)xs.data(), (ImU64*)ys.data(), count, spec); break;
+                }
+            } break;
+            case (int)nb::dlpack::dtype_code::Float: {
+                switch (dtype.bits) {
+                    case 32: spec.Stride = stride * 4; ImPlot::PlotDigital(label_id.c_str(), (float*)xs.data(), (float*)ys.data(), count, spec); break;
+                    case 64: spec.Stride = stride * 8; ImPlot::PlotDigital(label_id.c_str(), (double*)xs.data(), (double*)ys.data(), count, spec); break;
+                }
+            } break;
+            default: { nb::raise("Invalid array dtype for parameter \"xs\" with code %u and %u bits", dtype.code, dtype.bits); } break;
+        }
+    }, nb::arg("label_id"), nb::arg("xs"), nb::arg("ys"), nb::arg("line_color") = IMPLOT_AUTO_COL, nb::arg("line_colors") = nb::none(), nb::arg("line_weight") = 1.0, nb::arg("fill_color") = IMPLOT_AUTO_COL, nb::arg("fill_colors") = nb::none(), nb::arg("fill_alpha") = 1.0, nb::arg("size") = 4, nb::arg("flags") = ImPlotDigitalFlags_None);
 
 mod_implot.def("annotation",
     [] (float x, float y, ImVec4 col, ImVec2 pix_offset, bool clamp, bool round) -> void {
@@ -749,26 +1967,6 @@ mod_implot.def("pop_style_var",
         return ImPlot::PopStyleVar(count);
     }, nb::arg("count") = 1);
 
-mod_implot.def("set_next_line_style",
-    [] (ImVec4 col, float weight) -> void {
-        return ImPlot::SetNextLineStyle(col, weight);
-    }, nb::arg("col") = IMPLOT_AUTO_COL, nb::arg("weight") = IMPLOT_AUTO);
-
-mod_implot.def("set_next_fill_style",
-    [] (ImVec4 col, float alpha_mod) -> void {
-        return ImPlot::SetNextFillStyle(col, alpha_mod);
-    }, nb::arg("col") = IMPLOT_AUTO_COL, nb::arg("alpha_mod") = IMPLOT_AUTO);
-
-mod_implot.def("set_next_marker_style",
-    [] (ImPlotMarker_ marker, float size, ImVec4 fill, float weight, ImVec4 outline) -> void {
-        return ImPlot::SetNextMarkerStyle(marker, size, fill, weight, outline);
-    }, nb::arg("marker") = IMPLOT_AUTO, nb::arg("size") = IMPLOT_AUTO, nb::arg("fill") = IMPLOT_AUTO_COL, nb::arg("weight") = IMPLOT_AUTO, nb::arg("outline") = IMPLOT_AUTO_COL);
-
-mod_implot.def("set_next_error_bar_style",
-    [] (ImVec4 col, float size, float weight) -> void {
-        return ImPlot::SetNextErrorBarStyle(col, size, weight);
-    }, nb::arg("col") = IMPLOT_AUTO_COL, nb::arg("size") = IMPLOT_AUTO, nb::arg("weight") = IMPLOT_AUTO);
-
 mod_implot.def("get_last_item_color",
     [] () -> ImVec4 {
         return ImPlot::GetLastItemColor();
@@ -783,6 +1981,11 @@ mod_implot.def("get_marker_name",
     [] (ImPlotMarker_ idx) -> const char* {
         return ImPlot::GetMarkerName(idx);
     }, nb::arg("idx"));
+
+mod_implot.def("next_marker",
+    [] () -> ImPlotMarker_ {
+        return (ImPlotMarker_)ImPlot::NextMarker();
+    });
 
 mod_implot.def("add_colormap",
     [] (const char* name, const ImVec4* cols, int size, bool qual) -> ImPlotColormap_ {
