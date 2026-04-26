@@ -593,6 +593,7 @@ nb::enum_<ImGuiStyleVar_>(mod_imgui, "StyleVar", nb::is_arithmetic() )
     .value("TREE_LINES_ROUNDING", ImGuiStyleVar_TreeLinesRounding)
     .value("BUTTON_TEXT_ALIGN", ImGuiStyleVar_ButtonTextAlign)
     .value("SELECTABLE_TEXT_ALIGN", ImGuiStyleVar_SelectableTextAlign)
+    .value("SEPARATOR_SIZE", ImGuiStyleVar_SeparatorSize)
     .value("SEPARATOR_TEXT_BORDER_SIZE", ImGuiStyleVar_SeparatorTextBorderSize)
     .value("SEPARATOR_TEXT_ALIGN", ImGuiStyleVar_SeparatorTextAlign)
     .value("SEPARATOR_TEXT_PADDING", ImGuiStyleVar_SeparatorTextPadding)
@@ -606,6 +607,7 @@ nb::enum_<ImGuiButtonFlags_>(mod_imgui, "ButtonFlags", nb::is_arithmetic() , nb:
     .value("MOUSE_BUTTON_MIDDLE", ImGuiButtonFlags_MouseButtonMiddle)
     .value("MOUSE_BUTTON_MASK_", ImGuiButtonFlags_MouseButtonMask_)
     .value("ENABLE_NAV", ImGuiButtonFlags_EnableNav)
+    .value("ALLOW_OVERLAP", ImGuiButtonFlags_AllowOverlap)
     ;
 
 nb::enum_<ImGuiColorEditFlags_>(mod_imgui, "ColorEditFlags", nb::is_arithmetic() , nb::is_flag())
@@ -796,10 +798,13 @@ nb::enum_<ImGuiMultiSelectFlags_>(mod_imgui, "MultiSelectFlags", nb::is_arithmet
     .value("CLEAR_ON_CLICK_VOID", ImGuiMultiSelectFlags_ClearOnClickVoid)
     .value("SCOPE_WINDOW", ImGuiMultiSelectFlags_ScopeWindow)
     .value("SCOPE_RECT", ImGuiMultiSelectFlags_ScopeRect)
-    .value("SELECT_ON_CLICK", ImGuiMultiSelectFlags_SelectOnClick)
+    .value("SELECT_ON_AUTO", ImGuiMultiSelectFlags_SelectOnAuto)
+    .value("SELECT_ON_CLICK_ALWAYS", ImGuiMultiSelectFlags_SelectOnClickAlways)
     .value("SELECT_ON_CLICK_RELEASE", ImGuiMultiSelectFlags_SelectOnClickRelease)
     .value("NAV_WRAP_X", ImGuiMultiSelectFlags_NavWrapX)
     .value("NO_SELECT_ON_RIGHT_CLICK", ImGuiMultiSelectFlags_NoSelectOnRightClick)
+    .value("SELECT_ON_MASK_", ImGuiMultiSelectFlags_SelectOnMask_)
+    .value("SELECT_ON_CLICK", ImGuiMultiSelectFlags_SelectOnClick)
     ;
 
 nb::enum_<ImGuiSelectionRequestType>(mod_imgui, "SelectionRequestType", nb::is_arithmetic() )
@@ -932,6 +937,7 @@ nb::class_<ImGuiStyle>(mod_imgui, "Style")
     .def_rw("color_button_position", &ImGuiStyle::ColorButtonPosition)
     .def_rw("button_text_align", &ImGuiStyle::ButtonTextAlign)
     .def_rw("selectable_text_align", &ImGuiStyle::SelectableTextAlign)
+    .def_rw("separator_size", &ImGuiStyle::SeparatorSize)
     .def_rw("separator_text_border_size", &ImGuiStyle::SeparatorTextBorderSize)
     .def_rw("separator_text_align", &ImGuiStyle::SeparatorTextAlign)
     .def_rw("separator_text_padding", &ImGuiStyle::SeparatorTextPadding)
@@ -1942,6 +1948,11 @@ mod_imgui.def("set_next_item_open",
 mod_imgui.def("set_next_item_storage_id",
     [] (ImGuiID storage_id) -> void {
         return ImGui::SetNextItemStorageID(storage_id);
+    }, nb::arg("storage_id"));
+
+mod_imgui.def("tree_node_get_open",
+    [] (ImGuiID storage_id) -> bool {
+        return ImGui::TreeNodeGetOpen(storage_id);
     }, nb::arg("storage_id"));
 
 mod_imgui.def("selectable",
