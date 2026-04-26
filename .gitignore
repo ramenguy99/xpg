@@ -19,6 +19,7 @@ CMakeSettings.json
 imgui.ini
 lint.bat
 lint.sh
+run_example.bat
 
 /res
 /pyxpg
@@ -38,3 +39,5 @@ lint.sh
 /install-*
 /python-build
 /wheel*
+
+/tracing

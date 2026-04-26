@@ -3,7 +3,8 @@ import subprocess
 from pathlib import Path
 
 shaders_dir = Path(__file__).parent.parent.joinpath("apps", "shaders")
-res_dir = Path(__file__).parent.joinpath("res")
+res_dir = Path(__file__).parent.parent.joinpath("res")
+res_dir.mkdir(exist_ok=True)
 
 kinds = {
     'vert',
