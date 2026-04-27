@@ -17,7 +17,7 @@ dependencies = [
     "pyglm>=2,<3",
     "platformdirs>=4,<5",
     "pyyaml>=6,<7",
-    "pyxpg==0.3.0.",
+    "pyxpg==0.3.0",
 ]
 
 [project.urls]
