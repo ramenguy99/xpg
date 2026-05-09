@@ -100,7 +100,7 @@ class OrthographicCamera(Camera):
 @dataclass
 class PerspectiveCamera(Camera):
     fov: float
-    """Vertical field of view in radians"""
+    """Vertical field of view in degrees"""
 
     @classmethod
     def look_at(

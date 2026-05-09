@@ -5,7 +5,6 @@ Priority:
     - [x] 3D lines
 - [ ] UI improvements:
     - [x] Images in GUI
-    - [ ] Ortho views
     - [ ] More GUI
     - [ ] Better timeline with timestamp visualizers
 - [ ] Property:
@@ -16,6 +15,15 @@ Priority:
           - Streamed to GPU every frame (need to roll buffer)
           - Sqlite properties need to use range queries to fill history and then can do normal appends / rolls
 TODO:
+- [ ] Ortho views:
+    - [x] Temporary cameras
+    - [x] Transition from 
+    - [x] Consistently handle ortho span extents update to match perspective toggle
+        -> requires a reference fov also for orthographic cameras (maybe do this only if temporary ortho?)
+    - [ ] Automatic grid:
+        - Maybe do not add to the scene?
+        - Skip rendering of existing grids
+        - Implement auto grid scaling depending on zoom level?
 - [ ] Transparency:
     - [x] materials in shaders
     - [x] is_transparent on objects and materials

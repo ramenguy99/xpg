@@ -61,7 +61,7 @@ from .utils.descriptors import (
 from .utils.gpu import UploadableBuffer
 from .utils.lru_pool import LRUPool
 from .utils.ring_buffer import RingBuffer
-from .viewport import Playback, Rect, Viewport
+from .viewport import OrthographicViewType, Playback, Rect, Viewport
 
 
 class Viewer:
@@ -371,6 +371,19 @@ class Viewer:
                 self.running = False
             if self.key_map.toggle_path_tracer.is_active(key, modifiers):
                 self.renderer.toggle_path_tracer()
+            if self.active_viewport is not None:
+                if self.key_map.ortho_view_positive_x.is_active(key, modifiers):
+                    self.active_viewport.set_temporary_ortho_view(OrthographicViewType.POSITIVE_X)
+                if self.key_map.ortho_view_positive_y.is_active(key, modifiers):
+                    self.active_viewport.set_temporary_ortho_view(OrthographicViewType.POSITIVE_Y)
+                if self.key_map.ortho_view_positive_z.is_active(key, modifiers):
+                    self.active_viewport.set_temporary_ortho_view(OrthographicViewType.POSITIVE_Z)
+                if self.key_map.ortho_view_negative_x.is_active(key, modifiers):
+                    self.active_viewport.set_temporary_ortho_view(OrthographicViewType.NEGATIVE_X)
+                if self.key_map.ortho_view_negative_y.is_active(key, modifiers):
+                    self.active_viewport.set_temporary_ortho_view(OrthographicViewType.NEGATIVE_Y)
+                if self.key_map.ortho_view_negative_z.is_active(key, modifiers):
+                    self.active_viewport.set_temporary_ortho_view(OrthographicViewType.NEGATIVE_Z)
 
         # Press + repeat
         if action == Action.PRESS or action == Action.REPEAT:

@@ -3,6 +3,7 @@
 
 import math
 from dataclasses import dataclass
+from enum import Enum, auto
 from typing import Any, List, Optional
 
 from numpy.typing import NDArray
@@ -18,8 +19,10 @@ from pyglm.glm import (
     mat3_cast,
     mat4,
     normalize,
+    radians,
     rotate,
     sqrt,
+    tan,
     translate,
     transpose,
     vec2,
@@ -93,6 +96,15 @@ class PathTracerViewport:
     sample_index: int
     last_camera_transform: RigidTransform3D
     accumulation_image: Optional[Image]
+
+
+class OrthographicViewType(Enum):
+    POSITIVE_X = auto()
+    POSITIVE_Y = auto()
+    POSITIVE_Z = auto()
+    NEGATIVE_X = auto()
+    NEGATIVE_Y = auto()
+    NEGATIVE_Z = auto()
 
 
 class Viewport:
@@ -174,6 +186,9 @@ class Viewport:
         self.drag_start_camera_right = vec3(0)
         self.drag_start_camera_up = vec3(0)
         self.drag_start_camera_pitch = 0.0
+        self.is_temporary_ortho = False
+        self.prev_camera_fov: Optional[float] = None
+        self.prev_camera_depth: Optional[CameraDepth] = None
 
     def resize(self, width: int, height: int) -> None:
         if self.path_tracer_viewport is not None and (self.rect.width != width or self.rect.height != height):
@@ -213,6 +228,25 @@ class Viewport:
         if self.pan_pressed:
             self.pan(self.drag_start_mouse_position, position)
         if self.rotate_pressed:
+            # Go back to previous camera if temporary camera is active
+            if self.is_temporary_ortho:
+                assert self.prev_camera_depth is not None
+                assert self.prev_camera_fov is not None
+
+                if self.prev_camera_fov is not None:
+                    self.camera = PerspectiveCamera(
+                        self.camera.camera_from_world, self.prev_camera_depth, self.prev_camera_fov
+                    )
+                else:
+                    assert isinstance(self.camera, OrthographicCamera)
+                    self.camera = OrthographicCamera(
+                        self.camera.camera_from_world,
+                        self.prev_camera_depth,
+                        self.camera.center,
+                        self.camera.half_extents,
+                    )
+                self.is_temporary_ortho = False
+
             if self.camera_control_mode == CameraControlMode.ORBIT:
                 self.rotate_orbit(self.drag_start_mouse_position, position)
             elif self.camera_control_mode == CameraControlMode.TRACKBALL:
@@ -302,10 +336,9 @@ class Viewport:
         )
 
     def zoom(self, scroll: dvec2, move: bool) -> None:
-        if isinstance(self.camera, OrthographicCamera):
-            self.camera.half_extents -= self.camera.half_extents * self.camera_zoom_ortho_speed * scroll.y
-            # TODO: pan camera to ensure point under cursor stays fixed in screen coordinates
-        else:
+        # We move the position of the camera for perspective cameras or for temporary orthographic cameras
+        # if the previous camera was a perspective camera, to ensure smooth transition back to perspective.
+        if isinstance(self.camera, PerspectiveCamera) or self.prev_camera_fov is not None:
             position = self.camera.position()
             dist = distance(position, self.camera_target)
             speed_scale = max(dist * self.camera_zoom_distance_speed_scale, self.camera_zoom_min_speed_scale)
@@ -320,9 +353,19 @@ class Viewport:
                 movement = min(movement, max_movement)
                 delta_position = self.camera.front() * movement
 
+            new_position = self.camera.position() + delta_position
             self.camera.camera_from_world = RigidTransform3D.look_at(
-                self.camera.position() + delta_position, self.camera_target, self.camera_world_up, self.handedness
+                new_position, self.camera_target, self.camera_world_up, self.handedness
             )
+
+        if isinstance(self.camera, OrthographicCamera):
+            # TODO: maybe pan camera to ensure point under cursor stays fixed in screen coordinates?
+            if self.prev_camera_fov is None:
+                self.camera.half_extents -= self.camera.half_extents * self.camera_zoom_ortho_speed * scroll.y
+            else:
+                d = distance(new_position, self.camera_target)
+                fov_radians = radians(self.prev_camera_fov)
+                self.camera.half_extents = vec2(tan(fov_radians / 2) * d)
 
     def _rotation_from_mouse_delta(self, delta: ivec2, center_of_rotation: vec3) -> mat4:
         # Clamp pitch algorithm outline:
@@ -371,3 +414,53 @@ class Viewport:
 
         # Return intersection position in world coordinates.
         return self.drag_start_camera_inverse_view_rotation * vec3(nx, ny, nz)  # type: ignore
+
+    def set_temporary_ortho_view(self, ortho_view_type: OrthographicViewType) -> None:
+        if self.pan_pressed or self.rotate_pressed:
+            return
+
+        position = self.camera.position()
+        target = self.camera_target
+        d = distance(position, target)
+        if ortho_view_type == OrthographicViewType.POSITIVE_X or ortho_view_type == OrthographicViewType.NEGATIVE_X:
+            position = target + vec3(d if ortho_view_type == OrthographicViewType.POSITIVE_X else -d, 0, 0)
+            if abs(self.camera_world_up.y) > 0.5:
+                up = vec3(0, 1, 0) if self.camera_world_up.y >= 0 else vec3(0, -1, 0)
+            else:
+                up = vec3(0, 0, 1) if self.camera_world_up.z >= 0 else vec3(0, 0, -1)
+        elif ortho_view_type == OrthographicViewType.POSITIVE_Y or ortho_view_type == OrthographicViewType.NEGATIVE_Y:
+            position = target + vec3(0, d if ortho_view_type == OrthographicViewType.POSITIVE_Y else -d, 0)
+            if abs(self.camera_world_up.x) > 0.5:
+                up = vec3(1, 0, 0) if self.camera_world_up.x >= 0 else vec3(-1, 0, 0)
+            else:
+                up = vec3(0, 0, 1) if self.camera_world_up.z >= 0 else vec3(0, 0, -1)
+        elif ortho_view_type == OrthographicViewType.POSITIVE_Z or ortho_view_type == OrthographicViewType.NEGATIVE_Z:
+            position = target + vec3(0, 0, d if ortho_view_type == OrthographicViewType.POSITIVE_Z else -d)
+            if abs(self.camera_world_up.x) > 0.5:
+                up = vec3(1, 0, 0) if self.camera_world_up.x >= 0 else vec3(-1, 0, 0)
+            else:
+                up = vec3(0, 1, 0) if self.camera_world_up.y >= 0 else vec3(0, -1, 0)
+
+        if isinstance(self.camera, OrthographicCamera):
+            half_extents = self.camera.half_extents
+            center = self.camera.center
+            if not self.is_temporary_ortho:
+                self.prev_camera_fov = None
+                self.prev_camera_depth = self.camera.depth
+        else:
+            assert isinstance(self.camera, PerspectiveCamera)
+            fov_radians = radians(self.camera.fov)
+            half_extents = vec2(tan(fov_radians / 2) * d)
+            center = vec2(0, 0)
+            if not self.is_temporary_ortho:
+                self.prev_camera_fov = self.camera.fov
+                self.prev_camera_depth = self.camera.depth
+
+        self.camera = OrthographicCamera(
+            RigidTransform3D.look_at(position, target, up, self.handedness),
+            CameraDepth(0, self.camera.depth.z_far),
+            center,
+            half_extents,
+        )
+
+        self.is_temporary_ortho = True

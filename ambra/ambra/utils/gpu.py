@@ -773,7 +773,7 @@ def get_min_max_and_required_subgroup_size(
         )
 
 
-def attachment_alpha_blending(format: Format):
+def attachment_alpha_blending(format: Format) -> Attachment:
     return Attachment(
         format=format,
         blend_enable=True,

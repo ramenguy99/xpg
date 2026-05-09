@@ -41,3 +41,10 @@ class KeyMap:
     camera_pan: MouseButtonBinding = MouseButtonBinding(MouseButton.RIGHT)
     camera_zoom_modifiers: Modifiers = Modifiers.NONE
     camera_zoom_move_modifiers: Modifiers = Modifiers.SHIFT
+
+    ortho_view_positive_x: KeyBinding = KeyBinding(Key.F1, Modifiers.NONE)
+    ortho_view_positive_y: KeyBinding = KeyBinding(Key.F2, Modifiers.NONE)
+    ortho_view_positive_z: KeyBinding = KeyBinding(Key.F3, Modifiers.NONE)
+    ortho_view_negative_x: KeyBinding = KeyBinding(Key.F1, Modifiers.SHIFT)
+    ortho_view_negative_y: KeyBinding = KeyBinding(Key.F2, Modifiers.SHIFT)
+    ortho_view_negative_z: KeyBinding = KeyBinding(Key.F3, Modifiers.SHIFT)
