@@ -30,6 +30,7 @@ public struct ObjectConstants {
     float range_min;           // 76
     float3 point_or_normal;    // 80
     float range_inv_delta;     // 92
+    float alpha;               // 96
 #elif defined(UNIFORM_COLOR)
     uint32_t color;            // 72
 #endif
@@ -72,7 +73,7 @@ VSOutput vertex_main(VSInput in, uint vertex_index: SV_VertexID)
     float remapped_value = (value - g_object_constants.range_min) * g_object_constants.range_inv_delta;
     ColormapId colormap_id = (ColormapId)(g_object_constants.colormap_measure & 0xFFFF);
 
-    out.color = float4(colormap(colormap_id, remapped_value), 1.0);
+    out.color = float4(colormap(colormap_id, remapped_value), g_object_constants.alpha);
 #elif defined(UNIFORM_COLOR)
     out.color = float4(
         (float)((g_object_constants.color >> 0) & 0xFF) * (1.0 / 255.0),

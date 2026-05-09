@@ -60,6 +60,7 @@ from .utils.descriptors import create_descriptor_layout_pool_and_set, create_des
 from .utils.gpu import (
     AccelerationStructureInstanceInfo,
     align_up,
+    attachment_alpha_blending,
     cull_mode_opposite_face,
     div_ceil,
     div_round_up,
@@ -86,6 +87,7 @@ class Colormap:
     color: ColormapKind = ColormapKind.JET
     range_min: float = 0.0
     range_max: float = 1.0
+    alpha: float = 1.0
 
 
 @dataclass
@@ -112,6 +114,7 @@ class Points(Object3D):
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
+        is_transparent: Optional[bool] = None,
     ):
         if uniform_color is None and colors is None and colormap is None:
             uniform_color = 0xFFCCCCCC
@@ -126,6 +129,7 @@ class Points(Object3D):
                     "color": (np.uint32, 52),
                 }
             )  # type: ignore
+            is_transparent = (uniform_color >> 24) < 0xFF if is_transparent is None else is_transparent
         elif colors is not None:
             if colormap is not None:
                 raise ValueError("Only one of uniform_color, colormap and colors can be not None")
@@ -135,6 +139,7 @@ class Points(Object3D):
                     "point_size": (np.float32, 48),
                 }
             )  # type: ignore
+            is_transparent = False if is_transparent is None else is_transparent
         elif colormap is not None:
             self.constants_dtype = np.dtype(
                 {
@@ -144,12 +149,22 @@ class Points(Object3D):
                     "range_min": (np.float32, 56),
                     "range_inv_delta": (np.float32, 60),
                     "point_or_normal": (np.dtype((np.float32, (3,))), 64),
+                    "alpha": (np.float32, 76),
                 }
             )  # type: ignore
+            is_transparent = colormap.alpha < 1.0 if is_transparent is None else is_transparent
 
         self.constants = np.zeros((1,), self.constants_dtype)
 
-        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
+        super().__init__(
+            name,
+            translation,
+            rotation,
+            scale,
+            enabled=enabled,
+            viewport_mask=viewport_mask,
+            is_transparent=is_transparent,
+        )
         self.point_size = self.add_buffer_property(point_size, np.float32, name="point_size")
         self.points = self.add_buffer_property(points, np.float32, (-1, 3), name="points").use_gpu(
             BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
@@ -192,7 +207,11 @@ class Points(Object3D):
             vertex_attributes=vertex_attributes,
             input_assembly=InputAssembly(PrimitiveTopology.POINT_LIST),
             samples=r.msaa_samples,
-            attachments=[Attachment(format=r.output_format)],
+            attachments=[
+                attachment_alpha_blending(r.output_format)
+                if self.is_transparent
+                else Attachment(format=r.output_format)
+            ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
@@ -222,6 +241,7 @@ class Points(Object3D):
             self.constants["colormap_measure"] = (measure << 16) | self.colormap.color.value
             self.constants["range_min"] = self.colormap.range_min
             self.constants["range_inv_delta"] = 1.0 / (self.colormap.range_max - self.colormap.range_min)
+            self.constants["alpha"] = self.colormap.alpha
 
         points = self.points.get_current_gpu()
 
@@ -244,36 +264,83 @@ class Lines(Object3D):
     def __init__(
         self,
         lines: BufferProperty,
-        colors: BufferProperty,
+        colors: Optional[BufferProperty] = None,
         line_width: Union[BufferProperty, float] = 1.0,
         is_strip: bool = False,
+        uniform_color: Optional[int] = None,
         name: Optional[str] = None,
         translation: Optional[BufferProperty] = None,
         rotation: Optional[BufferProperty] = None,
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
+        is_transparent: Optional[bool] = None,
     ):
-        self.constants_dtype = np.dtype(
-            {
-                "transform": (np.dtype((np.float32, (3, 4))), 0),
-            }
-        )  # type: ignore
+        if uniform_color is not None and colors is not None:
+            raise ValueError("Only one of uniform_color and colors can be not None")
+
+        if uniform_color is None and colors is None:
+            uniform_color = 0xFFCCCCCC
+
+        if uniform_color is not None:
+            self.constants_dtype = np.dtype(
+                {
+                    "transform": (np.dtype((np.float32, (3, 4))), 0),
+                    "color": (np.uint32, 48),
+                }
+            )  # type: ignore
+            is_transparent = (uniform_color >> 24) < 0xFF if is_transparent is None else is_transparent
+        elif colors is not None:
+            self.constants_dtype = np.dtype(
+                {
+                    "transform": (np.dtype((np.float32, (3, 4))), 0),
+                }
+            )  # type: ignore
+            is_transparent = False if is_transparent is None else is_transparent
+
         self.constants = np.zeros((1,), self.constants_dtype)
 
-        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
+        super().__init__(
+            name,
+            translation,
+            rotation,
+            scale,
+            enabled=enabled,
+            viewport_mask=viewport_mask,
+            is_transparent=is_transparent,
+        )
         self.is_strip = is_strip
         self.lines = self.add_buffer_property(lines, np.float32, (-1, 3), name="lines").use_gpu(
             BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
         )
-        self.colors = self.add_buffer_property(colors, np.uint32, (-1,), name="colors").use_gpu(
-            BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
-        )
         self.line_width = self.add_buffer_property(line_width, np.float32, name="line_width")
+        self.colors = (
+            self.add_buffer_property(colors, np.uint32, (-1,), name="colors").use_gpu(
+                BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
+            )
+            if colors is not None
+            else None
+        )
+        self.uniform_color = uniform_color
 
     def create(self, r: Renderer) -> None:
-        vert = r.compile_builtin_shader("3d/basic.slang", "vertex_main")
-        frag = r.compile_builtin_shader("3d/basic.slang", "pixel_main")
+        vertex_bindings = [
+            VertexBinding(0, 12, VertexInputRate.VERTEX),
+        ]
+        vertex_attributes = [
+            VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
+        ]
+
+        defines = []
+        if self.uniform_color is not None:
+            defines.append(("UNIFORM_COLOR", ""))
+        elif self.colors is not None:
+            defines.append(("VERTEX_COLORS", ""))
+            vertex_bindings.append(VertexBinding(1, 4, VertexInputRate.VERTEX))
+            vertex_attributes.append(VertexAttribute(1, 1, Format.R32_UINT))
+
+        vert = r.compile_builtin_shader("3d/basic.slang", "vertex_main", defines=defines)
+        frag = r.compile_builtin_shader("3d/basic.slang", "pixel_main", defines=defines)
 
         # Instantiate the pipeline using the compiled shaders
         self.pipeline = GraphicsPipeline(
@@ -282,20 +349,18 @@ class Lines(Object3D):
                 PipelineStage(Shader(r.device, vert.code), Stage.VERTEX),
                 PipelineStage(Shader(r.device, frag.code), Stage.FRAGMENT),
             ],
-            vertex_bindings=[
-                VertexBinding(0, 12, VertexInputRate.VERTEX),
-                VertexBinding(1, 4, VertexInputRate.VERTEX),
-            ],
-            vertex_attributes=[
-                VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
-                VertexAttribute(1, 1, Format.R32_UINT),
-            ],
+            vertex_bindings=vertex_bindings,
+            vertex_attributes=vertex_attributes,
             rasterization=Rasterization(dynamic_line_width=True),
             input_assembly=InputAssembly(
                 PrimitiveTopology.LINE_STRIP if self.is_strip else PrimitiveTopology.LINE_LIST
             ),
             samples=r.msaa_samples,
-            attachments=[Attachment(format=r.output_format)],
+            attachments=[
+                attachment_alpha_blending(r.output_format)
+                if self.is_transparent
+                else Attachment(format=r.output_format)
+            ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
@@ -311,12 +376,17 @@ class Lines(Object3D):
         self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
     ) -> None:
         lines = self.lines.get_current_gpu()
+
+        if self.uniform_color is not None:
+            self.constants["color"] = self.uniform_color
+
+        vertex_buffers = [lines.buffer_and_offset()]
+        if self.colors is not None:
+            vertex_buffers.append(self.colors.get_current_gpu().buffer_and_offset())
+
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
-            vertex_buffers=[
-                lines.buffer_and_offset(),
-                self.colors.get_current_gpu().buffer_and_offset(),
-            ],
+            vertex_buffers=vertex_buffers,
             descriptor_sets=[
                 scene_descriptor_set,
             ],
@@ -351,6 +421,7 @@ class Mesh(Object3D):
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
+        is_transparent: Optional[bool] = None,
     ):
         self.primitive_topology = primitive_topology
         self.cull_mode = cull_mode
@@ -366,8 +437,10 @@ class Mesh(Object3D):
         self.constants = np.zeros((1,), self.constants_dtype)
 
         if material is None:
-            default_color = (0.5, 0.5, 0.5) if vertex_colors is None else (1.0, 1.0, 1.0)
+            default_color = (0.5, 0.5, 0.5, 1.0) if vertex_colors is None else (1.0, 1.0, 1.0, 1.0)
             material = DiffuseMaterial(default_color)
+
+        is_transparent = is_transparent if is_transparent is not None else material.is_transparent
 
         super().__init__(
             name,
@@ -377,6 +450,7 @@ class Mesh(Object3D):
             material,
             enabled,
             viewport_mask,
+            is_transparent,
         )
 
         # Add properties
@@ -527,7 +601,11 @@ class Mesh(Object3D):
             ),
             input_assembly=InputAssembly(self.primitive_topology),
             samples=r.msaa_samples,
-            attachments=[Attachment(format=r.output_format)],
+            attachments=[
+                attachment_alpha_blending(r.output_format)
+                if self.is_transparent
+                else Attachment(format=r.output_format)
+            ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
@@ -719,6 +797,7 @@ class MarchingCubesMesh(Object3D):
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
+        is_transparent: Optional[bool] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -729,7 +808,9 @@ class MarchingCubesMesh(Object3D):
         self.constants = np.zeros((1,), self.constants_dtype)
 
         if material is None:
-            material = DiffuseMaterial((0.5, 0.5, 0.5))
+            material = DiffuseMaterial((0.5, 0.5, 0.5, 1.0))
+
+        is_transparent = is_transparent if is_transparent is not None else material.is_transparent
 
         super().__init__(
             name,
@@ -739,6 +820,7 @@ class MarchingCubesMesh(Object3D):
             material,
             enabled,
             viewport_mask,
+            is_transparent,
         )
 
         self.size = size
@@ -814,7 +896,11 @@ class MarchingCubesMesh(Object3D):
             rasterization=Rasterization(cull_mode=CullMode.NONE),
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
             samples=r.msaa_samples,
-            attachments=[Attachment(format=r.output_format)],
+            attachments=[
+                attachment_alpha_blending(r.output_format)
+                if self.is_transparent
+                else Attachment(format=r.output_format)
+            ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
@@ -1045,6 +1131,7 @@ class ThickLines(Object3D):
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
+        is_transparent: Optional[bool] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -1060,8 +1147,10 @@ class ThickLines(Object3D):
         )
 
         if material is None:
-            default_color = (0.5, 0.5, 0.5) if colors is None else (1.0, 1.0, 1.0)
+            default_color = (0.5, 0.5, 0.5, 1.0) if colors is None else (1.0, 1.0, 1.0, 1.0)
             material = DiffuseMaterial(default_color)
+
+        is_transparent = is_transparent if is_transparent is not None else material.is_transparent
 
         super().__init__(
             name,
@@ -1071,6 +1160,7 @@ class ThickLines(Object3D):
             material,
             enabled,
             viewport_mask,
+            is_transparent,
         )
 
         self.lines = self.add_buffer_property(lines, np.float32, (-1, 3), name="lines").use_gpu(
@@ -1171,7 +1261,11 @@ class ThickLines(Object3D):
             ),
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
             samples=r.msaa_samples,
-            attachments=[Attachment(format=r.output_format)],
+            attachments=[
+                attachment_alpha_blending(r.output_format)
+                if self.is_transparent
+                else Attachment(format=r.output_format)
+            ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
@@ -1258,6 +1352,7 @@ class Spheres(Object3D):
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
+        is_transparent: Optional[bool] = None,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -1271,8 +1366,10 @@ class Spheres(Object3D):
         self.sphere_positions, _, self.sphere_faces = create_sphere(1.0, rings, sectors)
 
         if material is None:
-            default_color = (0.5, 0.5, 0.5) if colors is None else (1.0, 1.0, 1.0)
+            default_color = (0.5, 0.5, 0.5, 1.0) if colors is None else (1.0, 1.0, 1.0, 1.0)
             material = DiffuseMaterial(default_color)
+
+        is_transparent = is_transparent if is_transparent is not None else material.is_transparent
 
         super().__init__(
             name,
@@ -1282,6 +1379,7 @@ class Spheres(Object3D):
             material,
             enabled,
             viewport_mask,
+            is_transparent,
         )
 
         self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
@@ -1371,7 +1469,11 @@ class Spheres(Object3D):
             ),
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
             samples=r.msaa_samples,
-            attachments=[Attachment(format=r.output_format)],
+            attachments=[
+                attachment_alpha_blending(r.output_format)
+                if self.is_transparent
+                else Attachment(format=r.output_format)
+            ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
@@ -1478,6 +1580,13 @@ class AxisGizmo(Mesh):
             [sphere_f, cylinder_f, cylinder_f, cylinder_f],
         )
 
+        is_transparent = (
+            (sphere_color >> 24) < 0xFF
+            or (x_axis_color >> 24) < 0xFF
+            or (y_axis_color >> 24) < 0xFF
+            or (z_axis_color >> 24) < 0xFF
+        )
+
         super().__init__(
             mesh_v,  # type: ignore
             mesh_f,  # type: ignore
@@ -1491,6 +1600,7 @@ class AxisGizmo(Mesh):
             scale=scale,
             enabled=enabled,
             viewport_mask=viewport_mask,
+            is_transparent=is_transparent,
         )
 
 
@@ -1504,6 +1614,7 @@ class Image(Mesh):
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
+        is_transparent: Optional[bool] = None,
     ):
         material = ColorMaterial(as_image_property(image))
         positions = np.array(
@@ -1546,6 +1657,7 @@ class Image(Mesh):
             scale=scale,
             enabled=enabled,
             viewport_mask=viewport_mask,
+            is_transparent=is_transparent,
         )
 
 
@@ -1616,9 +1728,17 @@ class Grid(Object3D):
         self.grid_constants["pos_axis_color_scale"] = pos_axis_color_scale
         self.grid_constants["neg_axis_color_scale"] = neg_axis_color_scale
 
-        self.is_transparent = base_color[3] < 1.0
+        is_transparent = base_color[3] < 1.0
 
-        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
+        super().__init__(
+            name,
+            translation,
+            rotation,
+            scale,
+            enabled=enabled,
+            viewport_mask=viewport_mask,
+            is_transparent=is_transparent,
+        )
 
     @classmethod
     def white(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
@@ -1670,16 +1790,9 @@ class Grid(Object3D):
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_STRIP),
             samples=r.msaa_samples,
             attachments=[
-                Attachment(
-                    format=r.output_format,
-                    blend_enable=True,
-                    src_color_blend_factor=BlendFactor.SRC_ALPHA,
-                    dst_color_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
-                    color_blend_op=BlendOp.ADD,
-                    src_alpha_blend_factor=BlendFactor.ONE,
-                    dst_alpha_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
-                    alpha_blend_op=BlendOp.ADD,
-                )
+                attachment_alpha_blending(r.output_format)
+                if self.is_transparent
+                else Attachment(format=r.output_format)
             ],
             depth=Depth(r.depth_format, True, not self.is_transparent, r.depth_compare_op),
             descriptor_set_layouts=[
@@ -1723,6 +1836,7 @@ class Voxels(Object3D):
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
+        is_transparent: Optional[bool] = None,
     ):
         if uniform_color is None and colors is None and colormap is None:
             uniform_color = 0xFFCCCCCC
@@ -1740,6 +1854,7 @@ class Voxels(Object3D):
                     "color": (np.uint32, 72),
                 }
             )  # type: ignore
+            is_transparent = (uniform_color >> 24) < 0xFF if is_transparent is None else is_transparent
         elif colors is not None:
             if colormap is not None:
                 raise ValueError("Only one of uniform_color, colormap and colors can be not None")
@@ -1752,6 +1867,7 @@ class Voxels(Object3D):
                     "border_factor": (np.float32, 68),
                 }
             )  # type: ignore
+            is_transparent = False if is_transparent is None else is_transparent
         elif colormap is not None:
             self.constants_dtype = np.dtype(
                 {
@@ -1764,15 +1880,25 @@ class Voxels(Object3D):
                     "range_min": (np.float32, 76),
                     "point_or_normal": (np.dtype((np.float32, (3,))), 80),
                     "range_inv_delta": (np.float32, 92),
+                    "alpha": (np.float32, 96),
                 }
             )  # type: ignore
+            is_transparent = colormap.alpha < 1.0 if is_transparent is None else is_transparent
 
         self.constants = np.zeros((1,), self.constants_dtype)
         self.size = size
         self.border_size = border_size
         self.border_factor = border_factor
 
-        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
+        super().__init__(
+            name,
+            translation,
+            rotation,
+            scale,
+            enabled=enabled,
+            viewport_mask=viewport_mask,
+            is_transparent=is_transparent,
+        )
         self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
             BufferUsageFlags.VERTEX, PipelineStageFlags.VERTEX_INPUT
         )
@@ -1832,7 +1958,11 @@ class Voxels(Object3D):
             vertex_attributes=vertex_attributes,
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
             samples=r.msaa_samples,
-            attachments=[Attachment(format=r.output_format)],
+            attachments=[
+                attachment_alpha_blending(r.output_format)
+                if self.is_transparent
+                else Attachment(format=r.output_format)
+            ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
@@ -1867,6 +1997,7 @@ class Voxels(Object3D):
             self.constants["colormap_measure"] = (measure << 16) | self.colormap.color.value
             self.constants["range_min"] = self.colormap.range_min
             self.constants["range_inv_delta"] = 1.0 / (self.colormap.range_max - self.colormap.range_min)
+            self.constants["alpha"] = self.colormap.alpha
 
         positions = self.positions.get_current_gpu()
 
@@ -1936,7 +2067,9 @@ class GaussianSplats(Object3D):
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
-        super().__init__(name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask)
+        super().__init__(
+            name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask, is_transparent=True
+        )
         self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
             BufferUsageFlags.STORAGE,
             PipelineStageFlags.COMPUTE_SHADER,

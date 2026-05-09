@@ -138,12 +138,11 @@ float4 pixel_main(VSOutput in) : SV_Target0
 #endif
 
 #ifdef VERTEX_COLORS
-    float3 tint = in.color.rgb;
+    float4 tint = in.color;
 #else
-    float3 tint = 1.0;
+    float4 tint = 1.0;
 #endif
 
-    float3 color = g_material.eval(in.world_position, uv, N, T, tint);
-
-    return float4(color, 1.0);
+    float4 color = g_material.eval(in.world_position, uv, N, T, tint);
+    return color;
 }

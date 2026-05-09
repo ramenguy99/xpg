@@ -42,6 +42,7 @@ class Object:
         material: Optional["Material"] = None,
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
+        is_transparent: bool = False,
     ):
         self.uid = next_id()
         self.name = name or f"{type(self).__name__}<{self.uid}>"
@@ -49,6 +50,7 @@ class Object:
         self.properties: List[Property] = []
         self.material = material
         self.viewport_mask = viewport_mask
+        self.is_transparent = is_transparent
 
         self.created = False
         self.gui_enabled = True
@@ -162,8 +164,9 @@ class Object2D(Object):
         scale: Optional[BufferProperty] = None,
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
+        is_transparent: bool = False,
     ):
-        super().__init__(name, enabled=enabled, viewport_mask=viewport_mask)
+        super().__init__(name, enabled=enabled, viewport_mask=viewport_mask, is_transparent=is_transparent)
         self.translation = self.add_buffer_property(
             translation if translation is not None else np.array([0, 0]),
             np.float32,
@@ -206,8 +209,9 @@ class Object3D(Object):
         material: Optional["Material"] = None,
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
+        is_transparent: bool = False,
     ):
-        super().__init__(name, material, enabled, viewport_mask)
+        super().__init__(name, material, enabled, viewport_mask, is_transparent)
         self.translation = self.add_buffer_property(
             translation if translation is not None else np.array([0, 0, 0]),
             np.float32,

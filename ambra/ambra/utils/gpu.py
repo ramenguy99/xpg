@@ -9,6 +9,9 @@ import numpy as np
 from numpy.typing import NDArray
 from pyxpg import (
     AllocType,
+    Attachment,
+    BlendFactor,
+    BlendOp,
     Buffer,
     BufferUsageFlags,
     CommandBuffer,
@@ -768,3 +771,16 @@ def get_min_max_and_required_subgroup_size(
             device.device_properties.subgroup_properties.subgroup_size,
             None,
         )
+
+
+def attachment_alpha_blending(format: Format):
+    return Attachment(
+        format=format,
+        blend_enable=True,
+        src_color_blend_factor=BlendFactor.SRC_ALPHA,
+        dst_color_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
+        color_blend_op=BlendOp.ADD,
+        src_alpha_blend_factor=BlendFactor.ONE,
+        dst_alpha_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
+        alpha_blend_op=BlendOp.ADD,
+    )

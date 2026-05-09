@@ -39,6 +39,7 @@ class MaterialPropertyFlags(Flag):
     ALLOW_IMAGE = auto()
     HAS_VALUE = auto()
     DEFAULT_SRGB = auto()
+    ALPHA_CHANNEL = auto()
 
 
 @dataclass
@@ -64,6 +65,7 @@ class MaterialProperty:
         channels: int,
         srgb: bool,
         mips: bool,
+        is_transparent: bool,
         name: str,
     ):
         self.property: Union[BufferProperty, ImageProperty]
@@ -81,6 +83,7 @@ class MaterialProperty:
         self.channels = channels
         self.srgb = srgb
         self.mips = mips
+        self.is_transparent = is_transparent
         self.name = name
 
 
@@ -93,8 +96,16 @@ def as_material_property(
     if isinstance(property, MaterialProperty):
         material_property = property
     else:
+        is_transparent = False
+        if flags & MaterialPropertyFlags.ALPHA_CHANNEL and isinstance(property, tuple):
+            # Allow implicit conversion from 3 element tuple to 4 element tuple with 1.0 in alpha channel
+            if len(property) == 3:
+                property = (*property, 1.0)
+            if property[-1] < 1.0:
+                is_transparent = True
+
         material_property = MaterialProperty(
-            property, expected_channels, bool(flags & MaterialPropertyFlags.DEFAULT_SRGB), True, name
+            property, expected_channels, bool(flags & MaterialPropertyFlags.DEFAULT_SRGB), True, is_transparent, name
         )
 
     if material_property.channels != expected_channels:
@@ -114,11 +125,13 @@ class Material:
         properties: List[Tuple[MaterialProperty, MaterialPropertyFlags]],
         shader_defines: List[Tuple[str, str]],
         sampling_options: Optional[MaterialSamplingOptions],
+        is_transparent: bool,
     ):
         self.properties = properties
         self.created = False
         self.shader_defines = shader_defines
         self.sampling_options = sampling_options if sampling_options is not None else MaterialSamplingOptions()
+        self.is_transparent = is_transparent
 
         offset = 0
         fields = {}
@@ -236,11 +249,24 @@ class Material:
 
 # Unlit flat color
 class ColorMaterial(Material):
-    def __init__(self, color: MaterialData, sampling_options: Optional[MaterialSamplingOptions] = None):
+    def __init__(
+        self,
+        color: MaterialData,
+        sampling_options: Optional[MaterialSamplingOptions] = None,
+        is_transparent: Optional[bool] = None,
+    ):
         self.color = as_material_property(
-            color, 3, MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE, "color"
+            color,
+            4,
+            MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE | MaterialPropertyFlags.ALPHA_CHANNEL,
+            "color",
         )
-        super().__init__([self.color], [("MATERIAL_COLOR", "1")], sampling_options)
+        super().__init__(
+            [self.color],
+            [("MATERIAL_COLOR", "1")],
+            sampling_options,
+            self.color[0].is_transparent if is_transparent is None else is_transparent,
+        )
 
 
 # Diffuse only
@@ -250,15 +276,24 @@ class DiffuseMaterial(Material):
         diffuse: MaterialData,
         normal: Optional[ImageProperty] = None,
         sampling_options: Optional[MaterialSamplingOptions] = None,
+        is_transparent: Optional[bool] = None,
     ):
         self.diffuse = as_material_property(
             diffuse,
-            3,
-            MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE | MaterialPropertyFlags.DEFAULT_SRGB,
+            4,
+            MaterialPropertyFlags.ALLOW_IMAGE
+            | MaterialPropertyFlags.HAS_VALUE
+            | MaterialPropertyFlags.DEFAULT_SRGB
+            | MaterialPropertyFlags.ALPHA_CHANNEL,
             "diffuse",
         )
         self.normal = as_material_property(normal or (0.0, 0.0, 0.0), 3, MaterialPropertyFlags.ALLOW_IMAGE, "normal")
-        super().__init__([self.diffuse, self.normal], [("MATERIAL_DIFFUSE", "1")], sampling_options)
+        super().__init__(
+            [self.diffuse, self.normal],
+            [("MATERIAL_DIFFUSE", "1")],
+            sampling_options,
+            self.diffuse[0].is_transparent if is_transparent is None else is_transparent,
+        )
 
 
 # Blinn-phong
@@ -271,11 +306,15 @@ class DiffuseSpecularMaterial(Material):
         specular_tint: Union[float, BufferProperty] = 0.0,
         normal: Optional[ImageProperty] = None,
         sampling_options: Optional[MaterialSamplingOptions] = None,
+        is_transparent: Optional[bool] = None,
     ):
         self.diffuse = as_material_property(
             diffuse,
-            3,
-            MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE | MaterialPropertyFlags.DEFAULT_SRGB,
+            4,
+            MaterialPropertyFlags.ALLOW_IMAGE
+            | MaterialPropertyFlags.HAS_VALUE
+            | MaterialPropertyFlags.DEFAULT_SRGB
+            | MaterialPropertyFlags.ALPHA_CHANNEL,
             "diffuse",
         )
         self.specular_strength = as_material_property(
@@ -293,6 +332,7 @@ class DiffuseSpecularMaterial(Material):
             [self.diffuse, self.specular_strength, self.specular_exponent, self.specular_tint, self.normal],
             [("MATERIAL_DIFFUSE_SPECULAR", "1")],
             sampling_options,
+            self.diffuse[0].is_transparent if is_transparent is None else is_transparent,
         )
 
 
@@ -306,11 +346,15 @@ class PBRMaterial(Material):
         ao: Union[float, BufferProperty] = 1.0,
         normal: Optional[ImageProperty] = None,
         sampling_options: Optional[MaterialSamplingOptions] = None,
+        is_transparent: Optional[bool] = None,
     ):
         self.albedo = as_material_property(
             albedo,
-            3,
-            MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE | MaterialPropertyFlags.DEFAULT_SRGB,
+            4,
+            MaterialPropertyFlags.ALLOW_IMAGE
+            | MaterialPropertyFlags.HAS_VALUE
+            | MaterialPropertyFlags.DEFAULT_SRGB
+            | MaterialPropertyFlags.ALPHA_CHANNEL,
             "albedo",
         )
         self.roughness = as_material_property(
@@ -327,4 +371,5 @@ class PBRMaterial(Material):
             [self.albedo, self.roughness, self.metallic, self.ao, self.normal],
             [("MATERIAL_PBR", "1")],
             sampling_options,
+            self.albedo[0].is_transparent if is_transparent is None else is_transparent,
         )

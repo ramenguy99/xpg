@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import numpy as np
+from pyglm.glm import distance2, dot, vec3
 from pyxpg import (
     AccelerationStructure,
     AccelerationStructureMesh,
@@ -55,6 +56,7 @@ from pyxpg import (
     slang,
 )
 
+from .camera import OrthographicCamera
 from .config import RendererConfig, RenderMode, UploadMethod
 from .ffx import SPDPipeline
 from .lights import (
@@ -77,7 +79,7 @@ from .materials import (
 )
 from .property import BufferProperty, ImageProperty, Property, PropertyItem
 from .renderer_frame import RendererFrame, SemaphoreInfo
-from .scene import Object, Scene
+from .scene import Object, Object3D, Scene
 from .shaders import compile
 from .utils.descriptors import create_descriptor_layout_pool_and_set, create_descriptor_pool_and_sets
 from .utils.gpu import (
@@ -1456,6 +1458,42 @@ class Renderer:
                 cmd.set_scissors(rect)
 
                 image = frame.image if viewport.image is None else viewport.image
+
+                # Filter enabled and split into opaque and transparent objects
+                opaque: List[Object] = []
+                transparent: List[Object] = []
+                for o in enabled_objects:
+                    if o.viewport_mask is None or (o.viewport_mask & viewport_bit):
+                        if o.is_transparent:
+                            transparent.append(o)
+                        else:
+                            opaque.append(o)
+
+                # Sort transparent 3D objects based on position
+                if transparent:
+                    if isinstance(viewport.camera, OrthographicCamera):
+                        camera_forward = viewport.camera.front()
+
+                        def sort_z(o: Object):
+                            if isinstance(o, Object3D):
+                                pos = vec3(o.current_transform_matrix[3])
+                                return dot(pos, camera_forward)  # noqa: B023
+                            else:
+                                return 0
+
+                        transparent = sorted(transparent, key=sort_z, reverse=True)
+                    else:
+                        camera_position = viewport.camera.position()
+
+                        def sort_dist(o: Object):
+                            if isinstance(o, Object3D):
+                                pos = vec3(o.current_transform_matrix[3])
+                                return distance2(pos, camera_position)  # noqa: B023
+                            else:
+                                return 0
+
+                        transparent = sorted(transparent, key=sort_dist, reverse=True)
+
                 with cmd.rendering(
                     rect,
                     color_attachments=[
@@ -1474,9 +1512,11 @@ class Renderer:
                     ],
                     depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
                 ):
-                    for o in enabled_objects:
-                        if o.viewport_mask is None or (o.viewport_mask & viewport_bit):
-                            o.render(self, f, viewport, descriptor_set)
+                    for o in opaque:
+                        o.render(self, f, viewport, descriptor_set)
+
+                    for o in transparent:
+                        o.render(self, f, viewport, descriptor_set)
 
         if before_gui_barriers:
             cmd.barriers(image_barriers=before_gui_barriers)

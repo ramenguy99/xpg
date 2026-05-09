@@ -113,40 +113,40 @@ public struct UniformEnvironmentLight : ILight
 
 public interface IMaterial
 {
-    public float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float3 tint);
+    public float4 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float4 tine);
 }
 
 public struct EmptyMaterial : IMaterial
 {
-    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float3 tint)
+    float4 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float4 tine)
     {
-        return 0.0;
+        return float4(0.0, 0.0, 0.0, 1.0);
     }
 }
 
 public struct ColorMaterial : IMaterial
 {
-    public float3 color;
+    public float4 color;
     public bool has_color_texture;
 
     public SamplerState sampler;
     public Texture2D color_texture;
 
-    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float3 tint)
+    float4 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float4 tint)
     {
-        float3 color;
+        float4 color;
         if (has_color_texture) {
-            color = this.color_texture.Sample(sampler, uv).rgb;
+            color = this.color_texture.Sample(sampler, uv);
         } else {
             color = this.color;
         }
-        return color * tint.rgb;
+        return color * tint;
     }
 }
 
 public struct DiffuseMaterial : IMaterial
 {
-    public float3 diffuse;
+    public float4 diffuse;
     public bool has_diffuse_texture;
     public bool has_normal_texture;
 
@@ -154,11 +154,11 @@ public struct DiffuseMaterial : IMaterial
     public Texture2D diffuse_texture;
     public Texture2D normal_texture;
 
-    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float3 tint)
+    float4 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float4 tint)
     {
-        float3 diffuse;
+        float4 diffuse;
         if (has_diffuse_texture) {
-            diffuse = this.diffuse_texture.Sample(sampler, uv).rgb;
+            diffuse = this.diffuse_texture.Sample(sampler, uv);
         } else {
             diffuse = this.diffuse;
         }
@@ -176,7 +176,7 @@ public struct DiffuseMaterial : IMaterial
         for (uint32_t i = 0; i < g_constants.directional_lights_count; i++) {
             LightEvaluation l = g_directional_lights[i].eval(world_position, N);
             float cosine = max(dot(l.direction, N), 0.0);
-            outgoing_radiance += cosine * INV_PI * diffuse * l.L;
+            outgoing_radiance += cosine * INV_PI * diffuse.rgb * l.L;
         }
 
         float3 irradiance = 0.0;
@@ -185,7 +185,7 @@ public struct DiffuseMaterial : IMaterial
         }
         irradiance += g_constants.ambient_light;
 
-        float3 color = outgoing_radiance + irradiance * diffuse;
+        float3 color = outgoing_radiance + irradiance * diffuse.rgb;
 
         // Tonemapping
         color = color / (color + 1.0);
@@ -193,13 +193,13 @@ public struct DiffuseMaterial : IMaterial
         // To sRGB
         color = pow(color, 1.0 / 2.2);
 
-        return color;
+        return float4(color, diffuse.a);
     }
 }
 
 public struct DiffuseSpecularMaterial : IMaterial
 {
-    public float3 diffuse;
+    public float4 diffuse;
     public bool has_diffuse_texture;
 
     public float specular_strength;
@@ -215,11 +215,11 @@ public struct DiffuseSpecularMaterial : IMaterial
     public Texture2D specular_strength_texture;
     public Texture2D normal_texture;
 
-    public float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float3 tint)
+    public float4 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float4 tint)
     {
-        float3 diffuse;
+        float4 diffuse;
         if (has_diffuse_texture) {
-            diffuse = this.diffuse_texture.Sample(sampler, uv).rgb;
+            diffuse = this.diffuse_texture.Sample(sampler, uv);
         } else {
             diffuse = this.diffuse;
         }
@@ -251,7 +251,7 @@ public struct DiffuseSpecularMaterial : IMaterial
             float specular = pow(max(dot(N, half), 0.0f), specular_exponent) * specular_strength;
             float cosine = max(dot(light.direction, N), 0.0);
 
-            outgoing_radiance += ((cosine * INV_PI * diffuse) + lerp(1.0, diffuse, specular_tint) * specular) * light.L;
+            outgoing_radiance += ((cosine * INV_PI * diffuse.rgb) + lerp(1.0, diffuse.rgb, specular_tint) * specular) * light.L;
         }
 
         float3 irradiance = 0.0;
@@ -260,7 +260,7 @@ public struct DiffuseSpecularMaterial : IMaterial
         }
         irradiance += g_constants.ambient_light;
 
-        float3 color = outgoing_radiance + irradiance * diffuse;
+        float3 color = outgoing_radiance + irradiance * diffuse.rgb;
 
         // Tonemapping
         color = color / (color + 1.0);
@@ -268,7 +268,7 @@ public struct DiffuseSpecularMaterial : IMaterial
         // To sRGB
         color = pow(color, 1.0 / 2.2);
 
-        return color;
+        return float4(color, diffuse.a);
     }
 }
 
@@ -343,7 +343,7 @@ float3 eval_roughness_metallic_brdf(float3 N, float3 V, float3 L, float3 Albedo,
 
 public struct PBRMaterial : IMaterial
 {
-    public float3 albedo;
+    public float4 albedo;
     public uint has_albedo_texture;
 
     public float roughness;
@@ -362,11 +362,11 @@ public struct PBRMaterial : IMaterial
     public Texture2D ao_texture;
     public Texture2D normal_texture;
 
-    float3 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float3 tint)
+    float4 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float4 tint)
     {
-        float3 albedo;
+        float4 albedo;
         if (has_albedo_texture != 0) {
-            albedo = this.albedo_texture.Sample(sampler, uv).rgb;
+            albedo = this.albedo_texture.Sample(sampler, uv);
         } else {
             albedo = this.albedo;
         }
@@ -404,13 +404,13 @@ public struct PBRMaterial : IMaterial
         float3 view = normalize(g_constants.world_camera_position - world_position);
         float3 outgoing_radiance = float3(0, 0, 0);
 
-        float3 f0 = lerp(0.04, albedo, metallic);
+        float3 f0 = lerp(0.04, albedo.rgb, metallic);
 
         // Direct lights
         for (uint32_t i = 0; i < g_constants.directional_lights_count; i++) {
             LightEvaluation light = g_directional_lights[i].eval(world_position, N);
 
-            float3 brdf_cosine = eval_roughness_metallic_brdf(N, view, light.direction, albedo, f0, roughness, metallic);
+            float3 brdf_cosine = eval_roughness_metallic_brdf(N, view, light.direction, albedo.rgb, f0, roughness, metallic);
             outgoing_radiance += brdf_cosine * light.L;
         }
 
@@ -427,7 +427,7 @@ public struct PBRMaterial : IMaterial
         }
         irradiance += g_constants.ambient_light;
 
-        float3 diffuse = irradiance * albedo;
+        float3 diffuse = irradiance * albedo.rgb;
 
         float3 prefiltered_specular = 0.0;
         if (g_constants.has_environment_light != 0) {
@@ -449,7 +449,7 @@ public struct PBRMaterial : IMaterial
         // To sRGB
         color = pow(color, 1.0 / 2.2);
 
-        return color;
+        return float4(color, albedo.a);
     }
 }
 

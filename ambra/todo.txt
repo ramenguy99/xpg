@@ -15,8 +15,20 @@ Priority:
           - Getting a frame returns the last up to N frames
           - Streamed to GPU every frame (need to roll buffer)
           - Sqlite properties need to use range queries to fill history and then can do normal appends / rolls
-          
 TODO:
+- [ ] Transparency:
+    - [x] materials in shaders
+    - [x] is_transparent on objects and materials
+    - [x] transparent queue in rendering and sorting based on position or depth
+    - [x] Test:
+        - [x] Meshes
+        - [x] Lines
+        - [x] Points
+        - [x] Voxels
+    - [ ] material with transparency based on normal
+    - [ ] depth prepass (need dynamic depth state in xpg? check support)
+    - [ ] depth peeling
+    - [ ] 2D renderables (going to be removed anyways at some point?)
 - [x] Subgroups:
     - [x] Allow forcing subgroup size (if supported) when creating compute pipelines (or maybe arbitrary shaders too)
 - [x] Marching cubes:
