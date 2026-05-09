@@ -85,11 +85,11 @@ class OrthographicCamera(Camera):
 
     def projection(self, ar: float) -> mat4:
         half_extents = self.half_extents * vec2(ar, 1)
-        top_left = self.center - half_extents
-        bottom_right = self.center + half_extents
+        top_left = self.center + half_extents
+        bottom_right = self.center - half_extents
         return orthoRH_ZO(
-            top_left.x,
             bottom_right.x,
+            top_left.x,
             bottom_right.y,
             top_left.y,
             self.depth.z_near,

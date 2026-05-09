@@ -1,5 +1,4 @@
 import numpy as np
-from pyglm.glm import vec3
 
 from ambra.config import CameraConfig, CameraProjection, Config, PlaybackConfig
 from ambra.geometry import create_axis2d_lines_and_colors
@@ -16,8 +15,7 @@ viewer = Viewer(
         camera=CameraConfig(
             projection=CameraProjection.ORTHOGRAPHIC,
             ortho_half_extents=(10, 10),
-            position=(0, 0, 0),
-            target=(0, 0, 1),
+            position=(0, 0, 1),
         ),
         world_up=(0, 1, 0),
     ),

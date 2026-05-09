@@ -8,7 +8,15 @@ public struct Constants {
     public float4x4 projection;
 
     public float3 world_camera_position;
-    public uint32_t num_directional_lights;
+
+    public float3 ambient_light;
+    public uint32_t has_environment_light;
+
+    public float2 focal;
+    public float2 inverse_viewport_size;
+
+    public float max_specular_mip;
+    public uint32_t directional_lights_count;
 };
 
 [vk::binding(0, 0)]

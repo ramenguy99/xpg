@@ -31,7 +31,7 @@ VSOutput vertex_main(uint vertex_id: SV_VertexID)
     float2 position = uv * 2.0 - 1.0;
 
     VSOutput out;
-    out.position = mul(g_constants.projection, (mul(g_constants.view, float4(mul(g_object_constants.transform, float3(position, 1.0)), 1.0))));
+    out.position = mul(g_constants.projection, (mul(g_constants.view, float4(mul(g_object_constants.transform, float3(position, 1.0)).xy, 0.0, 1.0))));
     out.uv = uv;
 
     return out;

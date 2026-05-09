@@ -286,9 +286,8 @@ class Viewport:
     def pan(self, start_pos: ivec2, pos: ivec2) -> None:
         delta = pos - start_pos
         if isinstance(self.camera, OrthographicCamera):
-            delta_inv_y = vec2(delta.x, -delta.y)
             ar_half_extents = self.camera.half_extents * vec2(self.rect.width / self.rect.height, 1)
-            movement = delta_inv_y / vec2(self.rect.width, self.rect.height) * ar_half_extents * 2.0
+            movement = vec2(delta) / vec2(self.rect.width, self.rect.height) * ar_half_extents * 2.0
         else:
             speed_scale = max(
                 distance(self.camera_target, self.drag_start_camera_position) * self.camera_pan_distance_speed_scale,
