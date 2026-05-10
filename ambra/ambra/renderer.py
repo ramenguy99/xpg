@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import numpy as np
-from pyglm.glm import distance2, dot, vec3
+from pyglm.glm import distance2, dot, mat4x3, vec3
 from pyxpg import (
     AccelerationStructure,
     AccelerationStructureMesh,
@@ -59,6 +59,7 @@ from pyxpg import (
 from .camera import OrthographicCamera
 from .config import RendererConfig, RenderMode, UploadMethod
 from .ffx import SPDPipeline
+from .grid import DrawGrid, GridType
 from .lights import (
     LIGHT_TYPES_INFO,
     DirectionalLight,
@@ -76,6 +77,7 @@ from .materials import (
     DiffuseMaterial,
     DiffuseSpecularMaterial,
     PBRMaterial,
+    XrayMaterial,
 )
 from .property import BufferProperty, ImageProperty, Property, PropertyItem
 from .renderer_frame import RendererFrame, SemaphoreInfo
@@ -89,6 +91,7 @@ from .utils.gpu import (
     ImageUploadInfo,
     UniformPool,
     UploadableBuffer,
+    color_float4_to_uint32,
     div_round_up,
     view_bytes,
 )
@@ -164,6 +167,11 @@ class Renderer:
 
         # Config
         self.background_color = config.background_color
+        self.temporary_ortho_grid_enabled = config.temporary_ortho_grid_enabled
+        self.temporary_ortho_grid_size = config.temporary_ortho_grid_size
+        self.temporary_ortho_grid_scale = config.temporary_ortho_grid_scale
+        self.temporary_ortho_grid_major_grid_div = config.temporary_ortho_grid_major_grid_div
+        self.temporary_ortho_grid_hide_other_grids = config.temporary_ortho_grid_hide_other_grids
         self.supports_path_tracing = bool(device.features & DeviceFeatures.RAY_QUERY)
         if config.render_mode == RenderMode.PATH_TRACER and not self.supports_path_tracing:
             logger.warning(
@@ -444,6 +452,9 @@ class Renderer:
         self.msaa_samples = max(1, config.msaa_samples)
         self.msaa_target: Optional[Image] = None
 
+        # Ortho grid
+        self.temporary_ortho_grid: Optional[DrawGrid] = None
+
         # Will be populated in self.resize(), and will never be None after that
         self.depth_buffer: Image = None  # type: ignore
         self.depth_format = Format.D32_SFLOAT
@@ -516,6 +527,27 @@ class Renderer:
         include_paths: Optional[List[Union[Path, str]]] = None,
     ) -> slang.Shader:
         return self.compile_shader(SHADERS_PATH.joinpath(SHADERS_PATH, path), entry, target, defines, include_paths)
+
+    def ensure_temporary_ortho_grid(self) -> DrawGrid:
+        if self.temporary_ortho_grid is None:
+            line_color = 0xFF000000 if max(self.background_color[:3]) >= 0.5 else 0xFFFFFFFF
+            base_color = color_float4_to_uint32(self.background_color)
+            self.temporary_ortho_grid = DrawGrid(
+                self.temporary_ortho_grid_size,
+                GridType.XY_PLANE,
+                line_color,
+                line_color,
+                base_color,
+                self.temporary_ortho_grid_scale,
+                self.temporary_ortho_grid_major_grid_div,
+                write_depth=False,
+                test_depth=False,
+                alpha_blending=False,
+            )
+            self.temporary_ortho_grid.create(self)
+            self.temporary_ortho_grid.constants["transform"] = mat4x3(1.0)
+
+        return self.temporary_ortho_grid
 
     def render(self, scene: Scene, viewports: List[Viewport], frame: FrameInputs) -> None:
         # Stage: destroy resources enqueued for destruction for this or an earlier frame
@@ -1119,15 +1151,21 @@ class Renderer:
                     else:
                         return 0xFFFFFFFF
 
-                def get_value(p: Property) -> Union[float, PropertyItem]:
+                def get_value_or_zero(p: Property) -> Union[float, PropertyItem]:
                     if isinstance(p, BufferProperty):
                         return p.get_current()
                     else:
                         return 0.0
 
+                def get_value_or_zero_discard_alpha(p: Property) -> Union[float, PropertyItem]:
+                    if isinstance(p, BufferProperty):
+                        return p.get_current()[:3]
+                    else:
+                        return 0.0
+
                 for i, material in enumerate(materials.keys()):
                     if isinstance(material, DiffuseMaterial):
-                        materials_data[i]["albedo"] = get_value(material.diffuse[0].property)
+                        materials_data[i]["albedo"] = get_value_or_zero_discard_alpha(material.diffuse[0].property)
                         materials_data[i]["albedo_texture"] = alloc_texture(material.diffuse[0].property)
                         materials_data[i]["roughness"] = 1.0
                         materials_data[i]["roughness_texture"] = 0xFFFFFFFF
@@ -1136,18 +1174,18 @@ class Renderer:
                         materials_data[i]["normal_texture"] = alloc_texture(material.normal[0].property)
                     elif isinstance(material, DiffuseSpecularMaterial):
                         # TODO: better mapping or remove
-                        materials_data[i]["albedo"] = get_value(material.diffuse[0].property)
+                        materials_data[i]["albedo"] = get_value_or_zero_discard_alpha(material.diffuse[0].property)
                         materials_data[i]["albedo_texture"] = alloc_texture(material.diffuse[0].property)
                         materials_data[i]["roughness"] = (
-                            1 - min(get_value(material.specular_exponent[0].property), 64.0) / 64.0
+                            1 - min(get_value_or_zero(material.specular_exponent[0].property), 64.0) / 64.0
                         )
                         materials_data[i]["roughness_texture"] = 0xFFFFFFFF
                         materials_data[i]["metallic"] = 0.0
                         materials_data[i]["metallic_texture"] = 0xFFFFFFFF
                         materials_data[i]["normal_texture"] = 0xFFFFFFFF
-                    elif isinstance(material, ColorMaterial):
+                    elif isinstance(material, (ColorMaterial, XrayMaterial)):
                         # TODO: use emissive instead
-                        materials_data[i]["albedo"] = get_value(material.color[0].property)
+                        materials_data[i]["albedo"] = get_value_or_zero_discard_alpha(material.color[0].property)
                         materials_data[i]["albedo_texture"] = alloc_texture(material.color[0].property)
                         materials_data[i]["roughness"] = 1.0
                         materials_data[i]["roughness_texture"] = 0xFFFFFFFF
@@ -1155,11 +1193,11 @@ class Renderer:
                         materials_data[i]["metallic_texture"] = 0xFFFFFFFF
                         materials_data[i]["normal_texture"] = 0xFFFFFFFF
                     elif isinstance(material, PBRMaterial):
-                        materials_data[i]["albedo"] = get_value(material.albedo[0].property)
+                        materials_data[i]["albedo"] = get_value_or_zero_discard_alpha(material.albedo[0].property)
                         materials_data[i]["albedo_texture"] = alloc_texture(material.albedo[0].property)
-                        materials_data[i]["roughness"] = get_value(material.roughness[0].property)
+                        materials_data[i]["roughness"] = get_value_or_zero(material.roughness[0].property)
                         materials_data[i]["roughness_texture"] = alloc_texture(material.roughness[0].property)
-                        materials_data[i]["metallic"] = get_value(material.metallic[0].property)
+                        materials_data[i]["metallic"] = get_value_or_zero(material.metallic[0].property)
                         materials_data[i]["metallic_texture"] = alloc_texture(material.metallic[0].property)
                         materials_data[i]["normal_texture"] = alloc_texture(material.normal[0].property)
                     else:
@@ -1512,6 +1550,11 @@ class Renderer:
                     ],
                     depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
                 ):
+                    if viewport.is_temporary_ortho and self.temporary_ortho_grid_enabled:
+                        grid = self.ensure_temporary_ortho_grid()
+                        grid.constants["grid_type"] = viewport.temporary_ortho_grid_type.value
+                        grid.render(f.cmd, descriptor_set)
+
                     for o in opaque:
                         o.render(self, f, viewport, descriptor_set)
 

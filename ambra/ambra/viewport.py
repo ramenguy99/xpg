@@ -33,6 +33,7 @@ from pyxpg import DescriptorSet, Image, imgui
 
 from .camera import Camera, CameraDepth, OrthographicCamera, PerspectiveCamera
 from .config import CameraConfig, CameraControlMode, CameraProjection, Handedness, PlaybackConfig
+from .grid import GridType
 from .transform3d import RigidTransform3D
 from .utils.gpu import UploadableBuffer
 from .utils.ring_buffer import RingBuffer
@@ -189,6 +190,7 @@ class Viewport:
         self.is_temporary_ortho = False
         self.prev_camera_fov: Optional[float] = None
         self.prev_camera_depth: Optional[CameraDepth] = None
+        self.temporary_ortho_grid_type: GridType = GridType.XY_PLANE
 
     def resize(self, width: int, height: int) -> None:
         if self.path_tracer_viewport is not None and (self.rect.width != width or self.rect.height != height):
@@ -428,18 +430,21 @@ class Viewport:
                 up = vec3(0, 1, 0) if self.camera_world_up.y >= 0 else vec3(0, -1, 0)
             else:
                 up = vec3(0, 0, 1) if self.camera_world_up.z >= 0 else vec3(0, 0, -1)
+            self.temporary_ortho_grid_type = GridType.YZ_PLANE
         elif ortho_view_type == OrthographicViewType.POSITIVE_Y or ortho_view_type == OrthographicViewType.NEGATIVE_Y:
             position = target + vec3(0, d if ortho_view_type == OrthographicViewType.POSITIVE_Y else -d, 0)
             if abs(self.camera_world_up.x) > 0.5:
                 up = vec3(1, 0, 0) if self.camera_world_up.x >= 0 else vec3(-1, 0, 0)
             else:
                 up = vec3(0, 0, 1) if self.camera_world_up.z >= 0 else vec3(0, 0, -1)
+            self.temporary_ortho_grid_type = GridType.XZ_PLANE
         elif ortho_view_type == OrthographicViewType.POSITIVE_Z or ortho_view_type == OrthographicViewType.NEGATIVE_Z:
             position = target + vec3(0, 0, d if ortho_view_type == OrthographicViewType.POSITIVE_Z else -d)
             if abs(self.camera_world_up.x) > 0.5:
                 up = vec3(1, 0, 0) if self.camera_world_up.x >= 0 else vec3(-1, 0, 0)
             else:
                 up = vec3(0, 1, 0) if self.camera_world_up.y >= 0 else vec3(0, -1, 0)
+            self.temporary_ortho_grid_type = GridType.XY_PLANE
 
         if isinstance(self.camera, OrthographicCamera):
             half_extents = self.camera.half_extents

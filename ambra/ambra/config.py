@@ -48,6 +48,11 @@ class RendererConfig:
     max_lights_per_type: int = 32
     max_shadow_maps: int = 8
     mip_generation_batch_size: int = 32
+    temporary_ortho_grid_enabled: bool = True
+    temporary_ortho_grid_size: Tuple[float, float] = (100, 100)
+    temporary_ortho_grid_scale: float = 0.1
+    temporary_ortho_grid_major_grid_div: float = 10
+    temporary_ortho_grid_hide_other_grids: bool = True
 
 
 @dataclass

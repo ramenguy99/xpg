@@ -14,13 +14,12 @@ from pyxpg import (
     imgui,
 )
 
-from ambra.renderer_frame import RendererFrame
-from ambra.utils.ring_buffer import RingBuffer
-
 from .property import ImageProperty
 from .renderer import Renderer
+from .renderer_frame import RendererFrame
 from .scene import Widget
 from .utils.descriptors import create_descriptor_layout_pool_and_sets
+from .utils.ring_buffer import RingBuffer
 
 
 class ImageInspector(Widget):

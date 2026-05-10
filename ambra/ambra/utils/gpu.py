@@ -48,6 +48,24 @@ def view_bytes(a: NDArray[Any]) -> memoryview:
     return a.reshape((-1,)).view(np.uint8).data
 
 
+def color_uint32_to_float4(color: int) -> Tuple[float, float, float, float]:
+    return (
+        ((color >> 0) & 0xFF) * (1.0 / 255.0),
+        ((color >> 8) & 0xFF) * (1.0 / 255.0),
+        ((color >> 16) & 0xFF) * (1.0 / 255.0),
+        ((color >> 24) & 0xFF) * (1.0 / 255.0),
+    )
+
+
+def color_float4_to_uint32(color: Tuple[float, float, float, float]) -> int:
+    return (
+        min(max(0, int(color[0] * 255.0)), 255) << 0
+        | min(max(0, int(color[1] * 255.0)), 255) << 8
+        | min(max(0, int(color[2] * 255.0)), 255) << 16
+        | min(max(0, int(color[3] * 255.0)), 255) << 24
+    )
+
+
 @dataclass
 class BufferUploadInfo:
     data: memoryview
