@@ -946,6 +946,13 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
         },
     };
 
+    ExtensionDependencies<1> swapchain_mutable_format_deps = {
+        .flag = DeviceFeatures::SWAPCHAIN_MUTABLE_FORMAT,
+        .extensions = {
+            VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME,
+        },
+    };
+
     // Enumerate and choose a physical devices.
     u32 physical_device_count = 0;
 
@@ -1149,6 +1156,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(fragment_shader_barycentric);
             CHECK_SUPPORTED_EXTENSIONS(subgroup_size_control);
             CHECK_SUPPORTED_EXTENSIONS(image_format_list);
+            CHECK_SUPPORTED_EXTENSIONS(swapchain_mutable_format);
 
             if (features_to_check & DeviceFeatures::WIDE_LINES)
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.wideLines ? DeviceFeatures::WIDE_LINES : 0));
@@ -1344,6 +1352,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(mesh_shader);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(fragment_shader_barycentric);
     ENABLE_EXTENSIONS_IF_SUPPORTED(image_format_list);
+    ENABLE_EXTENSIONS_IF_SUPPORTED(swapchain_mutable_format);
 
     // Request only what we know is supported
     subgroup_size_control_features.subgroupSizeControl = picked_info.subgroup_size_control;
@@ -1562,11 +1571,12 @@ GetSwapchainSize(const Window& w, const Device& device, u32* out_width, u32* out
 }
 
 Result
-CreateSwapchain(Window* w, const Device& device, VkSurfaceKHR surface, VkFormat format, u32 fb_width, u32 fb_height, usize swapchain_frames, VkPresentModeKHR present_mode, VkImageUsageFlags usage_flags, VkSwapchainKHR old_swapchain)
+CreateSwapchain(Window* w, const Device& device, VkSurfaceKHR surface, VkFormat format, VkFormat srgb_format, u32 fb_width, u32 fb_height, usize swapchain_frames, VkPresentModeKHR present_mode, VkImageUsageFlags usage_flags, VkSwapchainKHR old_swapchain)
 {
     // Create swapchain.
     u32 queue_family_indices[] = { device.graphics_queue_family_index };
     VkSwapchainCreateInfoKHR swapchain_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
+    swapchain_info.flags = srgb_format != VK_FORMAT_UNDEFINED ? VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR: 0;
     swapchain_info.surface = surface;
     swapchain_info.minImageCount = (u32)swapchain_frames;
     swapchain_info.imageFormat = format;
@@ -1597,6 +1607,17 @@ CreateSwapchain(Window* w, const Device& device, VkSurfaceKHR surface, VkFormat 
     swapchain_info.presentMode = present_mode;
     swapchain_info.oldSwapchain = old_swapchain;
 
+    VkImageFormatListCreateInfo format_list_info = { VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO };
+    VkFormat format_list[2] = {
+        format,
+        srgb_format,
+    };
+    if (srgb_format != VK_FORMAT_UNDEFINED) {
+        format_list_info.viewFormatCount = ArrayCount(format_list);
+        format_list_info.pViewFormats = format_list;
+        swapchain_info.pNext = &format_list_info;
+    }
+
     VkSwapchainKHR swapchain;
     VkResult result = vkCreateSwapchainKHR(device.device, &swapchain_info, 0, &swapchain);
     if (result != VK_SUCCESS) {
@@ -1620,6 +1641,11 @@ CreateSwapchain(Window* w, const Device& device, VkSurfaceKHR surface, VkFormat 
     }
 
     Array<VkImageView> image_views(image_count);
+    Array<VkImageView> srgb_image_views;
+    if (srgb_format != VK_FORMAT_UNDEFINED) {
+        srgb_image_views.resize(image_count);
+    }
+
     for (usize i = 0; i < images.length; i++) {
         VkImageViewCreateInfo create_info{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
         create_info.image = images[i];
@@ -1641,17 +1667,38 @@ CreateSwapchain(Window* w, const Device& device, VkSurfaceKHR surface, VkFormat 
             return Result::API_OUT_OF_MEMORY;
         }
 
+        if (srgb_format != VK_FORMAT_UNDEFINED) {
+            create_info.format = srgb_format;
+
+            // Currently support sRGB view only for COLOR attachment. If other usages will be needed later expose this.
+            VkImageViewUsageCreateInfo view_usage_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO };
+            if (usage_flags != 0) {
+                view_usage_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+                create_info.pNext = &view_usage_info;
+            }
+
+            result = vkCreateImageView(device.device, &create_info, 0, &srgb_image_views[i]);
+            if (result != VK_SUCCESS) {
+                logging::error("gfx/swapchain", "vkCreateImageView for sRGB image %zu failed: %d", i, result);
+                return Result::API_OUT_OF_MEMORY;
+            }
+        }
+
         if (device.debug_utils_enabled) {
             VkDebugUtilsObjectNameInfoEXT name_info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT }; \
             VkDevice vk_device = device.device;
             DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_IMAGE, images[i], "xpg-swapchain-image");
             DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_IMAGE_VIEW, image_views[i], "xpg-swapchain-image-view");
+            if (srgb_format != VK_FORMAT_UNDEFINED) {
+                DEBUG_UTILS_OBJECT_NAME(VK_OBJECT_TYPE_IMAGE_VIEW, srgb_image_views[i], "xpg-swapchain-srgb-image-view");
+            }
         }
     }
 
     w->swapchain = swapchain;
     w->images = move(images);
     w->image_views = move(image_views);
+    w->srgb_image_views = move(srgb_image_views);
     w->fb_width = fb_width;
     w->fb_height = fb_height;
 
@@ -1681,6 +1728,10 @@ SwapchainStatus UpdateSwapchain(Window* w, const Device& device)
         vkDestroyImageView(device.device, w->image_views[i], nullptr);
         w->image_views[i] = VK_NULL_HANDLE;
     }
+    for (size_t i = 0; i < w->srgb_image_views.length; i++) {
+        vkDestroyImageView(device.device, w->srgb_image_views[i], nullptr);
+        w->srgb_image_views[i] = VK_NULL_HANDLE;
+    }
 #else
     w->stale_swapchains.add(StaleSwapchain {
         .frames_in_flight = w->frames.length,
@@ -1690,7 +1741,7 @@ SwapchainStatus UpdateSwapchain(Window* w, const Device& device)
     logging::trace("gfx/swapchain", "Added stale swapchain. Total: %llu", w->stale_swapchains.length);
 #endif
 
-    Result result = CreateSwapchain(w, device, w->surface, w->swapchain_format, new_width, new_height, w->images.length, w->present_mode, w->swapchain_usage_flags, old_swapchain);
+    Result result = CreateSwapchain(w, device, w->surface, w->swapchain_format, w->swapchain_srgb_format, new_width, new_height, w->images.length, w->present_mode, w->swapchain_usage_flags, old_swapchain);
     if (result != Result::SUCCESS) {
         return SwapchainStatus::FAILED;
     }
@@ -1757,6 +1808,11 @@ Result AcquireImage(Frame* frame, Window* window, const Device& device)
     frame->current_image_index = image_index;
     frame->current_image = window->images[image_index];
     frame->current_image_view = window->image_views[image_index];
+    if (window->srgb_image_views.length > 0) {
+        frame->current_srgb_image_view = window->srgb_image_views[image_index];
+    } else {
+        frame->current_srgb_image_view = VK_NULL_HANDLE;
+    }
     frame->current_present_semaphore = window->present_semaphores[image_index];
 
     return Result::SUCCESS;
@@ -2007,6 +2063,16 @@ CreateWindowWithSwapchain(Window* w, const Instance& instance, const Device& dev
 
     logging::info("gfx/window", "Swapchain picked format: %s", string_VkFormat(format));
 
+    VkFormat srgb_format = VK_FORMAT_UNDEFINED;
+    if (desc.create_srgb_views) {
+        if (device.features & DeviceFeatures::SWAPCHAIN_MUTABLE_FORMAT) {
+            srgb_format = FormatToSRGB(format);
+            logging::info("gfx/window", "Swapchain sRGB views requested and mutable format is available. sRGB format: %s", string_VkFormat(srgb_format));
+        } else {
+            logging::info("gfx/window", "Swapchain sRGB views requested but mutable format not available.");
+        }
+    }
+
     // Retrieve framebuffer size.
 	u32 fb_width = 0, fb_height = 0;
     if (surface_capabilities.currentExtent.width == 0xFFFFFFFF || surface_capabilities.currentExtent.height == 0xFFFFFFFF ) {
@@ -2046,7 +2112,7 @@ CreateWindowWithSwapchain(Window* w, const Instance& instance, const Device& dev
     }
     logging::info("gfx/window", "Swapchain present mode: %s", string_VkPresentModeKHR(present_mode));
 
-    Result res = CreateSwapchain(w, device, surface, format, fb_width, fb_height, swapchain_frames, present_mode, usage_flags, VK_NULL_HANDLE);
+    Result res = CreateSwapchain(w, device, surface, format, srgb_format, fb_width, fb_height, swapchain_frames, present_mode, usage_flags, VK_NULL_HANDLE);
     if (res != Result::SUCCESS) {
         logging::error("gfx/window", "CreateSwapchain failed: %d", (s32)res);
         return res;
@@ -2172,6 +2238,7 @@ CreateWindowWithSwapchain(Window* w, const Instance& instance, const Device& dev
     w->window = window;
     w->surface = surface;
     w->swapchain_format = format;
+    w->swapchain_srgb_format = srgb_format;
     w->swapchain_usage_flags = usage_flags;
     w->frames = move(frames);
     w->present_semaphores = move(present_semaphores);
@@ -2189,6 +2256,9 @@ DestroyWindowWithSwapchain(Window* w, const Instance& instance, const Device& de
     for (usize i = 0; i < w->image_views.length; i++) {
         vkDestroyImageView(device.device, w->image_views[i], 0);
         vkDestroySemaphore(device.device, w->present_semaphores[i], 0);
+    }
+    for (usize i = 0; i < w->srgb_image_views.length; i++) {
+        vkDestroyImageView(device.device, w->srgb_image_views[i], 0);
     }
     vkDestroySwapchainKHR(device.device, w->swapchain, 0);
     vkDestroySurfaceKHR(instance.instance, w->surface, 0);
@@ -3784,6 +3854,19 @@ void DestroyAccelerationStructure(AccelerationStructure* as, const Device& devic
     gfx::DestroyBuffer(&as->instances_buffer, device);
     gfx::DestroyBuffer(&as->blas_buffer, device);
 #endif
+}
+
+VkFormat FormatToSRGB(VkFormat format)
+{
+    switch(format) {
+        case VK_FORMAT_R8_UNORM: return VK_FORMAT_R8_SRGB;
+        case VK_FORMAT_R8G8_UNORM: return VK_FORMAT_R8G8_SRGB;
+        case VK_FORMAT_R8G8B8_UNORM: return VK_FORMAT_R8G8B8_SRGB;
+        case VK_FORMAT_R8G8B8A8_UNORM: return VK_FORMAT_R8G8B8A8_SRGB;
+        case VK_FORMAT_B8G8R8_UNORM: return VK_FORMAT_B8G8R8_SRGB;
+        case VK_FORMAT_B8G8R8A8_UNORM: return VK_FORMAT_B8G8R8A8_SRGB;
+        default: return VK_FORMAT_UNDEFINED;
+    }
 }
 
 // TODO: Fix missing block formats info

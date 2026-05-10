@@ -98,6 +98,7 @@ struct DeviceFeatures {
         FRAGMENT_SHADER_BARYCENTRIC             = 1ull << 21,
         SUBGROUP_SIZE_CONTROL                   = 1ull << 22,
         IMAGE_FORMAT_LIST                       = 1ull << 23,
+        SWAPCHAIN_MUTABLE_FORMAT                = 1ull << 24,
     };
 
     DeviceFeatures() {};
@@ -186,6 +187,7 @@ struct Device
     bool subgroup_size_control;
     bool compute_full_subgroups;
     bool has_presentation;
+    bool has_swapchain_mutable_format;
 
     // Queues (VK_NULL_HANDLE if not available). Graphics queue is always required to be available.
     VkQueue graphics_queue;
@@ -273,6 +275,7 @@ struct Frame
     // Filled every frame after acquiring
     VkImage current_image;
     VkImageView current_image_view;
+    VkImageView current_srgb_image_view;
     VkSemaphore current_present_semaphore;
     u32 current_image_index;
 };
@@ -486,6 +489,7 @@ struct Window
     GLFWwindow* window;
     VkSurfaceKHR surface;
     VkFormat swapchain_format;
+    VkFormat swapchain_srgb_format; // VK_FORMAT_UNDEFINED if VK_KHR_swapchain_mutable_format is not supported or SRGB views were not requested.
     VkImageUsageFlags swapchain_usage_flags;
     VkPresentModeKHR present_mode;
     WindowCallbacks callbacks;
@@ -505,6 +509,7 @@ struct Window
     // Per frame swapchain data
     Array<VkImage> images;
     Array<VkImageView> image_views;
+    Array<VkImageView> srgb_image_views; // Only populated if swapchain_srgb_format is not VK_FORMAT_UNDEFINED
     Array<VkSemaphore> present_semaphores;
 
     // Index in swapchain frames, wraps around at the number of frames in flight.
@@ -537,6 +542,7 @@ struct WindowDesc {
     u32 preferred_frames_in_flight = 2;
     VkImageUsageFlags preferred_swapchain_usage_flags = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     bool vsync = true;
+    bool create_srgb_views = false;
 };
 
 Result CreateWindowWithSwapchain(Window* w, const Instance& instance, const Device& device, const WindowDesc&& desc);
@@ -1280,6 +1286,8 @@ VkResult CreateAccelerationStructure(AccelerationStructure* as, const Device& de
 void DestroyAccelerationStructure(AccelerationStructure* as, const Device& device);
 
 //- Formats
+
+VkFormat FormatToSRGB(VkFormat format);
 
 // IMPORTANT: do not reorder those fields without updating GetFormatInfo()
 struct FormatInfo {

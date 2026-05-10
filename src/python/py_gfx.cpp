@@ -1347,6 +1347,19 @@ struct ImageView: GfxObject {
         }
     }
 
+    ImageView(nb::ref<Device> device, nb::ref<Image> image, VkImageView view, VkFormat format, VkImageAspectFlagBits aspect_mask)
+        : GfxObject(device, false)
+        , image(image)
+        , view(view)
+        , format(format)
+        , aspect_mask(aspect_mask)
+        , base_mip_level(0)
+        , mip_level_count(1)
+        , base_array_layer(0)
+        , array_layer_count(1)
+    {
+    }
+
     ~ImageView() {
         destroy();
     }
@@ -2560,6 +2573,7 @@ struct Frame: nb::intrusive_base {
     std::optional<nb::ref<CommandBuffer>> transfer_command_buffer;
     nb::ref<Window> window;
     nb::ref<Image> image;
+    std::optional<nb::ref<ImageView>> srgb_image_view;
 };
 
 struct SwapchainOutOfDateError: std::exception {};
@@ -2606,7 +2620,8 @@ struct Window: nb::intrusive_base {
         std::optional<u32> y,
         u32 preferred_frames_in_flight,
         VkImageUsageFlagBits preferred_swapchain_usage_flags,
-        bool vsync
+        bool vsync,
+        bool create_srgb_views
     )
         : device(device)
     {
@@ -2622,6 +2637,7 @@ struct Window: nb::intrusive_base {
                 .preferred_frames_in_flight = preferred_frames_in_flight,
                 .preferred_swapchain_usage_flags = (VkImageUsageFlags)preferred_swapchain_usage_flags,
                 .vsync = vsync,
+                .create_srgb_views = create_srgb_views,
             }) != gfx::Result::SUCCESS) {
             throw std::runtime_error("Failed to create window");
         }
@@ -3013,6 +3029,9 @@ Frame::Frame(nb::ref<Window> window, gfx::Frame& frame)
     }
     if (window->device->device.transfer_queue) {
         transfer_command_buffer = new CommandBuffer(window->device, frame.transfer_command_pool, frame.transfer_command_buffer);
+    }
+    if (frame.current_srgb_image_view != VK_NULL_HANDLE) {
+        srgb_image_view = new ImageView(window->device, image, frame.current_srgb_image_view, window->window.swapchain_srgb_format, VK_IMAGE_ASPECT_COLOR_BIT);
     }
 }
 
@@ -3910,6 +3929,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("FRAGMENT_SHADER_BARYCENTRIC",             gfx::DeviceFeatures::FRAGMENT_SHADER_BARYCENTRIC)
         .value("SUBGROUP_SIZE_CONTROL",                   gfx::DeviceFeatures::SUBGROUP_SIZE_CONTROL)
         .value("IMAGE_FORMAT_LIST",                       gfx::DeviceFeatures::IMAGE_FORMAT_LIST)
+        .value("SWAPCHAIN_MUTABLE_FORMAT",                gfx::DeviceFeatures::SWAPCHAIN_MUTABLE_FORMAT)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")
@@ -4354,6 +4374,7 @@ void gfx_create_bindings(nb::module_& m)
         nb::intrusive_ptr<Frame>([](Frame *o, PyObject *po) noexcept { o->set_self_py(po); }))
         .def_ro("command_buffer", &Frame::command_buffer)
         .def_ro("image", &Frame::image)
+        .def_ro("srgb_image_view", &Frame::srgb_image_view)
         .def("compute_commands", [](Frame& frame, std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> wait_semaphores, std::vector<std::tuple<nb::ref<Semaphore>, u64, VkPipelineStageFlagBits2Enum>> signal_semaphores) {
             if (!frame.compute_command_buffer.has_value()) {
                 nb::raise("Device does not support compute queue. Check Device.has_compute_queue to know if it's supported.");
@@ -4382,6 +4403,7 @@ void gfx_create_bindings(nb::module_& m)
             std::optional<u32>,
             u32,
             VkImageUsageFlagBits,
+            bool,
             bool
         >(),
             nb::arg("device"),
@@ -4392,7 +4414,8 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("y") = nb::none(),
             nb::arg("preferred_frames_in_flight") = 2,
             nb::arg("preferred_swapchain_usage_flags") = (VkImageUsageFlagBits)(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT),
-            nb::arg("vsync") = true
+            nb::arg("vsync") = true,
+            nb::arg("create_srgb_views") = false
         )
         .def("should_close", &Window::should_close)
         .def("close", &Window::close)
@@ -4425,6 +4448,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("toggle_fullscreen", &Window::toggle_fullscreen)
         .def_prop_ro("is_fullscreen", [](Window& w) { return w.window.is_fullscreen; })
         .def_prop_ro("swapchain_format", [](Window& w) -> VkFormat { return w.window.swapchain_format; })
+        .def_prop_ro("swapchain_srgb_format", [](Window& w) -> VkFormat { return w.window.swapchain_srgb_format; })
         .def_prop_ro("swapchain_usage_flags", [](Window& w) -> VkImageUsageFlagBits { return (VkImageUsageFlagBits)w.window.swapchain_usage_flags; })
         .def_prop_ro("num_swapchain_images", [](Window& w) -> usize { return w.window.image_views.length; })
         .def_prop_ro("fb_width", [](Window& w) -> u32 { return w.window.fb_width; })

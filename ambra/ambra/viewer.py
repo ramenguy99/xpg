@@ -117,7 +117,8 @@ class Viewer:
             | DeviceFeatures.MESH_SHADER
             | DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC
             | DeviceFeatures.SUBGROUP_SIZE_CONTROL
-            | DeviceFeatures.IMAGE_FORMAT_LIST,
+            | DeviceFeatures.IMAGE_FORMAT_LIST
+            | DeviceFeatures.SWAPCHAIN_MUTABLE_FORMAT,
             presentation=config.window,
             force_physical_device_index=0xFFFFFFFF
             if config.force_physical_device_index is None
@@ -141,6 +142,7 @@ class Viewer:
                 | ImageUsageFlags.TRANSFER_SRC
                 | ImageUsageFlags.STORAGE,
                 vsync=config.vsync,
+                create_srgb_views=True,
             )
             self.window.set_callbacks(
                 draw=self.on_draw,

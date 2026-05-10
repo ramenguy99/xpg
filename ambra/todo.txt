@@ -42,7 +42,17 @@ TODO:
       We currently don't have a good API exposed to python to check for this, but we should add it at some point.
     Performance:
     - [x] We should be using VK_KHR_image_format_list where available (we could just require vulkan 1.3) for sRGB images / framebuffers
-
+    Steps:
+    - [x] Add support for image_format_list_deps
+    - [x] Add support for VK_KHR_swapchain_mutable_format
+    - [ ] Make viewer use SRGB view when rendering opaque and UNORM view when rendering UI
+    - [ ] Add transparency modes: NONE, SORT_OBJECTS, WEIGHTED_BLENDED
+    - [ ] Implement WBOIT:
+        - [ ] Create render targets
+        - [ ] Add shader defines attachments to graphics pipeline when creating transparent objects with this mode enabled
+        - [ ] Modify shaders to take define into account
+        - [ ] Implement non-z weighted version first, then z-weighted with user parameters (potentially under different define or just branch / default weight in shader)
+    - [ ] Fix sRGB also in inputs (ensure path tracer still doing the right thing with changes)
 - [ ] Ortho views:
     - [x] Temporary cameras
     - [x] Transition from 
