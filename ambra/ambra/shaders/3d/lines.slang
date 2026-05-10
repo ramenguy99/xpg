@@ -15,6 +15,8 @@ public ConstantBuffer<ObjectConstants> g_object_constants;
 [vk::binding(0, 1)]
 #if defined(MATERIAL_COLOR)
 public ConstantBuffer<ColorMaterial> g_material;
+#elif defined(MATERIAL_XRAY)
+public ConstantBuffer<XrayMaterial> g_material;
 #elif defined(MATERIAL_DIFFUSE)
 public ConstantBuffer<DiffuseMaterial> g_material;
 #elif defined(MATERIAL_DIFFUSE_SPECULAR)

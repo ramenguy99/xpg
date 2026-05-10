@@ -144,6 +144,32 @@ public struct ColorMaterial : IMaterial
     }
 }
 
+public struct XrayMaterial : IMaterial
+{
+    public float4 color;
+    public bool has_color_texture;
+
+    public SamplerState sampler;
+    public Texture2D color_texture;
+
+    float4 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float4 tint)
+    {
+        float4 color;
+        if (has_color_texture) {
+            color = this.color_texture.Sample(sampler, uv);
+        } else {
+            color = this.color;
+        }
+        color = color * tint;
+
+        float3 view = normalize(g_constants.world_camera_position - world_position);
+        float alpha = 1.0 - abs(dot(view, world_normal));
+
+        return float4(color.rgb, color.a * alpha);
+    }
+}
+
+
 public struct DiffuseMaterial : IMaterial
 {
     public float4 diffuse;

@@ -14,6 +14,11 @@ Priority:
           - Getting a frame returns the last up to N frames
           - Streamed to GPU every frame (need to roll buffer)
           - Sqlite properties need to use range queries to fill history and then can do normal appends / rolls
+- [ ] Color and sRGB
+    - [ ] uint32 colors (vertex color, uniform color) should be converted from sRGB to linear if being used in materials that do lighting
+    - [ ] float32 colors (materials) should be assumed to be already in linear space, and should have helpers to create as sRGB
+    - [ ] Color and Xray material (no lighting) should take colors as uint32 for consistency with vertex / uniform colors or actually do linear to sRGB in shader
+
 TODO:
 - [ ] Ortho views:
     - [x] Temporary cameras
@@ -23,7 +28,7 @@ TODO:
     - [ ] Automatic grid:
         - Maybe do not add to the scene?
         - Skip rendering of existing grids
-        - Implement auto grid scaling depending on zoom level?
+        - Implement auto grid scaling depending on zoom level or configured by user?
 - [ ] Transparency:
     - [x] materials in shaders
     - [x] is_transparent on objects and materials
@@ -33,7 +38,7 @@ TODO:
         - [x] Lines
         - [x] Points
         - [x] Voxels
-    - [ ] material with transparency based on normal
+    - [x] xray material with transparency based on normal
     - [ ] depth prepass (need dynamic depth state in xpg? check support)
     - [ ] depth peeling
     - [ ] 2D renderables (going to be removed anyways at some point?)

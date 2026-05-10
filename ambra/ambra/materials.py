@@ -269,6 +269,27 @@ class ColorMaterial(Material):
         )
 
 
+# Unlit flat color with Xray vision (transparent when normal aligned with view direction)
+class XrayMaterial(Material):
+    def __init__(
+        self,
+        color: MaterialData,
+        sampling_options: Optional[MaterialSamplingOptions] = None,
+    ):
+        self.color = as_material_property(
+            color,
+            4,
+            MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE | MaterialPropertyFlags.ALPHA_CHANNEL,
+            "color",
+        )
+        super().__init__(
+            [self.color],
+            [("MATERIAL_XRAY", "1")],
+            sampling_options,
+            True,
+        )
+
+
 # Diffuse only
 class DiffuseMaterial(Material):
     def __init__(
