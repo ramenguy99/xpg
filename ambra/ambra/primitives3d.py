@@ -56,7 +56,7 @@ from .property import BufferProperty, ImageProperty, as_image_property
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object, Object3D
-from .utils.descriptors import create_descriptor_layout_pool_and_set, create_descriptor_layout_pool_and_sets_ringbuffer
+from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import (
     AccelerationStructureInstanceInfo,
     align_up,
@@ -1676,9 +1676,9 @@ class Grid(Object3D):
         self,
         size: Tuple[float, float],
         grid_type: GridType,
-        major_line_color: Tuple[float, float, float, float],
-        minor_line_color: Tuple[float, float, float, float],
-        base_color: Tuple[float, float, float, float],
+        major_line_color: int,
+        minor_line_color: int,
+        base_color: int,
         grid_scale: float = 0.1,
         major_grid_div: float = 10.0,
         axis_line_width: float = 0.08,
@@ -1696,43 +1696,35 @@ class Grid(Object3D):
         self.constants_dtype = np.dtype(
             {
                 "transform": (np.dtype((np.float32, (3, 4))), 0),
+                "size": (np.dtype((np.float32, 2)), 48),
+                "major_line_color": (np.uint32, 56),
+                "minor_line_color": (np.uint32, 60),
+                "base_color": (np.uint32, 64),
+                "grid_type": (np.uint32, 68),
+                "inv_grid_scale": (np.float32, 72),
+                "major_grid_div": (np.float32, 76),
+                "axis_line_width": (np.float32, 80),
+                "major_line_width": (np.float32, 84),
+                "minor_line_width": (np.float32, 88),
+                "pos_axis_color_scale": (np.float32, 92),
+                "neg_axis_color_scale": (np.float32, 96),
             }
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
+        self.constants["major_line_color"] = major_line_color
+        self.constants["minor_line_color"] = minor_line_color
+        self.constants["base_color"] = base_color
+        self.constants["size"] = size
+        self.constants["grid_type"] = grid_type.value
+        self.constants["inv_grid_scale"] = 1.0 / grid_scale
+        self.constants["major_grid_div"] = major_grid_div
+        self.constants["axis_line_width"] = axis_line_width
+        self.constants["major_line_width"] = major_line_width
+        self.constants["minor_line_width"] = minor_line_width
+        self.constants["pos_axis_color_scale"] = pos_axis_color_scale
+        self.constants["neg_axis_color_scale"] = neg_axis_color_scale
 
-        self.grid_constants_dtype = np.dtype(
-            {
-                "major_line_color": (np.dtype((np.float32, 4)), 0),
-                "minor_line_color": (np.dtype((np.float32, 4)), 16),
-                "base_color": (np.dtype((np.float32, 4)), 32),
-                "size": (np.dtype((np.float32, 2)), 48),
-                "grid_type": (np.uint32, 56),
-                "inv_grid_scale": (np.float32, 60),
-                "major_grid_div": (np.float32, 64),
-                "axis_line_width": (np.float32, 68),
-                "major_line_width": (np.float32, 72),
-                "minor_line_width": (np.float32, 76),
-                "pos_axis_color_scale": (np.float32, 80),
-                "neg_axis_color_scale": (np.float32, 84),
-            }
-        )  # type: ignore
-        self.grid_constants = np.zeros((1,), self.constants_dtype)
-
-        self.grid_constants = np.zeros((1,), self.grid_constants_dtype)
-        self.grid_constants["major_line_color"] = major_line_color
-        self.grid_constants["minor_line_color"] = minor_line_color
-        self.grid_constants["base_color"] = base_color
-        self.grid_constants["size"] = size
-        self.grid_constants["grid_type"] = grid_type.value
-        self.grid_constants["inv_grid_scale"] = 1.0 / grid_scale
-        self.grid_constants["major_grid_div"] = major_grid_div
-        self.grid_constants["axis_line_width"] = axis_line_width
-        self.grid_constants["major_line_width"] = major_line_width
-        self.grid_constants["minor_line_width"] = minor_line_width
-        self.grid_constants["pos_axis_color_scale"] = pos_axis_color_scale
-        self.grid_constants["neg_axis_color_scale"] = neg_axis_color_scale
-
-        is_transparent = base_color[3] < 1.0
+        is_transparent = (base_color >> 24) < 0xFF
 
         super().__init__(
             name,
@@ -1746,43 +1738,31 @@ class Grid(Object3D):
 
     @classmethod
     def white(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
-        return cls(size, grid_type, (0, 0, 0, 1), (0, 0, 0, 1), (1, 1, 1, 1), **kwargs)
+        return cls(size, grid_type, 0xFF000000, 0xFF000000, 0xFFFFFFFF, **kwargs)
 
     @classmethod
     def black(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
-        return cls(size, grid_type, (1, 1, 1, 1), (1, 1, 1, 1), (0, 0, 0, 1), **kwargs)
+        return cls(size, grid_type, 0xFFFFFFFF, 0xFFFFFFFF, 0xFF000000, **kwargs)
 
     @classmethod
     def transparent_white_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
-        return cls(size, grid_type, (1, 1, 1, 1), (1, 1, 1, 1), (1, 1, 1, 0), **kwargs)
+        return cls(size, grid_type, 0xFFFFFFFF, 0xFFFFFFFF, 0x00FFFFFF, **kwargs)
 
     @classmethod
     def transparent_black_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
-        return cls(size, grid_type, (0, 0, 0, 1), (0, 0, 0, 1), (0, 0, 0, 0), **kwargs)
+        return cls(size, grid_type, 0xFF000000, 0xFF000000, 0x00000000, **kwargs)
 
     @classmethod
     def dark_gray_white_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
-        return cls(size, grid_type, (1, 1, 1, 1), (1, 1, 1, 1), (0.1, 0.1, 0.1, 1), **kwargs)
+        return cls(size, grid_type, 0xFFFFFFFF, 0xFFFFFFFF, 0xFF1A1A1A, **kwargs)
 
     @classmethod
     def light_gray_black_lines(cls, size: Tuple[float, float], grid_type: GridType, **kwargs: Any) -> "Grid":
-        return cls(size, grid_type, (0, 0, 0, 1), (0, 0, 0, 1), (0.9, 0.9, 0.9, 1), **kwargs)
+        return cls(size, grid_type, 0xFF000000, 0xFF000000, 0xFFE5E5E5, **kwargs)
 
     def create(self, r: Renderer) -> None:
         vert = r.compile_builtin_shader("3d/grid.slang", "vertex_main")
         frag = r.compile_builtin_shader("3d/grid.slang", "pixel_main")
-
-        self.grid_constants_buf = Buffer.from_data(
-            r.device,
-            view_bytes(self.grid_constants),
-            BufferUsageFlags.TRANSFER_DST | BufferUsageFlags.UNIFORM,
-            AllocType.DEVICE_MAPPED_WITH_FALLBACK,
-        )
-        self.descriptor_set_layout, self.descriptor_pool, self.descriptor_set = create_descriptor_layout_pool_and_set(
-            r.device,
-            [DescriptorSetBinding(1, DescriptorType.UNIFORM_BUFFER)],
-        )
-        self.descriptor_set.write_buffer(self.grid_constants_buf, DescriptorType.UNIFORM_BUFFER, 0)
 
         self.pipeline = GraphicsPipeline(
             r.device,
@@ -1801,7 +1781,6 @@ class Grid(Object3D):
             depth=Depth(r.depth_format, True, not self.is_transparent, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
-                self.descriptor_set_layout,
             ],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
@@ -1817,7 +1796,6 @@ class Grid(Object3D):
             self.pipeline,
             descriptor_sets=[
                 scene_descriptor_set,
-                self.descriptor_set,
             ],
             push_constants=self.constants.tobytes(),
         )
