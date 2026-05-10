@@ -440,7 +440,7 @@ class BufferProperty(Property):
         self,
         max_size: int,
         num_frames: int,
-        dtype: DTypeLike,
+        dtype: Optional[DTypeLike],
         shape: Tuple[int, ...],
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
@@ -628,7 +628,7 @@ class ArrayBufferProperty(BufferProperty):
         super().append_frame(frame)
 
     def append_frames(self, frames: ArrayLike) -> None:
-        self.data = np.append(self.data, frames, axis=0)
+        self.data = np.append(self.data, frames, axis=0)  # type: ignore
         self.num_frames = self.data.shape[0]
         super().append_frames(frames)
 
@@ -811,7 +811,7 @@ class ArrayImageProperty(ImageProperty):
         super().append_frame(frame)
 
     def append_frames(self, frames: ArrayLike) -> None:
-        self.data = np.append(self.data, frames, axis=0)
+        self.data = np.append(self.data, frames, axis=0)  # type: ignore
         self.num_frames = self.data.shape[0]
         super().append_frames(frames)
 
@@ -866,7 +866,7 @@ class ListImageProperty(ImageProperty):
     ):
         property_data: List[NDArray[Any]] = []
         property_shape: Optional[Tuple[int, int, int]] = None
-        property_dtype: DTypeLike = None
+        property_dtype: Optional[DTypeLike] = None
         if len(data) == 0:
             if image_size is None:
                 raise RuntimeError("image_size must not be None if data is an empty list")

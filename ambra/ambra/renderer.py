@@ -1474,7 +1474,7 @@ class Renderer:
                     if isinstance(viewport.camera, OrthographicCamera):
                         camera_forward = viewport.camera.front()
 
-                        def sort_z(o: Object):
+                        def sort_z(o: Object) -> float:
                             if isinstance(o, Object3D):
                                 pos = vec3(o.current_transform_matrix[3])
                                 return dot(pos, camera_forward)  # noqa: B023
@@ -1485,7 +1485,7 @@ class Renderer:
                     else:
                         camera_position = viewport.camera.position()
 
-                        def sort_dist(o: Object):
+                        def sort_dist(o: Object) -> float:
                             if isinstance(o, Object3D):
                                 pos = vec3(o.current_transform_matrix[3])
                                 return distance2(pos, camera_position)  # noqa: B023

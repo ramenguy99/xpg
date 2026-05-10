@@ -153,6 +153,8 @@ class Points(Object3D):
                 }
             )  # type: ignore
             is_transparent = colormap.alpha < 1.0 if is_transparent is None else is_transparent
+        else:
+            raise AssertionError("Unreachable")
 
         self.constants = np.zeros((1,), self.constants_dtype)
 
@@ -297,6 +299,8 @@ class Lines(Object3D):
                 }
             )  # type: ignore
             is_transparent = False if is_transparent is None else is_transparent
+        else:
+            raise AssertionError("Unreachable")
 
         self.constants = np.zeros((1,), self.constants_dtype)
 
@@ -1884,6 +1888,8 @@ class Voxels(Object3D):
                 }
             )  # type: ignore
             is_transparent = colormap.alpha < 1.0 if is_transparent is None else is_transparent
+        else:
+            raise AssertionError("Unreachable")
 
         self.constants = np.zeros((1,), self.constants_dtype)
         self.size = size
