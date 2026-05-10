@@ -939,6 +939,13 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
         },
     };
 
+    ExtensionDependencies<1> image_format_list_deps = {
+        .flag = DeviceFeatures::IMAGE_FORMAT_LIST,
+        .extensions = {
+            VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME,
+        },
+    };
+
     // Enumerate and choose a physical devices.
     u32 physical_device_count = 0;
 
@@ -1141,6 +1148,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(mesh_shader);
             CHECK_SUPPORTED_FEATURES_AND_EXTENSIONS(fragment_shader_barycentric);
             CHECK_SUPPORTED_EXTENSIONS(subgroup_size_control);
+            CHECK_SUPPORTED_EXTENSIONS(image_format_list);
 
             if (features_to_check & DeviceFeatures::WIDE_LINES)
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.wideLines ? DeviceFeatures::WIDE_LINES : 0));
@@ -1335,6 +1343,7 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
     ENABLE_EXTENSIONS_IF_SUPPORTED(draw_indirect_count);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(mesh_shader);
     ENABLE_FEATURES_AND_EXTENSIONS_IF_SUPPORTED(fragment_shader_barycentric);
+    ENABLE_EXTENSIONS_IF_SUPPORTED(image_format_list);
 
     // Request only what we know is supported
     subgroup_size_control_features.subgroupSizeControl = picked_info.subgroup_size_control;
@@ -2978,6 +2987,13 @@ CreateImage(Image* image, const Device& device, const ImageDesc&& desc) {
     image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_create_info.usage = desc.usage;
     image_create_info.samples = desc.samples;
+    
+    VkImageFormatListCreateInfo format_list = { VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO };
+    if (desc.format_list.length > 0) {
+        format_list.viewFormatCount = desc.format_list.length;
+        format_list.pViewFormats = desc.format_list.data;
+        image_create_info.pNext = &format_list;
+    }
 
     VmaAllocationCreateInfo alloc_create_info = {};
     alloc_create_info.usage = desc.alloc.vma_usage;

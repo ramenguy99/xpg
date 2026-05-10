@@ -679,8 +679,12 @@ _format_to_channels_dtype_int_bgra_table: Dict[Format, Tuple[int, np.dtype, bool
 _format_to_srgb_format_table: Dict[Format, Format] = {
     Format.R8_UNORM: Format.R8_SRGB,
     Format.R8G8_UNORM: Format.R8G8_SRGB,
+    # RGB
     Format.R8G8B8_UNORM: Format.R8G8B8_SRGB,
     Format.R8G8B8A8_UNORM: Format.R8G8B8A8_SRGB,
+    # BGR
+    Format.B8G8R8_UNORM: Format.B8G8R8_SRGB,
+    Format.B8G8R8A8_UNORM: Format.B8G8R8A8_SRGB,
 }
 
 

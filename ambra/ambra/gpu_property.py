@@ -16,6 +16,7 @@ from pyxpg import (
     DescriptorSet,
     DescriptorType,
     Device,
+    DeviceFeatures,
     Format,
     Image,
     ImageBarrier,
@@ -132,8 +133,11 @@ def _create_image_view(
     name: str,
 ) -> GpuImageView:
     image_create_flags = ImageCreateFlags.NONE
+    image_format_list = []
     if srgb:
         image_create_flags |= ImageCreateFlags.MUTABLE_FORMAT
+        if device.features & DeviceFeatures.IMAGE_FORMAT_LIST:
+            image_format_list = [ format, to_srgb_format(format) ]
 
     mip_levels = 1
     if mips:
@@ -151,6 +155,7 @@ def _create_image_view(
         depth=depth,
         mip_levels=mip_levels,
         create_flags=image_create_flags,
+        format_list=image_format_list,
         name=name,
     )
     srgb_view = None

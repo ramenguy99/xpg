@@ -97,6 +97,7 @@ struct DeviceFeatures {
         MESH_SHADER                             = 1ull << 20,
         FRAGMENT_SHADER_BARYCENTRIC             = 1ull << 21,
         SUBGROUP_SIZE_CONTROL                   = 1ull << 22,
+        IMAGE_FORMAT_LIST                       = 1ull << 23,
     };
 
     DeviceFeatures() {};
@@ -1062,6 +1063,9 @@ struct ImageDesc {
     u32 array_layers = 1;
     VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
     VkImageCreateFlags flags = 0;
+
+    // Requires VK_KHR_image_format_list.
+    Span<VkFormat> format_list;
 
     // Image view
     VkImageViewType image_view_type = VK_IMAGE_VIEW_TYPE_2D;

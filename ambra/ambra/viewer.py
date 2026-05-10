@@ -116,7 +116,8 @@ class Viewer:
             | DeviceFeatures.DRAW_INDIRECT_COUNT
             | DeviceFeatures.MESH_SHADER
             | DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC
-            | DeviceFeatures.SUBGROUP_SIZE_CONTROL,
+            | DeviceFeatures.SUBGROUP_SIZE_CONTROL
+            | DeviceFeatures.IMAGE_FORMAT_LIST,
             presentation=config.window,
             force_physical_device_index=0xFFFFFFFF
             if config.force_physical_device_index is None

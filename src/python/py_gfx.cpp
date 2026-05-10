@@ -1128,7 +1128,7 @@ struct ImageBarrier: nanobind::intrusive_base {
 struct Image: GfxObject {
     Image(nb::ref<Device> device, u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags,
         gfx::AllocPresets::Type alloc_type, u32 depth, u32 mip_levels, u32 array_layers,
-        bool is_cube, VkImageCreateFlagBits create_flags, int samples, std::optional<nb::str> name
+        bool is_cube, VkImageCreateFlagBits create_flags, int samples, std::vector<VkFormat> format_list, std::optional<nb::str> name
     )
         : GfxObject(device, true, std::move(name))
         , width(width)
@@ -1140,6 +1140,10 @@ struct Image: GfxObject {
         , is_cube(is_cube)
         , samples(samples)
     {
+        if (format_list.size() > 0 && !(device->device.features & gfx::DeviceFeatures::IMAGE_FORMAT_LIST)) {
+            throw std::runtime_error("Device feature IMAGE_FORMAT_LIST must be set if format_list is not empty");
+        }
+
         VkImageViewType view_type;
         if (depth > 1) {
             view_type = VK_IMAGE_VIEW_TYPE_3D;
@@ -1168,6 +1172,7 @@ struct Image: GfxObject {
             .array_layers = array_layers,
             .samples = (VkSampleCountFlagBits)samples,
             .flags = create_flags | (is_cube ? (VkImageCreateFlags)VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : (VkImageCreateFlags)0),
+            .format_list = ArrayView<VkFormat>(format_list.data(), format_list.size()),
             .image_view_type = view_type,
             .usage = (VkBufferUsageFlags)usage_flags,
             .alloc = gfx::AllocPresets::Types[(size_t)alloc_type],
@@ -1211,7 +1216,7 @@ struct Image: GfxObject {
 
     static nb::ref<Image> from_data(nb::ref<Device> device, nb::object data, VkImageLayout layout,
         u32 width, u32 height, VkFormat format, VkImageUsageFlagBits usage_flags, gfx::AllocPresets::Type alloc_type,
-        u32 depth, u32 mip_levels, u32 array_layers, bool is_cube, VkImageCreateFlagBits create_flags, int samples, std::optional<nb::str> name
+        u32 depth, u32 mip_levels, u32 array_layers, bool is_cube, VkImageCreateFlagBits create_flags, int samples, std::vector<VkFormat> format_list, std::optional<nb::str> name
     )
     {
         VkImageViewType view_type;
@@ -3904,6 +3909,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("MESH_SHADER",                             gfx::DeviceFeatures::MESH_SHADER)
         .value("FRAGMENT_SHADER_BARYCENTRIC",             gfx::DeviceFeatures::FRAGMENT_SHADER_BARYCENTRIC)
         .value("SUBGROUP_SIZE_CONTROL",                   gfx::DeviceFeatures::SUBGROUP_SIZE_CONTROL)
+        .value("IMAGE_FORMAT_LIST",                       gfx::DeviceFeatures::IMAGE_FORMAT_LIST)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")
@@ -4802,7 +4808,7 @@ void gfx_create_bindings(nb::module_& m)
     ;
 
     nb::class_<Image, GfxObject>(m, "Image")
-        .def(nb::init<nb::ref<Device>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, u32, u32, u32, bool, VkImageCreateFlagBits, int, std::optional<nb::str>>(), nb::arg("device"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("depth") = 1, nb::arg("mip_levels") = 1, nb::arg("array_layers") = 1, nb::arg("is_cube") = false, nb::arg("create_flags") = (VkImageCreateFlagBits)0, nb::arg("samples") = 1, nb::arg("name") = nb::none())
+        .def(nb::init<nb::ref<Device>, u32, u32, VkFormat, VkImageUsageFlagBits, gfx::AllocPresets::Type, u32, u32, u32, bool, VkImageCreateFlagBits, int, std::vector<VkFormat>, std::optional<nb::str>>(), nb::arg("device"), nb::arg("width"), nb::arg("height"), nb::arg("format"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("depth") = 1, nb::arg("mip_levels") = 1, nb::arg("array_layers") = 1, nb::arg("is_cube") = false, nb::arg("create_flags") = (VkImageCreateFlagBits)0, nb::arg("samples") = 1, nb::arg("format_list") = std::vector<VkFormat>(), nb::arg("name") = nb::none())
         .def("__repr__", [](Image& image) {
             return nb::str("Image(name={}, width={}, height={}, depth={}, format={}, mip_levels={}, array_layers={}, is_cube={}, samples={})").format(image.name, image.width, image.height, image.depth, image.format, image.mip_levels, image.array_layers, image.is_cube, image.samples);
         })
@@ -4822,6 +4828,7 @@ void gfx_create_bindings(nb::module_& m)
             nb::arg("is_cube") = false,
             nb::arg("create_flags") = (VkImageCreateFlagBits)0,
             nb::arg("samples") = 1,
+            nb::arg("format_list") = std::vector<VkFormat>(),
             nb::arg("name") = nb::none()
         )
         .def_ro("width", &Image::width)

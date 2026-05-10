@@ -16,9 +16,33 @@ Priority:
           - Sqlite properties need to use range queries to fill history and then can do normal appends / rolls
 TODO:
 - [ ] Color and sRGB
+    Input colors:
     - [ ] uint32 colors (vertex color, uniform color) should be converted from sRGB to linear if being used in materials that do lighting
     - [ ] float32 colors (materials) should be assumed to be already in linear space, and should have helpers to create as sRGB
     - [ ] Color and Xray material (no lighting) should take colors as uint32 for consistency with vertex / uniform colors or actually do linear to sRGB in shader
+    Output colors:
+    - Correct MSAA and alpha blending require sRGB to linear conversion before ops.
+    - ImGui changes colors when rendering to sRGB framebuffer:
+        1. non-srgb swapchain + draw directly to it
+        2. srgb swapchain + graw GUI to non-srgb and then composite
+        3. srgb swapchain + fix imgui (adapt colors or convert to linear before store in imgui shader)
+        4. use VK_KHR_swapchain_mutable_format to treat swapchain as linear for imgui and srgb for scene rendering
+            -> maybe this is actually the easiest thing to do everything right
+    Plan:
+    - Rely on VK_KHR_swapchain_mutable_format and VK_KHR_image_format_list (should be available everywhere)
+    - Opaque only:
+        - draw directly to srgb swapchain (with msaa + resolve)
+        - draw gui to swapchain with unorm view
+    - WBOIT:
+        - draw opaque to srgb swapchain (with msaa + resolve)
+        - draw transparent to linear f16 buffer + r8 revealage buffer (with msaa + resolve)
+        - composite to srgb swapchain with fullscreen quad (use hardware blending + srgb conversion)
+    Notes:
+    - R16G16B16A16_SFLOAT should have good MSAA support, but we would need to check at runtime and potentially warn / throw / fallback to no msaa for transparency
+      We currently don't have a good API exposed to python to check for this, but we should add it at some point.
+    Performance:
+    - [x] We should be using VK_KHR_image_format_list where available (we could just require vulkan 1.3) for sRGB images / framebuffers
+
 - [ ] Ortho views:
     - [x] Temporary cameras
     - [x] Transition from 
