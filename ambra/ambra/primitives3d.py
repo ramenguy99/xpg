@@ -2051,8 +2051,17 @@ class GaussianSplats(Object3D):
         )  # type: ignore
         self.constants = np.zeros((1,), self.constants_dtype)
 
+        # Setting is_transparent to False allows control over rendering order by scene
+        # insertion order, compositing with opaque requires writing / testing depth
+        # which is not supported at the moment.
         super().__init__(
-            name, translation, rotation, scale, enabled=enabled, viewport_mask=viewport_mask, is_transparent=True
+            name,
+            translation,
+            rotation,
+            scale,
+            enabled=enabled,
+            viewport_mask=viewport_mask,
+            is_transparent=False,
         )
         self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
             BufferUsageFlags.STORAGE,
