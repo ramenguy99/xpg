@@ -20,8 +20,12 @@ from pyxpg import (
     Format,
     Gui,
     Image,
+    ImageAspectFlags,
+    ImageCreateFlags,
     ImageLayout,
     ImageUsageFlags,
+    ImageView,
+    ImageViewType,
     Instance,
     Key,
     LogLevel,
@@ -58,10 +62,10 @@ from .utils.descriptors import (
     create_descriptor_layout_pool_and_sets,
     create_descriptor_pool_and_sets,
 )
-from .utils.gpu import UploadableBuffer
+from .utils.gpu import UploadableBuffer, to_srgb_format
 from .utils.lru_pool import LRUPool
 from .utils.ring_buffer import RingBuffer
-from .viewport import OrthographicViewType, Playback, Rect, Viewport
+from .viewport import OrthographicViewType, Playback, Rect, Viewport, ViewportImage
 
 
 class Viewer:
@@ -101,7 +105,8 @@ class Viewer:
             required_features=DeviceFeatures.SYNCHRONIZATION_2
             | DeviceFeatures.DYNAMIC_RENDERING
             | DeviceFeatures.DESCRIPTOR_INDEXING
-            | DeviceFeatures.STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT,
+            | DeviceFeatures.STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT
+            | DeviceFeatures.SWAPCHAIN_MUTABLE_FORMAT,
             optional_features=DeviceFeatures.RAY_QUERY
             | DeviceFeatures.HOST_QUERY_RESET
             | DeviceFeatures.WIDE_LINES
@@ -117,8 +122,7 @@ class Viewer:
             | DeviceFeatures.MESH_SHADER
             | DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC
             | DeviceFeatures.SUBGROUP_SIZE_CONTROL
-            | DeviceFeatures.IMAGE_FORMAT_LIST
-            | DeviceFeatures.SWAPCHAIN_MUTABLE_FORMAT,
+            | DeviceFeatures.IMAGE_FORMAT_LIST,
             presentation=config.window,
             force_physical_device_index=0xFFFFFFFF
             if config.force_physical_device_index is None
@@ -144,6 +148,10 @@ class Viewer:
                 vsync=config.vsync,
                 create_srgb_views=True,
             )
+            if self.window.swapchain_srgb_format == Format.UNDEFINED:
+                raise RuntimeError(
+                    f"Window does not support sRGB format for output format: {self.window.swapchain_format}"
+                )
             self.window.set_callbacks(
                 draw=self.on_draw,
                 key_event=self.on_key,
@@ -156,7 +164,8 @@ class Viewer:
 
         # Headless swapchain for screenshots and videos
         output_format = Format.R8G8B8A8_UNORM if self.window is None else self.window.swapchain_format
-        self.headless_swapchain = HeadlessSwapchain(self.device, 2, output_format)
+        srgb_output_format = to_srgb_format(output_format)
+        self.headless_swapchain = HeadlessSwapchain(self.device, 2, output_format, srgb_output_format)
 
         if self.window is not None:
             render_width, render_height = self.window.fb_width, self.window.fb_height
@@ -206,6 +215,7 @@ class Viewer:
             render_height,
             num_frames_in_flight,
             output_format,
+            srgb_output_format,
             self.multiviewport,
             config.gui.max_viewport_count,
             config.renderer,
@@ -313,8 +323,7 @@ class Viewer:
 
             scene_constants = np.zeros((1,), self.renderer.scene_constants_dtype)
 
-            img = None
-            texture = None
+            viewport_image: Optional[ViewportImage] = None
             if self.multiviewport:
                 usage_flags = ImageUsageFlags.SAMPLED | ImageUsageFlags.COLOR_ATTACHMENT
                 if self.renderer.supports_path_tracing:
@@ -326,12 +335,24 @@ class Viewer:
                     output_format,
                     usage_flags,
                     AllocType.DEVICE,
+                    create_flags=ImageCreateFlags.MUTABLE_FORMAT,
+                    format_list=[output_format, srgb_output_format],
                     name=f"viewport-{viewport_index}",
+                )
+                srgb_view = ImageView(
+                    self.device,
+                    img,
+                    ImageViewType.TYPE_2D,
+                    srgb_output_format,
+                    ImageAspectFlags.COLOR,
+                    usage_flags=ImageUsageFlags.COLOR_ATTACHMENT,
                 )
 
                 s = self.viewport_descriptor_sets[viewport_index]
                 s.write_combined_image_sampler(img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, self.viewport_sampler, 0)
                 texture = imgui.Texture(s)
+
+                viewport_image = ViewportImage(img, srgb_view, texture)
 
             self.viewports.append(
                 Viewport(
@@ -344,8 +365,7 @@ class Viewer:
                     scene_uniform_buffers=scene_uniform_buffers,
                     scene_light_buffers=scene_light_buffers,
                     scene_constants=scene_constants,
-                    image=img,
-                    imgui_texture=texture,
+                    viewport_image=viewport_image,
                     name=f"viewport-{viewport_index}",
                 )
             )
@@ -446,7 +466,10 @@ class Viewer:
                 frame = self.window.begin_frame()
             except SwapchainOutOfDateError:
                 return
-            frame_inputs = FrameInputs(frame.image, frame.command_buffer, frame.transfer_command_buffer, [], [])
+            assert frame.srgb_image_view is not None
+            frame_inputs = FrameInputs(
+                frame.image, frame.srgb_image_view, frame.command_buffer, frame.transfer_command_buffer, [], []
+            )
         else:
             frame_inputs = self.headless_swapchain.begin_frame()
 
@@ -707,8 +730,9 @@ class Viewer:
                 self.viewports[0].resize(width, height)
             else:
                 for viewport_index, viewport in enumerate(self.viewports):
-                    assert viewport.image is not None
-                    viewport.image.destroy()
+                    assert viewport.viewport_image is not None
+                    viewport.viewport_image.image.destroy()
+                    viewport.viewport_image.srgb_image_view.destroy()
 
                     usage_flags = ImageUsageFlags.SAMPLED | ImageUsageFlags.COLOR_ATTACHMENT
                     if self.renderer.supports_path_tracing:
@@ -720,12 +744,24 @@ class Viewer:
                         self.renderer.output_format,
                         usage_flags,
                         AllocType.DEVICE,
+                        create_flags=ImageCreateFlags.MUTABLE_FORMAT,
+                        format_list=[self.renderer.output_format, self.renderer.srgb_output_format],
                         name=f"viewport-{viewport_index}",
+                    )
+                    srgb_view = ImageView(
+                        self.device,
+                        img,
+                        ImageViewType.TYPE_2D,
+                        self.renderer.srgb_output_format,
+                        ImageAspectFlags.COLOR,
+                        usage_flags=ImageUsageFlags.COLOR_ATTACHMENT,
                     )
 
                     s = self.viewport_descriptor_sets[viewport_index]
                     s.write_combined_image_sampler(img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, self.viewport_sampler, 0)
-                    viewport.image = img
+
+                    viewport.viewport_image.image = img
+                    viewport.viewport_image.srgb_image_view = srgb_view
 
             self.on_resize(width, height)
 
@@ -1094,10 +1130,11 @@ class Viewer:
             output_width, output_height = self._get_framebuffer_size()
 
             for v in self.viewports:
-                assert v.imgui_texture is not None
-                assert v.image is not None
+                assert v.viewport_image is not None
 
-                imgui.set_next_window_size_constraints(imgui.Vec2(0, 0), imgui.Vec2(v.image.width, v.image.height))
+                imgui.set_next_window_size_constraints(
+                    imgui.Vec2(0, 0), imgui.Vec2(v.viewport_image.image.width, v.viewport_image.image.height)
+                )
                 if imgui.begin(v.name)[0]:
                     cursor_pos = imgui.get_cursor_screen_pos()
                     pos = ivec2(cursor_pos.x, cursor_pos.y)
@@ -1107,7 +1144,10 @@ class Viewer:
                     v.rect.y = pos.y
                     v.resize(min(size.x, output_width), min(size.y, output_height))
                     imgui.image(
-                        v.imgui_texture, avail, imgui.Vec2(0, 0), imgui.Vec2(size.x / fb_width, size.y / fb_height)
+                        v.viewport_image.imgui_texture,
+                        avail,
+                        imgui.Vec2(0, 0),
+                        imgui.Vec2(size.x / fb_width, size.y / fb_height),
                     )
 
                     # Rotate

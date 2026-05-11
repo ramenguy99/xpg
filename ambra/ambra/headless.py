@@ -16,8 +16,12 @@ from pyxpg import (
     Fence,
     Format,
     Image,
+    ImageAspectFlags,
+    ImageCreateFlags,
     ImageLayout,
     ImageUsageFlags,
+    ImageView,
+    ImageViewType,
     MemoryUsage,
 )
 
@@ -29,6 +33,7 @@ from .utils.ring_buffer import RingBuffer
 @dataclass
 class HeadlessSwapchainFrame:
     image: Optional[Image]
+    srgb_image_view: Optional[ImageView]
     readback_buffer: Optional[Buffer]
     command_buffer: CommandBuffer
     transfer_command_buffer: Optional[CommandBuffer]
@@ -59,10 +64,11 @@ class HeadlessSwapchainFrame:
 
 
 class HeadlessSwapchain:
-    def __init__(self, device: Device, num_frames_in_flight: int, format: Format):
+    def __init__(self, device: Device, num_frames_in_flight: int, format: Format, srgb_format: Format):
         self.device = device
         self.num_frames_in_flight = num_frames_in_flight
         self.format = format
+        self.srgb_format = srgb_format
         self.width = 0
         self.height = 0
 
@@ -70,6 +76,7 @@ class HeadlessSwapchain:
             [
                 HeadlessSwapchainFrame(
                     image=None,
+                    srgb_image_view=None,
                     readback_buffer=None,
                     command_buffer=CommandBuffer(device, name=f"windowless-swapchain-commands-{i}"),
                     transfer_command_buffer=CommandBuffer(
@@ -102,7 +109,17 @@ class HeadlessSwapchain:
                 self.format,
                 usage_flags,
                 AllocType.DEVICE,
+                create_flags=ImageCreateFlags.MUTABLE_FORMAT,
+                format_list=[self.format, self.srgb_format],
                 name=f"windowless-swapchain-image-{i}",
+            )
+            f.srgb_image_view = ImageView(
+                self.device,
+                f.image,
+                ImageViewType.TYPE_2D,
+                self.srgb_format,
+                ImageAspectFlags.COLOR,
+                usage_flags=ImageUsageFlags.COLOR_ATTACHMENT,
             )
             f.readback_buffer = Buffer(
                 self.device,
@@ -116,10 +133,12 @@ class HeadlessSwapchain:
         frame = self.frames.get_current()
         assert frame.readback_buffer is not None
         assert frame.image is not None
+        assert frame.srgb_image_view is not None
 
         frame.fence.wait_and_reset()
         return FrameInputs(
             frame.image,
+            frame.srgb_image_view,
             frame.command_buffer,
             frame.transfer_command_buffer,
             [],

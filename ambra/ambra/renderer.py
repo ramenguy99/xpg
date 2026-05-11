@@ -122,6 +122,7 @@ else:
 @dataclass
 class FrameInputs:
     image: Image
+    srgb_image_view: ImageView
     command_buffer: CommandBuffer
     transfer_command_buffer: Optional[CommandBuffer]
     additional_semaphores: List[SemaphoreInfo]
@@ -154,6 +155,7 @@ class Renderer:
         height: int,
         num_frames_in_flight: int,
         output_format: Format,
+        srgb_output_format: Format,
         multiviewport: bool,
         max_viewports: int,
         config: RendererConfig,
@@ -161,6 +163,7 @@ class Renderer:
         self.device = device
         self.num_frames_in_flight = num_frames_in_flight
         self.output_format = output_format
+        self.srgb_output_format = srgb_output_format
         self.multiviewport = multiviewport
         self.max_viewports = max_viewports
         self.shadow_map_format = Format.D32_SFLOAT
@@ -486,7 +489,7 @@ class Renderer:
                 self.device,
                 width,
                 height,
-                self.output_format,
+                self.srgb_output_format,
                 ImageUsageFlags.COLOR_ATTACHMENT,
                 AllocType.DEVICE_DEDICATED,
                 samples=self.msaa_samples,
@@ -1254,10 +1257,10 @@ class Renderer:
                     )
                 )
                 for v in viewports:
-                    assert v.image is not None
+                    assert v.viewport_image is not None
                     f.before_render_image_barriers.append(
                         ImageBarrier(
-                            v.image,
+                            v.viewport_image.image,
                             ImageLayout.UNDEFINED,
                             ImageLayout.GENERAL,
                             PipelineStageFlags.FRAGMENT_SHADER,
@@ -1268,7 +1271,7 @@ class Renderer:
                     )
                     before_gui_barriers.append(
                         ImageBarrier(
-                            v.image,
+                            v.viewport_image.image,
                             ImageLayout.GENERAL,
                             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
                             PipelineStageFlags.COMPUTE_SHADER,
@@ -1327,10 +1330,10 @@ class Renderer:
 
             if self.multiviewport:
                 for v in viewports:
-                    assert v.image is not None
+                    assert v.viewport_image is not None
                     f.before_render_image_barriers.append(
                         ImageBarrier(
-                            v.image,
+                            v.viewport_image.image,
                             ImageLayout.UNDEFINED,
                             ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
                             PipelineStageFlags.FRAGMENT_SHADER,
@@ -1341,7 +1344,7 @@ class Renderer:
                     )
                     before_gui_barriers.append(
                         ImageBarrier(
-                            v.image,
+                            v.viewport_image.image,
                             ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
                             ImageLayout.SHADER_READ_ONLY_OPTIMAL,
                             PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
@@ -1405,7 +1408,7 @@ class Renderer:
                         3,
                     )
                 descriptor_set.write_image(
-                    frame.image if viewport.image is None else viewport.image,
+                    frame.image if viewport.viewport_image is None else viewport.viewport_image.image,
                     ImageLayout.GENERAL,
                     DescriptorType.STORAGE_IMAGE,
                     2,
@@ -1495,17 +1498,20 @@ class Renderer:
                 cmd.set_viewport(viewport_rect)
                 cmd.set_scissors(rect)
 
-                image = frame.image if viewport.image is None else viewport.image
-
-                # Filter enabled and split into opaque and transparent objects
+                # Filter enabled and split into opaque, transparent and splats objects
                 opaque: List[Object] = []
                 transparent: List[Object] = []
+                splats: List[Object] = []
+
                 for o in enabled_objects:
                     if o.viewport_mask is None or (o.viewport_mask & viewport_bit):
                         if o.is_transparent:
                             transparent.append(o)
                         else:
-                            opaque.append(o)
+                            if o.is_splats:
+                                splats.append(o)
+                            else:
+                                opaque.append(o)
 
                 # Sort transparent 3D objects based on position
                 if transparent:
@@ -1532,20 +1538,29 @@ class Renderer:
 
                         transparent = sorted(transparent, key=sort_dist, reverse=True)
 
+                if viewport.viewport_image is not None:
+                    image = viewport.viewport_image.image
+                    srgb_image_view = viewport.viewport_image.srgb_image_view
+                else:
+                    image = frame.image
+                    srgb_image_view = frame.srgb_image_view
+
                 with cmd.rendering(
                     rect,
                     color_attachments=[
                         (
                             RenderingAttachment(
                                 self.msaa_target,
-                                load_op=LoadOp.CLEAR,
-                                store_op=StoreOp.STORE,
-                                clear=self.background_color,
-                                resolve_mode=ResolveMode.AVERAGE,
-                                resolve_image=image,
+                                LoadOp.CLEAR,
+                                StoreOp.STORE,
+                                self.background_color,
+                                (srgb_image_view, ImageLayout.COLOR_ATTACHMENT_OPTIMAL),
+                                ResolveMode.AVERAGE,
                             )
                             if self.msaa_target is not None
-                            else RenderingAttachment(image, LoadOp.CLEAR, StoreOp.STORE, self.background_color)
+                            else RenderingAttachment(
+                                srgb_image_view, LoadOp.CLEAR, StoreOp.STORE, self.background_color
+                            )
                         )
                     ],
                     depth=DepthAttachment(self.depth_buffer, LoadOp.CLEAR, StoreOp.STORE, self.depth_clear_value),
@@ -1560,6 +1575,16 @@ class Renderer:
 
                     for o in transparent:
                         o.render(self, f, viewport, descriptor_set)
+
+                # NOTE: Render splats as UNORM (this must be done to ensure blending in sRGB space).
+                if splats:
+                    with cmd.rendering(
+                        rect,
+                        color_attachments=[(RenderingAttachment(image, LoadOp.LOAD, StoreOp.STORE))],
+                        depth=DepthAttachment(self.depth_buffer, LoadOp.LOAD, StoreOp.STORE),
+                    ):
+                        for o in splats:
+                            o.render(self, f, viewport, descriptor_set)
 
         if before_gui_barriers:
             cmd.barriers(image_barriers=before_gui_barriers)

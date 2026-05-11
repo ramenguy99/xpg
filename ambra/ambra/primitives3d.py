@@ -211,9 +211,9 @@ class Points(Object3D):
             input_assembly=InputAssembly(PrimitiveTopology.POINT_LIST),
             samples=r.msaa_samples,
             attachments=[
-                attachment_alpha_blending(r.output_format)
+                attachment_alpha_blending(r.srgb_output_format)
                 if self.is_transparent
-                else Attachment(format=r.output_format)
+                else Attachment(format=r.srgb_output_format)
             ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
@@ -362,9 +362,9 @@ class Lines(Object3D):
             ),
             samples=r.msaa_samples,
             attachments=[
-                attachment_alpha_blending(r.output_format)
+                attachment_alpha_blending(r.srgb_output_format)
                 if self.is_transparent
-                else Attachment(format=r.output_format)
+                else Attachment(format=r.srgb_output_format)
             ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
@@ -607,9 +607,9 @@ class Mesh(Object3D):
             input_assembly=InputAssembly(self.primitive_topology),
             samples=r.msaa_samples,
             attachments=[
-                attachment_alpha_blending(r.output_format)
+                attachment_alpha_blending(r.srgb_output_format)
                 if self.is_transparent
-                else Attachment(format=r.output_format)
+                else Attachment(format=r.srgb_output_format)
             ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
@@ -902,9 +902,9 @@ class MarchingCubesMesh(Object3D):
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
             samples=r.msaa_samples,
             attachments=[
-                attachment_alpha_blending(r.output_format)
+                attachment_alpha_blending(r.srgb_output_format)
                 if self.is_transparent
-                else Attachment(format=r.output_format)
+                else Attachment(format=r.srgb_output_format)
             ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
@@ -1267,9 +1267,9 @@ class ThickLines(Object3D):
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
             samples=r.msaa_samples,
             attachments=[
-                attachment_alpha_blending(r.output_format)
+                attachment_alpha_blending(r.srgb_output_format)
                 if self.is_transparent
-                else Attachment(format=r.output_format)
+                else Attachment(format=r.srgb_output_format)
             ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
@@ -1475,9 +1475,9 @@ class Spheres(Object3D):
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
             samples=r.msaa_samples,
             attachments=[
-                attachment_alpha_blending(r.output_format)
+                attachment_alpha_blending(r.srgb_output_format)
                 if self.is_transparent
-                else Attachment(format=r.output_format)
+                else Attachment(format=r.srgb_output_format)
             ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
@@ -1903,9 +1903,9 @@ class Voxels(Object3D):
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
             samples=r.msaa_samples,
             attachments=[
-                attachment_alpha_blending(r.output_format)
+                attachment_alpha_blending(r.srgb_output_format)
                 if self.is_transparent
-                else Attachment(format=r.output_format)
+                else Attachment(format=r.srgb_output_format)
             ],
             depth=Depth(r.depth_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
@@ -2022,6 +2022,7 @@ class GaussianSplats(Object3D):
             enabled=enabled,
             viewport_mask=viewport_mask,
             is_transparent=False,
+            is_splats=True,
         )
         self.positions = self.add_buffer_property(positions, np.float32, (-1, 3), name="positions").use_gpu(
             BufferUsageFlags.STORAGE,
@@ -2244,7 +2245,7 @@ class GaussianSplats(Object3D):
             samples=1,
             attachments=[
                 Attachment(
-                    format=r.output_format,
+                    format=r.output_format,  # Does not render to sRGB for correct blending.
                     blend_enable=True,
                     src_color_blend_factor=BlendFactor.SRC_ALPHA,
                     dst_color_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
@@ -2254,7 +2255,7 @@ class GaussianSplats(Object3D):
                     alpha_blend_op=BlendOp.ADD,
                 )
             ],
-            depth=Depth(r.depth_format, False, False, r.depth_compare_op),
+            depth=Depth(r.depth_format, True, False, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
                 self.descriptor_layout,

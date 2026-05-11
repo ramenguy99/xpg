@@ -29,7 +29,7 @@ from pyglm.glm import (
     vec3,
     vec4,
 )
-from pyxpg import DescriptorSet, Image, imgui
+from pyxpg import DescriptorSet, Image, ImageView, imgui
 
 from .camera import Camera, CameraDepth, OrthographicCamera, PerspectiveCamera
 from .config import CameraConfig, CameraControlMode, CameraProjection, Handedness, PlaybackConfig
@@ -108,6 +108,13 @@ class OrthographicViewType(Enum):
     NEGATIVE_Z = auto()
 
 
+@dataclass
+class ViewportImage:
+    image: Image
+    srgb_image_view: ImageView
+    imgui_texture: imgui.Texture
+
+
 class Viewport:
     def __init__(
         self,
@@ -120,8 +127,7 @@ class Viewport:
         scene_uniform_buffers: RingBuffer[UploadableBuffer],
         scene_light_buffers: RingBuffer[List[UploadableBuffer]],
         scene_constants: NDArray[Any],
-        image: Optional[Image],
-        imgui_texture: Optional[imgui.Texture],
+        viewport_image: Optional[ViewportImage],
         name: str,
     ):
         camera_from_world = RigidTransform3D.look_at(
@@ -155,8 +161,7 @@ class Viewport:
         self.scene_uniform_buffers = scene_uniform_buffers
         self.scene_light_buffers = scene_light_buffers
         self.scene_constants = scene_constants
-        self.image = image
-        self.imgui_texture = imgui_texture
+        self.viewport_image = viewport_image
         self.name = name
 
         # Path tracer

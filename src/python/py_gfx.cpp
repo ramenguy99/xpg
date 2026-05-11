@@ -1496,15 +1496,15 @@ struct QueryPool: GfxObject {
 };
 
 struct RenderingAttachment: nb::intrusive_base {
-    nb::ref<Image> image;
+    std::variant<nb::ref<Image>, nb::ref<ImageView>> image_or_view;
     VkAttachmentLoadOp load_op;
     VkAttachmentStoreOp store_op;
     std::array<float, 4> clear;
-    std::optional<nb::ref<Image>> resolve_image;
+    std::optional<std::variant<nb::ref<Image>, std::tuple<nb::ref<ImageView>, VkImageLayout>>> resolve_image;
     VkResolveModeFlagBits resolve_mode;
 
-    RenderingAttachment(nb::ref<Image> image, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, std::array<float, 4> clear, std::optional<nb::ref<Image>> resolve_image, VkResolveModeFlagBits resolve_mode)
-        : image(image)
+    RenderingAttachment(std::variant<nb::ref<Image>, nb::ref<ImageView>> image, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, std::array<float, 4> clear, std::optional<std::variant<nb::ref<Image>, std::tuple<nb::ref<ImageView>, VkImageLayout>>> resolve_image, VkResolveModeFlagBits resolve_mode)
+        : image_or_view(image)
         , load_op(load_op)
         , store_op(store_op)
         , clear(clear)
@@ -1881,11 +1881,32 @@ struct CommandBuffer: GfxObject {
             clear.float32[2] = attachment.clear[2];
             clear.float32[3] = attachment.clear[3];
 
+            VkImageView view;
+            if (std::holds_alternative<nb::ref<Image>>(attachment.image_or_view)) {
+                view = std::get<nb::ref<Image>>(attachment.image_or_view)->image.view;
+            } else {
+                view = std::get<nb::ref<ImageView>>(attachment.image_or_view)->view;
+            }
+
+            VkImageView resolve_image_view = VK_NULL_HANDLE;
+            VkImageLayout resolve_image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+            if (attachment.resolve_image.has_value()) {
+                if (std::holds_alternative<nb::ref<Image>>(attachment.resolve_image.value())) {
+                    const nb::ref<Image>& image = std::get<nb::ref<Image>>(attachment.resolve_image.value());
+                    resolve_image_view = image->image.view;
+                    resolve_image_layout = image->current_layout;
+                } else {
+                    const std::tuple<nb::ref<ImageView>, VkImageLayout>& view_and_layout = std::get<std::tuple<nb::ref<ImageView>, VkImageLayout>>(attachment.resolve_image.value());
+                    resolve_image_view = std::get<0>(view_and_layout)->view;
+                    resolve_image_layout = std::get<1>(view_and_layout);
+                }
+            }
+
             color_descs[i] = {
-                .view = attachment.image->image.view,
+                .view = view,
                 .resolve_mode = attachment.resolve_mode,
-                .resolve_image_view = attachment.resolve_image.has_value() ? attachment.resolve_image.value()->image.view : VK_NULL_HANDLE,
-                .resolve_image_layout = attachment.resolve_image.has_value() ? attachment.resolve_image.value()->current_layout : VK_IMAGE_LAYOUT_UNDEFINED,
+                .resolve_image_view = resolve_image_view,
+                .resolve_image_layout = resolve_image_layout,
                 .load_op = attachment.load_op,
                 .store_op = attachment.store_op,
                 .clear = clear,
@@ -5215,7 +5236,7 @@ void gfx_create_bindings(nb::module_& m)
 
     nb::class_<RenderingAttachment>(m, "RenderingAttachment",
         nb::intrusive_ptr<RenderingAttachment>([](RenderingAttachment *o, PyObject *po) noexcept { o->set_self_py(po); }))
-        .def(nb::init<nb::ref<Image>, VkAttachmentLoadOp, VkAttachmentStoreOp, std::array<float, 4>, std::optional<nb::ref<Image>>, VkResolveModeFlagBits>(),
+        .def(nb::init<std::variant<nb::ref<Image>, nb::ref<ImageView>>, VkAttachmentLoadOp, VkAttachmentStoreOp, std::array<float, 4>, std::optional<std::variant<nb::ref<Image>, std::tuple<nb::ref<ImageView>, VkImageLayout>>>, VkResolveModeFlagBits>(),
             nb::arg("image"), nb::arg("load_op") = VK_ATTACHMENT_LOAD_OP_LOAD, nb::arg("store_op") = VK_ATTACHMENT_STORE_OP_STORE, nb::arg("clear") = std::array<float,4>({0.0f, 0.0f, 0.0f, 0.0f}), nb::arg("resolve_image") = nb::none(), nb::arg("resolve_mode") = VK_RESOLVE_MODE_NONE)
     ;
 

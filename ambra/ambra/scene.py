@@ -43,6 +43,7 @@ class Object:
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
         is_transparent: bool = False,
+        is_splats: bool = False,
     ):
         self.uid = next_id()
         self.name = name or f"{type(self).__name__}<{self.uid}>"
@@ -51,6 +52,7 @@ class Object:
         self.material = material
         self.viewport_mask = viewport_mask
         self.is_transparent = is_transparent
+        self.is_splats = is_splats
 
         self.created = False
         self.gui_enabled = True
@@ -165,8 +167,11 @@ class Object2D(Object):
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
         is_transparent: bool = False,
+        is_splats: bool = False,
     ):
-        super().__init__(name, enabled=enabled, viewport_mask=viewport_mask, is_transparent=is_transparent)
+        super().__init__(
+            name, enabled=enabled, viewport_mask=viewport_mask, is_transparent=is_transparent, is_splats=is_splats
+        )
         self.translation = self.add_buffer_property(
             translation if translation is not None else np.array([0, 0]),
             np.float32,
@@ -210,8 +215,9 @@ class Object3D(Object):
         enabled: Optional[BufferProperty] = None,
         viewport_mask: Optional[int] = None,
         is_transparent: bool = False,
+        is_splats: bool = False,
     ):
-        super().__init__(name, material, enabled, viewport_mask, is_transparent)
+        super().__init__(name, material, enabled, viewport_mask, is_transparent, is_splats)
         self.translation = self.add_buffer_property(
             translation if translation is not None else np.array([0, 0, 0]),
             np.float32,

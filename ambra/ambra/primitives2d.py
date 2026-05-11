@@ -96,7 +96,7 @@ class Lines(Object2D):
                 PrimitiveTopology.LINE_STRIP if self.is_strip else PrimitiveTopology.LINE_LIST
             ),
             samples=r.msaa_samples,
-            attachments=[Attachment(format=r.output_format)],
+            attachments=[Attachment(format=r.srgb_output_format)],
             depth=Depth(r.depth_format, False, False, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
@@ -196,7 +196,7 @@ class Image(Object2D):
             ],
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_STRIP),
             samples=r.msaa_samples,
-            attachments=[Attachment(format=r.output_format)],
+            attachments=[Attachment(format=r.srgb_output_format)],
             depth=Depth(r.depth_format, False, False, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,

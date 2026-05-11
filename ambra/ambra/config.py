@@ -29,6 +29,7 @@ class RenderMode(Enum):
 
 @dataclass
 class RendererConfig:
+    # Background color used for clearing before drawing, specified in linear color space.
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
     render_mode: RenderMode = RenderMode.RASTER
     path_tracer_max_bounces: int = 4

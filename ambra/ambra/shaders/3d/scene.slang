@@ -216,9 +216,6 @@ public struct DiffuseMaterial : IMaterial
         // Tonemapping
         color = color / (color + 1.0);
 
-        // To sRGB
-        color = pow(color, 1.0 / 2.2);
-
         return float4(color, diffuse.a);
     }
 }
@@ -290,9 +287,6 @@ public struct DiffuseSpecularMaterial : IMaterial
 
         // Tonemapping
         color = color / (color + 1.0);
-
-        // To sRGB
-        color = pow(color, 1.0 / 2.2);
 
         return float4(color, diffuse.a);
     }
@@ -471,9 +465,6 @@ public struct PBRMaterial : IMaterial
 
         // Tonemapping
         color = color / (color + 1.0);
-
-        // To sRGB
-        color = pow(color, 1.0 / 2.2);
 
         return float4(color, albedo.a);
     }

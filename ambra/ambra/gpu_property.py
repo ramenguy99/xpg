@@ -137,7 +137,7 @@ def _create_image_view(
     if srgb:
         image_create_flags |= ImageCreateFlags.MUTABLE_FORMAT
         if device.features & DeviceFeatures.IMAGE_FORMAT_LIST:
-            image_format_list = [ format, to_srgb_format(format) ]
+            image_format_list = [format, to_srgb_format(format)]
 
     mip_levels = 1
     if mips:

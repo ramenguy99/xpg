@@ -98,9 +98,9 @@ class DrawGrid:
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_STRIP),
             samples=r.msaa_samples,
             attachments=[
-                attachment_alpha_blending(r.output_format)
+                attachment_alpha_blending(r.srgb_output_format)
                 if self.alpha_blending
-                else Attachment(format=r.output_format)
+                else Attachment(format=r.srgb_output_format)
             ],
             depth=Depth(r.depth_format, self.test_depth, self.write_depth, r.depth_compare_op),
             descriptor_set_layouts=[

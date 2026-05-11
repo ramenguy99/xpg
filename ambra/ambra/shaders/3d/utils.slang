@@ -98,11 +98,23 @@ public float linear_to_srgb(float v) {
     }
 }
 
-public float3 linear_to_srgb(float3 v) {
+public float srgb_to_linear(float v) {
+    v = clamp(v, 0.0, 1.0);
+    if(v > 0.04045)
+    {
+        return pow((v + 0.055) / 1.055, 2.4);
+    }
+    else
+    {
+        return v / 12.92;
+    }
+}
+
+public float3 srgb_to_linear(float3 v) {
     return float3(
-        linear_to_srgb(v.x),
-        linear_to_srgb(v.y),
-        linear_to_srgb(v.z)
+        srgb_to_linear(v.x),
+        srgb_to_linear(v.y),
+        srgb_to_linear(v.z)
     );
 }
 
