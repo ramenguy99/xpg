@@ -233,7 +233,6 @@ class Viewport:
             # Go back to previous camera if temporary camera is active
             if self.is_temporary_ortho:
                 assert self.prev_camera_depth is not None
-                assert self.prev_camera_fov is not None
 
                 if self.prev_camera_fov is not None:
                     self.camera = PerspectiveCamera(
