@@ -3054,6 +3054,7 @@ struct Gui: nb::intrusive_base {
             .default_font_size = default_font_size.value_or(0.0f),
             .default_font_preference = default_font_preference,
         });
+        ImPlot::CreateContext();
     }
 
     struct GuiFrame {
