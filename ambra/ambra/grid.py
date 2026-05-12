@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING, Tuple
 
 import numpy as np
 from pyxpg import (
-    Attachment,
     CommandBuffer,
     CullMode,
     Depth,
@@ -18,7 +17,7 @@ from pyxpg import (
     Stage,
 )
 
-from .utils.gpu import attachment_alpha_blending
+from .config import TransparencyMode
 
 if TYPE_CHECKING:
     from .renderer import Renderer
@@ -47,7 +46,7 @@ class DrawGrid:
         neg_axis_color_scale: float = 0.5,
         test_depth: bool = True,
         write_depth: bool = False,
-        alpha_blending: bool = True,
+        is_transparent: bool = True,
     ):
         self.constants_dtype = np.dtype(
             {
@@ -82,11 +81,14 @@ class DrawGrid:
 
         self.test_depth = test_depth
         self.write_depth = write_depth
-        self.alpha_blending = alpha_blending
+        self.is_transparent = is_transparent
 
     def create(self, r: "Renderer") -> None:
-        vert = r.compile_builtin_shader("3d/grid.slang", "vertex_main")
-        frag = r.compile_builtin_shader("3d/grid.slang", "pixel_main")
+        defines = []
+        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+            defines.append(("WBOIT", "1"))
+        vert = r.compile_builtin_shader("3d/grid.slang", "vertex_main", defines=defines)
+        frag = r.compile_builtin_shader("3d/grid.slang", "pixel_main", defines=defines)
 
         self.pipeline = GraphicsPipeline(
             r.device,
@@ -97,12 +99,10 @@ class DrawGrid:
             rasterization=Rasterization(cull_mode=CullMode.NONE),
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_STRIP),
             samples=r.msaa_samples,
-            attachments=[
-                attachment_alpha_blending(r.srgb_output_format)
-                if self.alpha_blending
-                else Attachment(format=r.srgb_output_format)
-            ],
-            depth=Depth(r.depth_format, self.test_depth, self.write_depth, r.depth_compare_op),
+            attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
+            depth=r.transparent_depth_mode
+            if self.is_transparent
+            else Depth(r.depth_format, self.test_depth, self.write_depth, r.depth_compare_op),
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
             ],

@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 from pyglm.glm import dvec2, ivec2, normalize, vec3
 from pyxpg import (
+    AccessFlags,
     Action,
     AllocType,
     BorderColor,
@@ -21,6 +22,7 @@ from pyxpg import (
     Gui,
     Image,
     ImageAspectFlags,
+    ImageBarrier,
     ImageCreateFlags,
     ImageLayout,
     ImageUsageFlags,
@@ -32,6 +34,7 @@ from pyxpg import (
     MemoryHeapFlags,
     Modifiers,
     MouseButton,
+    PipelineStageFlags,
     Sampler,
     SamplerAddressMode,
     Stage,
@@ -106,7 +109,7 @@ class Viewer:
             | DeviceFeatures.DYNAMIC_RENDERING
             | DeviceFeatures.DESCRIPTOR_INDEXING
             | DeviceFeatures.STORAGE_IMAGE_READ_WRITE_WITHOUT_FORMAT
-            | DeviceFeatures.SWAPCHAIN_MUTABLE_FORMAT,
+            | (DeviceFeatures.SWAPCHAIN_MUTABLE_FORMAT if config.window else 0),
             optional_features=DeviceFeatures.RAY_QUERY
             | DeviceFeatures.HOST_QUERY_RESET
             | DeviceFeatures.WIDE_LINES
@@ -122,7 +125,8 @@ class Viewer:
             | DeviceFeatures.MESH_SHADER
             | DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC
             | DeviceFeatures.SUBGROUP_SIZE_CONTROL
-            | DeviceFeatures.IMAGE_FORMAT_LIST,
+            | DeviceFeatures.IMAGE_FORMAT_LIST
+            | DeviceFeatures.INDEPENDENT_BLEND,
             presentation=config.window,
             force_physical_device_index=0xFFFFFFFF
             if config.force_physical_device_index is None
@@ -513,6 +517,18 @@ class Viewer:
 
         if not render_to_window:
             self.headless_swapchain.get_current().issue_readback()
+        else:
+            frame.command_buffer.image_barrier_full(
+                ImageBarrier(
+                    frame.image,
+                    ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                    ImageLayout.PRESENT_SRC,
+                    PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                    AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                    PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                    AccessFlags.NONE,
+                )
+            )
 
         # Submit transfer queue commands, if submitted
         if frame_inputs.transfer_command_buffer is not None:

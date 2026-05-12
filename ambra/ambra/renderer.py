@@ -15,12 +15,16 @@ from pyxpg import (
     AccelerationStructureMesh,
     AccessFlags,
     AllocType,
+    Attachment,
+    BlendFactor,
+    BlendOp,
     BorderColor,
     Buffer,
     BufferUsageFlags,
     CommandBuffer,
     CompareOp,
     ComputePipeline,
+    Depth,
     DepthAttachment,
     DescriptorBindingFlags,
     DescriptorPool,
@@ -32,6 +36,7 @@ from pyxpg import (
     DeviceFeatures,
     Filter,
     Format,
+    GraphicsPipeline,
     Gui,
     Image,
     ImageAspectFlags,
@@ -40,24 +45,30 @@ from pyxpg import (
     ImageUsageFlags,
     ImageView,
     IndexType,
+    InputAssembly,
     LoadOp,
     MemoryBarrier,
     MemoryUsage,
     PhysicalDeviceType,
+    PipelineStage,
     PipelineStageFlags,
+    PolygonMode,
+    PrimitiveTopology,
     PushConstantsRange,
+    Rasterization,
     RenderingAttachment,
     ResolveMode,
     Sampler,
     SamplerAddressMode,
     SamplerMipmapMode,
     Shader,
+    Stage,
     StoreOp,
     slang,
 )
 
 from .camera import OrthographicCamera
-from .config import RendererConfig, RenderMode, UploadMethod
+from .config import RendererConfig, RenderMode, TransparencyMode, UploadMethod
 from .ffx import SPDPipeline
 from .grid import DrawGrid, GridType
 from .lights import (
@@ -91,6 +102,7 @@ from .utils.gpu import (
     ImageUploadInfo,
     UniformPool,
     UploadableBuffer,
+    attachment_alpha_blending,
     color_float4_to_uint32,
     div_round_up,
     view_bytes,
@@ -183,6 +195,7 @@ class Renderer:
             self.render_mode = RenderMode.RASTER
         else:
             self.render_mode = config.render_mode
+        self.transparency_mode = config.transparency_mode
 
         # Path tracing
         self.path_tracer: Optional[PathTracer] = None
@@ -455,6 +468,37 @@ class Renderer:
         self.msaa_samples = max(1, config.msaa_samples)
         self.msaa_target: Optional[Image] = None
 
+        # WBOIT
+        self.wboit_accum_target: Optional[Image] = None
+        self.wboit_revealage_target: Optional[Image] = None
+        self.wboit_accum_msaa_target: Optional[Image] = None
+        self.wboit_revealage_msaa_target: Optional[Image] = None
+        if self.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+            self.wboit_descriptor_set_layout, self.wboit_descriptor_pool, self.wboit_descriptor_set = (
+                create_descriptor_layout_pool_and_set(
+                    self.device,
+                    [
+                        DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
+                        DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
+                    ],
+                    name="wboit",
+                )
+            )
+            vert = self.compile_builtin_shader("3d/wboit_composite.slang", "vertex_main")
+            frag = self.compile_builtin_shader("3d/wboit_composite.slang", "pixel_main")
+
+            self.wboit_composite_pipeline = GraphicsPipeline(
+                self.device,
+                stages=[
+                    PipelineStage(Shader(self.device, vert.code), Stage.VERTEX),
+                    PipelineStage(Shader(self.device, frag.code), Stage.FRAGMENT),
+                ],
+                rasterization=Rasterization(PolygonMode.FILL),
+                input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
+                attachments=[attachment_alpha_blending(self.srgb_output_format)],
+                descriptor_set_layouts=[self.wboit_descriptor_set_layout],
+            )
+
         # Ortho grid
         self.temporary_ortho_grid: Optional[DrawGrid] = None
 
@@ -464,6 +508,43 @@ class Renderer:
         self.depth_clear_value = 1.0
         self.depth_compare_op = CompareOp.LESS
         self.resize(width, height)
+
+        # Attachment and depth mode helpers
+        if self.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+            if not self.device.features & DeviceFeatures.INDEPENDENT_BLEND:
+                raise RuntimeError(
+                    "TransparencyMode.WEIGHTED_BLENDED_OIT requires DeviceFatures.INDEPENDENT_BLEND which is not supported on the picked device"
+                )
+            self.transparent_attachments: List[RenderingAttachment] = [
+                Attachment(
+                    format=Format.R16G16B16A16_SFLOAT,
+                    blend_enable=True,
+                    src_color_blend_factor=BlendFactor.ONE,
+                    dst_color_blend_factor=BlendFactor.ONE,
+                    color_blend_op=BlendOp.ADD,
+                    src_alpha_blend_factor=BlendFactor.ONE,
+                    dst_alpha_blend_factor=BlendFactor.ONE,
+                    alpha_blend_op=BlendOp.ADD,
+                ),
+                Attachment(
+                    format=Format.R8_UNORM,
+                    blend_enable=True,
+                    src_color_blend_factor=BlendFactor.ZERO,
+                    dst_color_blend_factor=BlendFactor.ONE_MINUS_SRC_COLOR,
+                    color_blend_op=BlendOp.ADD,
+                    src_alpha_blend_factor=BlendFactor.ZERO,
+                    dst_alpha_blend_factor=BlendFactor.ONE_MINUS_SRC_COLOR,
+                    alpha_blend_op=BlendOp.ADD,
+                ),
+            ]
+            self.transparent_depth_mode = Depth(self.depth_format, True, False, self.depth_compare_op)
+        else:
+            self.transparent_attachments: List[RenderingAttachment] = [
+                attachment_alpha_blending(self.srgb_output_format)
+            ]
+            self.transparent_depth_mode = Depth(self.depth_format, True, True, self.depth_compare_op)
+        self.opaque_attachments: List[RenderingAttachment] = [Attachment(format=self.srgb_output_format)]
+        self.opaque_depth_mode = Depth(self.depth_format, True, True, self.depth_compare_op)
 
     def resize(self, width: int, height: int) -> None:
         self.render_width = width
@@ -494,6 +575,50 @@ class Renderer:
                 AllocType.DEVICE_DEDICATED,
                 samples=self.msaa_samples,
             )
+
+        if self.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+            self.wboit_accum_target = Image(
+                self.device,
+                width,
+                height,
+                Format.R16G16B16A16_SFLOAT,
+                ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.SAMPLED,
+                AllocType.DEVICE_DEDICATED,
+            )
+            self.wboit_revealage_target = Image(
+                self.device,
+                width,
+                height,
+                Format.R8_UNORM,
+                ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.SAMPLED,
+                AllocType.DEVICE_DEDICATED,
+            )
+            self.wboit_descriptor_set.write_image(
+                self.wboit_accum_target, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 0
+            )
+            self.wboit_descriptor_set.write_image(
+                self.wboit_revealage_target, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 1
+            )
+
+            if self.msaa_samples > 1:
+                self.wboit_accum_msaa_target = Image(
+                    self.device,
+                    width,
+                    height,
+                    Format.R16G16B16A16_SFLOAT,
+                    ImageUsageFlags.COLOR_ATTACHMENT,
+                    AllocType.DEVICE_DEDICATED,
+                    samples=self.msaa_samples,
+                )
+                self.wboit_revealage_msaa_target = Image(
+                    self.device,
+                    width,
+                    height,
+                    Format.R8_UNORM,
+                    ImageUsageFlags.COLOR_ATTACHMENT,
+                    AllocType.DEVICE_DEDICATED,
+                    samples=self.msaa_samples,
+                )
 
     def run_ibl_pipeline(
         self, equirectangular: Image, ibl_params: Optional["IBLParams"] = None
@@ -545,7 +670,7 @@ class Renderer:
                 self.temporary_ortho_grid_major_grid_div,
                 write_depth=False,
                 test_depth=False,
-                alpha_blending=False,
+                is_transparent=False,
             )
             self.temporary_ortho_grid.create(self)
             self.temporary_ortho_grid.constants["transform"] = mat4x3(1.0)
@@ -1367,6 +1492,53 @@ class Renderer:
                     )
                 )
 
+            if self.wboit_accum_target is not None and self.wboit_revealage_target is not None:
+                f.before_render_image_barriers.extend(
+                    [
+                        ImageBarrier(
+                            self.wboit_accum_target,
+                            ImageLayout.UNDEFINED,
+                            ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        ),
+                        ImageBarrier(
+                            self.wboit_revealage_target,
+                            ImageLayout.UNDEFINED,
+                            ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        ),
+                    ]
+                )
+                if self.wboit_accum_msaa_target is not None and self.wboit_revealage_msaa_target is not None:
+                    f.before_render_image_barriers.extend(
+                        [
+                            ImageBarrier(
+                                self.wboit_accum_msaa_target,
+                                ImageLayout.UNDEFINED,
+                                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                                AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                                AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                            ),
+                            ImageBarrier(
+                                self.wboit_revealage_msaa_target,
+                                ImageLayout.UNDEFINED,
+                                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                                AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                                AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                            ),
+                        ]
+                    )
+
         # Sync: before-render barriers
         cmd.barriers(
             memory_barriers=[
@@ -1505,7 +1677,7 @@ class Renderer:
 
                 for o in enabled_objects:
                     if o.viewport_mask is None or (o.viewport_mask & viewport_bit):
-                        if o.is_transparent:
+                        if self.transparency_mode != TransparencyMode.NONE and o.is_transparent:
                             transparent.append(o)
                         else:
                             if o.is_splats:
@@ -1514,7 +1686,7 @@ class Renderer:
                                 opaque.append(o)
 
                 # Sort transparent 3D objects based on position
-                if transparent:
+                if self.transparency_mode == TransparencyMode.SORT and transparent:
                     if isinstance(viewport.camera, OrthographicCamera):
                         camera_forward = viewport.camera.front()
 
@@ -1573,8 +1745,82 @@ class Renderer:
                     for o in opaque:
                         o.render(self, f, viewport, descriptor_set)
 
-                    for o in transparent:
-                        o.render(self, f, viewport, descriptor_set)
+                    if self.transparency_mode == TransparencyMode.SORT:
+                        for o in transparent:
+                            o.render(self, f, viewport, descriptor_set)
+
+                if self.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+                    # WBOIT render
+                    with cmd.rendering(
+                        rect,
+                        color_attachments=[
+                            (
+                                RenderingAttachment(
+                                    self.wboit_accum_msaa_target,
+                                    LoadOp.CLEAR,
+                                    StoreOp.STORE,
+                                    (0, 0, 0, 0),
+                                    self.wboit_accum_target,
+                                    ResolveMode.AVERAGE,
+                                )
+                                if self.wboit_accum_msaa_target is not None
+                                else RenderingAttachment(
+                                    self.wboit_accum_target, LoadOp.CLEAR, StoreOp.STORE, (0, 0, 0, 0)
+                                )
+                            ),
+                            (
+                                RenderingAttachment(
+                                    self.wboit_revealage_msaa_target,
+                                    LoadOp.CLEAR,
+                                    StoreOp.STORE,
+                                    (1, 0, 0, 0),
+                                    self.wboit_revealage_target,
+                                    ResolveMode.AVERAGE,
+                                )
+                                if self.wboit_revealage_msaa_target is not None
+                                else RenderingAttachment(
+                                    self.wboit_revealage_target, LoadOp.CLEAR, StoreOp.STORE, (1, 0, 0, 0)
+                                )
+                            ),
+                        ],
+                        depth=DepthAttachment(self.depth_buffer, LoadOp.LOAD, StoreOp.DONT_CARE),
+                    ):
+                        for o in transparent:
+                            o.render(self, f, viewport, descriptor_set)
+
+                    cmd.barriers(
+                        image_barriers=[
+                            ImageBarrier(
+                                self.wboit_accum_target,
+                                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                                AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                                PipelineStageFlags.FRAGMENT_SHADER,
+                                AccessFlags.SHADER_SAMPLED_READ,
+                            ),
+                            ImageBarrier(
+                                self.wboit_revealage_target,
+                                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                                AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                                PipelineStageFlags.FRAGMENT_SHADER,
+                                AccessFlags.SHADER_SAMPLED_READ,
+                            ),
+                        ]
+                    )
+
+                    # WBOIT composite
+                    with cmd.rendering(
+                        rect,
+                        color_attachments=[(RenderingAttachment(srgb_image_view, LoadOp.LOAD, StoreOp.STORE))],
+                    ):
+                        cmd.bind_graphics_pipeline(
+                            self.wboit_composite_pipeline,
+                            descriptor_sets=[self.wboit_descriptor_set],
+                        )
+                        cmd.draw(3)
 
                 # NOTE: Render splats as UNORM (this must be done to ensure blending in sRGB space).
                 if splats:
@@ -1608,19 +1854,6 @@ class Renderer:
             ],
         ):
             gui.render(cmd)
-
-        # Sync: after render barriers
-        cmd.image_barrier_full(
-            ImageBarrier(
-                frame.image,
-                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
-                ImageLayout.PRESENT_SRC,
-                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
-                AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
-                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
-                AccessFlags.NONE,
-            )
-        )
 
     def prefetch(self) -> None:
         for p in self.enabled_gpu_properties:

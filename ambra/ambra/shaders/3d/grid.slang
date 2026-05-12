@@ -35,6 +35,13 @@ static constexpr float3 _XAxisColor = float3(1, 0, 0);
 static constexpr float3 _YAxisColor = float3(0, 1, 0);
 static constexpr float3 _ZAxisColor = float3(0, 0, 1);
 
+struct PSOutput {
+    float4 color: SV_Target0;
+#ifdef WBOIT
+    float revealage: SV_Target1;
+#endif
+}
+
 [shader("vertex")]
 VSOutput vertex_main(uint vertex_id: SV_VertexID)
 {
@@ -85,7 +92,7 @@ float4 uint32_color_to_float4(uint32_t color) {
 }
 
 [shader("pixel")]
-float4 pixel_main(VSOutput i) : SV_Target0
+PSOutput pixel_main(VSOutput i)
 {
     float4 uvDDXY = float4(ddx(i.uv.xy), ddy(i.uv.xy));
     float2 uvDeriv = float2(length(uvDDXY.xz), length(uvDDXY.yw));
@@ -150,9 +157,18 @@ float4 pixel_main(VSOutput i) : SV_Target0
 
     float4 axisLines = lerp(bAxisColor * axisLines2.y, aAxisColor, axisLines2.x);
 
-    float4 col = lerp(base_color, minor_line_color, minorGrid *  minor_line_color.a);
-    col = lerp(col, major_line_color, majorGrid * major_line_color.a);
-    col = col * (1.0 - axisLines.a) + axisLines;
+    float4 color = lerp(base_color, minor_line_color, minorGrid *  minor_line_color.a);
+    color = lerp(color, major_line_color, majorGrid * major_line_color.a);
+    color = color * (1.0 - axisLines.a) + axisLines;
 
-    return col;
+    PSOutput out;
+#ifdef WBOIT
+    float w = 1.0;
+    out.color = float4(color.rgb * color.a, color.a) * w;
+    out.revealage = color.a;
+#else
+    out.color = color;
+#endif
+
+    return out;
 }

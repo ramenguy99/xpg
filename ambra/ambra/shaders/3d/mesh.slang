@@ -112,8 +112,15 @@ VSOutput vertex_main(VSInput in)
     return out;
 }
 
+struct PSOutput {
+    float4 color: SV_Target0;
+#ifdef WBOIT
+    float revealage: SV_Target1;
+#endif
+}
+
 [shader("pixel")]
-float4 pixel_main(VSOutput in) : SV_Target0
+PSOutput pixel_main(VSOutput in)
 {
 #ifdef VERTEX_NORMALS
     float3 N = normalize(in.world_normal);
@@ -146,5 +153,32 @@ float4 pixel_main(VSOutput in) : SV_Target0
 #endif
 
     float4 color = g_material.eval(in.world_position, uv, N, T, tint);
-    return color;
+
+    PSOutput out;
+#ifdef WBOIT
+    // Depth and color based weight functions:
+    //
+    // float w =
+    //     max(min(1.0, max(max(color.r, color.g), color.b) * color.a), color.a)  // color term
+    //     * clamp(0.03 / (1e-5 + pow(z / 200, 4.0)), 1e-2, 3e3)                  // depth term
+    // ; 
+    //
+    // float w = clamp(pow(min(1.0, color.a * 10.0) + 0.01, 3.0) * 1e8 *  pow(1.0 - z * 0.9, 3.0), 1e-2, 3e3);
+    //
+    // float tmp = (premultipliedReflect.a * 8.0 + 0.01) *
+    //              (-gl_FragCoord.z * 0.95 + 1.0);
+    // If a lot of the scene is close to the far plane, then gl_FragCoord.z does not 
+    // provide enough discrimination. Add this term to compensate:
+    // // tmp /= sqrt(abs(csZ));
+    // float w = clamp(tmp * tmp * tmp * 1e3, 1e-2, 3e2);
+
+    float w = 1.0;
+    out.color = float4(color.rgb * color.a, color.a) * w;
+    out.revealage = color.a;
+#else
+    out.color = color;
+#endif
+
+
+    return out;
 }

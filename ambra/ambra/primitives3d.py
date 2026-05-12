@@ -54,14 +54,13 @@ from .grid import DrawGrid, GridType
 from .marching_cubes import BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z, MarchingCubesPipeline
 from .materials import ColorMaterial, DiffuseMaterial, Material
 from .property import BufferProperty, ImageProperty, as_image_property
-from .renderer import Renderer
+from .renderer import Renderer, TransparencyMode
 from .renderer_frame import RendererFrame
 from .scene import Object, Object3D
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
 from .utils.gpu import (
     AccelerationStructureInstanceInfo,
     align_up,
-    attachment_alpha_blending,
     cull_mode_opposite_face,
     div_ceil,
     div_round_up,
@@ -196,6 +195,9 @@ class Points(Object3D):
         elif self.colormap is not None:
             defines.append(("COLORMAP", ""))
 
+        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+            defines.append(("WBOIT", "1"))
+
         vert = r.compile_builtin_shader("3d/points.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/points.slang", "pixel_main", defines=defines)
 
@@ -210,12 +212,8 @@ class Points(Object3D):
             vertex_attributes=vertex_attributes,
             input_assembly=InputAssembly(PrimitiveTopology.POINT_LIST),
             samples=r.msaa_samples,
-            attachments=[
-                attachment_alpha_blending(r.srgb_output_format)
-                if self.is_transparent
-                else Attachment(format=r.srgb_output_format)
-            ],
-            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
+            attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
+            depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
             ],
@@ -344,6 +342,9 @@ class Lines(Object3D):
             vertex_bindings.append(VertexBinding(1, 4, VertexInputRate.VERTEX))
             vertex_attributes.append(VertexAttribute(1, 1, Format.R32_UINT))
 
+        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+            defines.append(("WBOIT", "1"))
+
         vert = r.compile_builtin_shader("3d/basic.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/basic.slang", "pixel_main", defines=defines)
 
@@ -361,12 +362,8 @@ class Lines(Object3D):
                 PrimitiveTopology.LINE_STRIP if self.is_strip else PrimitiveTopology.LINE_LIST
             ),
             samples=r.msaa_samples,
-            attachments=[
-                attachment_alpha_blending(r.srgb_output_format)
-                if self.is_transparent
-                else Attachment(format=r.srgb_output_format)
-            ],
-            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
+            attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
+            depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
             ],
@@ -590,6 +587,9 @@ class Mesh(Object3D):
                 )
             )
 
+        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+            defines.append(("WBOIT", "1"))
+
         vert = r.compile_builtin_shader("3d/mesh.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
 
@@ -606,12 +606,8 @@ class Mesh(Object3D):
             ),
             input_assembly=InputAssembly(self.primitive_topology),
             samples=r.msaa_samples,
-            attachments=[
-                attachment_alpha_blending(r.srgb_output_format)
-                if self.is_transparent
-                else Attachment(format=r.srgb_output_format)
-            ],
-            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
+            attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
+            depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
                 self.material.descriptor_set_layout,
@@ -887,6 +883,9 @@ class MarchingCubesMesh(Object3D):
             VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
         ]
 
+        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+            defines.append(("WBOIT", "1"))
+
         vert = r.compile_builtin_shader("3d/mesh.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
 
@@ -901,12 +900,8 @@ class MarchingCubesMesh(Object3D):
             rasterization=Rasterization(cull_mode=CullMode.NONE),
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
             samples=r.msaa_samples,
-            attachments=[
-                attachment_alpha_blending(r.srgb_output_format)
-                if self.is_transparent
-                else Attachment(format=r.srgb_output_format)
-            ],
-            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
+            attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
+            depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
                 self.material.descriptor_set_layout,
@@ -1249,6 +1244,9 @@ class ThickLines(Object3D):
             vertex_attributes.append(VertexAttribute(4, 3, Format.R32_UINT))
             vertex_attributes.append(VertexAttribute(5, 3, Format.R32_UINT, offset=4))
 
+        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+            defines.append(("WBOIT", "1"))
+
         vert = r.compile_builtin_shader("3d/lines.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/lines.slang", "pixel_main", defines=defines)
         self.pipeline = GraphicsPipeline(
@@ -1266,12 +1264,8 @@ class ThickLines(Object3D):
             ),
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
             samples=r.msaa_samples,
-            attachments=[
-                attachment_alpha_blending(r.srgb_output_format)
-                if self.is_transparent
-                else Attachment(format=r.srgb_output_format)
-            ],
-            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
+            attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
+            depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
                 self.material.descriptor_set_layout,
@@ -1457,6 +1451,9 @@ class Spheres(Object3D):
             vertex_bindings.append(VertexBinding(2, 4, VertexInputRate.INSTANCE))
             vertex_attributes.append(VertexAttribute(2, 2, Format.R32_UINT))
 
+        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+            defines.append(("WBOIT", "1"))
+
         vert = r.compile_builtin_shader("3d/spheres.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/spheres.slang", "pixel_main", defines=defines)
         self.pipeline = GraphicsPipeline(
@@ -1474,12 +1471,8 @@ class Spheres(Object3D):
             ),
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
             samples=r.msaa_samples,
-            attachments=[
-                attachment_alpha_blending(r.srgb_output_format)
-                if self.is_transparent
-                else Attachment(format=r.srgb_output_format)
-            ],
-            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
+            attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
+            depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
                 self.material.descriptor_set_layout,
@@ -1705,7 +1698,7 @@ class Grid(Object3D):
             neg_axis_color_scale,
             test_depth=True,
             write_depth=not is_transparent,
-            alpha_blending=is_transparent,
+            is_transparent=is_transparent,
         )
 
         super().__init__(
@@ -1870,6 +1863,9 @@ class Voxels(Object3D):
         elif self.colormap is not None:
             defines.append(("COLORMAP", ""))
 
+        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+            defines.append(("WBOIT", "1"))
+
         vert = r.compile_builtin_shader("3d/voxels.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/voxels.slang", "pixel_main", defines=defines)
 
@@ -1902,12 +1898,8 @@ class Voxels(Object3D):
             vertex_attributes=vertex_attributes,
             input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
             samples=r.msaa_samples,
-            attachments=[
-                attachment_alpha_blending(r.srgb_output_format)
-                if self.is_transparent
-                else Attachment(format=r.srgb_output_format)
-            ],
-            depth=Depth(r.depth_format, True, True, r.depth_compare_op),
+            attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
+            depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
             descriptor_set_layouts=[
                 r.scene_descriptor_set_layout,
             ],

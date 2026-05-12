@@ -44,7 +44,7 @@ class HeadlessSwapchainFrame:
         assert self.image is not None
 
         self.command_buffer.image_barrier(
-            self.image, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.NONE, MemoryUsage.TRANSFER_SRC
+            self.image, ImageLayout.TRANSFER_SRC_OPTIMAL, MemoryUsage.COLOR_ATTACHMENT, MemoryUsage.TRANSFER_SRC
         )
         self.command_buffer.copy_image_to_buffer(self.image, self.readback_buffer)
         self.command_buffer.memory_barrier(MemoryUsage.TRANSFER_SRC, MemoryUsage.HOST_READ)

@@ -27,11 +27,40 @@ class RenderMode(Enum):
     PATH_TRACER = 1
 
 
+class TransparencyMode(Enum):
+    # Depth first rendering for all objects, no special treatment for transparent objects.
+    NONE = 0
+
+    # Sort transparent object by their transform position.
+    # Only works for non-overlapping convex objects that have their position within the object.
+    #
+    # For objects that have non-uniform color or alpha, backface culling should be enabled to avoid
+    # triangle order dependent results.
+    SORT = 1
+
+    # Use weighted blended OIT for transparent objects. This is a single-pass order-independent
+    # transparency method that produces approximate transparency blending.
+    #
+    # This is a fairly fast option to support overlapping and non-convex transparent objects without artifacts.
+    # This technique is usefult for artifact-free interactive rendering, when approximate results are acceptable.
+    WEIGHTED_BLENDED_OIT = 2
+
+    # Use dual depth peeling for transparent objects. This is a multi-pass order-independent
+    # transparency method that produces exact results when rendering N layers of transparency
+    # using (N / 2) + 1 passes. The number of passes is not adaptive and has to be specified upfront.
+    #
+    # Since the rendering cost for transparent objects scales linearly with the number of passes,
+    # this technique is useful when only a few layers are expected, or when the extra cost is
+    # acceptable (e.g. small scenes, non-interactive rendering for export).
+    # DUAL_DEPTH_PEELING = 3
+
+
 @dataclass
 class RendererConfig:
     # Background color used for clearing before drawing, specified in linear color space.
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
     render_mode: RenderMode = RenderMode.RASTER
+    transparency_mode: TransparencyMode = TransparencyMode.SORT
     path_tracer_max_bounces: int = 4
     path_tracer_samples_per_frame: int = 4
     path_tracer_max_samples_per_pixel: int = 1024

@@ -88,17 +88,37 @@ VSOutput vertex_main(VSInput in, uint vertex_index: SV_VertexID)
     return out;
 }
 
+struct PSOutput {
+    float4 color: SV_Target0;
+#ifdef WBOIT
+    float revealage: SV_Target1;
+#endif
+}
+
 [shader("pixel")]
-float4 pixel_main(VSOutput in) : SV_Target0
+PSOutput pixel_main(VSOutput in)
 {
     float3 abs_uvw = abs(in.uvw);
     float border_size = g_object_constants.border_size;
+
+    float4 color;
     if (border_size > 0.0) {
         float3 width = fwidth(in.uvw) + 0.01;
         float3 wir = smoothstep( 0.5 - width * 0.5 - border_size, 0.5 - border_size + width * 0.5, abs(in.uvw));
         float vvv = ((1.0-wir.x*wir.y)*(1.0-wir.x*wir.z)*(1.0-wir.y*wir.z) * (1.0 - g_object_constants.border_factor) + g_object_constants.border_factor);
-        return float4(in.color.rgb * vvv, in.color.a);
+        color = float4(in.color.rgb * vvv, in.color.a);
     } else {
-        return in.color;
+        color = in.color;
     }
+
+    PSOutput out;
+#ifdef WBOIT
+    float w = 1.0;
+    out.color = float4(color.rgb * color.a, color.a) * w;
+    out.revealage = color.a;
+#else
+    out.color = color;
+#endif
+
+    return out;
 }

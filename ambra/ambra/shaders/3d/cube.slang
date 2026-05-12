@@ -41,13 +41,7 @@ VSOutput vertex_main(VSInput in)
 float4 pixel_main(VSOutput in) : SV_Target0
 {
     float3 N = normalize(in.local_position);
-        // float3 color = N * 0.5 + 0.5;
-
     float3 color = g_cubemap.SampleLevel(N, g_object_constants.level).rgb;
-
     color = color / (color + 1);
-    color = linear_to_srgb(color);
-
-
     return float4(color, 1.0);
 }

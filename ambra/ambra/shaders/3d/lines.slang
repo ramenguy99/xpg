@@ -99,8 +99,15 @@ VSOutput vertex_main(VSInput in
     return out;
 }
 
+struct PSOutput {
+    float4 color: SV_Target0;
+#ifdef WBOIT
+    float revealage: SV_Target1;
+#endif
+}
+
 [shader("pixel")]
-float4 pixel_main(VSOutput in) : SV_Target0
+PSOutput pixel_main(VSOutput in)
 {
     float3 N = normalize(in.world_normal);
 
@@ -114,5 +121,15 @@ float4 pixel_main(VSOutput in) : SV_Target0
 #endif
 
     float4 color = g_material.eval(in.world_position, uv, N, T, tint);
-    return color;
+
+    PSOutput out;
+#ifdef WBOIT
+    float w = 1.0;
+    out.color = float4(color.rgb * color.a, color.a) * w;
+    out.revealage = color.a;
+#else
+    out.color = color;
+#endif
+
+    return out;
 }

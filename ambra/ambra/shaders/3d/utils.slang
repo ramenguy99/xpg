@@ -98,6 +98,14 @@ public float linear_to_srgb(float v) {
     }
 }
 
+public float3 linear_to_srgb(float3 v) {
+    return float3(
+        linear_to_srgb(v.x),
+        linear_to_srgb(v.y),
+        linear_to_srgb(v.z)
+    );
+}
+
 public float srgb_to_linear(float v) {
     v = clamp(v, 0.0, 1.0);
     if(v > 0.04045)
