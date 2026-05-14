@@ -3952,6 +3952,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("SUBGROUP_SIZE_CONTROL",                   gfx::DeviceFeatures::SUBGROUP_SIZE_CONTROL)
         .value("IMAGE_FORMAT_LIST",                       gfx::DeviceFeatures::IMAGE_FORMAT_LIST)
         .value("SWAPCHAIN_MUTABLE_FORMAT",                gfx::DeviceFeatures::SWAPCHAIN_MUTABLE_FORMAT)
+        .value("INDEPENDENT_BLEND",                       gfx::DeviceFeatures::INDEPENDENT_BLEND)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")

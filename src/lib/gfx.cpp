@@ -1166,6 +1166,8 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.shaderInt16 ? DeviceFeatures::SHADER_INT16 : 0));
             if (features_to_check & DeviceFeatures::SHADER_INT64)
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.shaderInt16 ? DeviceFeatures::SHADER_INT64 : 0));
+            if (features_to_check & DeviceFeatures::INDEPENDENT_BLEND)
+                info.supported_features = info.supported_features | DeviceFeatures((features.features.independentBlend ? DeviceFeatures::INDEPENDENT_BLEND : 0));
 
             logging::trace("gfx/debug", "Supported features: 0x%" PRIx64, info.supported_features.flags);
 
@@ -1377,6 +1379,9 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
     }
     if (picked_info.supported_features & DeviceFeatures::SHADER_INT64) {
         enabled_physical_device_features.shaderInt64 = true;
+    }
+    if (picked_info.supported_features & DeviceFeatures::INDEPENDENT_BLEND) {
+        enabled_physical_device_features.independentBlend = true;
     }
 
     // Create a physical device.

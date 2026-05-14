@@ -99,6 +99,7 @@ struct DeviceFeatures {
         SUBGROUP_SIZE_CONTROL                   = 1ull << 22,
         IMAGE_FORMAT_LIST                       = 1ull << 23,
         SWAPCHAIN_MUTABLE_FORMAT                = 1ull << 24,
+        INDEPENDENT_BLEND                       = 1ull << 25,
     };
 
     DeviceFeatures() {};
