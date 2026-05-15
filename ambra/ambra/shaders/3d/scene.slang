@@ -148,9 +148,12 @@ public struct XrayMaterial : IMaterial
 {
     public float4 color;
     public bool has_color_texture;
+    public bool has_normal_texture;
+    public float exponent;
 
     public SamplerState sampler;
     public Texture2D color_texture;
+    public Texture2D normal_texture;
 
     float4 eval(float3 world_position, float2 uv, float3 world_normal, float3 world_tangent, float4 tint)
     {
@@ -162,8 +165,16 @@ public struct XrayMaterial : IMaterial
         }
         color = color * tint;
 
+        float3 N = world_normal;
+        if (has_normal_texture != 0) {
+            float3 T = world_tangent;
+            float3 B = cross(N, T);
+            float3x3 world_from_tangent = transpose(float3x3(T, B, N));
+            N = mul(world_from_tangent, this.normal_texture.Sample(sampler, uv).rgb * 2.0 - 1.0);
+        }
+
         float3 view = normalize(g_constants.world_camera_position - world_position);
-        float alpha = 1.0 - abs(dot(view, world_normal));
+        float alpha = 1.0 - pow(abs(dot(view, N)), exponent);
 
         return float4(color.rgb, color.a * alpha);
     }

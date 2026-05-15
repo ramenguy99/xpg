@@ -226,7 +226,8 @@ class Material:
             if isinstance(p.property, BufferProperty):
                 if flags & MaterialPropertyFlags.HAS_VALUE:
                     self.constants[p.name] = p.property.get_current()
-                self.constants[f"has_{p.name}_texture"] = False
+                if flags & MaterialPropertyFlags.ALLOW_IMAGE:
+                    self.constants[f"has_{p.name}_texture"] = False
                 image = r.zero_image
             else:
                 if flags & MaterialPropertyFlags.HAS_VALUE:
@@ -274,6 +275,8 @@ class XrayMaterial(Material):
     def __init__(
         self,
         color: MaterialData,
+        exponent: Union[float, BufferProperty] = 1.0,
+        normal: Optional[ImageProperty] = None,
         sampling_options: Optional[MaterialSamplingOptions] = None,
     ):
         self.color = as_material_property(
@@ -282,8 +285,10 @@ class XrayMaterial(Material):
             MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE | MaterialPropertyFlags.ALPHA_CHANNEL,
             "color",
         )
+        self.normal = as_material_property(normal or (0.0, 0.0, 0.0), 3, MaterialPropertyFlags.ALLOW_IMAGE, "normal")
+        self.exponent = as_material_property(exponent, 1, MaterialPropertyFlags.HAS_VALUE, "exponent")
         super().__init__(
-            [self.color],
+            [self.color, self.normal, self.exponent],
             [("MATERIAL_XRAY", "1")],
             sampling_options,
             True,
