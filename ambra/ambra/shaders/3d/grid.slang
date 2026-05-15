@@ -98,7 +98,11 @@ struct PSOutput {
 }
 
 [shader("pixel")]
-PSOutput pixel_main(VSOutput i)
+PSOutput pixel_main(VSOutput i
+#ifdef DUAL_DEPTH_PEELING_MSAA
+    , uint sample_index:  SV_SampleIndex
+#endif
+)
 {
     float4 uvDDXY = float4(ddx(i.uv.xy), ddy(i.uv.xy));
     float2 uvDeriv = float2(length(uvDDXY.xz), length(uvDDXY.yw));
@@ -169,32 +173,13 @@ PSOutput pixel_main(VSOutput i)
 
     PSOutput out;
 #ifdef WBOIT
-    float w = 1.0;
-    out.color = float4(color.rgb * color.a, color.a) * w;
-    out.revealage = color.a;
+    out_wboit(color, out.color, out.revealage);
 #elif defined(DUAL_DEPTH_PEELING)
-    int3 C = int3(int2(i.position.xy), 0);
-    float z = i.position.z;
-
-    float2 depth_buffers = g_dual_depth_peeling_depth.Load(C).rg;
-    float front_depth = -depth_buffers.r;
-    float back_depth = depth_buffers.g;
-
-    out.depth = float2(-1, -1);
-    out.front = 0.0;
-    out.back = 0.0;
-
-    if (z < front_depth || z > back_depth) {
-        discard;
-    }
-    else if (z > front_depth && z < back_depth) {
-        out.depth = float2(-z, z);
-    }
-    else if (z == front_depth) {
-        out.front = float4(color.rgb * color.a, color.a);
-    } else {
-        out.back = color;
-    }
+    out_dual_depth_peeling(color, i.position.xyz,
+#ifdef DUAL_DEPTH_PEELING_MSAA
+        sample_index,
+#endif
+        out.depth, out.front, out.back);
 #else
     out.color = color;
 #endif

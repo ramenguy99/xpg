@@ -56,25 +56,40 @@ VSOutput vertex_main(VSInput in, uint instance_id: SV_InstanceID)
 }
 
 struct PSOutput {
+#ifdef DUAL_DEPTH_PEELING
+    float2 depth: SV_Target0;
+    float4 front: SV_Target1;
+    float4 back: SV_Target2;
+#else
     float4 color: SV_Target0;
 #ifdef WBOIT
     float revealage: SV_Target1;
 #endif
+#endif
 }
 
 [shader("pixel")]
-PSOutput pixel_main(VSOutput in)
+PSOutput pixel_main(VSOutput in
+#ifdef DUAL_DEPTH_PEELING_MSAA
+    , uint sample_index:  SV_SampleIndex
+#endif
+)
 {
     float4 color = in.color;
 
     PSOutput out;
 #ifdef WBOIT
-    float w = 1.0;
-    out.color = float4(color.rgb * color.a, color.a) * w;
-    out.revealage = color.a;
+    out_wboit(color, out.color, out.revealage);
+#elif defined(DUAL_DEPTH_PEELING)
+    out_dual_depth_peeling(color, in.position.xyz,
+#ifdef DUAL_DEPTH_PEELING_MSAA
+        sample_index,
+#endif
+        out.depth, out.front, out.back);
 #else
     out.color = color;
 #endif
+
 
     return out;
 }

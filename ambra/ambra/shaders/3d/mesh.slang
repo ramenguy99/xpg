@@ -151,57 +151,13 @@ PSOutput pixel_main(VSOutput in
 
     PSOutput out;
 #ifdef WBOIT
-    // Depth and color based weight functions:
-    //
-    // float w =
-    //     max(min(1.0, max(max(color.r, color.g), color.b) * color.a), color.a)  // color term
-    //     * clamp(0.03 / (1e-5 + pow(z / 200, 4.0)), 1e-2, 3e3)                  // depth term
-    // ;
-    //
-    // float w = clamp(pow(min(1.0, color.a * 10.0) + 0.01, 3.0) * 1e8 *  pow(1.0 - z * 0.9, 3.0), 1e-2, 3e3);
-    //
-    // float tmp = (premultipliedReflect.a * 8.0 + 0.01) *
-    //              (-gl_FragCoord.z * 0.95 + 1.0);
-    // If a lot of the scene is close to the far plane, then gl_FragCoord.z does not
-    // provide enough discrimination. Add this term to compensate:
-    // // tmp /= sqrt(abs(csZ));
-    // float w = clamp(tmp * tmp * tmp * 1e3, 1e-2, 3e2);
-
-    float w = 1.0;
-    out.color = float4(color.rgb * color.a, color.a) * w;
-    out.revealage = color.a;
-
+    out_wboit(color, out.color, out.revealage);
 #elif defined(DUAL_DEPTH_PEELING)
-    float z = in.position.z;
-
-#ifndef DUAL_DEPTH_PEELING_MSAA
-    float2 depth_buffers = g_dual_depth_peeling_depth.Load(int3(int2(in.position.xy), 0)).rg;
-#else
-    float2 depth_buffers = g_dual_depth_peeling_depth.Load(int2(in.position.xy), sample_index).rg;
+    out_dual_depth_peeling(color, in.position.xyz,
+#ifdef DUAL_DEPTH_PEELING_MSAA
+        sample_index,
 #endif
-
-    float front_depth = -depth_buffers.r;
-    float back_depth = depth_buffers.g;
-
-    out.depth = float2(-1, -1);
-    out.front = 0.0;
-    out.back = 0.0;
-
-    if (z < front_depth || z > back_depth) {
-        // Closer than front, or furhter than back
-        discard;
-    }
-    else if (z > front_depth && z < back_depth) {
-        // Between front and back
-        out.depth = float2(-z, z);
-    }
-    else if (z == front_depth) {
-        // Exactly at front (or at both front and back for middle layer)
-        out.front = float4(color.rgb * color.a, color.a);
-    } else {
-        // Exacty at back
-        out.back = color;
-    }
+        out.depth, out.front, out.back);
 #else
     out.color = color;
 #endif
