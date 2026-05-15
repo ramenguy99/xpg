@@ -55,13 +55,14 @@ if BENCHMARK:
             v.device.reset_query_pool(pool)
             with v.device.sync_commands() as cmd:
                 cmd.write_timestamp(pool, 0, PipelineStageFlags.TOP_OF_PIPE)
-                sort.run(v.renderer, cmd, n, keys, keys_alt, payload, payload_alt)
+                sort.upload(v.renderer, keys, keys_alt, payload, payload_alt, None)
+                sort.run(v.renderer, cmd, n)
                 cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.TRANSFER_SRC)
                 cmd.write_timestamp(pool, 1, PipelineStageFlags.BOTTOM_OF_PIPE)
             res = pool.wait_results(0, 2)
             dt = min(dt, res[1] - res[0])
-        dt_ns = dt * v.device.timestamp_period_ns
-        print(f"{n:12}: {dt_ns * 1e-3:12.03f}us  {n / (dt_ns)} B/s")
+        dt_ns = dt * v.device.device_properties.limits.timestamp_period
+        print(f"{n:12}: {dt_ns * 1e-3:12.03f}us  {n / (dt_ns):12.9f} B/s")
 else:
     readback_keys = Buffer(
         v.device,
@@ -80,7 +81,8 @@ else:
 
     # Sort and readback
     with v.device.sync_commands() as cmd:
-        sort.run(v.renderer, cmd, N, keys, keys_alt, payload, payload_alt)
+        sort.upload(v.renderer, keys, keys_alt, payload, payload_alt, None)
+        sort.run(v.renderer, cmd, N)
         cmd.memory_barrier(MemoryUsage.COMPUTE_SHADER, MemoryUsage.TRANSFER_SRC)
         cmd.copy_buffer(keys, readback_keys)
         cmd.copy_buffer(payload, readback_payload)
