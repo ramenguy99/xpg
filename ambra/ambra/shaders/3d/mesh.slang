@@ -11,21 +11,6 @@ public struct ObjectConstants {
 [vk::push_constant]
 public ConstantBuffer<ObjectConstants> g_object_constants;
 
-[vk::binding(0, 1)]
-#if defined(MATERIAL_COLOR)
-public ConstantBuffer<ColorMaterial> g_material;
-#elif defined(MATERIAL_XRAY)
-public ConstantBuffer<XrayMaterial> g_material;
-#elif defined(MATERIAL_DIFFUSE)
-public ConstantBuffer<DiffuseMaterial> g_material;
-#elif defined(MATERIAL_DIFFUSE_SPECULAR)
-public ConstantBuffer<DiffuseSpecularMaterial> g_material;
-#elif defined(MATERIAL_PBR)
-public ConstantBuffer<PBRMaterial> g_material;
-#else
-public ConstantBuffer<EmptyMaterial> g_material;
-#endif
-
 struct VSInput
 {
     [[vk::location(0)]]
@@ -113,9 +98,15 @@ VSOutput vertex_main(VSInput in)
 }
 
 struct PSOutput {
+#ifdef DUAL_DEPTH_PEELING
+    float2 depth: SV_Target0;
+    float4 front: SV_Target1;
+    float4 back: SV_Target2;
+#else
     float4 color: SV_Target0;
 #ifdef WBOIT
     float revealage: SV_Target1;
+#endif
 #endif
 }
 
@@ -161,13 +152,13 @@ PSOutput pixel_main(VSOutput in)
     // float w =
     //     max(min(1.0, max(max(color.r, color.g), color.b) * color.a), color.a)  // color term
     //     * clamp(0.03 / (1e-5 + pow(z / 200, 4.0)), 1e-2, 3e3)                  // depth term
-    // ; 
+    // ;
     //
     // float w = clamp(pow(min(1.0, color.a * 10.0) + 0.01, 3.0) * 1e8 *  pow(1.0 - z * 0.9, 3.0), 1e-2, 3e3);
     //
     // float tmp = (premultipliedReflect.a * 8.0 + 0.01) *
     //              (-gl_FragCoord.z * 0.95 + 1.0);
-    // If a lot of the scene is close to the far plane, then gl_FragCoord.z does not 
+    // If a lot of the scene is close to the far plane, then gl_FragCoord.z does not
     // provide enough discrimination. Add this term to compensate:
     // // tmp /= sqrt(abs(csZ));
     // float w = clamp(tmp * tmp * tmp * 1e3, 1e-2, 3e2);
@@ -175,6 +166,39 @@ PSOutput pixel_main(VSOutput in)
     float w = 1.0;
     out.color = float4(color.rgb * color.a, color.a) * w;
     out.revealage = color.a;
+
+#elif defined(DUAL_DEPTH_PEELING)
+    static constexpr float bias = 0.000001;
+    int3 C = int3(int2(in.position.xy), 0);
+    float z = in.position.z;
+
+    float2 depth_buffers = g_dual_depth_peeling_depth.Load(C).rg;
+    float front_depth = -depth_buffers.r;
+    float back_depth = depth_buffers.g;
+
+    out.depth = float2(-1, -1);
+    out.front = 0.0;
+    out.back = 0.0;
+
+    if (z < front_depth || z > back_depth) {
+    // if (z + bias < front_depth || z - bias > back_depth) {
+        // Closer than front, or furhter than back
+        discard;
+    }
+    else if (z > front_depth && z < back_depth) {
+    // else if (z - bias > front_depth && z + bias < back_depth) {
+        // Between front and back
+        out.depth = float2(-z, z);
+    }
+    else if (z == front_depth) {
+        // else if (z == back_depth) {
+        // else if (z < front_depth + bias && z > front_depth - bias) {
+        // Exactly at front (or at both front and back for middle layer)
+        out.front = float4(color.rgb * color.a, color.a);
+    } else {
+        // Exacty at back
+        out.back = color;
+    }
 #else
     out.color = color;
 #endif

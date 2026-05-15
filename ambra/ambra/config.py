@@ -51,8 +51,8 @@ class TransparencyMode(Enum):
     #
     # Since the rendering cost for transparent objects scales linearly with the number of passes,
     # this technique is useful when only a few layers are expected, or when the extra cost is
-    # acceptable (e.g. small scenes, non-interactive rendering for export).
-    # DUAL_DEPTH_PEELING = 3
+    # acceptable (e.g. small scenes or non-interactive rendering for export).
+    DUAL_DEPTH_PEELING = 3
 
 
 @dataclass
@@ -61,6 +61,7 @@ class RendererConfig:
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
     render_mode: RenderMode = RenderMode.RASTER
     transparency_mode: TransparencyMode = TransparencyMode.SORT
+    dual_depth_peeling_passes: int = 3  # ((P - 1) * 2) = 4 layers of transparency.
     path_tracer_max_bounces: int = 4
     path_tracer_samples_per_frame: int = 4
     path_tracer_max_samples_per_pixel: int = 1024
@@ -189,8 +190,8 @@ class Config:
     # Vulkan
     force_physical_device_index: Optional[int] = None
     prefer_discrete_gpu: bool = True
-    enable_validation_layer: bool = False
-    enable_synchronization_validation: bool = False
+    enable_validation_layer: bool = True
+    enable_synchronization_validation: bool = True
     enable_gpu_based_validation: bool = False
     enable_shader_debug_printf: bool = False
     shader_debug_printf_buffer_size: int = 4096

@@ -118,16 +118,26 @@ class Object:
         pass
 
     def pre_render(
-        self, renderer: "Renderer", frame: RendererFrame, viewport: "Viewport", scene_descriptor_set: DescriptorSet
+        self,
+        renderer: "Renderer",
+        frame: RendererFrame,
+        viewport: "Viewport",
+        scene_descriptor_sets: List[DescriptorSet],
     ) -> None:
         pass
 
     def render(
-        self, renderer: "Renderer", frame: RendererFrame, viewport: "Viewport", scene_descriptor_set: DescriptorSet
+        self,
+        renderer: "Renderer",
+        frame: RendererFrame,
+        viewport: "Viewport",
+        scene_descriptor_sets: List[DescriptorSet],
     ) -> None:
         pass
 
-    def render_depth(self, renderer: "Renderer", frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render_depth(
+        self, renderer: "Renderer", frame: RendererFrame, scene_descriptor_sets: List[DescriptorSet]
+    ) -> None:
         pass
 
     def destroy(self) -> None:

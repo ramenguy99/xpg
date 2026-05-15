@@ -54,7 +54,7 @@ from .grid import DrawGrid, GridType
 from .marching_cubes import BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z, MarchingCubesPipeline
 from .materials import ColorMaterial, DiffuseMaterial, Material
 from .property import BufferProperty, ImageProperty, as_image_property
-from .renderer import Renderer, TransparencyMode
+from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Object, Object3D
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
@@ -195,8 +195,8 @@ class Points(Object3D):
         elif self.colormap is not None:
             defines.append(("COLORMAP", ""))
 
-        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
-            defines.append(("WBOIT", "1"))
+        if self.is_transparent:
+            defines.extend(r.transparency_mode_defines)
 
         vert = r.compile_builtin_shader("3d/points.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/points.slang", "pixel_main", defines=defines)
@@ -214,9 +214,9 @@ class Points(Object3D):
             samples=r.msaa_samples,
             attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
             depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
-            descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,
-            ],
+            descriptor_set_layouts=(
+                r.transparent_descriptor_set_layouts if self.is_transparent else r.opaque_descriptor_set_layouts
+            ),
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
@@ -225,7 +225,7 @@ class Points(Object3D):
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
 
     def render(
-        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_sets: List[DescriptorSet]
     ) -> None:
         self.constants["point_size"] = self.point_size.get_current()
         if self.uniform_color is not None:
@@ -253,9 +253,7 @@ class Points(Object3D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=vertex_buffers,
-            descriptor_sets=[
-                scene_descriptor_set,
-            ],
+            descriptor_sets=scene_descriptor_sets,
             push_constants=self.constants.tobytes(),
         )
         frame.cmd.draw(points.size // 12)
@@ -342,8 +340,8 @@ class Lines(Object3D):
             vertex_bindings.append(VertexBinding(1, 4, VertexInputRate.VERTEX))
             vertex_attributes.append(VertexAttribute(1, 1, Format.R32_UINT))
 
-        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
-            defines.append(("WBOIT", "1"))
+        if self.is_transparent:
+            defines.extend(r.transparency_mode_defines)
 
         vert = r.compile_builtin_shader("3d/basic.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/basic.slang", "pixel_main", defines=defines)
@@ -364,9 +362,9 @@ class Lines(Object3D):
             samples=r.msaa_samples,
             attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
             depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
-            descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,
-            ],
+            descriptor_set_layouts=(
+                r.transparent_descriptor_set_layouts if self.is_transparent else r.opaque_descriptor_set_layouts
+            ),
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
@@ -375,7 +373,7 @@ class Lines(Object3D):
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
 
     def render(
-        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_sets: List[DescriptorSet]
     ) -> None:
         lines = self.lines.get_current_gpu()
 
@@ -389,9 +387,7 @@ class Lines(Object3D):
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
             vertex_buffers=vertex_buffers,
-            descriptor_sets=[
-                scene_descriptor_set,
-            ],
+            descriptor_sets=scene_descriptor_sets,
             push_constants=self.constants.tobytes(),
         )
         frame.cmd.set_line_width(
@@ -587,8 +583,8 @@ class Mesh(Object3D):
                 )
             )
 
-        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
-            defines.append(("WBOIT", "1"))
+        if self.is_transparent:
+            defines.extend(r.transparency_mode_defines)
 
         vert = r.compile_builtin_shader("3d/mesh.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
@@ -609,7 +605,7 @@ class Mesh(Object3D):
             attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
             depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
             descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,
+                *(r.transparent_descriptor_set_layouts if self.is_transparent else r.opaque_descriptor_set_layouts),
                 self.material.descriptor_set_layout,
             ],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
@@ -710,7 +706,7 @@ class Mesh(Object3D):
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
         self.constants["normal_matrix"][:, :, :3] = transpose(inverse(mat3(self.current_transform_matrix)))
 
-    def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_sets: List[DescriptorSet]) -> None:
         if not self.casts_shadows:
             return
 
@@ -729,9 +725,7 @@ class Mesh(Object3D):
             self.depth_pipeline,
             vertex_buffers=vertex_buffers,
             index_buffer=indices.buffer_and_offset() if indices is not None else None,
-            descriptor_sets=[
-                scene_descriptor_set,
-            ],
+            descriptor_sets=scene_descriptor_sets,
             push_constants=self.constants["transform"].tobytes(),
         )
 
@@ -741,7 +735,7 @@ class Mesh(Object3D):
             frame.cmd.draw(positions.size // 12, num_instances)
 
     def render(
-        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_sets: List[DescriptorSet]
     ) -> None:
         assert self.material is not None
 
@@ -768,10 +762,7 @@ class Mesh(Object3D):
             self.pipeline,
             vertex_buffers=vertex_buffers,
             index_buffer=indices.buffer_and_offset() if indices is not None else None,
-            descriptor_sets=[
-                scene_descriptor_set,
-                self.material.descriptor_set,
-            ],
+            descriptor_sets=[*scene_descriptor_sets, self.material.descriptor_set],
             push_constants=self.constants.tobytes(),
         )
 
@@ -883,8 +874,8 @@ class MarchingCubesMesh(Object3D):
             VertexAttribute(0, 0, Format.R32G32B32_SFLOAT),
         ]
 
-        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
-            defines.append(("WBOIT", "1"))
+        if self.is_transparent:
+            defines.extend(r.transparency_mode_defines)
 
         vert = r.compile_builtin_shader("3d/mesh.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/mesh.slang", "pixel_main", defines=defines)
@@ -903,7 +894,7 @@ class MarchingCubesMesh(Object3D):
             attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
             depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
             descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,
+                *(r.transparent_descriptor_set_layouts if self.is_transparent else r.opaque_descriptor_set_layouts),
                 self.material.descriptor_set_layout,
             ],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
@@ -1078,7 +1069,7 @@ class MarchingCubesMesh(Object3D):
             self._march(r, frame)
             self._need_marching = False
 
-    def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_sets: List[DescriptorSet]) -> None:
         if not self.casts_shadows:
             return
 
@@ -1086,16 +1077,14 @@ class MarchingCubesMesh(Object3D):
             self.depth_pipeline,
             vertex_buffers=[self.positions_buf],
             index_buffer=self.indices_buf,
-            descriptor_sets=[
-                scene_descriptor_set,
-            ],
+            descriptor_sets=scene_descriptor_sets,
             push_constants=self.constants["transform"].tobytes(),
         )
 
         frame.cmd.draw_indexed_indirect(self.marching_cubes_instance.indices_counter_buf, 0, 1, 20)
 
     def render(
-        self, r: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+        self, r: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_sets: List[DescriptorSet]
     ) -> None:
         assert self.material is not None
 
@@ -1103,10 +1092,7 @@ class MarchingCubesMesh(Object3D):
             self.pipeline,
             vertex_buffers=[self.positions_buf, self.normals_buf],
             index_buffer=self.indices_buf,
-            descriptor_sets=[
-                scene_descriptor_set,
-                self.material.descriptor_set,
-            ],
+            descriptor_sets=[*scene_descriptor_sets, self.material.descriptor_set],
             push_constants=self.constants.tobytes(),
         )
 
@@ -1244,8 +1230,8 @@ class ThickLines(Object3D):
             vertex_attributes.append(VertexAttribute(4, 3, Format.R32_UINT))
             vertex_attributes.append(VertexAttribute(5, 3, Format.R32_UINT, offset=4))
 
-        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
-            defines.append(("WBOIT", "1"))
+        if self.is_transparent:
+            defines.extend(r.transparency_mode_defines)
 
         vert = r.compile_builtin_shader("3d/lines.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/lines.slang", "pixel_main", defines=defines)
@@ -1267,13 +1253,13 @@ class ThickLines(Object3D):
             attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
             depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
             descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,
+                *(r.transparent_descriptor_set_layouts if self.is_transparent else r.opaque_descriptor_set_layouts),
                 self.material.descriptor_set_layout,
             ],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
-    def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_sets: List[DescriptorSet]) -> None:
         if not self.casts_shadows:
             return
 
@@ -1282,9 +1268,7 @@ class ThickLines(Object3D):
             self.depth_pipeline,
             vertex_buffers=[self.positions_buf, lines.buffer_and_offset()],
             index_buffer=self.indices_buf,
-            descriptor_sets=[
-                scene_descriptor_set,
-            ],
+            descriptor_sets=scene_descriptor_sets,
             push_constants=self.constants.tobytes(),
         )
 
@@ -1295,7 +1279,7 @@ class ThickLines(Object3D):
             )
 
     def render(
-        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_sets: List[DescriptorSet]
     ) -> None:
         assert self.material is not None
 
@@ -1312,10 +1296,7 @@ class ThickLines(Object3D):
             self.pipeline,
             vertex_buffers=vertex_buffers,
             index_buffer=self.indices_buf,
-            descriptor_sets=[
-                scene_descriptor_set,
-                self.material.descriptor_set,
-            ],
+            descriptor_sets=[*scene_descriptor_sets, self.material.descriptor_set],
             push_constants=self.constants.tobytes(),
         )
 
@@ -1441,7 +1422,8 @@ class Spheres(Object3D):
             attachments=[],
             depth=Depth(r.shadow_map_format, True, True, r.depth_compare_op),
             descriptor_set_layouts=[
-                r.scene_depth_descriptor_set_layout,
+                *(r.transparent_descriptor_set_layouts if self.is_transparent else r.opaque_descriptor_set_layouts),
+                self.material.descriptor_set_layout,
             ],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
@@ -1451,8 +1433,8 @@ class Spheres(Object3D):
             vertex_bindings.append(VertexBinding(2, 4, VertexInputRate.INSTANCE))
             vertex_attributes.append(VertexAttribute(2, 2, Format.R32_UINT))
 
-        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
-            defines.append(("WBOIT", "1"))
+        if self.is_transparent:
+            defines.extend(r.transparency_mode_defines)
 
         vert = r.compile_builtin_shader("3d/spheres.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/spheres.slang", "pixel_main", defines=defines)
@@ -1474,13 +1456,13 @@ class Spheres(Object3D):
             attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
             depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
             descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,
+                *(r.transparent_descriptor_set_layouts if self.is_transparent else r.opaque_descriptor_set_layouts),
                 self.material.descriptor_set_layout,
             ],
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
-    def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_set: DescriptorSet) -> None:
+    def render_depth(self, r: Renderer, frame: RendererFrame, scene_descriptor_sets: List[DescriptorSet]) -> None:
         if not self.casts_shadows:
             return
 
@@ -1489,9 +1471,7 @@ class Spheres(Object3D):
             self.depth_pipeline,
             vertex_buffers=[self.positions_buf, positions.buffer_and_offset()],
             index_buffer=self.indices_buf,
-            descriptor_sets=[
-                scene_descriptor_set,
-            ],
+            descriptor_sets=scene_descriptor_sets,
             push_constants=self.constants.tobytes(),
         )
 
@@ -1500,7 +1480,7 @@ class Spheres(Object3D):
             frame.cmd.draw_indexed(self.sphere_faces.size, num_spheres)
 
     def render(
-        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_sets: List[DescriptorSet]
     ) -> None:
         assert self.material is not None
 
@@ -1516,10 +1496,7 @@ class Spheres(Object3D):
             self.pipeline,
             vertex_buffers=vertex_buffers,
             index_buffer=self.indices_buf,
-            descriptor_sets=[
-                scene_descriptor_set,
-                self.material.descriptor_set,
-            ],
+            descriptor_sets=[*scene_descriptor_sets, self.material.descriptor_set],
             push_constants=self.constants.tobytes(),
         )
 
@@ -1743,7 +1720,7 @@ class Grid(Object3D):
         self.draw_grid.constants["transform"] = mat4x3(self.current_transform_matrix)
 
     def render(
-        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_sets: List[DescriptorSet]
     ) -> None:
         if (
             viewport.is_temporary_ortho
@@ -1752,7 +1729,7 @@ class Grid(Object3D):
         ):
             return
 
-        self.draw_grid.render(frame.cmd, scene_descriptor_set)
+        self.draw_grid.render(frame.cmd, scene_descriptor_sets)
 
 
 class Voxels(Object3D):
@@ -1863,8 +1840,8 @@ class Voxels(Object3D):
         elif self.colormap is not None:
             defines.append(("COLORMAP", ""))
 
-        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
-            defines.append(("WBOIT", "1"))
+        if self.is_transparent:
+            defines.extend(r.transparency_mode_defines)
 
         vert = r.compile_builtin_shader("3d/voxels.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/voxels.slang", "pixel_main", defines=defines)
@@ -1900,9 +1877,9 @@ class Voxels(Object3D):
             samples=r.msaa_samples,
             attachments=r.transparent_attachments if self.is_transparent else r.opaque_attachments,
             depth=r.transparent_depth_mode if self.is_transparent else r.opaque_depth_mode,
-            descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,
-            ],
+            descriptor_set_layouts=(
+                r.transparent_descriptor_set_layouts if self.is_transparent else r.opaque_descriptor_set_layouts
+            ),
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
@@ -1911,7 +1888,7 @@ class Voxels(Object3D):
         self.constants["transform"] = mat4x3(self.current_transform_matrix)
 
     def render(
-        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_sets: List[DescriptorSet]
     ) -> None:
         self.constants["object_camera_position"] = vec3(
             inverse(self.current_transform_matrix) * vec4(viewport.camera.position(), 1.0)  # type: ignore
@@ -1945,9 +1922,7 @@ class Voxels(Object3D):
             self.pipeline,
             vertex_buffers=vertex_buffers,
             index_buffer=self.indices,
-            descriptor_sets=[
-                scene_descriptor_set,
-            ],
+            descriptor_sets=scene_descriptor_sets,
             push_constants=self.constants.tobytes(),
         )
         frame.cmd.draw_indexed(18, positions.size // 12)
@@ -2309,7 +2284,7 @@ class GaussianSplats(Object3D):
         frame.between_viewport_render_dst_pipeline_stages |= PipelineStageFlags.TRANSFER
 
     def pre_render(
-        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_sets: List[DescriptorSet]
     ) -> None:
         positions = self.positions.get_current_gpu()
         num_splats = positions.size // 12
@@ -2327,7 +2302,7 @@ class GaussianSplats(Object3D):
         # Distance
         frame.cmd.bind_compute_pipeline(
             self.dist_pipeline,
-            descriptor_sets=[scene_descriptor_set, self.descriptor_set],
+            descriptor_sets=[*scene_descriptor_sets, self.descriptor_set],
             push_constants=self.constants.tobytes(),
         )
         frame.cmd.dispatch(div_round_up(num_splats, self.DISTANCE_COMPUTE_WORKGROUP_SIZE), 1, 1)
@@ -2367,7 +2342,7 @@ class GaussianSplats(Object3D):
         )
 
     def render(
-        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_sets: List[DescriptorSet]
     ) -> None:
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
@@ -2378,10 +2353,7 @@ class GaussianSplats(Object3D):
             if not self.use_mesh_shader
             else [],
             index_buffer=self.quad_indices if not self.use_mesh_shader else None,
-            descriptor_sets=[
-                scene_descriptor_set,
-                self.descriptor_set,
-            ],
+            descriptor_sets=[*scene_descriptor_sets, self.descriptor_set],
             push_constants=self.constants.tobytes(),
         )
         if self.use_mesh_shader:

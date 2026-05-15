@@ -126,7 +126,8 @@ class Viewer:
             | DeviceFeatures.FRAGMENT_SHADER_BARYCENTRIC
             | DeviceFeatures.SUBGROUP_SIZE_CONTROL
             | DeviceFeatures.IMAGE_FORMAT_LIST
-            | DeviceFeatures.INDEPENDENT_BLEND,
+            | DeviceFeatures.INDEPENDENT_BLEND
+            | DeviceFeatures.SAMPLE_RATE_SHADING,
             presentation=config.window,
             force_physical_device_index=0xFFFFFFFF
             if config.force_physical_device_index is None

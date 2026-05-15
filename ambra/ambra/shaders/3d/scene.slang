@@ -486,26 +486,57 @@ public struct Constants {
     public uint32_t directional_lights_count;
 };
 
-[vk::binding(0, 0)]
+#ifndef DUAL_DEPTH_PEELING
+#define SCENE_DESCRIPTOR_SET 0
+#define MATERIAL_DESCRIPTOR_SET 1
+#else
+#define DUAL_DEPTH_PEELING_DESCRIPTOR_SET 0
+#define SCENE_DESCRIPTOR_SET 1
+#define MATERIAL_DESCRIPTOR_SET 2
+
+[vk::binding(0, DUAL_DEPTH_PEELING_DESCRIPTOR_SET)]
+public Texture2D g_dual_depth_peeling_depth;
+#endif
+
+
+[vk::binding(0, SCENE_DESCRIPTOR_SET)]
 public ConstantBuffer<Constants> g_constants;
 
-[vk::binding(1, 0)]
+[vk::binding(1, SCENE_DESCRIPTOR_SET)]
 public SamplerComparisonState g_directional_shadow_map_sampler;
 
-[vk::binding(2, 0)]
+[vk::binding(2, SCENE_DESCRIPTOR_SET)]
 public SamplerState g_linear_sampler;
 
-[vk::binding(3, 0)]
+[vk::binding(3, SCENE_DESCRIPTOR_SET)]
 public TextureCube g_irradiance_cubemap;
 
-[vk::binding(4, 0)]
+[vk::binding(4, SCENE_DESCRIPTOR_SET)]
 public TextureCube g_specular_cubemap;
 
-[vk::binding(5, 0)]
+[vk::binding(5, SCENE_DESCRIPTOR_SET)]
 public Texture2D g_ggx_lut;
 
-[vk::binding(6, 0)]
+[vk::binding(6, SCENE_DESCRIPTOR_SET)]
 public StructuredBuffer<DirectionalLight> g_directional_lights;
 
-[vk::binding(7, 0)]
+[vk::binding(7, SCENE_DESCRIPTOR_SET)]
 public Texture2D g_directional_shadow_maps[];
+
+
+#if defined(MATERIAL_COLOR)
+[vk::binding(0, MATERIAL_DESCRIPTOR_SET)]
+public ConstantBuffer<ColorMaterial> g_material;
+#elif defined(MATERIAL_XRAY)
+[vk::binding(0, MATERIAL_DESCRIPTOR_SET)]
+public ConstantBuffer<XrayMaterial> g_material;
+#elif defined(MATERIAL_DIFFUSE)
+[vk::binding(0, MATERIAL_DESCRIPTOR_SET)]
+public ConstantBuffer<DiffuseMaterial> g_material;
+#elif defined(MATERIAL_DIFFUSE_SPECULAR)
+[vk::binding(0, MATERIAL_DESCRIPTOR_SET)]
+public ConstantBuffer<DiffuseSpecularMaterial> g_material;
+#elif defined(MATERIAL_PBR)
+[vk::binding(0, MATERIAL_DESCRIPTOR_SET)]
+public ConstantBuffer<PBRMaterial> g_material;
+#endif

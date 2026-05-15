@@ -288,11 +288,12 @@ Python:
     - [x] Window callbacks with values from GLFW that we do not directly expose as python enums fail with std::runtime_error Bad Cast from nanobind
           trying to cast when converting arguments. We should either catch and handle this or make sure to expose all the options.
           Currently known potential issueare MouseButton and maybe some missing Key, Modifier, Action?
-- [x] Vulkan features to expose:
+- [ ] Vulkan features to expose:
     - [x] VK_EXT_subgroup_size_control for forcing wave32 on AMD (wanted by sorting)
     - [x] Fragment shader barycentrics (available on macOS)
     - [x] Draw/dispatch indirect, draw indirect count and draw args for DrawID.
     - [x] Shader printf
+    - [ ] Depth attachment resolve
 
 ## Future
 

@@ -94,7 +94,11 @@ from .property import BufferProperty, ImageProperty, Property, PropertyItem
 from .renderer_frame import RendererFrame, SemaphoreInfo
 from .scene import Object, Object3D, Scene
 from .shaders import compile
-from .utils.descriptors import create_descriptor_layout_pool_and_set, create_descriptor_pool_and_sets
+from .utils.descriptors import (
+    create_descriptor_layout_pool_and_set,
+    create_descriptor_layout_pool_and_sets,
+    create_descriptor_pool_and_sets,
+)
 from .utils.gpu import (
     AccelerationStructureInstanceInfo,
     BufferUploadInfo,
@@ -499,6 +503,85 @@ class Renderer:
                 descriptor_set_layouts=[self.wboit_descriptor_set_layout],
             )
 
+        # DDP
+        self.ddp_num_passes = config.dual_depth_peeling_passes
+        self.ddp_depth_targets: List[Image] = []
+        self.ddp_front_target: Optional[Image] = None
+        self.ddp_back_target: Optional[Image] = None
+        self.ddp_front_msaa_target: Optional[Image] = None
+        self.ddp_back_msaa_target: Optional[Image] = None
+        if self.transparency_mode == TransparencyMode.DUAL_DEPTH_PEELING:
+            self.ddp_init_descriptor_set_layout, self.ddp_init_descriptor_pool, self.ddp_init_descriptor_set = (
+                create_descriptor_layout_pool_and_set(
+                    self.device,
+                    [
+                        DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
+                    ],
+                    name="ddp-init",
+                )
+            )
+            vert = self.compile_builtin_shader("3d/ddp_init.slang", "vertex_main")
+            frag = self.compile_builtin_shader("3d/ddp_init.slang", "pixel_main")
+            self.ddp_init_pipeline = GraphicsPipeline(
+                self.device,
+                stages=[
+                    PipelineStage(Shader(self.device, vert.code), Stage.VERTEX),
+                    PipelineStage(Shader(self.device, frag.code), Stage.FRAGMENT),
+                ],
+                rasterization=Rasterization(PolygonMode.FILL),
+                input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
+                attachments=[Attachment(Format.R32G32_SFLOAT)],
+                descriptor_set_layouts=[self.ddp_init_descriptor_set_layout],
+            )
+
+            (
+                self.ddp_composite_descriptor_set_layout,
+                self.ddp_composite_descriptor_pool,
+                self.ddp_composite_descriptor_set,
+            ) = create_descriptor_layout_pool_and_set(
+                self.device,
+                [
+                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
+                    DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
+                ],
+                name="ddp-composite",
+            )
+            vert = self.compile_builtin_shader("3d/ddp_composite.slang", "vertex_main")
+            frag = self.compile_builtin_shader("3d/ddp_composite.slang", "pixel_main")
+            self.ddp_composite_pipeline = GraphicsPipeline(
+                self.device,
+                stages=[
+                    PipelineStage(Shader(self.device, vert.code), Stage.VERTEX),
+                    PipelineStage(Shader(self.device, frag.code), Stage.FRAGMENT),
+                ],
+                rasterization=Rasterization(PolygonMode.FILL),
+                input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
+                attachments=[
+                    Attachment(
+                        format=srgb_output_format,
+                        blend_enable=True,
+                        src_color_blend_factor=BlendFactor.ONE,
+                        dst_color_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
+                        color_blend_op=BlendOp.ADD,
+                        src_alpha_blend_factor=BlendFactor.ONE,
+                        dst_alpha_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
+                        alpha_blend_op=BlendOp.ADD,
+                    )
+                ],
+                descriptor_set_layouts=[self.ddp_composite_descriptor_set_layout],
+            )
+
+            self.ddp_scene_descriptor_set_layout, self.ddp_scene_descriptor_pool, self.ddp_scene_descriptor_sets = (
+                create_descriptor_layout_pool_and_sets(
+                    self.device,
+                    [
+                        DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE),
+                    ],
+                    2,
+                    name="ddp",
+                )
+            )
+
         # Ortho grid
         self.temporary_ortho_grid: Optional[DrawGrid] = None
 
@@ -510,12 +593,13 @@ class Renderer:
         self.resize(width, height)
 
         # Attachment and depth mode helpers
+        self.transparent_attachments: List[Attachment] = []
         if self.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
             if not self.device.features & DeviceFeatures.INDEPENDENT_BLEND:
                 raise RuntimeError(
                     "TransparencyMode.WEIGHTED_BLENDED_OIT requires DeviceFatures.INDEPENDENT_BLEND which is not supported on the picked device"
                 )
-            self.transparent_attachments: List[RenderingAttachment] = [
+            self.transparent_attachments = [
                 Attachment(
                     format=Format.R16G16B16A16_SFLOAT,
                     blend_enable=True,
@@ -538,12 +622,55 @@ class Renderer:
                 ),
             ]
             self.transparent_depth_mode = Depth(self.depth_format, True, False, self.depth_compare_op)
-        else:
-            self.transparent_attachments: List[RenderingAttachment] = [
-                attachment_alpha_blending(self.srgb_output_format)
+            self.transparency_mode_defines = [("WBOIT", "1")]
+            self.transparent_descriptor_set_layouts = [self.scene_descriptor_set_layout]
+        elif self.transparency_mode == TransparencyMode.DUAL_DEPTH_PEELING:
+            self.transparent_attachments = [
+                Attachment(
+                    format=Format.R32G32_SFLOAT,
+                    blend_enable=True,
+                    src_color_blend_factor=BlendFactor.ONE,
+                    dst_color_blend_factor=BlendFactor.ONE,
+                    color_blend_op=BlendOp.MAX,
+                    src_alpha_blend_factor=BlendFactor.ONE,
+                    dst_alpha_blend_factor=BlendFactor.ONE,
+                    alpha_blend_op=BlendOp.MAX,
+                ),
+                Attachment(
+                    format=Format.R8G8B8A8_SRGB,
+                    blend_enable=True,
+                    src_color_blend_factor=BlendFactor.DST_ALPHA,
+                    dst_color_blend_factor=BlendFactor.ONE,
+                    color_blend_op=BlendOp.ADD,
+                    src_alpha_blend_factor=BlendFactor.ZERO,
+                    dst_alpha_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
+                    alpha_blend_op=BlendOp.ADD,
+                ),
+                Attachment(
+                    format=Format.R8G8B8A8_SRGB,
+                    blend_enable=True,
+                    src_color_blend_factor=BlendFactor.SRC_ALPHA,
+                    dst_color_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
+                    color_blend_op=BlendOp.ADD,
+                    src_alpha_blend_factor=BlendFactor.ONE,
+                    dst_alpha_blend_factor=BlendFactor.ONE_MINUS_SRC_ALPHA,
+                    alpha_blend_op=BlendOp.ADD,
+                ),
             ]
+            self.transparent_depth_mode = Depth()
+            self.transparency_mode_defines = [("DUAL_DEPTH_PEELING", "1")]
+            self.transparent_descriptor_set_layouts = [
+                self.ddp_scene_descriptor_set_layout,
+                self.scene_descriptor_set_layout,
+            ]
+        else:
+            self.transparent_attachments = [attachment_alpha_blending(self.srgb_output_format)]
             self.transparent_depth_mode = Depth(self.depth_format, True, True, self.depth_compare_op)
-        self.opaque_attachments: List[RenderingAttachment] = [Attachment(format=self.srgb_output_format)]
+            self.transparency_mode_defines = []
+            self.transparent_descriptor_set_layouts = [self.scene_descriptor_set_layout]
+
+        self.opaque_descriptor_set_layouts = [self.scene_descriptor_set_layout]
+        self.opaque_attachments: List[Attachment] = [Attachment(format=self.srgb_output_format)]
         self.opaque_depth_mode = Depth(self.depth_format, True, True, self.depth_compare_op)
 
     def resize(self, width: int, height: int) -> None:
@@ -553,12 +680,16 @@ class Renderer:
         if self.depth_buffer is not None:
             self.depth_buffer.destroy()
 
+        depth_buffer_usage = ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT | ImageUsageFlags.TRANSFER_DST
+        if self.transparency_mode == TransparencyMode.DUAL_DEPTH_PEELING:
+            depth_buffer_usage |= ImageUsageFlags.SAMPLED
+
         self.depth_buffer = Image(
             self.device,
             width,
             height,
             self.depth_format,
-            ImageUsageFlags.DEPTH_STENCIL_ATTACHMENT | ImageUsageFlags.TRANSFER_DST,
+            depth_buffer_usage,
             AllocType.DEVICE_DEDICATED,
             samples=self.msaa_samples,
             name="depth",
@@ -577,6 +708,11 @@ class Renderer:
             )
 
         if self.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+            if self.wboit_accum_target is not None:
+                self.wboit_accum_target.destroy()
+            if self.wboit_revealage_target is not None:
+                self.wboit_revealage_target.destroy()
+
             self.wboit_accum_target = Image(
                 self.device,
                 width,
@@ -601,6 +737,11 @@ class Renderer:
             )
 
             if self.msaa_samples > 1:
+                if self.wboit_accum_msaa_target is not None:
+                    self.wboit_accum_msaa_target.destroy()
+                if self.wboit_revealage_msaa_target is not None:
+                    self.wboit_revealage_msaa_target.destroy()
+
                 self.wboit_accum_msaa_target = Image(
                     self.device,
                     width,
@@ -618,6 +759,88 @@ class Renderer:
                     ImageUsageFlags.COLOR_ATTACHMENT,
                     AllocType.DEVICE_DEDICATED,
                     samples=self.msaa_samples,
+                )
+
+        if self.transparency_mode == TransparencyMode.DUAL_DEPTH_PEELING:
+            if self.ddp_front_target is not None:
+                self.ddp_front_target.destroy()
+            if self.ddp_back_target is not None:
+                self.ddp_back_target.destroy()
+
+            self.ddp_front_target = Image(
+                self.device,
+                width,
+                height,
+                Format.R8G8B8A8_SRGB,
+                ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.SAMPLED,
+                AllocType.DEVICE_DEDICATED,
+                name="ddp_front_msaa",
+            )
+            self.ddp_back_target = Image(
+                self.device,
+                width,
+                height,
+                Format.R8G8B8A8_SRGB,
+                ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.SAMPLED,
+                AllocType.DEVICE_DEDICATED,
+                name="ddp_back_msaa",
+            )
+            self.ddp_init_descriptor_set.write_image(
+                self.depth_buffer, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 0
+            )
+            self.ddp_composite_descriptor_set.write_image(
+                self.ddp_front_target, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 0
+            )
+            self.ddp_composite_descriptor_set.write_image(
+                self.ddp_back_target, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 1
+            )
+
+            for t in self.ddp_depth_targets:
+                t.destroy()
+            self.ddp_depth_targets.clear()
+
+            for i in range(2):
+                t = Image(
+                    self.device,
+                    width,
+                    height,
+                    Format.R32G32_SFLOAT,
+                    ImageUsageFlags.COLOR_ATTACHMENT | ImageUsageFlags.SAMPLED,
+                    AllocType.DEVICE_DEDICATED,
+                    samples=self.msaa_samples,
+                    name=f"ddp_depth_{i}",
+                )
+                self.ddp_depth_targets.append(t)
+
+                self.ddp_scene_descriptor_sets[i].write_image(
+                    t, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 0
+                )
+
+            if self.msaa_samples > 1:
+                if self.ddp_front_msaa_target is not None:
+                    self.ddp_front_msaa_target.destroy()
+                if self.ddp_back_msaa_target is not None:
+                    self.ddp_back_msaa_target.destroy()
+
+                self.ddp_front_msaa_target = Image(
+                    self.device,
+                    width,
+                    height,
+                    Format.R8G8B8A8_SRGB,
+                    ImageUsageFlags.COLOR_ATTACHMENT,
+                    AllocType.DEVICE_DEDICATED,
+                    samples=self.msaa_samples,
+                    name="ddp_front_msaa",
+                )
+                self.ddp_back_msaa_target = Image(
+                    self.device,
+                    width,
+                    height,
+                    Format.R8G8B8A8_SRGB,
+                    ImageUsageFlags.COLOR_ATTACHMENT,
+                    AllocType.DEVICE_DEDICATED,
+                    samples=self.msaa_samples,
+                    name="ddp_back_msaa",
                 )
 
     def run_ibl_pipeline(
@@ -1444,8 +1667,12 @@ class Renderer:
                         self.depth_buffer,
                         ImageLayout.UNDEFINED,
                         ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                        PipelineStageFlags.LATE_FRAGMENT_TESTS,
-                        AccessFlags.DEPTH_STENCIL_ATTACHMENT_READ | AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE,
+                        PipelineStageFlags.LATE_FRAGMENT_TESTS
+                        if self.transparency_mode != TransparencyMode.DUAL_DEPTH_PEELING
+                        else PipelineStageFlags.FRAGMENT_SHADER,
+                        AccessFlags.DEPTH_STENCIL_ATTACHMENT_READ | AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE
+                        if self.transparency_mode != TransparencyMode.DUAL_DEPTH_PEELING
+                        else AccessFlags.SHADER_SAMPLED_READ,
                         PipelineStageFlags.EARLY_FRAGMENT_TESTS,
                         AccessFlags.DEPTH_STENCIL_ATTACHMENT_READ | AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE,
                         aspect_mask=ImageAspectFlags.DEPTH,
@@ -1538,6 +1765,85 @@ class Renderer:
                             ),
                         ]
                     )
+
+            if self.ddp_depth_targets:
+                f.before_render_image_barriers.extend(
+                    [
+                        ImageBarrier(
+                            self.ddp_depth_targets[0],
+                            ImageLayout.UNDEFINED,
+                            ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                            PipelineStageFlags.FRAGMENT_SHADER
+                            if self.ddp_num_passes & 1
+                            else PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.SHADER_SAMPLED_READ
+                            if self.ddp_num_passes & 1
+                            else AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        ),
+                        ImageBarrier(
+                            self.ddp_depth_targets[1],
+                            ImageLayout.UNDEFINED,
+                            ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                            PipelineStageFlags.FRAGMENT_SHADER
+                            if not (self.ddp_num_passes & 1)
+                            else PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.SHADER_SAMPLED_READ
+                            if not (self.ddp_num_passes & 1)
+                            else AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        ),
+                    ]
+                )
+
+            if self.ddp_back_target is not None and self.ddp_front_target is not None:
+                f.before_render_image_barriers.extend(
+                    [
+                        ImageBarrier(
+                            self.ddp_front_target,
+                            ImageLayout.UNDEFINED,
+                            ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        ),
+                        ImageBarrier(
+                            self.ddp_back_target,
+                            ImageLayout.UNDEFINED,
+                            ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        ),
+                    ]
+                )
+            if self.ddp_back_msaa_target is not None and self.ddp_front_msaa_target is not None:
+                f.before_render_image_barriers.extend(
+                    [
+                        ImageBarrier(
+                            self.ddp_front_msaa_target,
+                            ImageLayout.UNDEFINED,
+                            ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        ),
+                        ImageBarrier(
+                            self.ddp_back_msaa_target,
+                            ImageLayout.UNDEFINED,
+                            ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                            PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                        ),
+                    ]
+                )
 
         # Sync: before-render barriers
         cmd.barriers(
@@ -1635,10 +1941,11 @@ class Renderer:
                         ],
                     )
 
+                scene_descriptor_sets = [descriptor_set]
                 # Stage: pre-render
                 for o in enabled_objects:
                     if o.viewport_mask is None or (o.viewport_mask & viewport_bit):
-                        o.pre_render(self, f, viewport, descriptor_set)
+                        o.pre_render(self, f, viewport, scene_descriptor_sets)
 
                 # Sync: before-render barriers
                 if f.before_render_src_pipeline_stages:
@@ -1740,16 +2047,19 @@ class Renderer:
                     if viewport.is_temporary_ortho and self.temporary_ortho_grid_enabled:
                         grid = self.ensure_temporary_ortho_grid()
                         grid.constants["grid_type"] = viewport.temporary_ortho_grid_type.value
-                        grid.render(f.cmd, descriptor_set)
+                        grid.render(f.cmd, scene_descriptor_sets)
 
                     for o in opaque:
-                        o.render(self, f, viewport, descriptor_set)
+                        o.render(self, f, viewport, scene_descriptor_sets)
 
                     if self.transparency_mode == TransparencyMode.SORT:
                         for o in transparent:
-                            o.render(self, f, viewport, descriptor_set)
+                            o.render(self, f, viewport, scene_descriptor_sets)
 
                 if self.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
+                    assert self.wboit_accum_target is not None
+                    assert self.wboit_revealage_target is not None
+
                     # WBOIT render
                     with cmd.rendering(
                         rect,
@@ -1786,7 +2096,7 @@ class Renderer:
                         depth=DepthAttachment(self.depth_buffer, LoadOp.LOAD, StoreOp.DONT_CARE),
                     ):
                         for o in transparent:
-                            o.render(self, f, viewport, descriptor_set)
+                            o.render(self, f, viewport, scene_descriptor_sets)
 
                     cmd.barriers(
                         image_barriers=[
@@ -1821,6 +2131,189 @@ class Renderer:
                             descriptor_sets=[self.wboit_descriptor_set],
                         )
                         cmd.draw(3)
+                elif self.transparency_mode == TransparencyMode.DUAL_DEPTH_PEELING:
+                    assert self.ddp_front_target is not None
+                    assert self.ddp_back_target is not None
+
+                    # DDP init
+                    cmd.barriers(
+                        image_barriers=[
+                            ImageBarrier(
+                                self.depth_buffer,
+                                ImageLayout.DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                                PipelineStageFlags.LATE_FRAGMENT_TESTS,
+                                AccessFlags.DEPTH_STENCIL_ATTACHMENT_READ | AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE,
+                                PipelineStageFlags.FRAGMENT_SHADER,
+                                AccessFlags.SHADER_SAMPLED_READ,
+                                aspect_mask=ImageAspectFlags.DEPTH,
+                            ),
+                        ]
+                    )
+
+                    with cmd.rendering(
+                        rect,
+                        color_attachments=[
+                            (RenderingAttachment(self.ddp_depth_targets[0], LoadOp.DONT_CARE, StoreOp.STORE))
+                        ],
+                    ):
+                        cmd.bind_graphics_pipeline(
+                            self.ddp_init_pipeline,
+                            descriptor_sets=[self.ddp_init_descriptor_set],
+                        )
+                        cmd.draw(3)
+
+                    cmd.barriers(
+                        image_barriers=[
+                            ImageBarrier(
+                                self.ddp_depth_targets[0],
+                                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                                AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                                PipelineStageFlags.FRAGMENT_SHADER,
+                                AccessFlags.SHADER_SAMPLED_READ,
+                            ),
+                        ]
+                    )
+
+                    # DDP render
+                    for pass_index in range(self.ddp_num_passes):
+                        first_pass = pass_index == 0
+                        last_pass = pass_index == self.ddp_num_passes - 1
+
+                        if first_pass:
+                            color_load = LoadOp.DONT_CARE
+                            color_store = StoreOp.DONT_CARE
+                        else:
+                            if pass_index == 1:
+                                color_load = LoadOp.CLEAR
+                                color_store = StoreOp.STORE
+                            else:
+                                color_load = LoadOp.LOAD
+                                color_store = StoreOp.STORE
+                        if not last_pass:
+                            depth_load = LoadOp.CLEAR
+                            depth_store = StoreOp.STORE
+                        else:
+                            depth_load = LoadOp.DONT_CARE
+                            depth_store = StoreOp.DONT_CARE
+
+                        src_depth = self.ddp_depth_targets[pass_index & 1]
+                        dst_depth = self.ddp_depth_targets[1 - (pass_index & 1)]
+
+                        ddp_scene_descriptor_sets = [
+                            self.ddp_scene_descriptor_sets[pass_index & 1],
+                            *scene_descriptor_sets,
+                        ]
+
+                        with cmd.rendering(
+                            rect,
+                            color_attachments=[
+                                (
+                                    RenderingAttachment(
+                                        dst_depth,
+                                        depth_load,
+                                        depth_store,
+                                        (-1, -1, -1, -1),
+                                    )
+                                ),
+                                (
+                                    RenderingAttachment(
+                                        self.ddp_front_msaa_target,
+                                        color_load,
+                                        color_store,
+                                        (0, 0, 0, 1),
+                                        self.ddp_front_target if last_pass else None,
+                                        ResolveMode.AVERAGE if last_pass else ResolveMode.NONE,
+                                    )
+                                    if self.ddp_front_msaa_target is not None
+                                    else RenderingAttachment(
+                                        self.ddp_front_target,
+                                        color_load,
+                                        color_store,
+                                        (0, 0, 0, 1),
+                                    )
+                                ),
+                                (
+                                    RenderingAttachment(
+                                        self.ddp_back_msaa_target,
+                                        color_load,
+                                        color_store,
+                                        (0, 0, 0, 0),
+                                        self.ddp_back_target if last_pass else None,
+                                        ResolveMode.AVERAGE if last_pass else ResolveMode.NONE,
+                                    )
+                                    if self.ddp_back_msaa_target is not None
+                                    else RenderingAttachment(
+                                        self.ddp_back_target,
+                                        color_load,
+                                        color_store,
+                                        (0, 0, 0, 0),
+                                    )
+                                ),
+                            ],
+                        ):
+                            for o in transparent:
+                                o.render(self, f, viewport, ddp_scene_descriptor_sets)
+
+                        if pass_index != self.ddp_num_passes - 1:
+                            cmd.barriers(
+                                image_barriers=[
+                                    ImageBarrier(
+                                        src_depth,
+                                        ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                                        ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                                        PipelineStageFlags.FRAGMENT_SHADER,
+                                        AccessFlags.SHADER_SAMPLED_READ,
+                                        PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                                        AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                                    ),
+                                    ImageBarrier(
+                                        dst_depth,
+                                        ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                                        ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                                        PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                                        AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                                        PipelineStageFlags.FRAGMENT_SHADER,
+                                        AccessFlags.SHADER_SAMPLED_READ,
+                                    ),
+                                ]
+                            )
+
+                    # DDP composite
+                    cmd.barriers(
+                        image_barriers=[
+                            ImageBarrier(
+                                self.ddp_front_target,
+                                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                                AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                                PipelineStageFlags.FRAGMENT_SHADER,
+                                AccessFlags.SHADER_SAMPLED_READ,
+                            ),
+                            ImageBarrier(
+                                self.ddp_back_target,
+                                ImageLayout.COLOR_ATTACHMENT_OPTIMAL,
+                                ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+                                PipelineStageFlags.COLOR_ATTACHMENT_OUTPUT,
+                                AccessFlags.COLOR_ATTACHMENT_WRITE | AccessFlags.COLOR_ATTACHMENT_READ,
+                                PipelineStageFlags.FRAGMENT_SHADER,
+                                AccessFlags.SHADER_SAMPLED_READ,
+                            ),
+                        ]
+                    )
+
+                    with cmd.rendering(
+                        rect,
+                        color_attachments=[(RenderingAttachment(srgb_image_view, LoadOp.LOAD, StoreOp.STORE))],
+                    ):
+                        cmd.bind_graphics_pipeline(
+                            self.ddp_composite_pipeline,
+                            descriptor_sets=[self.ddp_composite_descriptor_set],
+                        )
+                        cmd.draw(3)
 
                 # NOTE: Render splats as UNORM (this must be done to ensure blending in sRGB space).
                 if splats:
@@ -1830,7 +2323,7 @@ class Renderer:
                         depth=DepthAttachment(self.depth_buffer, LoadOp.LOAD, StoreOp.STORE),
                     ):
                         for o in splats:
-                            o.render(self, f, viewport, descriptor_set)
+                            o.render(self, f, viewport, scene_descriptor_sets)
 
         if before_gui_barriers:
             cmd.barriers(image_barriers=before_gui_barriers)

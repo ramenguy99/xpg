@@ -284,7 +284,7 @@ class DirectionalLight(Light):
 
         assert self.shadow_map is not None
 
-        descriptor_set = self.descriptor_sets.get_current_and_advance()
+        descriptor_sets = [self.descriptor_sets.get_current_and_advance()]
 
         frame.cmd.set_viewport(self.shadow_map_viewport)
         frame.cmd.set_scissors(self.shadow_map_viewport)
@@ -292,7 +292,7 @@ class DirectionalLight(Light):
             self.shadow_map_viewport, [], DepthAttachment(self.shadow_map, LoadOp.CLEAR, StoreOp.STORE, 1.0)
         ):
             for o in objects:
-                o.render_depth(renderer, frame, descriptor_set)
+                o.render_depth(renderer, frame, descriptor_sets)
 
 
 class UniformEnvironmentLight(Light):

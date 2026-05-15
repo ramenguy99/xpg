@@ -3953,6 +3953,7 @@ void gfx_create_bindings(nb::module_& m)
         .value("IMAGE_FORMAT_LIST",                       gfx::DeviceFeatures::IMAGE_FORMAT_LIST)
         .value("SWAPCHAIN_MUTABLE_FORMAT",                gfx::DeviceFeatures::SWAPCHAIN_MUTABLE_FORMAT)
         .value("INDEPENDENT_BLEND",                       gfx::DeviceFeatures::INDEPENDENT_BLEND)
+        .value("SAMPLE_RATE_SHADING",                     gfx::DeviceFeatures::SAMPLE_RATE_SHADING)
     ;
 
     nb::enum_<VkPhysicalDeviceType>(m, "PhysicalDeviceType")

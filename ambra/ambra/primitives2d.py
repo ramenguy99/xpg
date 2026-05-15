@@ -1,7 +1,7 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import numpy as np
 from pyglm.glm import mat3
@@ -109,7 +109,7 @@ class Lines(Object2D):
         self.constants["transform"][:, :3, :3] = mat3(self.current_transform_matrix)
 
     def render(
-        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_sets: List[DescriptorSet]
     ) -> None:
         lines = self.lines.get_current_gpu()
         frame.cmd.bind_graphics_pipeline(
@@ -118,9 +118,7 @@ class Lines(Object2D):
                 lines.buffer_and_offset(),
                 self.colors.get_current_gpu().buffer_and_offset(),
             ],
-            descriptor_sets=[
-                scene_descriptor_set,
-            ],
+            descriptor_sets=scene_descriptor_sets,
             push_constants=self.constants.tobytes(),
         )
         frame.cmd.set_line_width(
@@ -210,7 +208,7 @@ class Image(Object2D):
         self.constants["transform"][:, :3, :3] = mat3(self.current_transform_matrix)
 
     def render(
-        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_set: DescriptorSet
+        self, renderer: Renderer, frame: RendererFrame, viewport: Viewport, scene_descriptor_sets: List[DescriptorSet]
     ) -> None:
         descriptor_set = self.descriptor_sets.get_current_and_advance()
         descriptor_set.write_image(
@@ -222,10 +220,7 @@ class Image(Object2D):
 
         frame.cmd.bind_graphics_pipeline(
             self.pipeline,
-            descriptor_sets=[
-                scene_descriptor_set,
-                descriptor_set,
-            ],
+            descriptor_sets=[*scene_descriptor_sets, descriptor_set],
             push_constants=self.constants.tobytes(),
         )
 

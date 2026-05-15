@@ -100,6 +100,7 @@ struct DeviceFeatures {
         IMAGE_FORMAT_LIST                       = 1ull << 23,
         SWAPCHAIN_MUTABLE_FORMAT                = 1ull << 24,
         INDEPENDENT_BLEND                       = 1ull << 25,
+        SAMPLE_RATE_SHADING                     = 1ull << 26,
     };
 
     DeviceFeatures() {};

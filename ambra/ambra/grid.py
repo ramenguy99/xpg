@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING, List, Tuple
 
 import numpy as np
 from pyxpg import (
@@ -16,8 +16,6 @@ from pyxpg import (
     Shader,
     Stage,
 )
-
-from .config import TransparencyMode
 
 if TYPE_CHECKING:
     from .renderer import Renderer
@@ -85,8 +83,9 @@ class DrawGrid:
 
     def create(self, r: "Renderer") -> None:
         defines = []
-        if self.is_transparent and r.transparency_mode == TransparencyMode.WEIGHTED_BLENDED_OIT:
-            defines.append(("WBOIT", "1"))
+        if self.is_transparent:
+            defines.extend(r.transparency_mode_defines)
+
         vert = r.compile_builtin_shader("3d/grid.slang", "vertex_main", defines=defines)
         frag = r.compile_builtin_shader("3d/grid.slang", "pixel_main", defines=defines)
 
@@ -103,18 +102,16 @@ class DrawGrid:
             depth=r.transparent_depth_mode
             if self.is_transparent
             else Depth(r.depth_format, self.test_depth, self.write_depth, r.depth_compare_op),
-            descriptor_set_layouts=[
-                r.scene_descriptor_set_layout,
-            ],
+            descriptor_set_layouts=r.transparent_descriptor_set_layouts
+            if self.is_transparent
+            else r.opaque_descriptor_set_layouts,
             push_constants_ranges=[PushConstantsRange(self.constants_dtype.itemsize)],
         )
 
-    def render(self, cmd: CommandBuffer, scene_descriptor_set: DescriptorSet) -> None:
+    def render(self, cmd: CommandBuffer, scene_descriptor_sets: List[DescriptorSet]) -> None:
         cmd.bind_graphics_pipeline(
             self.pipeline,
-            descriptor_sets=[
-                scene_descriptor_set,
-            ],
+            descriptor_sets=scene_descriptor_sets,
             push_constants=self.constants.tobytes(),
         )
         cmd.draw(4)

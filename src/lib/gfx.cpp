@@ -1168,6 +1168,8 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.shaderInt16 ? DeviceFeatures::SHADER_INT64 : 0));
             if (features_to_check & DeviceFeatures::INDEPENDENT_BLEND)
                 info.supported_features = info.supported_features | DeviceFeatures((features.features.independentBlend ? DeviceFeatures::INDEPENDENT_BLEND : 0));
+            if (features_to_check & DeviceFeatures::SAMPLE_RATE_SHADING)
+                info.supported_features = info.supported_features | DeviceFeatures((features.features.sampleRateShading ? DeviceFeatures::SAMPLE_RATE_SHADING : 0));
 
             logging::trace("gfx/debug", "Supported features: 0x%" PRIx64, info.supported_features.flags);
 
@@ -1382,6 +1384,9 @@ Result CreateDevice(Device* device, const Instance& instance, const DeviceDesc&&
     }
     if (picked_info.supported_features & DeviceFeatures::INDEPENDENT_BLEND) {
         enabled_physical_device_features.independentBlend = true;
+    }
+    if (picked_info.supported_features & DeviceFeatures::SAMPLE_RATE_SHADING) {
+        enabled_physical_device_features.sampleRateShading = true;
     }
 
     // Create a physical device.
@@ -3062,7 +3067,7 @@ CreateImage(Image* image, const Device& device, const ImageDesc&& desc) {
     image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_create_info.usage = desc.usage;
     image_create_info.samples = desc.samples;
-    
+
     VkImageFormatListCreateInfo format_list = { VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO };
     if (desc.format_list.length > 0) {
         format_list.viewFormatCount = desc.format_list.length;
