@@ -111,7 +111,11 @@ struct PSOutput {
 }
 
 [shader("pixel")]
-PSOutput pixel_main(VSOutput in)
+PSOutput pixel_main(VSOutput in
+#ifdef DUAL_DEPTH_PEELING_MSAA
+    , uint sample_index:  SV_SampleIndex
+#endif
+)
 {
 #ifdef VERTEX_NORMALS
     float3 N = normalize(in.world_normal);
@@ -168,11 +172,14 @@ PSOutput pixel_main(VSOutput in)
     out.revealage = color.a;
 
 #elif defined(DUAL_DEPTH_PEELING)
-    static constexpr float bias = 0.000001;
-    int3 C = int3(int2(in.position.xy), 0);
     float z = in.position.z;
 
-    float2 depth_buffers = g_dual_depth_peeling_depth.Load(C).rg;
+#ifndef DUAL_DEPTH_PEELING_MSAA
+    float2 depth_buffers = g_dual_depth_peeling_depth.Load(int3(int2(in.position.xy), 0)).rg;
+#else
+    float2 depth_buffers = g_dual_depth_peeling_depth.Load(int2(in.position.xy), sample_index).rg;
+#endif
+
     float front_depth = -depth_buffers.r;
     float back_depth = depth_buffers.g;
 
@@ -181,18 +188,14 @@ PSOutput pixel_main(VSOutput in)
     out.back = 0.0;
 
     if (z < front_depth || z > back_depth) {
-    // if (z + bias < front_depth || z - bias > back_depth) {
         // Closer than front, or furhter than back
         discard;
     }
     else if (z > front_depth && z < back_depth) {
-    // else if (z - bias > front_depth && z + bias < back_depth) {
         // Between front and back
         out.depth = float2(-z, z);
     }
     else if (z == front_depth) {
-        // else if (z == back_depth) {
-        // else if (z < front_depth + bias && z > front_depth - bias) {
         // Exactly at front (or at both front and back for middle layer)
         out.front = float4(color.rgb * color.a, color.a);
     } else {

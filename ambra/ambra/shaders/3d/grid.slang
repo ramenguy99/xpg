@@ -35,13 +35,6 @@ static constexpr float3 _XAxisColor = float3(1, 0, 0);
 static constexpr float3 _YAxisColor = float3(0, 1, 0);
 static constexpr float3 _ZAxisColor = float3(0, 0, 1);
 
-struct PSOutput {
-    float4 color: SV_Target0;
-#ifdef WBOIT
-    float revealage: SV_Target1;
-#endif
-}
-
 [shader("vertex")]
 VSOutput vertex_main(uint vertex_id: SV_VertexID)
 {
@@ -89,6 +82,19 @@ float4 uint32_color_to_float4(uint32_t color) {
         (float)((color >> 16) & 0xFF) * (1.0 / 255.0),
         (float)((color >> 24) & 0xFF) * (1.0 / 255.0),
     );
+}
+
+struct PSOutput {
+#ifdef DUAL_DEPTH_PEELING
+    float2 depth: SV_Target0;
+    float4 front: SV_Target1;
+    float4 back: SV_Target2;
+#else
+    float4 color: SV_Target0;
+#ifdef WBOIT
+    float revealage: SV_Target1;
+#endif
+#endif
 }
 
 [shader("pixel")]
@@ -166,6 +172,29 @@ PSOutput pixel_main(VSOutput i)
     float w = 1.0;
     out.color = float4(color.rgb * color.a, color.a) * w;
     out.revealage = color.a;
+#elif defined(DUAL_DEPTH_PEELING)
+    int3 C = int3(int2(i.position.xy), 0);
+    float z = i.position.z;
+
+    float2 depth_buffers = g_dual_depth_peeling_depth.Load(C).rg;
+    float front_depth = -depth_buffers.r;
+    float back_depth = depth_buffers.g;
+
+    out.depth = float2(-1, -1);
+    out.front = 0.0;
+    out.back = 0.0;
+
+    if (z < front_depth || z > back_depth) {
+        discard;
+    }
+    else if (z > front_depth && z < back_depth) {
+        out.depth = float2(-z, z);
+    }
+    else if (z == front_depth) {
+        out.front = float4(color.rgb * color.a, color.a);
+    } else {
+        out.back = color;
+    }
 #else
     out.color = color;
 #endif

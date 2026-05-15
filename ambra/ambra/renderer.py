@@ -511,6 +511,13 @@ class Renderer:
         self.ddp_front_msaa_target: Optional[Image] = None
         self.ddp_back_msaa_target: Optional[Image] = None
         if self.transparency_mode == TransparencyMode.DUAL_DEPTH_PEELING:
+            defines = []
+            if self.msaa_samples > 1:
+                if not (self.device.features & DeviceFeatures.SAMPLE_RATE_SHADING):
+                    raise RuntimeError(
+                        "Dual depth peeling with MSAA requires DeviceFeatures.SAMPLE_RATE_SHADING  which is not supported on the picked device"
+                    )
+                defines.append(("DUAL_DEPTH_PEELING_MSAA", "1"))
             self.ddp_init_descriptor_set_layout, self.ddp_init_descriptor_pool, self.ddp_init_descriptor_set = (
                 create_descriptor_layout_pool_and_set(
                     self.device,
@@ -520,8 +527,8 @@ class Renderer:
                     name="ddp-init",
                 )
             )
-            vert = self.compile_builtin_shader("3d/ddp_init.slang", "vertex_main")
-            frag = self.compile_builtin_shader("3d/ddp_init.slang", "pixel_main")
+            vert = self.compile_builtin_shader("3d/ddp_init.slang", "vertex_main", defines=defines)
+            frag = self.compile_builtin_shader("3d/ddp_init.slang", "pixel_main", defines=defines)
             self.ddp_init_pipeline = GraphicsPipeline(
                 self.device,
                 stages=[
@@ -531,6 +538,7 @@ class Renderer:
                 rasterization=Rasterization(PolygonMode.FILL),
                 input_assembly=InputAssembly(PrimitiveTopology.TRIANGLE_LIST),
                 attachments=[Attachment(Format.R32G32_SFLOAT)],
+                samples=self.msaa_samples,
                 descriptor_set_layouts=[self.ddp_init_descriptor_set_layout],
             )
 
@@ -659,6 +667,8 @@ class Renderer:
             ]
             self.transparent_depth_mode = Depth()
             self.transparency_mode_defines = [("DUAL_DEPTH_PEELING", "1")]
+            if self.msaa_samples > 1:
+                self.transparency_mode_defines.append(("DUAL_DEPTH_PEELING_MSAA", "1"))
             self.transparent_descriptor_set_layouts = [
                 self.ddp_scene_descriptor_set_layout,
                 self.scene_descriptor_set_layout,

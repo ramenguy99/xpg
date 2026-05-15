@@ -495,7 +495,13 @@ public struct Constants {
 #define MATERIAL_DESCRIPTOR_SET 2
 
 [vk::binding(0, DUAL_DEPTH_PEELING_DESCRIPTOR_SET)]
+#ifndef DUAL_DEPTH_PEELING_MSAA
 public Texture2D g_dual_depth_peeling_depth;
+#else
+public Texture2DMS g_dual_depth_peeling_depth;
+#endif
+
+
 #endif
 
 
