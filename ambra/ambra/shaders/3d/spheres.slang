@@ -51,13 +51,7 @@ VSOutput vertex_main(VSInput in
     out.world_normal = mul(g_object_constants.normal_matrix, normal);
 
 #ifdef COLORS
-    uint color = in.color;
-    out.color = float4(
-        (float)((color >> 0) & 0xFF) * (1.0 / 255.0),
-        (float)((color >> 8) & 0xFF) * (1.0 / 255.0),
-        (float)((color >> 16) & 0xFF) * (1.0 / 255.0),
-        (float)((color >> 24) & 0xFF) * (1.0 / 255.0),
-    );
+    out.color = uint32_srgb_to_float4_linear_fast(in.color);
 #endif
 
     return out;

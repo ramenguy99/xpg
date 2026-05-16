@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import "scene";
+import "utils";
 
 public struct ObjectConstants {
     public float3x4 transform;
@@ -86,12 +87,7 @@ VSOutput vertex_main(VSInput in)
     out.uv = in.uv;
 #endif
 #ifdef VERTEX_COLORS
-    out.color = float4(
-        (float)((in.color >> 0) & 0xFF) * (1.0 / 255.0),
-        (float)((in.color >> 8) & 0xFF) * (1.0 / 255.0),
-        (float)((in.color >> 16) & 0xFF) * (1.0 / 255.0),
-        (float)((in.color >> 24) & 0xFF) * (1.0 / 255.0),
-    );
+    out.color = uint32_srgb_to_float4_linear_fast(in.color);
 #endif
 
     return out;

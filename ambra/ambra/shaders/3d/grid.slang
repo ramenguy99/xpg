@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import "scene";
+import "utils";
 
 // Adapted from "Pristine Grid" by Ben Golus:
 // https://bgolus.medium.com/the-best-darn-grid-shader-yet-727f9278b9d8
@@ -75,15 +76,6 @@ VSOutput vertex_main(uint vertex_id: SV_VertexID)
     return out;
 }
 
-float4 uint32_color_to_float4(uint32_t color) {
-    return float4(
-        (float)((color >> 0) & 0xFF) * (1.0 / 255.0),
-        (float)((color >> 8) & 0xFF) * (1.0 / 255.0),
-        (float)((color >> 16) & 0xFF) * (1.0 / 255.0),
-        (float)((color >> 24) & 0xFF) * (1.0 / 255.0),
-    );
-}
-
 struct PSOutput {
 #ifdef DUAL_DEPTH_PEELING
     float2 depth: SV_Target0;
@@ -145,9 +137,9 @@ PSOutput pixel_main(VSOutput i
     float minorGrid = lerp(minorGrid2.x, 1.0, minorGrid2.y);
     float majorGrid = lerp(majorGrid2.x, 1.0, majorGrid2.y);
 
-    float4 major_line_color = uint32_color_to_float4(g_object_constants.major_line_color);
-    float4 minor_line_color = uint32_color_to_float4(g_object_constants.minor_line_color);
-    float4 base_color = uint32_color_to_float4(g_object_constants.base_color);
+    float4 major_line_color = uint32_srgb_to_float4_linear_fast(g_object_constants.major_line_color);
+    float4 minor_line_color = uint32_srgb_to_float4_linear_fast(g_object_constants.minor_line_color);
+    float4 base_color = uint32_srgb_to_float4_linear_fast(g_object_constants.base_color);
 
     float4 aAxisColor;
     float4 bAxisColor;

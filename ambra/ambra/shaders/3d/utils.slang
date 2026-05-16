@@ -86,6 +86,44 @@ public float cube(float x) {
     return x * x * x;
 }
 
+public float4 uint32_srgb_to_float4_linear_fast(uint32_t color) {
+    float r = (float)((color >> 0) & 0xFF) * (1.0 / 255.0);
+    float g = (float)((color >> 8) & 0xFF) * (1.0 / 255.0);
+    float b = (float)((color >> 16) & 0xFF) * (1.0 / 255.0);
+    float a = (float)(color >> 24) * (1.0 / 255.0);
+
+    return float4(
+        srgb_to_linear_fast(r),
+        srgb_to_linear_fast(g),
+        srgb_to_linear_fast(b),
+        a,
+    );
+}
+
+public float linear_to_srgb_fast(float v) {
+    return pow(v, 1.0 / 2.2);
+}
+
+public float3 linear_to_srgb_fast(float3 v) {
+    return float3(
+        linear_to_srgb_fast(v.x),
+        linear_to_srgb_fast(v.y),
+        linear_to_srgb_fast(v.z)
+    );
+}
+
+public float srgb_to_linear_fast(float v) {
+    return pow(v, 2.2);
+}
+
+public float3 srgb_to_linear_fast(float3 v) {
+    return float3(
+        srgb_to_linear_fast(v.x),
+        srgb_to_linear_fast(v.y),
+        srgb_to_linear_fast(v.z)
+    );
+}
+
 public float linear_to_srgb(float v) {
     v = clamp(v, 0.0, 1.0);
     if(v > 0.0031308)

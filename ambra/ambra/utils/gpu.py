@@ -48,21 +48,40 @@ def view_bytes(a: NDArray[Any]) -> memoryview:
     return a.reshape((-1,)).view(np.uint8).data
 
 
-def color_uint32_to_float4(color: int) -> Tuple[float, float, float, float]:
+def uint32_srgb_to_float4_linear(color: int) -> Tuple[float, float, float, float]:
     return (
-        ((color >> 0) & 0xFF) * (1.0 / 255.0),
-        ((color >> 8) & 0xFF) * (1.0 / 255.0),
-        ((color >> 16) & 0xFF) * (1.0 / 255.0),
+        pow(((color >> 0) & 0xFF) * (1.0 / 255.0), 2.2),
+        pow(((color >> 8) & 0xFF) * (1.0 / 255.0), 2.2),
+        pow(((color >> 16) & 0xFF) * (1.0 / 255.0), 2.2),
         ((color >> 24) & 0xFF) * (1.0 / 255.0),
     )
 
 
-def color_float4_to_uint32(color: Tuple[float, float, float, float]) -> int:
+def float4_to_uint32(color: Tuple[float, float, float, float]) -> int:
     return (
         min(max(0, int(color[0] * 255.0)), 255) << 0
         | min(max(0, int(color[1] * 255.0)), 255) << 8
         | min(max(0, int(color[2] * 255.0)), 255) << 16
         | min(max(0, int(color[3] * 255.0)), 255) << 24
+    )
+
+
+def float4_srgb_to_linear(srgb: Tuple[float, float, float, float]) -> Tuple[float, float, float, float]:
+    exponent = 2.2
+    return (
+        pow(srgb[0], exponent),
+        pow(srgb[1], exponent),
+        pow(srgb[2], exponent),
+        srgb[3],
+    )
+
+
+def float3_srgb_to_linear(srgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
+    exponent = 2.2
+    return (
+        pow(srgb[0], exponent),
+        pow(srgb[1], exponent),
+        pow(srgb[2], exponent),
     )
 
 
@@ -260,7 +279,7 @@ class BulkUploader:
                         # print(upload_buffer_3d_view.shape, data_buffer_3d_view.shape)
 
                         # TODO: correctly handle block formats here, need to think about data shape looks for those
-                        upload_buffer_3d_view[:, :input_pitch] = data_buffer_3d_view[
+                        upload_buffer_3d_view[:, :, :input_pitch] = data_buffer_3d_view[
                             start_image_plane : start_image_plane + fitting_planes,
                             start_image_row : start_image_row + fitting_rows,
                             :input_pitch,

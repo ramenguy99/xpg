@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import "scene";
+import "utils";
 
 public struct ObjectConstants {
     public float3x4 transform;
@@ -36,20 +37,9 @@ VSOutput vertex_main(VSInput in, uint instance_id: SV_InstanceID)
     VSOutput out;
     out.position = mul(g_constants.projection, (mul(g_constants.view, float4(mul(g_object_constants.transform, float4(in.pos, 1.0)), 1.0))));
 #ifdef VERTEX_COLORS
-    out.color = float4(
-        (float)((in.color >> 0) & 0xFF) * (1.0 / 255.0),
-        (float)((in.color >> 8) & 0xFF) * (1.0 / 255.0),
-        (float)((in.color >> 16) & 0xFF) * (1.0 / 255.0),
-        (float)((in.color >> 24) & 0xFF) * (1.0 / 255.0),
-    );
+    out.color = uint32_srgb_to_float4_linear_fast(in.color);
 #elif defined(UNIFORM_COLOR)
-    out.color = float4(
-        (float)((g_object_constants.color >> 0) & 0xFF) * (1.0 / 255.0),
-        (float)((g_object_constants.color >> 8) & 0xFF) * (1.0 / 255.0),
-        (float)((g_object_constants.color >> 16) & 0xFF) * (1.0 / 255.0),
-        (float)((g_object_constants.color >> 24) & 0xFF) * (1.0 / 255.0),
-    );
-#else
+    out.color = uint32_srgb_to_float4_linear_fast(g_object_constants.color);
 #endif
 
     return out;

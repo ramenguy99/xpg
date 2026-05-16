@@ -107,8 +107,10 @@ from .utils.gpu import (
     UniformPool,
     UploadableBuffer,
     attachment_alpha_blending,
-    color_float4_to_uint32,
     div_round_up,
+    float3_srgb_to_linear,
+    float4_srgb_to_linear,
+    float4_to_uint32,
     view_bytes,
 )
 from .utils.ring_buffer import RingBuffer
@@ -892,7 +894,7 @@ class Renderer:
     def ensure_temporary_ortho_grid(self) -> DrawGrid:
         if self.temporary_ortho_grid is None:
             line_color = 0xFF000000 if max(self.background_color[:3]) >= 0.5 else 0xFFFFFFFF
-            base_color = color_float4_to_uint32(self.background_color)
+            base_color = float4_to_uint32(self.background_color)
             self.temporary_ortho_grid = DrawGrid(
                 self.temporary_ortho_grid_size,
                 GridType.XY_PLANE,
@@ -1242,7 +1244,7 @@ class Renderer:
                     constants["has_environment_light"] = 1
                 else:
                     constants["has_environment_light"] = 0
-                constants["background_color"] = self.background_color[:3]
+                constants["background_color"] = float3_srgb_to_linear(self.background_color[:3])
                 constants["use_background_color"] = self.path_tracer_use_background_color
                 buf.upload(
                     cmd,
@@ -1518,15 +1520,15 @@ class Renderer:
                     else:
                         return 0.0
 
-                def get_value_or_zero_discard_alpha(p: Property) -> Union[float, PropertyItem]:
+                def get_value_or_zero_color(p: Property) -> Union[float, PropertyItem]:
                     if isinstance(p, BufferProperty):
-                        return p.get_current()[:3]
+                        return float3_srgb_to_linear(p.get_current()[:3])
                     else:
-                        return 0.0
+                        return (0.0, 0.0, 0.0)
 
                 for i, material in enumerate(materials.keys()):
                     if isinstance(material, DiffuseMaterial):
-                        materials_data[i]["albedo"] = get_value_or_zero_discard_alpha(material.diffuse[0].property)
+                        materials_data[i]["albedo"] = get_value_or_zero_color(material.diffuse[0].property)
                         materials_data[i]["albedo_texture"] = alloc_texture(material.diffuse[0].property)
                         materials_data[i]["roughness"] = 1.0
                         materials_data[i]["roughness_texture"] = 0xFFFFFFFF
@@ -1535,7 +1537,7 @@ class Renderer:
                         materials_data[i]["normal_texture"] = alloc_texture(material.normal[0].property)
                     elif isinstance(material, DiffuseSpecularMaterial):
                         # TODO: better mapping or remove
-                        materials_data[i]["albedo"] = get_value_or_zero_discard_alpha(material.diffuse[0].property)
+                        materials_data[i]["albedo"] = get_value_or_zero_color(material.diffuse[0].property)
                         materials_data[i]["albedo_texture"] = alloc_texture(material.diffuse[0].property)
                         materials_data[i]["roughness"] = (
                             1 - min(get_value_or_zero(material.specular_exponent[0].property), 64.0) / 64.0
@@ -1546,7 +1548,7 @@ class Renderer:
                         materials_data[i]["normal_texture"] = 0xFFFFFFFF
                     elif isinstance(material, (ColorMaterial, XrayMaterial)):
                         # TODO: use emissive instead
-                        materials_data[i]["albedo"] = get_value_or_zero_discard_alpha(material.color[0].property)
+                        materials_data[i]["albedo"] = get_value_or_zero_color(material.color[0].property)
                         materials_data[i]["albedo_texture"] = alloc_texture(material.color[0].property)
                         materials_data[i]["roughness"] = 1.0
                         materials_data[i]["roughness_texture"] = 0xFFFFFFFF
@@ -1554,7 +1556,7 @@ class Renderer:
                         materials_data[i]["metallic_texture"] = 0xFFFFFFFF
                         materials_data[i]["normal_texture"] = 0xFFFFFFFF
                     elif isinstance(material, PBRMaterial):
-                        materials_data[i]["albedo"] = get_value_or_zero_discard_alpha(material.albedo[0].property)
+                        materials_data[i]["albedo"] = get_value_or_zero_color(material.albedo[0].property)
                         materials_data[i]["albedo_texture"] = alloc_texture(material.albedo[0].property)
                         materials_data[i]["roughness"] = get_value_or_zero(material.roughness[0].property)
                         materials_data[i]["roughness_texture"] = alloc_texture(material.roughness[0].property)
@@ -1562,7 +1564,7 @@ class Renderer:
                         materials_data[i]["metallic_texture"] = alloc_texture(material.metallic[0].property)
                         materials_data[i]["normal_texture"] = alloc_texture(material.normal[0].property)
                     else:
-                        materials_data[i]["albedo"] = 0.0
+                        materials_data[i]["albedo"] = (0.0, 0.0, 0.0)
                         materials_data[i]["albedo_texture"] = 0xFFFFFFFF
                         materials_data[i]["roughness"] = 1.0
                         materials_data[i]["roughness_texture"] = 0xFFFFFFFF
@@ -1868,6 +1870,7 @@ class Renderer:
             image_barriers=f.before_render_image_barriers,
         )
 
+        linear_background_color = float4_srgb_to_linear(self.background_color)
         for viewport_index, viewport in enumerate(viewports):
             if viewport.rect.width <= 0 or viewport.rect.height <= 0:
                 continue
@@ -2042,13 +2045,16 @@ class Renderer:
                                 self.msaa_target,
                                 LoadOp.CLEAR,
                                 StoreOp.STORE,
-                                self.background_color,
+                                linear_background_color,
                                 (srgb_image_view, ImageLayout.COLOR_ATTACHMENT_OPTIMAL),
                                 ResolveMode.AVERAGE,
                             )
                             if self.msaa_target is not None
                             else RenderingAttachment(
-                                srgb_image_view, LoadOp.CLEAR, StoreOp.STORE, self.background_color
+                                srgb_image_view,
+                                LoadOp.CLEAR,
+                                StoreOp.STORE,
+                                linear_background_color,
                             )
                         )
                     ],

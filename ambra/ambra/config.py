@@ -42,7 +42,7 @@ class TransparencyMode(Enum):
     # transparency method that produces approximate transparency blending.
     #
     # This is a fairly fast option to support overlapping and non-convex transparent objects without artifacts.
-    # This technique is usefult for artifact-free interactive rendering, when approximate results are acceptable.
+    # This technique is useful for artifact-free interactive rendering, when approximate results are acceptable.
     WEIGHTED_BLENDED_OIT = 2
 
     # Use dual depth peeling for transparent objects. This is a multi-pass order-independent
@@ -57,7 +57,6 @@ class TransparencyMode(Enum):
 
 @dataclass
 class RendererConfig:
-    # Background color used for clearing before drawing, specified in linear color space.
     background_color: Tuple[float, float, float, float] = (1, 1, 1, 1)
     render_mode: RenderMode = RenderMode.RASTER
     transparency_mode: TransparencyMode = TransparencyMode.SORT

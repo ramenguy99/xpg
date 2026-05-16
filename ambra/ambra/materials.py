@@ -28,7 +28,7 @@ from pyxpg import (
 from .property import BufferProperty, ImageProperty, as_buffer_property, as_image_property
 from .renderer_frame import RendererFrame
 from .utils.descriptors import create_descriptor_layout_pool_and_sets_ringbuffer
-from .utils.gpu import UploadableBuffer, align_up, view_bytes
+from .utils.gpu import UploadableBuffer, align_up, float4_srgb_to_linear, view_bytes
 from .utils.ring_buffer import RingBuffer
 
 if TYPE_CHECKING:
@@ -225,7 +225,10 @@ class Material:
             image: Union[Image, ImageView]
             if isinstance(p.property, BufferProperty):
                 if flags & MaterialPropertyFlags.HAS_VALUE:
-                    self.constants[p.name] = p.property.get_current()
+                    v = p.property.get_current()
+                    if p.srgb:
+                        v = float4_srgb_to_linear(v)
+                    self.constants[p.name] = v
                 if flags & MaterialPropertyFlags.ALLOW_IMAGE:
                     self.constants[f"has_{p.name}_texture"] = False
                 image = r.zero_image
@@ -259,7 +262,10 @@ class ColorMaterial(Material):
         self.color = as_material_property(
             color,
             4,
-            MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE | MaterialPropertyFlags.ALPHA_CHANNEL,
+            MaterialPropertyFlags.ALLOW_IMAGE
+            | MaterialPropertyFlags.HAS_VALUE
+            | MaterialPropertyFlags.ALPHA_CHANNEL
+            | MaterialPropertyFlags.DEFAULT_SRGB,
             "color",
         )
         super().__init__(
@@ -282,7 +288,10 @@ class XrayMaterial(Material):
         self.color = as_material_property(
             color,
             4,
-            MaterialPropertyFlags.ALLOW_IMAGE | MaterialPropertyFlags.HAS_VALUE | MaterialPropertyFlags.ALPHA_CHANNEL,
+            MaterialPropertyFlags.ALLOW_IMAGE
+            | MaterialPropertyFlags.HAS_VALUE
+            | MaterialPropertyFlags.ALPHA_CHANNEL
+            | MaterialPropertyFlags.DEFAULT_SRGB,
             "color",
         )
         self.normal = as_material_property(normal or (0.0, 0.0, 0.0), 3, MaterialPropertyFlags.ALLOW_IMAGE, "normal")

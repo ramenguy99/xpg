@@ -73,12 +73,7 @@ VSOutput vertex_main(VSInput in
 
 #ifdef COLORS
     uint color = in.position.z < 0.5 ? in.c0 : in.c1;
-    out.color = float4(
-        (float)((color >> 0) & 0xFF) * (1.0 / 255.0),
-        (float)((color >> 8) & 0xFF) * (1.0 / 255.0),
-        (float)((color >> 16) & 0xFF) * (1.0 / 255.0),
-        (float)((color >> 24) & 0xFF) * (1.0 / 255.0),
-    );
+    out.color = uint32_srgb_to_float4_linear_fast(color);
 #endif
 
     return out;

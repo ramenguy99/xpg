@@ -3,6 +3,7 @@
 
 import "scene";
 import "colormap";
+import "utils";
 
 public struct ObjectConstants {
     public float3x4 transform; //  0
@@ -48,13 +49,9 @@ VSOutput vertex_main(VSInput in, uint instance_id: SV_InstanceID)
     VSOutput out;
     float3 world_position = mul(g_object_constants.transform, float4(in.pos, 1.0));
     out.position = mul(g_constants.projection, (mul(g_constants.view, float4(world_position, 1.0))));
+
 #ifdef VERTEX_COLORS
-    out.color = float4(
-        (float)((in.color >> 0) & 0xFF) * (1.0 / 255.0),
-        (float)((in.color >> 8) & 0xFF) * (1.0 / 255.0),
-        (float)((in.color >> 16) & 0xFF) * (1.0 / 255.0),
-        (float)((in.color >> 24) & 0xFF) * (1.0 / 255.0),
-    );
+    out.color = uint32_srgb_to_float4_linear_fast(in.color);
 #elif defined(COLORMAP)
     uint32_t measure = g_object_constants.colormap_measure >> 16;
     float value = 0.5;
@@ -66,16 +63,11 @@ VSOutput vertex_main(VSInput in, uint instance_id: SV_InstanceID)
     float remapped_value = (value - g_object_constants.range_min) * g_object_constants.range_inv_delta;
     ColormapId colormap_id = (ColormapId)(g_object_constants.colormap_measure & 0xFFFF);
 
-    out.color = float4(colormap(colormap_id, remapped_value), g_object_constants.alpha);
+    out.color = float4(srgb_to_linear_fast(colormap(colormap_id, remapped_value)), g_object_constants.alpha);
 #elif defined(UNIFORM_COLOR)
-    out.color = float4(
-        (float)((g_object_constants.color >> 0) & 0xFF) * (1.0 / 255.0),
-        (float)((g_object_constants.color >> 8) & 0xFF) * (1.0 / 255.0),
-        (float)((g_object_constants.color >> 16) & 0xFF) * (1.0 / 255.0),
-        (float)((g_object_constants.color >> 24) & 0xFF) * (1.0 / 255.0),
-    );
-#else
+    out.color = uint32_srgb_to_float4_linear_fast(g_object_constants.color);
 #endif
+
     out.point_size = g_object_constants.point_size;
     return out;
 }

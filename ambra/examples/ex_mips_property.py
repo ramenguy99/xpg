@@ -61,7 +61,7 @@ uvs = np.array(
 ).reshape((4, 2))
 
 material = DiffuseMaterial(
-    MaterialProperty(img_data, 3, srgb=True, mips=True, name="albedo"),
+    MaterialProperty(img_data, 4, srgb=True, mips=True, is_transparent=False, name="albedo"),
     sampling_options=MaterialSamplingOptions(mag_filter=Filter.NEAREST),
 )
 mesh = Mesh(

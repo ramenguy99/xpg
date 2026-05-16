@@ -15,11 +15,18 @@ Priority:
           - Streamed to GPU every frame (need to roll buffer)
           - Sqlite properties need to use range queries to fill history and then can do normal appends / rolls
 TODO:
-- [ ] Color and sRGB
-    Input colors:
-    - [ ] uint32 colors (vertex color, uniform color) should be converted from sRGB to linear if being used in materials that do lighting
-    - [ ] float32 colors (materials) should be assumed to be already in linear space, and should have helpers to create as sRGB
-    - [ ] Color and Xray material (no lighting) should take colors as uint32 for consistency with vertex / uniform colors or actually do linear to sRGB in shader
+- [x] Color and sRGB
+    All colors:
+    Current state
+    - Background (float4, sRGB)
+    - Point/lines/voxels/vertex/grid colors (u32, sRGB)
+    - Gaussians colors (float4, sRGB)
+    - Gaussians spherical harmonics (any, coefficients)
+    - Uniform color (u32, sRGB)
+    - Colormap (float4, sRGB)
+    - Material color textures (u32 pixel data, sRGB) !
+    - Material color values (float4, sRGB) ?
+    - Lights (float4, linear radiance)
     Output colors:
     - Correct MSAA and alpha blending require sRGB to linear conversion before ops.
     - ImGui changes colors when rendering to sRGB framebuffer:
@@ -47,16 +54,15 @@ TODO:
     - [x] Add support for VK_KHR_swapchain_mutable_format
     - [x] Require mutable format and srgb counterpart to format
     - [x] Make viewer use SRGB view when rendering opaque and UNORM view when rendering UI
-    - [ ] Fix sRGB also in inputs (ensure path tracer still doing the right thing with changes)
-    - [ ] Add transparency modes: NONE, SORT_OBJECTS, WEIGHTED_BLENDED
-    - [ ] Implement WBOIT:
-        - [ ] Create render targets
-        - [ ] Add shader defines attachments to graphics pipeline when creating transparent objects with this mode enabled
-        - [ ] Modify shaders to take define into account
-        - [ ] Implement non-z weighted version first, then z-weighted with user parameters (potentially under different define or just branch / default weight in shader)
+    - [x] Add transparency modes: NONE, SORT_OBJECTS, WEIGHTED_BLENDED
+    - [x] Implement WBOIT:
+        - [x] Create render targets
+        - [x] Add shader defines attachments to graphics pipeline when creating transparent objects with this mode enabled
+        - [x] Modify shaders to take define into account
+        - [x] Implement non-z weighted version first, then z-weighted with user parameters (potentially under different define or just branch / default weight in shader)
 - [ ] Ortho views:
     - [x] Temporary cameras
-    - [x] Transition from 
+    - [x] Transition from ortho to perspective
     - [x] Consistently handle ortho span extents update to match perspective toggle
         -> requires a reference fov also for orthographic cameras (maybe do this only if temporary ortho?)
     - [x] Automatic grid:
@@ -76,8 +82,8 @@ TODO:
         - [x] Points
         - [x] Voxels
     - [x] xray material with transparency based on normal
-    - [ ] depth prepass (need dynamic depth state in xpg? check support)
-    - [ ] depth peeling
+    - [x] depth peeling
+    - [ ] depth prepass?
     - [ ] 2D renderables (going to be removed anyways at some point?)
 - [x] Subgroups:
     - [x] Allow forcing subgroup size (if supported) when creating compute pipelines (or maybe arbitrary shaders too)
