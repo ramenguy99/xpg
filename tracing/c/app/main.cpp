@@ -36,7 +36,7 @@ int main() {
     printf("Tracing started (tcp=%d)\n", tcp);
 
     TRACE(tp_main,
-        TI32("status", 1),
+        TI64("status", 1),
         TSTR("event", "started", 7)
     );
 
@@ -55,7 +55,7 @@ int main() {
     printf("\nShutting down...\n");
 
     TRACE(tp_main,
-        TI32("status", 0),
+        TI64("status", 0),
         TSTR("event", "stopping", 8)
     );
 

@@ -1,9 +1,5 @@
 #include <stdlib.h>
 
-#ifdef TRACER_SQLITE_ENABLED
-#include <sqlite3.h>
-#endif
-
 #define TRACING_IMPLEMENTATION
 #include "tracing.h"
 
@@ -39,17 +35,17 @@ int main(void) {
         float dt = 0.016f;
 
         TRACE(tp_physics,
-            TF32("dt", dt),
-            TI32("step", i)
+            TF64("dt", dt),
+            TI64("step", i)
         );
 
         float image_data[4] = { 1.0f, 2.0f, 3.0f, 4.0f };
-        size_t shape[] = { 2, 2 };
-        size_t strides[] = { 2 * sizeof(float), sizeof(float) };
+        size_t shape[2] = { 2, 2 };
+        size_t strides[2] = { 2 * sizeof(float), sizeof(float) };
 
         TRACE(tp_render,
-            TU64("width", 2),
-            TU64("height", 2),
+            TI64("width", 2),
+            TI64("height", 2),
             TNDARRAY("image", 2, shape, strides, image_data, sizeof(float), "<f4")
         );
 

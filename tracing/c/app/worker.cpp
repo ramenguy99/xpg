@@ -27,9 +27,9 @@ static THREAD_PROC(worker_proc) {
         float value = 0.5f + 0.5f * (tick % 10);
 
         TRACE(tp_worker,
-            TI32("tick", tick),
-            TF32("value", value),
-            TBOOL("healthy", true)
+            TI64("tick", tick),
+            TF64("value", value),
+            TI64("healthy", true)
         );
 
         tick++;

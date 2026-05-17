@@ -136,9 +136,6 @@ typedef int socket_t;
 #ifndef TRACER_TCP_RECONNECT_MS
 #define TRACER_TCP_RECONNECT_MS 1000
 #endif
-#ifndef TRACER_MAX_NDIM
-#define TRACER_MAX_NDIM 8
-#endif
 
 typedef enum Result {
     SUCCESS = 0,
@@ -811,19 +808,6 @@ static inline bool rwlock_try_read(RWLock* rwlock) {
 }
 
 // Spin for a while, but stop directly at the given condition.
-// #[inline]
-// fn spin_until(&self, f: impl Fn(Primitive) -> bool) -> Primitive {
-//     let mut spin = 100; // Chosen by fair dice roll.
-//     loop {
-//         let state = self.state.load(Relaxed);
-//         if f(state) || spin == 0 {
-//             return state;
-//         }
-//         crate::hint::spin_loop();
-//         spin -= 1;
-//     }
-// }
-
 static inline uint32_t _rwlock_spin_write(RWLock* rwlock) {
     size_t spin = 100;
     while(true) {
@@ -1393,15 +1377,15 @@ mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, uint8_t* alloc) {
 
 static size_t
 mpsc_ring_buffer_lock_acquire_read(MpscRingBuffer* mpsc, uint8_t** data) {
-    uint32_t visible = atomic_load_explicit(&mpsc->produced_offset, memory_order_relaxed);
+    uint32_t produced = atomic_load_explicit(&mpsc->produced_offset, memory_order_relaxed);
     uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
 
     // Sleep while no visible entries.
     // visible_offset is only advanced after the header is initialized (doorbell=0, size written),
     // so any entry the consumer can see has a valid header.
-    while (visible == consumed) {
-        futex_wait(&mpsc->produced_offset, visible);
-        visible = atomic_load_explicit(&mpsc->produced_offset, memory_order_relaxed);
+    while (produced == consumed) {
+        futex_wait(&mpsc->produced_offset, produced);
+        produced = atomic_load_explicit(&mpsc->produced_offset, memory_order_relaxed);
     }
 
     // There is a visible entry with an initialized header, check if it's committed.
@@ -1441,6 +1425,9 @@ mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc, size_t size) {
 // Serialization
 // ---------------------------------------------------------------------------
 
+#define NUMPY_MAX_DIMS 32
+
+// These have to match TypeCode in _serializer.py
 typedef enum TraceType {
     TRACE_TYPE_NONE    = 0,
     TRACE_TYPE_I64     = 1,
@@ -1448,11 +1435,6 @@ typedef enum TraceType {
     TRACE_TYPE_STR     = 3,
     TRACE_TYPE_BYTES   = 7,
     TRACE_TYPE_NDARRAY = 8,
-    TRACE_TYPE_I32     = 9,
-    TRACE_TYPE_F32     = 10,
-    TRACE_TYPE_U64     = 11,
-    TRACE_TYPE_U32     = 12,
-    TRACE_TYPE_BOOL    = 13,
 } TraceType;
 
 typedef struct TraceFieldStr { const char* data; size_t len; } TraceFieldStr;
@@ -1471,13 +1453,8 @@ typedef struct TraceField {
     const char* key;
     size_t key_len;
     union {
-        int32_t          as_i32;
         int64_t          as_i64;
-        uint32_t         as_u32;
-        uint64_t         as_u64;
-        float            as_f32;
         double           as_f64;
-        bool             as_bool;
         TraceFieldStr    as_str;
         TraceFieldBytes  as_bytes;
         TraceFieldNdarray as_ndarray;
@@ -1486,45 +1463,23 @@ typedef struct TraceField {
 
 // Field macros
 #ifdef __cplusplus
-static inline TraceField _tf_i32(const char* k, int32_t v)  { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_I32;  f.key=k; f.key_len=__builtin_strlen(k); f.val.as_i32=v;  return f; }
-static inline TraceField _tf_i64(const char* k, int64_t v)  { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_I64;  f.key=k; f.key_len=__builtin_strlen(k); f.val.as_i64=v;  return f; }
-static inline TraceField _tf_u32(const char* k, uint32_t v) { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_U32;  f.key=k; f.key_len=__builtin_strlen(k); f.val.as_u32=v;  return f; }
-static inline TraceField _tf_u64(const char* k, uint64_t v) { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_U64;  f.key=k; f.key_len=__builtin_strlen(k); f.val.as_u64=v;  return f; }
-static inline TraceField _tf_f32(const char* k, float v)    { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_F32;  f.key=k; f.key_len=__builtin_strlen(k); f.val.as_f32=v;  return f; }
-static inline TraceField _tf_f64(const char* k, double v)   { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_F64;  f.key=k; f.key_len=__builtin_strlen(k); f.val.as_f64=v;  return f; }
-static inline TraceField _tf_bool(const char* k, bool v)    { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_BOOL; f.key=k; f.key_len=__builtin_strlen(k); f.val.as_bool=v; return f; }
-static inline TraceField _tf_none(const char* k)            { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_NONE; f.key=k; f.key_len=__builtin_strlen(k); return f; }
-static inline TraceField _tf_str(const char* k, const char* s, size_t l) {
-    TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_STR; f.key=k; f.key_len=__builtin_strlen(k); f.val.as_str.data=s; f.val.as_str.len=l; return f;
-}
-static inline TraceField _tf_bytes(const char* k, const uint8_t* d, size_t l) {
-    TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_BYTES; f.key=k; f.key_len=__builtin_strlen(k); f.val.as_bytes.data=d; f.val.as_bytes.len=l; return f;
-}
-static inline TraceField _tf_ndarray(const char* k, size_t nd, const size_t* sh, const size_t* st, const void* d, size_t es, const char* de) {
-    TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_NDARRAY; f.key=k; f.key_len=__builtin_strlen(k);
-    f.val.as_ndarray.ndim=nd; f.val.as_ndarray.shape=sh; f.val.as_ndarray.strides=st; f.val.as_ndarray.data=d; f.val.as_ndarray.elem_size=es; f.val.as_ndarray.descr=de;
-    return f;
-}
-#define TI32(key, v)    _tf_i32(key, v)
-#define TI64(key, v)    _tf_i64(key, v)
-#define TU32(key, v)    _tf_u32(key, v)
-#define TU64(key, v)    _tf_u64(key, v)
-#define TF32(key, v)    _tf_f32(key, v)
-#define TF64(key, v)    _tf_f64(key, v)
-#define TBOOL(key, v)   _tf_bool(key, v)
-#define TNONE(key)      _tf_none(key)
-#define TSTR(key, s, l) _tf_str(key, s, l)
-#define TBYTES(key, d, l) _tf_bytes(key, d, l)
-#define TNDARRAY(key, nd, sh, st, d, es, de) _tf_ndarray(key, nd, sh, st, d, es, de)
+static inline TraceField _tf_none(const char* k, size_t k_len)                                                                                             { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_NONE;    f.key=k; f.key_len=k_len; return f; }
+static inline TraceField _tf_i64(const char* k, size_t k_len, int64_t v)                                                                                   { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_I64;     f.key=k; f.key_len=k_len; f.val.as_i64=v;  return f; }
+static inline TraceField _tf_f64(const char* k, size_t k_len, double v)                                                                                    { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_F64;     f.key=k; f.key_len=k_len; f.val.as_f64=v;  return f; }
+static inline TraceField _tf_str(const char* k, size_t k_len, const char* s, size_t l)                                                                     { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_STR;     f.key=k; f.key_len=k_len; f.val.as_str.data=s; f.val.as_str.len=l; return f; }
+static inline TraceField _tf_bytes(const char* k, size_t k_len, const uint8_t* d, size_t l)                                                                { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_BYTES;   f.key=k; f.key_len=k_len; f.val.as_bytes.data=d; f.val.as_bytes.len=l; return f; }
+static inline TraceField _tf_ndarray(const char* k, size_t k_len, size_t nd, const size_t* sh, const size_t* st, const void* d, size_t es, const char* de) { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_NDARRAY; f.key=k; f.key_len=k_len; f.val.as_ndarray.ndim=nd; f.val.as_ndarray.shape=sh; f.val.as_ndarray.strides=st; f.val.as_ndarray.data=d; f.val.as_ndarray.elem_size=es; f.val.as_ndarray.descr=de; return f; }
+#define TNONE(key)                           _tf_none   (key, sizeof(key) - 1)
+#define TI64(key, v)                         _tf_i64    (key, sizeof(key) - 1, v)
+#define TF64(key, v)                         _tf_f64    (key, sizeof(key) - 1, v)
+#define TSTR(key, s, l)                      _tf_str    (key, sizeof(key) - 1, s, l)
+#define TBYTES(key, d, l)                    _tf_bytes  (key, sizeof(key) - 1, d, l)
+#define TNDARRAY(key, nd, sh, st, d, es, de) _tf_ndarray(key, sizeof(key) - 1, nd, sh, st, d, es, de)
 #else
-#define TI32(k, v)     { .type=TRACE_TYPE_I32,  .key=(k), .key_len=sizeof(k)-1, .val={.as_i32=(v)} }
+#define TNONE(k)       { .type=TRACE_TYPE_NONE, .key=(k), .key_len=sizeof(k)-1 }
 #define TI64(k, v)     { .type=TRACE_TYPE_I64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_i64=(v)} }
-#define TU32(k, v)     { .type=TRACE_TYPE_U32,  .key=(k), .key_len=sizeof(k)-1, .val={.as_u32=(v)} }
-#define TU64(k, v)     { .type=TRACE_TYPE_U64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_u64=(v)} }
-#define TF32(k, v)     { .type=TRACE_TYPE_F32,  .key=(k), .key_len=sizeof(k)-1, .val={.as_f32=(v)} }
 #define TF64(k, v)     { .type=TRACE_TYPE_F64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_f64=(v)} }
 #define TBOOL(k, v)    { .type=TRACE_TYPE_BOOL, .key=(k), .key_len=sizeof(k)-1, .val={.as_bool=(v)} }
-#define TNONE(k)       { .type=TRACE_TYPE_NONE, .key=(k), .key_len=sizeof(k)-1 }
 #define TSTR(k, s, l)  { .type=TRACE_TYPE_STR,  .key=(k), .key_len=sizeof(k)-1, .val={.as_str={(s),(l)}} }
 #define TBYTES(k, d, l){ .type=TRACE_TYPE_BYTES,.key=(k), .key_len=sizeof(k)-1, .val={.as_bytes={(d),(l)}} }
 #define TNDARRAY(k, nd, sh, st, d, es, de) \
@@ -1537,27 +1492,19 @@ static inline size_t _trace_key_size(size_t key_len) {
     return 8 + align_up(key_len, 8);
 }
 
-static inline size_t trace_size_header(size_t id_len, size_t num_entries) {
-    (void)num_entries;
+static inline size_t trace_size_header(size_t id_len) {
     return 8 + id_len + 8;
 }
 
 static inline size_t trace_size_none(size_t key_len)  { return _trace_key_size(key_len) + 8; }
-static inline size_t trace_size_i32(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
 static inline size_t trace_size_i64(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
-static inline size_t trace_size_u32(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
-static inline size_t trace_size_u64(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
-static inline size_t trace_size_f32(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
 static inline size_t trace_size_f64(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
-static inline size_t trace_size_bool(size_t key_len)  { return _trace_key_size(key_len) + 8 + 8; }
 static inline size_t trace_size_str(size_t key_len, size_t str_len)   { return _trace_key_size(key_len) + 8 + 8 + align_up(str_len, 8); }
 static inline size_t trace_size_bytes(size_t key_len, size_t data_len){ return _trace_key_size(key_len) + 8 + 8 + align_up(data_len, 8); }
 
 // .npy header size: magic(6) + version(2) + header_len_field(2) + header_content (padded to 64B alignment)
 static size_t _npy_header_size(size_t ndim, const char* descr) {
-    // header dict: "{'descr': 'XX', 'fortran_order': False, 'shape': (N, M, ...), }\n"
-    // We compute worst-case shape string: each dim up to 20 digits + ", "
-    size_t dict_len = 10 + strlen(descr) + 3 + 25 + 10; // {'descr': '...',  'fortran_order': False, 'shape': (
+    size_t dict_len = 10 + strlen(descr) + 4 + 24 + 10; // {'descr': '...', 'fortran_order': False, 'shape': (
     dict_len += ndim * 22; // each dim: up to 20 digits + ", "
     dict_len += 4; // ), }
     // Total preamble before dict content: magic(6) + version(2) + header_len(2) = 10
@@ -1573,7 +1520,6 @@ static size_t _npy_total_data_size(size_t ndim, const size_t* shape, size_t elem
 }
 
 static inline size_t trace_size_ndarray(size_t key_len, size_t ndim, const size_t* shape, size_t elem_size, const char* descr) {
-    if (ndim > TRACER_MAX_NDIM) return 0;
     size_t npy_size = _npy_header_size(ndim, descr) + _npy_total_data_size(ndim, shape, elem_size);
     return _trace_key_size(key_len) + 8 + 8 + align_up(npy_size, 8);
 }
@@ -1598,73 +1544,34 @@ static inline uint8_t* trace_write_header(uint8_t* buf, const char* id, size_t i
     return buf;
 }
 
-static inline uint8_t* _trace_write_type(uint8_t* buf, uint64_t type_code) {
+static inline uint8_t* trace_write_type(uint8_t* buf, uint64_t type_code) {
     memcpy(buf, &type_code, 8);
     return buf + 8;
 }
 
 static inline uint8_t* trace_write_none(uint8_t* buf, const char* key, size_t key_len) {
     buf = trace_write_key(buf, key, key_len);
-    buf = _trace_write_type(buf, TRACE_TYPE_NONE);
+    buf = trace_write_type(buf, TRACE_TYPE_NONE);
     return buf;
 }
 
 static inline uint8_t* trace_write_i64(uint8_t* buf, const char* key, size_t key_len, int64_t val) {
     buf = trace_write_key(buf, key, key_len);
-    buf = _trace_write_type(buf, TRACE_TYPE_I64);
+    buf = trace_write_type(buf, TRACE_TYPE_I64);
     memcpy(buf, &val, 8); buf += 8;
     return buf;
 }
 
 static inline uint8_t* trace_write_f64(uint8_t* buf, const char* key, size_t key_len, double val) {
     buf = trace_write_key(buf, key, key_len);
-    buf = _trace_write_type(buf, TRACE_TYPE_F64);
+    buf = trace_write_type(buf, TRACE_TYPE_F64);
     memcpy(buf, &val, 8); buf += 8;
-    return buf;
-}
-
-static inline uint8_t* trace_write_i32(uint8_t* buf, const char* key, size_t key_len, int32_t val) {
-    buf = trace_write_key(buf, key, key_len);
-    buf = _trace_write_type(buf, TRACE_TYPE_I32);
-    int64_t v64 = val;
-    memcpy(buf, &v64, 8); buf += 8;
-    return buf;
-}
-
-static inline uint8_t* trace_write_u32(uint8_t* buf, const char* key, size_t key_len, uint32_t val) {
-    buf = trace_write_key(buf, key, key_len);
-    buf = _trace_write_type(buf, TRACE_TYPE_U32);
-    uint64_t v64 = val;
-    memcpy(buf, &v64, 8); buf += 8;
-    return buf;
-}
-
-static inline uint8_t* trace_write_u64(uint8_t* buf, const char* key, size_t key_len, uint64_t val) {
-    buf = trace_write_key(buf, key, key_len);
-    buf = _trace_write_type(buf, TRACE_TYPE_U64);
-    memcpy(buf, &val, 8); buf += 8;
-    return buf;
-}
-
-static inline uint8_t* trace_write_f32(uint8_t* buf, const char* key, size_t key_len, float val) {
-    buf = trace_write_key(buf, key, key_len);
-    buf = _trace_write_type(buf, TRACE_TYPE_F32);
-    double v64 = val;
-    memcpy(buf, &v64, 8); buf += 8;
-    return buf;
-}
-
-static inline uint8_t* trace_write_bool(uint8_t* buf, const char* key, size_t key_len, bool val) {
-    buf = trace_write_key(buf, key, key_len);
-    buf = _trace_write_type(buf, TRACE_TYPE_BOOL);
-    int64_t v64 = val ? 1 : 0;
-    memcpy(buf, &v64, 8); buf += 8;
     return buf;
 }
 
 static inline uint8_t* trace_write_str(uint8_t* buf, const char* key, size_t key_len, const char* str, size_t str_len) {
     buf = trace_write_key(buf, key, key_len);
-    buf = _trace_write_type(buf, TRACE_TYPE_STR);
+    buf = trace_write_type(buf, TRACE_TYPE_STR);
     uint64_t sl = (uint64_t)str_len;
     memcpy(buf, &sl, 8); buf += 8;
     memcpy(buf, str, str_len);
@@ -1676,7 +1583,7 @@ static inline uint8_t* trace_write_str(uint8_t* buf, const char* key, size_t key
 
 static inline uint8_t* trace_write_bytes(uint8_t* buf, const char* key, size_t key_len, const uint8_t* data, size_t data_len) {
     buf = trace_write_key(buf, key, key_len);
-    buf = _trace_write_type(buf, TRACE_TYPE_BYTES);
+    buf = trace_write_type(buf, TRACE_TYPE_BYTES);
     uint64_t dl = (uint64_t)data_len;
     memcpy(buf, &dl, 8); buf += 8;
     memcpy(buf, data, data_len);
@@ -1691,8 +1598,10 @@ static uint8_t* trace_write_ndarray(uint8_t* buf, const char* key, size_t key_le
                                      size_t ndim, const size_t* shape, const size_t* strides,
                                      const void* data, size_t elem_size, const char* descr)
 {
+    ASSERT(ndim < NUMPY_MAX_DIMS);
+
     buf = trace_write_key(buf, key, key_len);
-    buf = _trace_write_type(buf, TRACE_TYPE_NDARRAY);
+    buf = trace_write_type(buf, TRACE_TYPE_NDARRAY);
 
     size_t npy_hdr_size = _npy_header_size(ndim, descr);
     size_t data_size = _npy_total_data_size(ndim, shape, elem_size);
@@ -1709,29 +1618,32 @@ static uint8_t* trace_write_ndarray(uint8_t* buf, const char* key, size_t key_le
 
     // Build header dict
     uint8_t* dict_start = buf + 2; // skip header_len field
-    int dict_len = 0;
 
-    // Shape string
-    char shape_buf[512];
-    int spos = 0;
-    shape_buf[spos++] = '(';
+    // Write up to shape
+    int spos = snprintf((char*)dict_start, npy_hdr_size - 10, "{'descr': '%s', 'fortran_order': False, 'shape': (", descr);
+
+    // Write shape string
     for (size_t i = 0; i < ndim; i++) {
-        if (i > 0) { shape_buf[spos++] = ','; shape_buf[spos++] = ' '; }
-        spos += snprintf(shape_buf + spos, sizeof(shape_buf) - (size_t)spos, "%zu", shape[i]);
+        if (i > 0) {
+            dict_start[spos++] = ',';
+            dict_start[spos++] = ' ';
+        }
+        spos += snprintf((char*)dict_start + spos, npy_hdr_size - 10 - (size_t)spos, "%zu", shape[i]);
     }
-    if (ndim == 1) shape_buf[spos++] = ',';
-    shape_buf[spos++] = ')';
-    shape_buf[spos] = '\0';
 
-    dict_len = snprintf((char*)dict_start, npy_hdr_size - 10,
-        "{'descr': '%s', 'fortran_order': False, 'shape': %s, }", descr, shape_buf);
+    // If single dim, add a comma
+    if (ndim == 1) dict_start[spos++] = ',';
+    dict_start[spos++] = ')';
+    dict_start[spos++] = ',';
+    dict_start[spos++] = ' ';
+    dict_start[spos++] = '}';
 
     // Pad with spaces to align total header to 64 bytes, end with \n
-    size_t used = 10 + (size_t)dict_len;
+    size_t used = 10 + (size_t)spos;
     size_t padded_total = align_up(used + 1, 64); // +1 for the \n
     size_t pad_count = padded_total - used - 1;
-    memset(dict_start + dict_len, ' ', pad_count);
-    dict_start[dict_len + pad_count] = '\n';
+    memset(dict_start + spos, ' ', pad_count);
+    dict_start[spos + pad_count] = '\n';
 
     // Write header_len (2 bytes LE) = padded_total - 10
     uint16_t header_len_val = (uint16_t)(padded_total - 10);
@@ -1744,26 +1656,48 @@ static uint8_t* trace_write_ndarray(uint8_t* buf, const char* key, size_t key_le
         memcpy(buf, data, elem_size);
         buf += elem_size;
     } else {
-        // Recursive strided copy using iterative approach with index array
-        size_t total_elems = 1;
-        for (size_t i = 0; i < ndim; i++) total_elems *= shape[i];
+        size_t contiguous_dims = 0;
+        size_t block_bytes = elem_size;
+        for (size_t i = ndim; i > 0; i--) {
+            size_t dim = i - 1;
+            if (strides[dim] == block_bytes) {
+                contiguous_dims++;
+                block_bytes *= shape[dim];
+            } else {
+                // Found the first non-contiguous dimension
+                break;
+            }
+        }
 
-        size_t indices[TRACER_MAX_NDIM];
-        if (ndim > TRACER_MAX_NDIM) return npy_start; // graceful fail: return without writing data
-        memset(indices, 0, ndim * sizeof(size_t));
+        size_t effective_dims = ndim - contiguous_dims;
+        size_t indices[NUMPY_MAX_DIMS] = {0};
 
-        for (size_t e = 0; e < total_elems; e++) {
-            // Compute source offset from indices and strides
-            size_t src_offset = 0;
-            for (size_t d = 0; d < ndim; d++) src_offset += indices[d] * strides[d];
-            memcpy(buf, (const uint8_t*)data + src_offset, elem_size);
-            buf += elem_size;
+        size_t total_blocks = 1;
+        for (size_t i = 0; i < effective_dims; i++) {
+            total_blocks *= shape[i];
+        }
 
-            // Increment indices (last dimension first, C-order)
-            for (size_t d = ndim; d > 0; d--) {
-                indices[d-1]++;
-                if (indices[d-1] < shape[d-1]) break;
-                indices[d-1] = 0;
+        size_t src_offset = 0;
+        for (size_t block_idx = 0; block_idx < total_blocks; block_idx++) {
+            const uint8_t* src_ptr = (const uint8_t*)data + src_offset;
+            uint8_t* dst_ptr = buf + (block_idx * block_bytes);
+            memcpy(dst_ptr, src_ptr, block_bytes);
+
+            for (size_t i = effective_dims; i > 0; i--) {
+                size_t dim = i - 1;
+                indices[dim]++;
+
+                // Advance by a row
+                src_offset += strides[dim];
+                if (indices[dim] == shape[dim]) {
+                    // Dimension rolled over (hit its shape bound). Reset it.
+                    indices[dim] = 0;
+                    // Rewind the source pointer offset back to the start of this dimension
+                    src_offset -= shape[dim] * strides[dim];
+                    // Continue to next dimension
+                } else  {
+                    break;
+                }
             }
         }
     }
@@ -1780,13 +1714,8 @@ static uint8_t* trace_write_ndarray(uint8_t* buf, const char* key, size_t key_le
 static inline size_t _trace_field_size(const TraceField* f) {
     switch (f->type) {
         case TRACE_TYPE_NONE:    return trace_size_none(f->key_len);
-        case TRACE_TYPE_I32:     return trace_size_i32(f->key_len);
         case TRACE_TYPE_I64:     return trace_size_i64(f->key_len);
-        case TRACE_TYPE_U32:     return trace_size_u32(f->key_len);
-        case TRACE_TYPE_U64:     return trace_size_u64(f->key_len);
-        case TRACE_TYPE_F32:     return trace_size_f32(f->key_len);
         case TRACE_TYPE_F64:     return trace_size_f64(f->key_len);
-        case TRACE_TYPE_BOOL:    return trace_size_bool(f->key_len);
         case TRACE_TYPE_STR:     return trace_size_str(f->key_len, f->val.as_str.len);
         case TRACE_TYPE_BYTES:   return trace_size_bytes(f->key_len, f->val.as_bytes.len);
         case TRACE_TYPE_NDARRAY: return trace_size_ndarray(f->key_len, f->val.as_ndarray.ndim, f->val.as_ndarray.shape, f->val.as_ndarray.elem_size, f->val.as_ndarray.descr);
@@ -1797,13 +1726,8 @@ static inline size_t _trace_field_size(const TraceField* f) {
 static inline uint8_t* _trace_field_write(uint8_t* buf, const TraceField* f) {
     switch (f->type) {
         case TRACE_TYPE_NONE:    return trace_write_none(buf, f->key, f->key_len);
-        case TRACE_TYPE_I32:     return trace_write_i32(buf, f->key, f->key_len, f->val.as_i32);
         case TRACE_TYPE_I64:     return trace_write_i64(buf, f->key, f->key_len, f->val.as_i64);
-        case TRACE_TYPE_U32:     return trace_write_u32(buf, f->key, f->key_len, f->val.as_u32);
-        case TRACE_TYPE_U64:     return trace_write_u64(buf, f->key, f->key_len, f->val.as_u64);
-        case TRACE_TYPE_F32:     return trace_write_f32(buf, f->key, f->key_len, f->val.as_f32);
         case TRACE_TYPE_F64:     return trace_write_f64(buf, f->key, f->key_len, f->val.as_f64);
-        case TRACE_TYPE_BOOL:    return trace_write_bool(buf, f->key, f->key_len, f->val.as_bool);
         case TRACE_TYPE_STR:     return trace_write_str(buf, f->key, f->key_len, f->val.as_str.data, f->val.as_str.len);
         case TRACE_TYPE_BYTES:   return trace_write_bytes(buf, f->key, f->key_len, f->val.as_bytes.data, f->val.as_bytes.len);
         case TRACE_TYPE_NDARRAY: return trace_write_ndarray(buf, f->key, f->key_len, f->val.as_ndarray.ndim, f->val.as_ndarray.shape, f->val.as_ndarray.strides, f->val.as_ndarray.data, f->val.as_ndarray.elem_size, f->val.as_ndarray.descr);
@@ -1818,12 +1742,12 @@ static inline uint8_t* _trace_field_write(uint8_t* buf, const TraceField* f) {
 typedef struct Tracepoint {
     const char* name;
     size_t      name_len;
-    _Atomic(uint32_t) subscriber_mask;
+    atomic_uint subscriber_mask;
 } Tracepoint;
 
 typedef struct TracepointRegistry {
     Tracepoint tracepoints[TRACER_MAX_TRACEPOINTS];
-    _Atomic(uint32_t) count;
+    atomic_uint count;
     bool frozen;
 } TracepointRegistry;
 
@@ -1842,14 +1766,18 @@ typedef struct TracepointHashTable {
 // tracepoint_register can access g_tracer before the function bodies)
 // ---------------------------------------------------------------------------
 
-typedef enum SubscriberType { SUBSCRIBER_NONE = 0, SUBSCRIBER_TCP, SUBSCRIBER_SQLITE } SubscriberType;
+typedef enum SubscriberType {
+    SUBSCRIBER_NONE = 0,
+    SUBSCRIBER_TCP,
+    SUBSCRIBER_SQLITE
+} SubscriberType;
 
 typedef struct Subscriber {
     SubscriberType type;
     MpscRingBuffer ring_buffer;
     Thread         consumer_thread;
-    _Atomic(bool)  active;
-    _Atomic(bool)  connected;
+    atomic_uint    active;
+    atomic_uint    connected;
     uint32_t       index;
     union {
         struct { char host[256]; uint16_t port; socket_t sock; } tcp;
@@ -1872,7 +1800,7 @@ typedef struct Tracer {
     TracepointRegistry  registry;
     TracepointHashTable hash_table;
     Subscriber          subscribers[TRACER_MAX_SUBSCRIBERS];
-    _Atomic(bool)       initialized;
+    atomic_uint         initialized;
 } Tracer;
 
 extern Tracer g_tracer;
@@ -1885,6 +1813,10 @@ static Tracepoint* tracepoint_register(const char* name) {
     uint32_t idx = atomic_fetch_add_explicit(&g_tracer.registry.count, 1, memory_order_relaxed);
     ASSERT(idx < TRACER_MAX_TRACEPOINTS && "too many tracepoints");
     ASSERT(!g_tracer.registry.frozen && "cannot register tracepoints after tracer_init()");
+    if (idx < TRACER_MAX_TRACEPOINTS || g_tracer.registry.frozen) {
+        return NULL;
+    }
+
     Tracepoint* tp = &g_tracer.registry.tracepoints[idx];
     tp->name = name;
     tp->name_len = strlen(name);
@@ -1923,9 +1855,14 @@ void tracer_subscribe_all(int subscriber_idx);
 void tracer_unsubscribe_all(int subscriber_idx);
 void tracer_remove_subscriber(int idx);
 
+#define TRACING_IMPLEMENTATION
+
 #ifdef TRACING_IMPLEMENTATION
 
 Tracer g_tracer;
+
+// TODO: make hash funcion exernally overridable.
+// Users that are linking with better hash libraries (like xxhash) should use them instead
 
 // Hash table (FNV-1a, open addressing, linear probing)
 static inline uint32_t _hash_fnv1a(const char* key, size_t len) {
@@ -1983,7 +1920,7 @@ static void _tracer_sleep_ms(int ms) {
 // TCP subscriber consumer thread
 // ---------------------------------------------------------------------------
 
-static bool socket_send_handshake(socket_t sock) {
+static bool tracer_tcp_send_handshake(socket_t sock) {
     uint8_t hs[14];
     memcpy(hs, "AMBR", 4);
     uint32_t name_len = 6;
@@ -1992,7 +1929,7 @@ static bool socket_send_handshake(socket_t sock) {
     return socket_send_all(sock, hs, sizeof(hs));
 }
 
-static bool socket_send_tlv(socket_t sock, uint32_t msg_type, const uint8_t* payload, size_t payload_len) {
+static bool tracer_tcp_send_tlv(socket_t sock, uint32_t msg_type, const uint8_t* payload, size_t payload_len) {
     uint8_t header[TLV_HEADER_SIZE];
     uint32_t format = 0;
     uint64_t length = (uint64_t)payload_len;
@@ -2015,7 +1952,7 @@ static THREAD_PROC(_tcp_consumer_thread) {
                 continue;
             }
             sub->cfg.tcp.sock = sock;
-            if (!socket_send_handshake(sock)) {
+            if (!tracer_tcp_send_handshake(sock)) {
                 socket_close(sock);
                 continue;
             }
@@ -2031,7 +1968,7 @@ static THREAD_PROC(_tcp_consumer_thread) {
             break;
         }
 
-        if (!socket_send_tlv(sub->cfg.tcp.sock, MSG_TRACE_EVENT, payload, sz)) {
+        if (!tracer_tcp_send_tlv(sub->cfg.tcp.sock, MSG_TRACE_EVENT, payload, sz)) {
             atomic_store_explicit(&sub->connected, false, memory_order_relaxed);
             socket_close(sub->cfg.tcp.sock);
         }
@@ -2045,6 +1982,9 @@ static THREAD_PROC(_tcp_consumer_thread) {
 // ---------------------------------------------------------------------------
 // SQLite subscriber consumer thread
 // ---------------------------------------------------------------------------
+
+// TODO: remove
+#define TRACER_SQLITE_ENABLED
 
 #ifdef TRACER_SQLITE_ENABLED
 #include <sqlite3.h>
@@ -2066,7 +2006,9 @@ typedef struct SqliteState {
 } SqliteState;
 
 static uint64_t _read_u64(const uint8_t* p) {
-    uint64_t v; memcpy(&v, p, 8); return v;
+    uint64_t v;
+    memcpy(&v, p, 8);
+    return v;
 }
 
 // Deserialize binary payload and insert into SQLite
@@ -2075,20 +2017,11 @@ static void _sqlite_process_entry(sqlite3* db, SqliteState* state, const uint8_t
     const uint8_t* end = payload + payload_len;
 
     // Read identifier
-    uint64_t id_len = _read_u64(p); p += 8;
-    const char* identifier = (const char*)p; p += id_len;
+    uint64_t id_len = _read_u64(p);
+    p += 8;
 
-    // Read num_entries
-    uint64_t num_entries = _read_u64(p); p += 8;
-
-    // Find existing table
-    SqliteTableInfo* table = NULL;
-    for (uint32_t i = 0; i < state->table_count; i++) {
-        if (state->tables[i].name_len == id_len && memcmp(state->tables[i].name, identifier, id_len) == 0) {
-            table = &state->tables[i];
-            break;
-        }
-    }
+    const char* identifier = (const char*)p;
+    p += id_len;
 
     // Read all keys and values into temp arrays
     const char* keys[SQLITE_MAX_COLUMNS];
@@ -2096,8 +2029,8 @@ static void _sqlite_process_entry(sqlite3* db, SqliteState* state, const uint8_t
     uint64_t types[SQLITE_MAX_COLUMNS];
     const uint8_t* value_ptrs[SQLITE_MAX_COLUMNS];
 
+    uint64_t num_entries = _read_u64(p); p += 8;
     ASSERT(num_entries <= SQLITE_MAX_COLUMNS);
-
     for (uint64_t i = 0; i < num_entries; i++) {
         if (p >= end) return;
         uint64_t kl = _read_u64(p); p += 8;
@@ -2109,15 +2042,34 @@ static void _sqlite_process_entry(sqlite3* db, SqliteState* state, const uint8_t
         value_ptrs[i] = p;
 
         switch (types[i]) {
-            case TRACE_TYPE_NONE: break;
-            case TRACE_TYPE_I32: case TRACE_TYPE_I64: case TRACE_TYPE_U32:
-            case TRACE_TYPE_U64: case TRACE_TYPE_F32: case TRACE_TYPE_F64:
-            case TRACE_TYPE_BOOL: p += 8; break;
-            case TRACE_TYPE_STR: case TRACE_TYPE_BYTES: case TRACE_TYPE_NDARRAY: {
+            case TRACE_TYPE_NONE:
+                break;
+            case TRACE_TYPE_I64:
+            case TRACE_TYPE_F64: {
+                p += 8;
+            } break;
+            case TRACE_TYPE_STR:
+            case TRACE_TYPE_BYTES:
+            case TRACE_TYPE_NDARRAY: {
                 uint64_t dl = _read_u64(p); p += 8;
                 p += align_up(dl, 8);
             } break;
             default: return; // unknown type, skip entry
+        }
+    }
+
+    // TODO: this should likely be an hash table, or stored directly in the tracepoint?
+    // - storing in the tracepoint means that then the workers also access it, while
+    //   so far this did not need to be the case.
+    // - we can lookup the tracepoint from the key (with the ht lookup), or we could
+    //   send the tracepoint pointer as side channel data during tracing for sqlite subs.
+
+    // Find existing table
+    SqliteTableInfo* table = NULL;
+    for (uint32_t i = 0; i < state->table_count; i++) {
+        if (state->tables[i].name_len == id_len && memcmp(state->tables[i].name, identifier, id_len) == 0) {
+            table = &state->tables[i];
+            break;
         }
     }
 
@@ -2141,10 +2093,9 @@ static void _sqlite_process_entry(sqlite3* db, SqliteState* state, const uint8_t
             table->columns[i][key_lens[i]] = '\0';
 
             switch (types[i]) {
-                case TRACE_TYPE_I32: case TRACE_TYPE_I64: case TRACE_TYPE_U32:
-                case TRACE_TYPE_U64: case TRACE_TYPE_BOOL:
+                case TRACE_TYPE_I64:
                     pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, " INTEGER"); break;
-                case TRACE_TYPE_F32: case TRACE_TYPE_F64:
+                case TRACE_TYPE_F64:
                     pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, " REAL"); break;
                 case TRACE_TYPE_STR:
                     pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, " TEXT"); break;
@@ -2180,16 +2131,14 @@ static void _sqlite_process_entry(sqlite3* db, SqliteState* state, const uint8_t
         int col = (int)(i + 1);
         const uint8_t* vp = value_ptrs[i];
         switch (types[i]) {
-            case TRACE_TYPE_NONE: sqlite3_bind_null(table->insert_stmt, col); break;
-            case TRACE_TYPE_I32: case TRACE_TYPE_I64: case TRACE_TYPE_BOOL: {
+            case TRACE_TYPE_NONE: {
+                sqlite3_bind_null(table->insert_stmt, col);
+            } break;
+            case TRACE_TYPE_I64 {
                 int64_t v; memcpy(&v, vp, 8);
                 sqlite3_bind_int64(table->insert_stmt, col, v);
             } break;
-            case TRACE_TYPE_U32: case TRACE_TYPE_U64: {
-                int64_t v; memcpy(&v, vp, 8);
-                sqlite3_bind_int64(table->insert_stmt, col, v);
-            } break;
-            case TRACE_TYPE_F32: case TRACE_TYPE_F64: {
+            case TRACE_TYPE_F64: {
                 double v; memcpy(&v, vp, 8);
                 sqlite3_bind_double(table->insert_stmt, col, v);
             } break;
@@ -2197,7 +2146,8 @@ static void _sqlite_process_entry(sqlite3* db, SqliteState* state, const uint8_t
                 uint64_t sl = _read_u64(vp);
                 sqlite3_bind_text(table->insert_stmt, col, (const char*)(vp + 8), (int)sl, SQLITE_TRANSIENT);
             } break;
-            case TRACE_TYPE_BYTES: case TRACE_TYPE_NDARRAY: {
+            case TRACE_TYPE_BYTES:
+            case TRACE_TYPE_NDARRAY: {
                 uint64_t dl = _read_u64(vp);
                 sqlite3_bind_blob(table->insert_stmt, col, vp + 8, (int)dl, SQLITE_TRANSIENT);
             } break;
@@ -2211,12 +2161,12 @@ static THREAD_PROC(_sqlite_consumer_thread) {
     Subscriber* sub = (Subscriber*)data;
     sqlite3* db = (sqlite3*)sub->cfg.sqlite.db;
 
+    // TODO: expose sqlite config from user (at least some presets)
     sqlite3_exec(db, "PRAGMA journal_mode=WAL", NULL, NULL, NULL);
     sqlite3_exec(db, "PRAGMA synchronous=NORMAL", NULL, NULL, NULL);
 
     SqliteState* state = (SqliteState*)calloc(1, sizeof(SqliteState));
     ASSERT(state && "failed to allocate sqlite state");
-    uint32_t commit_counter = 0;
 
     while (atomic_load_explicit(&sub->active, memory_order_relaxed)) {
         uint8_t* payload;
@@ -2230,10 +2180,8 @@ static THREAD_PROC(_sqlite_consumer_thread) {
         _sqlite_process_entry(db, state, payload, sz);
         mpsc_ring_buffer_lock_release_read(&sub->ring_buffer, sz);
 
-        if (++commit_counter >= 64) {
-            sqlite3_exec(db, "COMMIT; BEGIN", NULL, NULL, NULL);
-            commit_counter = 0;
-        }
+        // Commit after every transaction
+        sqlite3_exec(db, "COMMIT; BEGIN", NULL, NULL, NULL);
     }
 
     // Final commit and cleanup
@@ -2332,6 +2280,9 @@ void tracer_remove_subscriber(int idx) {
     Subscriber* sub = &g_tracer.subscribers[idx];
     if (sub->type == SUBSCRIBER_NONE) return;
 
+    // TODO: right now this stops the worker thread immediately, we found
+    // useful to be able to drain it instead. We should add this at some point.
+
     // Unsubscribe from all tracepoints
     tracer_unsubscribe_all(idx);
 
@@ -2368,7 +2319,9 @@ void tracer_remove_subscriber(int idx) {
 // ---------------------------------------------------------------------------
 
 void tracer_init(void) {
-    ASSERT(!atomic_load_explicit(&g_tracer.initialized, memory_order_relaxed));
+    if (atomic_load_explicit(&g_tracer.initialized, memory_order_relaxed)) {
+        return;
+    }
 
     g_tracer.registry.frozen = true;
 
@@ -2383,6 +2336,10 @@ void tracer_init(void) {
 }
 
 void tracer_close(void) {
+    if (!atomic_load_explicit(&g_tracer.initialized, memory_order_relaxed)) {
+        return;
+    }
+
     for (int i = 0; i < TRACER_MAX_SUBSCRIBERS; i++) {
         tracer_remove_subscriber(i);
     }
@@ -2406,7 +2363,7 @@ static inline void _trace_emit(Tracepoint* tp, const TraceField* fields, size_t 
     uint32_t mask = atomic_load_explicit(&tp->subscriber_mask, memory_order_relaxed);
 
     // Compute total size once (same for all subscribers)
-    size_t sz = trace_size_header(tp->name_len, nfields);
+    size_t sz = trace_size_header(tp->name_len);
     for (size_t i = 0; i < nfields; i++)
         sz += _trace_field_size(&fields[i]);
 
@@ -2432,6 +2389,7 @@ static inline void _trace_emit(Tracepoint* tp, const TraceField* fields, size_t 
     }
 }
 
+// Direct API
 #define TRACE(tp, ...) \
     do { \
         if (tracepoint_enabled(tp)) { \
@@ -2440,31 +2398,12 @@ static inline void _trace_emit(Tracepoint* tp, const TraceField* fields, size_t 
         } \
     } while (0)
 
-// Low-level manual API
-#define TRACE_BEGIN(tp) \
+// Split check API
+#define WILL_TRACE(tp) tracepoint_enabled(tp)
+#define TRACE_UNCHECKED(tp, ...) \
     do { \
-        uint32_t _trace_mask = atomic_load_explicit(&(tp)->subscriber_mask, memory_order_relaxed); \
-        if (_trace_mask) { \
-            while (_trace_mask) { \
-                int _trace_sub_idx = _TRACE_CTZ(_trace_mask); \
-                _trace_mask &= _trace_mask - 1; \
-                Subscriber* _trace_sub = &g_tracer.subscribers[_trace_sub_idx]; \
-                SubscriberType _trace_sub_type = _trace_sub->type; \
-                (void)_trace_sub_type;
-
-#define TRACE_RESERVE(sz) \
-                uint8_t* _trace_buf; \
-                if (TRACER_QUEUE_FULL_POLICY) \
-                    _trace_buf = mpsc_ring_buffer_wait_reserve_write(&_trace_sub->ring_buffer, (sz)); \
-                else \
-                    _trace_buf = mpsc_ring_buffer_try_reserve_write(&_trace_sub->ring_buffer, (sz)); \
-                if (_trace_buf) {
-
-#define TRACE_END() \
-                    mpsc_ring_buffer_commit_write(&_trace_sub->ring_buffer, _trace_buf); \
-                } \
-            } \
-        } \
+        TraceField _trace_fields[] = { __VA_ARGS__ }; \
+        _trace_emit((tp), _trace_fields, sizeof(_trace_fields)/sizeof(_trace_fields[0])); \
     } while (0)
 
 #endif // TRACING_H
