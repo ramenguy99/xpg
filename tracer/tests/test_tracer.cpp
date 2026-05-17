@@ -38,8 +38,8 @@ struct ServerData {
     socket_t listen_sock;
     socket_t client_sock;
     uint16_t port;
-    _Atomic(int) ready;
-    _Atomic(int) connected;
+    atomic_uint ready;
+    atomic_uint connected;
     uint8_t recv_buf[16384];
     size_t recv_len;
 };

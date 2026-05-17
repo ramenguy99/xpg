@@ -37,7 +37,6 @@ typedef SSIZE_T ssize_t;
 #include <unistd.h>
 #include <poll.h>
 #include <sys/uio.h>
-
 #include <pthread.h>
 
 #endif
@@ -45,6 +44,9 @@ typedef SSIZE_T ssize_t;
 // Futex
 #ifdef __APPLE__
 #include <os/os_sync_wait_on_address.h>
+#else
+#include <linux/futex.h>
+#include <sys/syscall.h>
 #endif
 
 
@@ -87,6 +89,9 @@ typedef SSIZE_T ssize_t;
 #define SpinlockHint() do {} while(0)
 #endif
 #else
+#if !defined(_WIN32)
+#include <immintrin.h>
+#endif
 #define SpinlockHint() _mm_pause()
 #endif
 
