@@ -1,10 +1,10 @@
 Maintenance
 - [x] Check current diff
 - [x] Public vs private API
+- [x] Rename / move directory and library
 - [ ] Fix all api with prefixes
 - [ ] Expose all max sizes as defines
 - [ ] Expose assert malloc and hash as defines
-- [ ] Rename / move directory and library
 
 Rework:
 - [x] Send tracepoint index / pointer to consumer thread
@@ -14,7 +14,6 @@ Rework:
 TCP:
 - [x] Write cross platform sendv wrapper to send tcp messages in a single call
 - [x] Unsubscribe from all tracepoints while tcp disconnected
-- [ ] Add tcp reader thread, use atomics to enable / disable tracepoints at runtime
 
 SQLite:
 - [x] Do not store columns
@@ -23,8 +22,7 @@ SQLite:
 - [x] Sqlite config pragmas from user
 
 Tests:
-- [ ] Sqlite and TCP tests
+- [x] Sqlite and TCP tests
 
-Examples:
-- [ ] Example app in C and C++
-- [ ] Remove client server examples
+Additional fetaures:
+- [ ] Add tcp reader thread, use atomics to enable / disable tracepoints at runtime

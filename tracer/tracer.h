@@ -141,6 +141,10 @@ using std::memory_order_release;
 #define TRACER_TCP_RECONNECT_MS 1000
 #endif
 
+#ifndef TRACER_SQLITE_MAX_COLUMNS
+#define TRACER_SQLITE_MAX_COLUMNS 64
+#endif
+
 // ---------------------------------------------------------------------------
 // Public API forward declarations
 // ---------------------------------------------------------------------------
@@ -192,20 +196,36 @@ static inline TraceField _tf_str(const char* k, size_t k_len, const char* s, siz
 static inline TraceField _tf_bytes(const char* k, size_t k_len, const uint8_t* d, size_t l)                                                                { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_BYTES;   f.key=k; f.key_len=k_len; f.val.as_bytes.data=d; f.val.as_bytes.len=l; return f; }
 static inline TraceField _tf_ndarray(const char* k, size_t k_len, size_t nd, const size_t* sh, const size_t* st, const void* d, size_t es, const char* de) { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_NDARRAY; f.key=k; f.key_len=k_len; f.val.as_ndarray.ndim=nd; f.val.as_ndarray.shape=sh; f.val.as_ndarray.strides=st; f.val.as_ndarray.data=d; f.val.as_ndarray.elem_size=es; f.val.as_ndarray.descr=de; return f; }
 #define TNONE(key)                           _tf_none   (key, sizeof(key) - 1)
-#define TI64(key, v)                         _tf_i64    (key, sizeof(key) - 1, v)
-#define TF64(key, v)                         _tf_f64    (key, sizeof(key) - 1, v)
+#define TI64(key, v)                         _tf_i64    (key, sizeof(key) - 1, (int64_t)(v))
+#define TF64(key, v)                         _tf_f64    (key, sizeof(key) - 1, (double)(v))
 #define TSTR(key, s, l)                      _tf_str    (key, sizeof(key) - 1, s, l)
 #define TBYTES(key, d, l)                    _tf_bytes  (key, sizeof(key) - 1, d, l)
 #define TNDARRAY(key, nd, sh, st, d, es, de) _tf_ndarray(key, sizeof(key) - 1, nd, sh, st, d, es, de)
+#define TU8(key, v)  TI64(key, (uint8_t)(v))
+#define TU16(key, v) TI64(key, (uint16_t)(v))
+#define TU32(key, v) TI64(key, (uint32_t)(v))
+#define TU64(key, v) TI64(key, (int64_t)(uint64_t)(v))
+#define TI8(key, v)  TI64(key, (int8_t)(v))
+#define TI16(key, v) TI64(key, (int16_t)(v))
+#define TI32(key, v) TI64(key, (int32_t)(v))
+#define TF32(key, v) TF64(key, (float)(v))
 #else
 #define TNONE(k)       { .type=TRACE_TYPE_NONE, .key=(k), .key_len=sizeof(k)-1 }
-#define TI64(k, v)     { .type=TRACE_TYPE_I64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_i64=(v)} }
-#define TF64(k, v)     { .type=TRACE_TYPE_F64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_f64=(v)} }
+#define TI64(k, v)     { .type=TRACE_TYPE_I64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_i64=(int64_t)(v)} }
+#define TF64(k, v)     { .type=TRACE_TYPE_F64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_f64=(double)(v)} }
 #define TSTR(k, s, l)  { .type=TRACE_TYPE_STR,  .key=(k), .key_len=sizeof(k)-1, .val={.as_str={(s),(l)}} }
 #define TBYTES(k, d, l){ .type=TRACE_TYPE_BYTES,.key=(k), .key_len=sizeof(k)-1, .val={.as_bytes={(d),(l)}} }
 #define TNDARRAY(k, nd, sh, st, d, es, de) \
     { .type=TRACE_TYPE_NDARRAY, .key=(k), .key_len=sizeof(k)-1, \
       .val={.as_ndarray={ (nd),(sh),(st),(d),(es),(de) }} }
+#define TU8(k, v)  TI64(k, (uint8_t)(v))
+#define TU16(k, v) TI64(k, (uint16_t)(v))
+#define TU32(k, v) TI64(k, (uint32_t)(v))
+#define TU64(k, v) TI64(k, (int64_t)(uint64_t)(v))
+#define TI8(k, v)  TI64(k, (int8_t)(v))
+#define TI16(k, v) TI64(k, (int16_t)(v))
+#define TI32(k, v) TI64(k, (int32_t)(v))
+#define TF32(k, v) TF64(k, (float)(v))
 #endif
 
 #ifdef _MSC_VER
@@ -846,6 +866,7 @@ static inline void downgrade(RWLock* rwlock) {
 }
 
 // Ring mapped buffer
+size_t ring_buffer_page_size(void);
 void* alloc_ring_mapped_buffer(size_t Size);
 void free_ring_mapped_buffer(void* ptr, size_t size);
 
@@ -1331,6 +1352,18 @@ void join_thread(Thread* thread) {
 }
 
 // Ring-mapped buffer from: https://gist.github.com/mmozeiko/3b09a340f3c53e5eaed699a1aea95250
+size_t ring_buffer_page_size(void) {
+#if defined(_WIN32)
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return (size_t)si.dwPageSize;
+#elif defined(__APPLE__)
+    return (size_t)vm_page_size;
+#else
+    return (size_t)sysconf(_SC_PAGESIZE);
+#endif
+}
+
 void* alloc_ring_mapped_buffer(size_t Size)
 {
     void* data;
@@ -1444,7 +1477,10 @@ void mpsc_ring_buffer_create(MpscRingBuffer* mpsc, size_t size) {
     // We thus have 2**31 * 16 = 32 GiB of max buffer size.
     ASSERT((uint64_t)size <= ((uint64_t)(32ull * 1024ull * 1024ull * 1024ull)));
 
-    size = size < MPSC_RING_BUFFER_MIN_SIZE ? MPSC_RING_BUFFER_MIN_SIZE : size;
+    size_t page_size = ring_buffer_page_size();
+    size_t min_size = page_size > MPSC_RING_BUFFER_MIN_SIZE ? page_size : MPSC_RING_BUFFER_MIN_SIZE;
+    size = size < min_size ? min_size : size;
+    size = (size + page_size - 1) & ~(page_size - 1);
 
     mpsc->ring_buffer = (uint8_t*)alloc_ring_mapped_buffer(size);
     mpsc->size = size;
@@ -2009,8 +2045,6 @@ static THREAD_PROC(_tcp_consumer_thread) {
 #ifdef TRACER_SQLITE_ENABLED
 #include <sqlite3.h>
 
-#define SQLITE_MAX_COLUMNS 64
-
 typedef struct {
     char  stack[4096];
     char* buf;
@@ -2131,13 +2165,13 @@ static void _sqlite_process_entry(sqlite3* db, const uint8_t* payload, size_t pa
     p += 8;
 
     // Read all keys and values into temp arrays
-    const char* keys[SQLITE_MAX_COLUMNS];
-    size_t key_lens[SQLITE_MAX_COLUMNS];
-    uint64_t types[SQLITE_MAX_COLUMNS];
-    const uint8_t* value_ptrs[SQLITE_MAX_COLUMNS];
+    const char* keys[TRACER_SQLITE_MAX_COLUMNS];
+    size_t key_lens[TRACER_SQLITE_MAX_COLUMNS];
+    uint64_t types[TRACER_SQLITE_MAX_COLUMNS];
+    const uint8_t* value_ptrs[TRACER_SQLITE_MAX_COLUMNS];
 
     uint64_t num_entries = _read_u64(p); p += 8;
-    ASSERT(num_entries <= SQLITE_MAX_COLUMNS);
+    ASSERT(num_entries <= TRACER_SQLITE_MAX_COLUMNS);
     for (uint64_t i = 0; i < num_entries; i++) {
         if (p >= end) return;
         uint64_t kl = _read_u64(p); p += 8;

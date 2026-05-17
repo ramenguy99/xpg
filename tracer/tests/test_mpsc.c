@@ -1,55 +1,6 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
-#include <stdbool.h>
-
-#ifndef _WIN32
-#include <signal.h>
-#endif
-
-#define TRACING_IMPLEMENTATION
-#include "tracing.h"
-
-// ============================================================
-// Minimal test framework
-// ============================================================
-
-static int g_tests_run    = 0;
-static int g_tests_passed = 0;
-static int g_tests_failed = 0;
-static int g_current_failed = 0;
-
-#define TEST(name) static void test_##name(void)
-#define RUN(name) do { \
-    g_current_failed = 0; \
-    printf("  %-55s ", #name); \
-    fflush(stdout); \
-    test_##name(); \
-    g_tests_run++; \
-    if (g_current_failed) { g_tests_failed++; } \
-    else { g_tests_passed++; printf("PASS\n"); } \
-} while (0)
-
-#define CHECK(cond) do { \
-    if (!(cond)) { \
-        if (!g_current_failed) printf("FAIL\n"); \
-        fprintf(stderr, "    %s:%d: CHECK( %s )\n", __FILE__, __LINE__, #cond); \
-        g_current_failed = 1; \
-        return; \
-    } \
-} while (0)
-
-#define CHECK_EQ(a, b) do { \
-    long long _a = (long long)(a), _b = (long long)(b); \
-    if (_a != _b) { \
-        if (!g_current_failed) printf("FAIL\n"); \
-        fprintf(stderr, "    %s:%d: CHECK_EQ( %s, %s )  =>  %lld != %lld\n", \
-                __FILE__, __LINE__, #a, #b, _a, _b); \
-        g_current_failed = 1; \
-        return; \
-    } \
-} while (0)
+#define TRACER_IMPLEMENTATION
+#include "tracer.h"
+#include "testing.h"
 
 // ============================================================
 // Helpers
@@ -79,11 +30,14 @@ static bool verify_pattern(const uint8_t* buf, size_t size, uint8_t seed) {
 // ============================================================
 
 TEST(create_destroy) {
+    size_t page_size = ring_buffer_page_size();
+    size_t req_size = page_size < 4096 ? 4096 : page_size;
+
     MpscRingBuffer rb;
-    mpsc_ring_buffer_create(&rb, 4096);
+    mpsc_ring_buffer_create(&rb, req_size);
 
     CHECK(rb.ring_buffer != NULL);
-    CHECK_EQ(rb.size, 4096);
+    CHECK(rb.size >= req_size);
     CHECK_EQ(atomic_load(&rb.produced_offset), 0);
     CHECK_EQ(atomic_load(&rb.consumed_offset), 0);
 
@@ -159,22 +113,20 @@ TEST(multiple_sequential_entries) {
 
 TEST(fill_buffer_returns_null) {
     MpscRingBuffer rb;
-    mpsc_ring_buffer_create(&rb, 4096);
+    mpsc_ring_buffer_create(&rb, ring_buffer_page_size());
 
-    const size_t payload = 8;
+    const size_t payload = 64;
     uint32_t max_n = max_entries_for_size(rb.size, payload);
-    CHECK(max_n > 0 && max_n <= 256);
+    CHECK(max_n > 0);
 
-    uint8_t* ptrs[256];
     for (uint32_t i = 0; i < max_n; i++) {
-        ptrs[i] = mpsc_ring_buffer_try_reserve_write(&rb, payload);
-        CHECK(ptrs[i] != NULL);
-        mpsc_ring_buffer_commit_write(&rb, ptrs[i]);
+        uint8_t* p = mpsc_ring_buffer_try_reserve_write(&rb, payload);
+        CHECK(p != NULL);
+        mpsc_ring_buffer_commit_write(&rb, p);
     }
 
-    // Buffer full
+    // Buffer full for this payload size
     CHECK(mpsc_ring_buffer_try_reserve_write(&rb, payload) == NULL);
-    CHECK(mpsc_ring_buffer_try_reserve_write(&rb, 1) == NULL);
 
     // Consume one to free space
     uint8_t* data;
@@ -400,27 +352,20 @@ TEST(wait_reserve_rejects_invalid) {
 }
 
 TEST(consume_after_wrap_data_integrity) {
-    // Stress the wrap boundary with careful data checks
     MpscRingBuffer rb;
-    mpsc_ring_buffer_create(&rb, 4096);
+    mpsc_ring_buffer_create(&rb, ring_buffer_page_size());
 
-    const size_t payload = 100; // not a power of 2, entry = 112+16 = 128 bytes
-    // 4096 / 128 = 32 entries per buffer
+    const size_t payload = 100;
+    uint32_t max_n = max_entries_for_size(rb.size, payload);
 
     for (int round = 0; round < 5; round++) {
-        // Fill buffer completely
-        uint32_t max_n = max_entries_for_size(rb.size, payload);
-        uint8_t* ptrs[64];
-        CHECK(max_n <= 64);
-
         for (uint32_t i = 0; i < max_n; i++) {
-            ptrs[i] = mpsc_ring_buffer_try_reserve_write(&rb, payload);
-            CHECK(ptrs[i] != NULL);
-            fill_pattern(ptrs[i], payload, (uint8_t)(round * 50 + i));
-            mpsc_ring_buffer_commit_write(&rb, ptrs[i]);
+            uint8_t* p = mpsc_ring_buffer_try_reserve_write(&rb, payload);
+            CHECK(p != NULL);
+            fill_pattern(p, payload, (uint8_t)(round * 50 + i));
+            mpsc_ring_buffer_commit_write(&rb, p);
         }
 
-        // Drain all
         for (uint32_t i = 0; i < max_n; i++) {
             uint8_t* data;
             size_t sz = mpsc_ring_buffer_lock_acquire_read(&rb, &data);
@@ -703,19 +648,8 @@ TEST(mt_stress_variable_sizes) {
 // main
 // ============================================================
 
-#ifndef _WIN32
-static void timeout_handler(int sig) {
-    (void)sig;
-    fprintf(stderr, "\nTEST TIMEOUT -- possible deadlock\n");
-    _exit(2);
-}
-#endif
-
 int main(void) {
-#ifndef _WIN32
-    signal(SIGALRM, timeout_handler);
-    alarm(60);
-#endif
+    test_setup_timeout(60);
 
     printf("=== MPSC Ring Buffer Tests ===\n\n");
 
@@ -746,10 +680,5 @@ int main(void) {
     RUN(mt_producers_wait_for_space);
     RUN(mt_stress_variable_sizes);
 
-    printf("\n=== %d/%d passed", g_tests_passed, g_tests_run);
-    if (g_tests_failed > 0)
-        printf(", %d FAILED", g_tests_failed);
-    printf(" ===\n");
-
-    return g_tests_failed > 0 ? 1 : 0;
+    return test_print_results("MPSC Ring Buffer Tests");
 }
