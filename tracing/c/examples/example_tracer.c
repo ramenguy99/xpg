@@ -1,6 +1,7 @@
 #include <stdlib.h>
 
-#define TRACING_IMPLEMENTATION
+#define TRACER_PRIVATE_API
+#define TRACER_IMPLEMENTATION
 #include "tracing.h"
 
 TRACEPOINT_DEFINE(tp_physics, "physics.step");
@@ -24,7 +25,7 @@ int main(void) {
     tracer_subscribe_all(tcp);
 
 #ifdef TRACER_SQLITE_ENABLED
-    int sql = tracer_add_sqlite_subscriber("traces.db");
+    int sql = tracer_add_sqlite_subscriber("traces.db", NULL);
     tracer_subscribe_all(sql);
     printf("SQLite subscriber added\n");
 #endif

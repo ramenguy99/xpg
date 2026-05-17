@@ -1,15 +1,17 @@
-#ifndef TRACING_H
-#define TRACING_H
+#ifndef TRACER_H
+#define TRACER_H
 
+// Public headers
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <inttypes.h>
+
+// Private headers
+#if defined(TRACER_PRIVATE_API) || defined(TRACER_IMPLEMENTATION)
 
 #ifdef _WIN32
-
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -107,14 +109,16 @@ using std::memory_order_release;
 #include <stdatomic.h>
 #endif
 
-// Socket utils
-#ifdef _WIN32
-typedef SOCKET socket_t;
-#else
-typedef int socket_t;
+#include <inttypes.h>
 #endif
 
-#define CACHE_LINE_SIZE 64
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+#ifndef TRACER_CACHE_LINE_SIZE
+#define TRACER_CACHE_LINE_SIZE 64
+#endif
 
 // Tracer compile-time configuration
 #ifndef TRACER_MAX_SUBSCRIBERS
@@ -137,6 +141,154 @@ typedef int socket_t;
 #define TRACER_TCP_RECONNECT_MS 1000
 #endif
 
+// ---------------------------------------------------------------------------
+// Public API forward declarations
+// ---------------------------------------------------------------------------
+
+typedef struct Tracepoint Tracepoint;
+
+#define NUMPY_MAX_DIMS 32
+
+// These have to match TypeCode in _serializer.py
+typedef enum TraceType {
+    TRACE_TYPE_NONE    = 0,
+    TRACE_TYPE_I64     = 1,
+    TRACE_TYPE_F64     = 2,
+    TRACE_TYPE_STR     = 3,
+    TRACE_TYPE_BYTES   = 7,
+    TRACE_TYPE_NDARRAY = 8,
+} TraceType;
+
+typedef struct TraceFieldStr { const char* data; size_t len; } TraceFieldStr;
+typedef struct TraceFieldBytes { const uint8_t* data; size_t len; } TraceFieldBytes;
+typedef struct TraceFieldNdarray {
+    size_t ndim;
+    const size_t* shape;
+    const size_t* strides;
+    const void* data;
+    size_t elem_size;
+    const char* descr;
+} TraceFieldNdarray;
+
+typedef struct TraceField {
+    uint8_t type;
+    const char* key;
+    size_t key_len;
+    union {
+        int64_t          as_i64;
+        double           as_f64;
+        TraceFieldStr    as_str;
+        TraceFieldBytes  as_bytes;
+        TraceFieldNdarray as_ndarray;
+    } val;
+} TraceField;
+
+// Field macros
+#ifdef __cplusplus
+static inline TraceField _tf_none(const char* k, size_t k_len)                                                                                             { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_NONE;    f.key=k; f.key_len=k_len; return f; }
+static inline TraceField _tf_i64(const char* k, size_t k_len, int64_t v)                                                                                   { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_I64;     f.key=k; f.key_len=k_len; f.val.as_i64=v;  return f; }
+static inline TraceField _tf_f64(const char* k, size_t k_len, double v)                                                                                    { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_F64;     f.key=k; f.key_len=k_len; f.val.as_f64=v;  return f; }
+static inline TraceField _tf_str(const char* k, size_t k_len, const char* s, size_t l)                                                                     { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_STR;     f.key=k; f.key_len=k_len; f.val.as_str.data=s; f.val.as_str.len=l; return f; }
+static inline TraceField _tf_bytes(const char* k, size_t k_len, const uint8_t* d, size_t l)                                                                { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_BYTES;   f.key=k; f.key_len=k_len; f.val.as_bytes.data=d; f.val.as_bytes.len=l; return f; }
+static inline TraceField _tf_ndarray(const char* k, size_t k_len, size_t nd, const size_t* sh, const size_t* st, const void* d, size_t es, const char* de) { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_NDARRAY; f.key=k; f.key_len=k_len; f.val.as_ndarray.ndim=nd; f.val.as_ndarray.shape=sh; f.val.as_ndarray.strides=st; f.val.as_ndarray.data=d; f.val.as_ndarray.elem_size=es; f.val.as_ndarray.descr=de; return f; }
+#define TNONE(key)                           _tf_none   (key, sizeof(key) - 1)
+#define TI64(key, v)                         _tf_i64    (key, sizeof(key) - 1, v)
+#define TF64(key, v)                         _tf_f64    (key, sizeof(key) - 1, v)
+#define TSTR(key, s, l)                      _tf_str    (key, sizeof(key) - 1, s, l)
+#define TBYTES(key, d, l)                    _tf_bytes  (key, sizeof(key) - 1, d, l)
+#define TNDARRAY(key, nd, sh, st, d, es, de) _tf_ndarray(key, sizeof(key) - 1, nd, sh, st, d, es, de)
+#else
+#define TNONE(k)       { .type=TRACE_TYPE_NONE, .key=(k), .key_len=sizeof(k)-1 }
+#define TI64(k, v)     { .type=TRACE_TYPE_I64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_i64=(v)} }
+#define TF64(k, v)     { .type=TRACE_TYPE_F64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_f64=(v)} }
+#define TSTR(k, s, l)  { .type=TRACE_TYPE_STR,  .key=(k), .key_len=sizeof(k)-1, .val={.as_str={(s),(l)}} }
+#define TBYTES(k, d, l){ .type=TRACE_TYPE_BYTES,.key=(k), .key_len=sizeof(k)-1, .val={.as_bytes={(d),(l)}} }
+#define TNDARRAY(k, nd, sh, st, d, es, de) \
+    { .type=TRACE_TYPE_NDARRAY, .key=(k), .key_len=sizeof(k)-1, \
+      .val={.as_ndarray={ (nd),(sh),(st),(d),(es),(de) }} }
+#endif
+
+#ifdef _MSC_VER
+#define TRACEPOINT_DEFINE(varname, namestr) \
+    static Tracepoint* varname; \
+    static void __cdecl _tp_init_##varname(void) { varname = tracepoint_register(namestr); } \
+    __pragma(section(".CRT$XCU", read)) \
+    __declspec(allocate(".CRT$XCU")) static void(__cdecl* _tp_ptr_##varname)(void) = _tp_init_##varname;
+#elif defined(__cplusplus)
+#define TRACEPOINT_DEFINE(varname, namestr) \
+    static Tracepoint* varname; \
+    namespace { struct _tp_reg_##varname { _tp_reg_##varname() { varname = tracepoint_register(namestr); } } _tp_inst_##varname; }
+#else
+#define TRACEPOINT_DEFINE(varname, namestr) \
+    static Tracepoint* varname; \
+    __attribute__((constructor)) static void _tp_init_##varname(void) { varname = tracepoint_register(namestr); }
+#endif
+
+typedef struct SqliteConfig {
+    const char* journal_mode;       // NULL = don't set
+    const char* synchronous;        // NULL = don't set
+    int         wal_autocheckpoint; // 0 = don't set
+    int         page_size;          // 0 = don't set
+    int         cache_size;         // 0 = don't set
+} SqliteConfig;
+
+static inline SqliteConfig sqlite_config_default(void) {
+    SqliteConfig cfg;
+    cfg.journal_mode = "WAL";
+    cfg.synchronous = "NORMAL";
+    cfg.wal_autocheckpoint = 16384;
+    cfg.page_size = 0;
+    cfg.cache_size = 0;
+    return cfg;
+}
+
+
+void tracer_init(void);
+void tracer_close(void);
+int tracer_add_tcp_subscriber(const char* host, uint16_t port);
+int tracer_add_sqlite_subscriber(const char* db_path, const SqliteConfig* config);
+bool tracer_subscribe(int subscriber_idx, const char* tracepoint_name);
+bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name);
+void tracer_subscribe_all(int subscriber_idx);
+void tracer_unsubscribe_all(int subscriber_idx);
+void tracer_remove_subscriber(int idx);
+
+Tracepoint* tracepoint_register(const char* name);
+bool tracepoint_enabled(const Tracepoint* tp);
+void tracepoint_emit(Tracepoint* tp, const TraceField* fields, size_t nfields);
+
+// Direct API
+#define TRACE(tp, ...) \
+    do { \
+        if (tracepoint_enabled(tp)) { \
+            TraceField _trace_fields[] = { __VA_ARGS__ }; \
+            tracepoint_emit((tp), _trace_fields, sizeof(_trace_fields)/sizeof(_trace_fields[0])); \
+        } \
+    } while (0)
+
+// Split check API
+#define WILL_TRACE(tp) tracepoint_enabled(tp)
+#define TRACE_UNCHECKED(tp, ...) \
+    do { \
+        TraceField _trace_fields[] = { __VA_ARGS__ }; \
+        tracepoint_emit((tp), _trace_fields, sizeof(_trace_fields)/sizeof(_trace_fields[0])); \
+    } while (0)
+
+
+
+
+// ---------------------------------------------------------------------------
+// Private API forward declarations
+// ---------------------------------------------------------------------------
+#if defined(TRACER_PRIVATE_API) || defined(TRACER_IMPLEMENTATION)
+
+// Socket utils
+#ifdef _WIN32
+typedef SOCKET socket_t;
+#else
+typedef int socket_t;
+#endif
+
 typedef enum Result {
     SUCCESS = 0,
     SOCKET_INIT_FAILED = 1,
@@ -152,14 +304,13 @@ typedef enum Result {
 } Result;
 
 
+// Socket
 typedef struct TcpConnection
 {
     socket_t socket;
     struct addrinfo* addresses;
     struct addrinfo* picked_address;
 } TcpConnection;
-
-#ifdef TRACING_IMPLEMENTATION
 
 static Result socket_init();
 static void socket_deinit();
@@ -169,356 +320,6 @@ static Result socket_connect( const char* addr, uint16_t port, TcpConnection* co
 static void socket_close(socket_t socket);
 static Result socket_connect_blocking( const char* addr, uint16_t port, socket_t* connection_socket);
 static void socket_close_connection(TcpConnection* connection);
-
-static Result
-socket_init() {
-#ifdef _WIN32
-    WSADATA wsaData;
-    if( WSAStartup( MAKEWORD( 2, 2 ), &wsaData ) != 0 )
-    {
-        return SOCKET_INIT_FAILED;
-    }
-#endif
-    return SUCCESS;
-}
-
-static void
-socket_deinit() {
-#ifdef _WIN32
-    WSACleanup();
-#endif
-}
-
-static socket_t
-__addrinfo_and_socket_for_family(uint16_t port, int ai_family, bool only_localhost, struct addrinfo** res)
-{
-    struct addrinfo hints;
-    memset( &hints, 0, sizeof( hints ) );
-    hints.ai_family = ai_family;
-    hints.ai_socktype = SOCK_STREAM;
-    if(!only_localhost)
-    {
-        hints.ai_flags = AI_PASSIVE;
-    }
-
-    char portbuf[32];
-    snprintf( portbuf, sizeof(portbuf), "%" PRIu16, port );
-    if( getaddrinfo( NULL, portbuf, &hints, res ) != 0 ) return -1;
-    socket_t sock = socket( (*res)->ai_family, (*res)->ai_socktype, (*res)->ai_protocol );
-    if (sock == -1) freeaddrinfo( *res );
-    return sock;
-}
-
-static Result
-socket_listen(uint16_t port, int backlog, bool only_ipv4, bool only_localhost, socket_t* socket) {
-    socket_t sock = -1;
-    struct addrinfo* res = NULL;
-
-    if(!only_ipv4)
-    {
-        sock = __addrinfo_and_socket_for_family( port, AF_INET6, only_localhost, &res );
-    }
-    if (sock == -1)
-    {
-        // IPV6 protocol may not be available/is disabled. Try to create a socket
-        // with the IPV4 protocol
-        sock = __addrinfo_and_socket_for_family( port, AF_INET, only_localhost, &res );
-        if( sock == -1 ) return SOCKET_CREATION_FAILED;
-    }
-
-#if defined _WIN32
-    if (res->ai_family == AF_INET6) {
-        unsigned long val = 0;
-        setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&val, sizeof( val ) );
-    }
-#elif defined BSD
-    int val;
-    if (res->ai_family == AF_INET6) {
-        val = 0;
-        setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&val, sizeof( val ) );
-    }
-    val = 1;
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof( val ) );
-#else
-    int val = 1;
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof( val ) );
-#endif
-    if( bind(sock, res->ai_addr, res->ai_addrlen ) == -1 ) { freeaddrinfo( res ); socket_close(sock); return BIND_FAILED; }
-    if( listen(sock, backlog ) == -1 ) { freeaddrinfo( res ); socket_close(sock); return LISTEN_FAILED; }
-    freeaddrinfo( res );
-
-    *socket = sock;
-    return SUCCESS;
-}
-
-static Result
-socket_accept(socket_t listening_socket, int timeout, socket_t* socket)
-{
-    struct sockaddr_storage remote;
-    socklen_t sz = sizeof(remote);
-
-    struct pollfd fd;
-    fd.fd = listening_socket;
-    fd.events = POLLIN;
-
-    if(poll(&fd, 1, timeout) > 0)
-    {
-        socket_t sock = accept(listening_socket, (struct sockaddr*)&remote, &sz);
-        if( sock == -1 ) return ACCEPT_FAILED;
-
-#if defined __APPLE__
-        int val = 1;
-        setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof( val ) );
-#endif
-        *socket = sock;
-        return SUCCESS;
-    }
-    else
-    {
-        return TIMEOUT;
-    }
-}
-
-static void
-socket_close(socket_t socket)
-{
-#ifdef _WIN32
-    closesocket(socket);
-#else
-    close(socket);
-#endif
-}
-
-static Result
-socket_connect( const char* addr, uint16_t port, TcpConnection* connection)
-{
-    if(connection->picked_address)
-    {
-        const int c = connect(connection->socket, connection->picked_address->ai_addr, connection->picked_address->ai_addrlen );
-        if( c == -1 )
-        {
-#if defined _WIN32
-            const int err = WSAGetLastError();
-            if( err == WSAEALREADY || err == WSAEINPROGRESS ) return CONNECT_WAITING;
-            if( err != WSAEISCONN )
-            {
-                freeaddrinfo( connection->addresses );
-                closesocket( connection->socket );
-                connection->addresses = 0;
-                connection->picked_address = 0;
-                return CONNECT_FAILED;
-            }
-#else
-            const int err = errno;
-            if( err == EALREADY || err == EINPROGRESS ) return CONNECT_WAITING;
-            if( err != EISCONN )
-            {
-                freeaddrinfo( connection->addresses );
-                close( connection->socket );
-                connection->addresses = 0;
-                connection->picked_address = 0;
-                return CONNECT_FAILED;
-            }
-#endif
-        }
-
-#if defined _WIN32
-        u_long nonblocking = 0;
-        ioctlsocket( connection->socket, FIONBIO, &nonblocking );
-#else
-        int flags = fcntl( connection->socket, F_GETFL, 0 );
-        fcntl( connection->socket, F_SETFL, flags & ~O_NONBLOCK );
-#endif
-        freeaddrinfo( connection->addresses );
-        connection->addresses = 0;
-        connection->picked_address = 0;
-        return SUCCESS;
-    }
-
-    struct addrinfo hints;
-    struct addrinfo *res, *ptr;
-
-    memset( &hints, 0, sizeof( hints ) );
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-
-    char portbuf[32];
-    snprintf( portbuf, sizeof(portbuf), "%" PRIu16, port );
-
-    if( getaddrinfo( addr, portbuf, &hints, &res ) != 0 ) return INVALID_ADDRESS;
-    socket_t sock = 0;
-    for( ptr = res; ptr; ptr = ptr->ai_next )
-    {
-        if( ( sock = socket( ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol ) ) == -1 ) continue;
-#if defined __APPLE__
-        int val = 1;
-        setsockopt( sock, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof( val ) );
-#endif
-#if defined _WIN32
-        u_long nonblocking = 1;
-        ioctlsocket( sock, FIONBIO, &nonblocking );
-#else
-        int flags = fcntl( sock, F_GETFL, 0 );
-        fcntl( sock, F_SETFL, flags | O_NONBLOCK );
-#endif
-        if( connect( sock, ptr->ai_addr, ptr->ai_addrlen ) == 0 )
-        {
-            break;
-        }
-        else
-        {
-#if defined _WIN32
-            const int err = WSAGetLastError();
-            if( err != WSAEWOULDBLOCK )
-            {
-                closesocket( sock );
-                continue;
-            }
-#else
-            if( errno != EINPROGRESS )
-            {
-                close( sock );
-                continue;
-            }
-#endif
-        }
-
-        connection->addresses = res;
-        connection->picked_address = ptr;
-        connection->socket = sock;
-        return CONNECT_WAITING;
-    }
-    freeaddrinfo( res );
-    if( !ptr ) return CONNECT_FAILED;
-
-#if defined _WIN32
-    u_long nonblocking = 0;
-    ioctlsocket( sock, FIONBIO, &nonblocking );
-#else
-    int flags = fcntl( sock, F_GETFL, 0 );
-    fcntl( sock, F_SETFL, flags & ~O_NONBLOCK );
-#endif
-
-    connection->socket = sock;
-    connection->addresses = 0;
-    connection->picked_address = 0;
-    return SUCCESS;
-}
-
-static void
-socket_close_connection(TcpConnection* connection) {
-    socket_close(connection->socket);
-    if (connection->addresses) {
-        freeaddrinfo( connection->addresses );
-    }
-    connection->addresses = 0;
-    connection->picked_address = 0;
-}
-
-static Result
-socket_connect_blocking( const char* addr, uint16_t port, socket_t* connection_socket)
-{
-    struct addrinfo hints;
-    struct addrinfo *res, *ptr;
-
-    memset( &hints, 0, sizeof( hints ) );
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-
-    char portbuf[32];
-    snprintf( portbuf, sizeof(portbuf), "%" PRIu16, port );
-
-    if( getaddrinfo( addr, portbuf, &hints, &res ) != 0 ) return INVALID_ADDRESS;
-    socket_t sock = 0;
-    for( ptr = res; ptr; ptr = ptr->ai_next )
-    {
-        if( ( sock = socket( ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol ) ) == -1 ) continue;
-#if defined __APPLE__
-        int val = 1;
-        setsockopt( sock, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof( val ) );
-#endif
-        if( connect( sock, ptr->ai_addr, ptr->ai_addrlen ) == -1 )
-        {
-#ifdef _WIN32
-            closesocket( sock );
-#else
-            close( sock );
-#endif
-            continue;
-        }
-        break;
-    }
-    freeaddrinfo( res );
-    if( !ptr ) return CONNECT_FAILED;
-
-    *connection_socket = sock;
-    return SUCCESS;
-}
-
-static bool socket_send_all(socket_t sock, const void* data, size_t len) {
-    const uint8_t* p = (const uint8_t*)data;
-    while (len > 0) {
-#ifdef _WIN32
-        int sent = send(sock, (const char*)p, (int)len, 0);
-#else
-        ssize_t sent = send(sock, p, len, 0);
-#endif
-        if (sent < 0) {
-            if (errno == EINTR) continue;
-            return false;
-        }
-        if (sent == 0) return false;
-        p += sent;
-        len -= (size_t)sent;
-    }
-    return true;
-}
-
-#ifdef _WIN32
-typedef WSABUF SocketBuf;
-#define SOCKET_BUF(ptr, size) { (ULONG)(size), (char*)(ptr) }
-#else
-typedef struct iovec SocketBuf;
-#define SOCKET_BUF(ptr, size) { (void*)(ptr), (size) }
-#endif
-
-static bool socket_sendv(socket_t sock, SocketBuf* bufs, int nbufs) {
-#ifdef _WIN32
-    size_t total = 0;
-    for (int i = 0; i < nbufs; i++) total += bufs[i].len;
-    while (total > 0) {
-        DWORD sent = 0;
-        if (WSASend(sock, bufs, nbufs, &sent, 0, NULL, NULL) == SOCKET_ERROR) return false;
-        if (sent == 0) return false;
-        total -= sent;
-        for (int i = 0; i < nbufs && sent > 0; i++) {
-            if (sent >= bufs[i].len) { sent -= bufs[i].len; bufs[i].len = 0; bufs[i].buf += bufs[i].len; }
-            else { bufs[i].buf += sent; bufs[i].len -= (ULONG)sent; sent = 0; }
-        }
-    }
-    return true;
-#else
-    size_t total = 0;
-    for (int i = 0; i < nbufs; i++) total += bufs[i].iov_len;
-    while (total > 0) {
-        ssize_t sent = writev(sock, bufs, nbufs);
-        if (sent < 0) {
-            if (errno == EINTR) continue;
-            return false;
-        }
-        if (sent == 0) return false;
-        total -= (size_t)sent;
-        for (int i = 0; i < nbufs && sent > 0; i++) {
-            if ((size_t)sent >= bufs[i].iov_len) { sent -= (ssize_t)bufs[i].iov_len; bufs[i].iov_len = 0; }
-            else { bufs[i].iov_base = (uint8_t*)bufs[i].iov_base + sent; bufs[i].iov_len -= (size_t)sent; sent = 0; }
-        }
-    }
-    return true;
-#endif
-}
-
-#endif // TRACING_IMPLEMENTATION (sockets)
-
 
 // Threading
 #ifdef _WIN32
@@ -538,32 +339,10 @@ typedef struct Thread
 
 typedef THREAD_PROC(ThreadProc);
 
-static Result create_thread(ThreadProc proc, void* user_data, Thread* thread) {
-#ifdef _WIN32
-    thread->handle = CreateThread(0, 0, proc, user_data, 0, 0);
-    if (thread->handle == NULL) {
-        return THREAD_CREATION_FAILED;
-    }
-#else
-    int result = pthread_create(&thread->thread, 0, proc, user_data);
-    if (result != 0) {
-        return THREAD_CREATION_FAILED;
-    }
-#endif
+Result create_thread(ThreadProc proc, void* user_data, Thread* thread);
+void join_thread(Thread* thread);
 
-    return SUCCESS;
-}
-
-static void
-join_thread(Thread* thread) {
-#ifdef _WIN32
-    WaitForSingleObject(thread->handle, INFINITE);
-    CloseHandle(thread->handle);
-#else
-    pthread_join(thread->thread, 0);
-#endif
-}
-
+// Futex
 typedef atomic_uint Futex;
 
 static inline void futex_init(Futex* futex, uint32_t initial_value) {
@@ -717,6 +496,7 @@ static inline void mutex_unlock(Mutex* mutex) {
     }
 }
 
+// RWLock
 #define RWLOCK_READ_LOCKED        ((uint32_t)1)
 #define RWLOCK_MASK               ((uint32_t)((1 << 30) - 1))
 #define RWLOCK_WRITE_LOCKED       RWLOCK_MASK
@@ -1054,8 +834,495 @@ static inline void downgrade(RWLock* rwlock) {
     }
 }
 
+// Ring mapped buffer
+void* alloc_ring_mapped_buffer(size_t Size);
+void free_ring_mapped_buffer(void* ptr, size_t size);
+
+// MPSC queue
+typedef struct MpscRingBuffer
+{
+    Mutex producers_mutex;   // Lock for atomic concurrent allocation and doorbell initialization
+    uint8_t __padding0[TRACER_CACHE_LINE_SIZE - sizeof(Mutex)];
+
+    Futex produced_offset;   // Producers write, consumer reads and waits
+    uint8_t __padding1[TRACER_CACHE_LINE_SIZE - sizeof(Futex)];
+
+    Futex consumed_offset;  // Producers reads and waits, consumer writes
+    uint8_t __padding2[TRACER_CACHE_LINE_SIZE - sizeof(Futex)];
+
+    uint8_t* ring_buffer;
+    size_t size;
+    uint32_t mask;
+} MpscRingBuffer;
+
+#define MPSC_HEADER_TOTAL_SIZE 16
+#define MPSC_HEADER_DOORBELL_OFFSET 0
+#define MPSC_HEADER_PAYLOAD_SIZE_OFFSET 8
+
+// Doorbell values (per-entry, in header at MPSC_HEADER_DOORBELL_OFFSET)
+#define MPSC_DOORBELL_EMPTY            ((uint32_t)0) // not committed
+#define MPSC_DOORBELL_COMMITTED        ((uint32_t)1) // committed
+#define MPSC_DOORBELL_CONSUMER_WAITING ((uint32_t)2) // consumer waiting for commit
+
+#define MPSC_ALLOCATION_ALIGNMENT_BITS 4
+#define MPSC_ALLOCATION_ALIGNMENT (1 << MPSC_ALLOCATION_ALIGNMENT_BITS)
+#define MPSC_ALLOCATION_ALIGNMENT_MASK (MPSC_ALLOCATION_ALIGNMENT - 1)
+#define MPSC_RING_BUFFER_MIN_SIZE 4096
+
+static inline
+bool is_pow2(size_t n) {
+    return (n & (n - 1)) == 0;
+}
+
+static inline
+size_t align_up(size_t v, size_t a) {
+    return (v + (a - 1)) & ~(a - 1);
+}
+
+void mpsc_ring_buffer_create(MpscRingBuffer* mpsc, size_t size);
+void mpsc_ring_buffer_destroy(MpscRingBuffer* mpsc);
+uint8_t* mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size);
+uint8_t* mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size);
+void mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, uint8_t* alloc);
+size_t mpsc_ring_buffer_lock_acquire_read(MpscRingBuffer* mpsc, uint8_t** data);
+void mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc, size_t size);
+
+// ---------------------------------------------------------------------------
+// Tracepoint registry and hash table
+// ---------------------------------------------------------------------------
+typedef struct Tracepoint {
+    const char* name;
+    size_t      name_len;
+    atomic_uint subscriber_mask;
+#ifdef TRACER_SQLITE_ENABLED
+    void*       sqlite_stmt;
+#endif
+} Tracepoint;
+
+typedef struct TracepointRegistry {
+    Tracepoint tracepoints[TRACER_MAX_TRACEPOINTS];
+    atomic_uint count;
+    bool frozen;
+} TracepointRegistry;
+
+typedef struct TracepointHashEntry {
+    const char* key;
+    size_t      key_len;
+    Tracepoint* tracepoint;
+} TracepointHashEntry;
+
+typedef struct TracepointHashTable {
+    TracepointHashEntry entries[TRACER_HASH_TABLE_CAPACITY];
+} TracepointHashTable;
+
+// ---------------------------------------------------------------------------
+// Subscribers, TLV protocol, and global tracer (defined here so that
+// tracepoint_register can access g_tracer before the function bodies)
+// ---------------------------------------------------------------------------
+
+typedef enum SubscriberType {
+    SUBSCRIBER_NONE = 0,
+    SUBSCRIBER_TCP,
+    SUBSCRIBER_SQLITE
+} SubscriberType;
+
+typedef struct Subscriber {
+    SubscriberType type;
+    MpscRingBuffer ring_buffer;
+    Thread         consumer_thread;
+    atomic_uint    active;
+    atomic_uint    connected;
+    uint32_t       index;
+    union {
+        struct { char host[256]; uint16_t port; socket_t sock; } tcp;
+#ifdef TRACER_SQLITE_ENABLED
+        struct { void* db; char path[512]; SqliteConfig config; } sqlite;
+#endif
+    } cfg;
+} Subscriber;
+
+#define MSG_TRACE_EVENT          0x200001
+
+typedef struct Tracer {
+    TracepointRegistry  registry;
+    TracepointHashTable hash_table;
+    Subscriber          subscribers[TRACER_MAX_SUBSCRIBERS];
+    atomic_uint         initialized;
+} Tracer;
+
+extern Tracer g_tracer;
+
+#endif // TRACER_PRIVATE_API
+
+#ifdef TRACER_IMPLEMENTATION
+
+Result socket_init() {
+#ifdef _WIN32
+    WSADATA wsaData;
+    if( WSAStartup( MAKEWORD( 2, 2 ), &wsaData ) != 0 )
+    {
+        return SOCKET_INIT_FAILED;
+    }
+#endif
+    return SUCCESS;
+}
+
+void socket_deinit() {
+#ifdef _WIN32
+    WSACleanup();
+#endif
+}
+
+static socket_t
+_addrinfo_and_socket_for_family(uint16_t port, int ai_family, bool only_localhost, struct addrinfo** res)
+{
+    struct addrinfo hints;
+    memset( &hints, 0, sizeof( hints ) );
+    hints.ai_family = ai_family;
+    hints.ai_socktype = SOCK_STREAM;
+    if(!only_localhost)
+    {
+        hints.ai_flags = AI_PASSIVE;
+    }
+
+    char portbuf[32];
+    snprintf( portbuf, sizeof(portbuf), "%" PRIu16, port );
+    if( getaddrinfo( NULL, portbuf, &hints, res ) != 0 ) return -1;
+    socket_t sock = socket( (*res)->ai_family, (*res)->ai_socktype, (*res)->ai_protocol );
+    if (sock == -1) freeaddrinfo( *res );
+    return sock;
+}
+
+Result socket_listen(uint16_t port, int backlog, bool only_ipv4, bool only_localhost, socket_t* socket) {
+    socket_t sock = -1;
+    struct addrinfo* res = NULL;
+
+    if(!only_ipv4)
+    {
+        sock = _addrinfo_and_socket_for_family( port, AF_INET6, only_localhost, &res );
+    }
+    if (sock == -1)
+    {
+        // IPV6 protocol may not be available/is disabled. Try to create a socket
+        // with the IPV4 protocol
+        sock = _addrinfo_and_socket_for_family( port, AF_INET, only_localhost, &res );
+        if( sock == -1 ) return SOCKET_CREATION_FAILED;
+    }
+
+#if defined _WIN32
+    if (res->ai_family == AF_INET6) {
+        unsigned long val = 0;
+        setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&val, sizeof( val ) );
+    }
+#elif defined BSD
+    int val;
+    if (res->ai_family == AF_INET6) {
+        val = 0;
+        setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&val, sizeof( val ) );
+    }
+    val = 1;
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof( val ) );
+#else
+    int val = 1;
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof( val ) );
+#endif
+    if( bind(sock, res->ai_addr, res->ai_addrlen ) == -1 ) { freeaddrinfo( res ); socket_close(sock); return BIND_FAILED; }
+    if( listen(sock, backlog ) == -1 ) { freeaddrinfo( res ); socket_close(sock); return LISTEN_FAILED; }
+    freeaddrinfo( res );
+
+    *socket = sock;
+    return SUCCESS;
+}
+
+Result socket_accept(socket_t listening_socket, int timeout, socket_t* socket)
+{
+    struct sockaddr_storage remote;
+    socklen_t sz = sizeof(remote);
+
+    struct pollfd fd;
+    fd.fd = listening_socket;
+    fd.events = POLLIN;
+
+    if(poll(&fd, 1, timeout) > 0)
+    {
+        socket_t sock = accept(listening_socket, (struct sockaddr*)&remote, &sz);
+        if( sock == -1 ) return ACCEPT_FAILED;
+
+#if defined __APPLE__
+        int val = 1;
+        setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof( val ) );
+#endif
+        *socket = sock;
+        return SUCCESS;
+    }
+    else
+    {
+        return TIMEOUT;
+    }
+}
+
+void socket_close(socket_t socket)
+{
+#ifdef _WIN32
+    closesocket(socket);
+#else
+    close(socket);
+#endif
+}
+
+Result socket_connect( const char* addr, uint16_t port, TcpConnection* connection)
+{
+    if(connection->picked_address)
+    {
+        const int c = connect(connection->socket, connection->picked_address->ai_addr, connection->picked_address->ai_addrlen );
+        if( c == -1 )
+        {
+#if defined _WIN32
+            const int err = WSAGetLastError();
+            if( err == WSAEALREADY || err == WSAEINPROGRESS ) return CONNECT_WAITING;
+            if( err != WSAEISCONN )
+            {
+                freeaddrinfo( connection->addresses );
+                closesocket( connection->socket );
+                connection->addresses = 0;
+                connection->picked_address = 0;
+                return CONNECT_FAILED;
+            }
+#else
+            const int err = errno;
+            if( err == EALREADY || err == EINPROGRESS ) return CONNECT_WAITING;
+            if( err != EISCONN )
+            {
+                freeaddrinfo( connection->addresses );
+                close( connection->socket );
+                connection->addresses = 0;
+                connection->picked_address = 0;
+                return CONNECT_FAILED;
+            }
+#endif
+        }
+
+#if defined _WIN32
+        u_long nonblocking = 0;
+        ioctlsocket( connection->socket, FIONBIO, &nonblocking );
+#else
+        int flags = fcntl( connection->socket, F_GETFL, 0 );
+        fcntl( connection->socket, F_SETFL, flags & ~O_NONBLOCK );
+#endif
+        freeaddrinfo( connection->addresses );
+        connection->addresses = 0;
+        connection->picked_address = 0;
+        return SUCCESS;
+    }
+
+    struct addrinfo hints;
+    struct addrinfo *res, *ptr;
+
+    memset( &hints, 0, sizeof( hints ) );
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    char portbuf[32];
+    snprintf( portbuf, sizeof(portbuf), "%" PRIu16, port );
+
+    if( getaddrinfo( addr, portbuf, &hints, &res ) != 0 ) return INVALID_ADDRESS;
+    socket_t sock = 0;
+    for( ptr = res; ptr; ptr = ptr->ai_next )
+    {
+        if( ( sock = socket( ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol ) ) == -1 ) continue;
+#if defined __APPLE__
+        int val = 1;
+        setsockopt( sock, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof( val ) );
+#endif
+#if defined _WIN32
+        u_long nonblocking = 1;
+        ioctlsocket( sock, FIONBIO, &nonblocking );
+#else
+        int flags = fcntl( sock, F_GETFL, 0 );
+        fcntl( sock, F_SETFL, flags | O_NONBLOCK );
+#endif
+        if( connect( sock, ptr->ai_addr, ptr->ai_addrlen ) == 0 )
+        {
+            break;
+        }
+        else
+        {
+#if defined _WIN32
+            const int err = WSAGetLastError();
+            if( err != WSAEWOULDBLOCK )
+            {
+                closesocket( sock );
+                continue;
+            }
+#else
+            if( errno != EINPROGRESS )
+            {
+                close( sock );
+                continue;
+            }
+#endif
+        }
+
+        connection->addresses = res;
+        connection->picked_address = ptr;
+        connection->socket = sock;
+        return CONNECT_WAITING;
+    }
+    freeaddrinfo( res );
+    if( !ptr ) return CONNECT_FAILED;
+
+#if defined _WIN32
+    u_long nonblocking = 0;
+    ioctlsocket( sock, FIONBIO, &nonblocking );
+#else
+    int flags = fcntl( sock, F_GETFL, 0 );
+    fcntl( sock, F_SETFL, flags & ~O_NONBLOCK );
+#endif
+
+    connection->socket = sock;
+    connection->addresses = 0;
+    connection->picked_address = 0;
+    return SUCCESS;
+}
+
+void socket_close_connection(TcpConnection* connection) {
+    socket_close(connection->socket);
+    if (connection->addresses) {
+        freeaddrinfo( connection->addresses );
+    }
+    connection->addresses = 0;
+    connection->picked_address = 0;
+}
+
+Result socket_connect_blocking( const char* addr, uint16_t port, socket_t* connection_socket)
+{
+    struct addrinfo hints;
+    struct addrinfo *res, *ptr;
+
+    memset( &hints, 0, sizeof( hints ) );
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    char portbuf[32];
+    snprintf( portbuf, sizeof(portbuf), "%" PRIu16, port );
+
+    if( getaddrinfo( addr, portbuf, &hints, &res ) != 0 ) return INVALID_ADDRESS;
+    socket_t sock = 0;
+    for( ptr = res; ptr; ptr = ptr->ai_next )
+    {
+        if( ( sock = socket( ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol ) ) == -1 ) continue;
+#if defined __APPLE__
+        int val = 1;
+        setsockopt( sock, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof( val ) );
+#endif
+        if( connect( sock, ptr->ai_addr, ptr->ai_addrlen ) == -1 )
+        {
+#ifdef _WIN32
+            closesocket( sock );
+#else
+            close( sock );
+#endif
+            continue;
+        }
+        break;
+    }
+    freeaddrinfo( res );
+    if( !ptr ) return CONNECT_FAILED;
+
+    *connection_socket = sock;
+    return SUCCESS;
+}
+
+bool socket_send_all(socket_t sock, const void* data, size_t len) {
+    const uint8_t* p = (const uint8_t*)data;
+    while (len > 0) {
+#ifdef _WIN32
+        int sent = send(sock, (const char*)p, (int)len, 0);
+#else
+        ssize_t sent = send(sock, p, len, 0);
+#endif
+        if (sent < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        }
+        if (sent == 0) return false;
+        p += sent;
+        len -= (size_t)sent;
+    }
+    return true;
+}
+
+#ifdef _WIN32
+typedef WSABUF SocketBuf;
+#define SOCKET_BUF(ptr, size) { (ULONG)(size), (char*)(ptr) }
+#else
+typedef struct iovec SocketBuf;
+#define SOCKET_BUF(ptr, size) { (void*)(ptr), (size) }
+#endif
+
+bool socket_sendv(socket_t sock, SocketBuf* bufs, int nbufs) {
+#ifdef _WIN32
+    size_t total = 0;
+    for (int i = 0; i < nbufs; i++) total += bufs[i].len;
+    while (total > 0) {
+        DWORD sent = 0;
+        if (WSASend(sock, bufs, nbufs, &sent, 0, NULL, NULL) == SOCKET_ERROR) return false;
+        if (sent == 0) return false;
+        total -= sent;
+        for (int i = 0; i < nbufs && sent > 0; i++) {
+            if (sent >= bufs[i].len) { sent -= bufs[i].len; bufs[i].len = 0; bufs[i].buf += bufs[i].len; }
+            else { bufs[i].buf += sent; bufs[i].len -= (ULONG)sent; sent = 0; }
+        }
+    }
+    return true;
+#else
+    size_t total = 0;
+    for (int i = 0; i < nbufs; i++) total += bufs[i].iov_len;
+    while (total > 0) {
+        ssize_t sent = writev(sock, bufs, nbufs);
+        if (sent < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        }
+        if (sent == 0) return false;
+        total -= (size_t)sent;
+        for (int i = 0; i < nbufs && sent > 0; i++) {
+            if ((size_t)sent >= bufs[i].iov_len) { sent -= (ssize_t)bufs[i].iov_len; bufs[i].iov_len = 0; }
+            else { bufs[i].iov_base = (uint8_t*)bufs[i].iov_base + sent; bufs[i].iov_len -= (size_t)sent; sent = 0; }
+        }
+    }
+    return true;
+#endif
+}
+
+// Thread
+Result create_thread(ThreadProc proc, void* user_data, Thread* thread) {
+#ifdef _WIN32
+    thread->handle = CreateThread(0, 0, proc, user_data, 0, 0);
+    if (thread->handle == NULL) {
+        return THREAD_CREATION_FAILED;
+    }
+#else
+    int result = pthread_create(&thread->thread, 0, proc, user_data);
+    if (result != 0) {
+        return THREAD_CREATION_FAILED;
+    }
+#endif
+
+    return SUCCESS;
+}
+
+void join_thread(Thread* thread) {
+#ifdef _WIN32
+    WaitForSingleObject(thread->handle, INFINITE);
+    CloseHandle(thread->handle);
+#else
+    pthread_join(thread->thread, 0);
+#endif
+}
+
 // Ring-mapped buffer from: https://gist.github.com/mmozeiko/3b09a340f3c53e5eaed699a1aea95250
-static void* alloc_ring_mapped_buffer(size_t Size)
+void* alloc_ring_mapped_buffer(size_t Size)
 {
     void* data;
 #if defined(_WIN32)
@@ -1142,7 +1409,7 @@ static void* alloc_ring_mapped_buffer(size_t Size)
     return data;
 }
 
-static void free_ring_mapped_buffer(void* ptr, size_t size) {
+void free_ring_mapped_buffer(void* ptr, size_t size) {
 #if defined(_WIN32)
 	UnmapViewOfFileEx((char*)ptr, 0);
 	UnmapViewOfFileEx((char*)ptr + size, 0);
@@ -1153,94 +1420,8 @@ static void free_ring_mapped_buffer(void* ptr, size_t size) {
 #endif
 }
 
-// Pre-allocated MPSC ringbuffer with wait and drop semantics
-//
-// Notes:
-// - If we allow concurrent allocs before commits, we need to allow out-of-order commit as well,
-//   otherwise you run into issues where you need to wait for previous writers to be done with
-//   their allocations before you are allowed to commit.
-//
-//   For example the worst case scenario would be something like 1GiB alloc followed by 8 bytes alloc.
-//   In this case the 8 bytes alloc would have to wait for the large 1GiB memcpy before going through.
-//
-// The underlying issue is that to have allocation and consumption be linear we have to commit in order.
-//
-// Actually the issue is mostly with the linear shared allocator, because it can be dealloced only in alloc
-// order, regardless of commit order.
-// We either use a different allocator or implement some sort of delegated deallocation (which requires a log).
-//
-// Potential solutions:
-// - Allow early return from commit by deferring actual commit to other writers
-//   -> would need a separate data structure to act as a log of uncommitted
-//   -> need to keep this sorted, or traverse in sorted order after every commit
-//   -> can tune number of "in-flight" allocations and potentially return a failure to try_alloc
-//   -> does not solve the general case when we run out of log slots (or need to allow unbounded growth)
-//      -> not bounded by the number of concurrent producers because you can run into limits even with 2 threads
-//          -> A allocs 1 GiB and holds the first commit slot
-//          -> B can alloc N small elements while A is holding the slot.
-//   -> need to make a "ticket" style API where you reserve a slot in the log
-// - Truth is that logging is cheap, we expect to be consumer bound in most cases, so we can allow these to block on commit in most-cases.
-//
-// Thoughts:
-// - maybe committed could be fully writer-owned? Ring-buffer is defined by allocated and consumed while
-//   committed ranges are enqueued to a writer. The writer then takes responsability of bumping consumed
-//   by keeping track of used chunks (fragmented to linear). After the chunks are used the writer
-//   could also manage a "free-list" of chunks to deallocate and to bump the consumed index. If we force
-//   a minimum alloc size the free list could also be stored by repurposing allocations (can reuse the memory
-//   after it's consumed).
-//   -> need an enqueue side channel (basically a fixed element-size mpsc)
-// - a general purpose allocator also solves this (this is what we do in python basically), but has no bounded cost guarantee
-//
-// - I want to avoid the weird edge case where a slow producer causes us to drop messages even if we would have memory to store them, we just
-//   don't have the side channel memory to store it.
-// - SOLUTION:
-//    - store the side-channel data inline with the payload, we would likely anyways need this to do message framing.
-//    - this also allows out-of-order commit because the producer will just mark the entry
-//    - do we still mutex wait on the counters, or is it even better to directly wait on the item marker?
-//    - this has to be the better design, no side-channel, simple metadata,
-//    - ISSUE: we have to clear the whole buffer after finishing a consume operations because we don't know where the next doorbell might be.
-typedef struct MpscRingBuffer
-{
-    Mutex producers_mutex;   // Lock for atomic concurrent allocation and doorbell initialization
-    uint8_t __padding0[CACHE_LINE_SIZE - sizeof(Mutex)];
 
-    Futex produced_offset;   // Producers write, consumer reads and waits
-    uint8_t __padding1[CACHE_LINE_SIZE - sizeof(Futex)];
-
-    Futex consumed_offset;  // Producers reads and waits, consumer writes
-    uint8_t __padding2[CACHE_LINE_SIZE - sizeof(Futex)];
-
-    uint8_t* ring_buffer;
-    size_t size;
-    uint32_t mask;
-} MpscRingBuffer;
-
-#define MPSC_HEADER_TOTAL_SIZE 16
-#define MPSC_HEADER_DOORBELL_OFFSET 0
-#define MPSC_HEADER_PAYLOAD_SIZE_OFFSET 8
-
-// Doorbell values (per-entry, in header at MPSC_HEADER_DOORBELL_OFFSET)
-#define MPSC_DOORBELL_EMPTY            ((uint32_t)0) // not committed
-#define MPSC_DOORBELL_COMMITTED        ((uint32_t)1) // committed
-#define MPSC_DOORBELL_CONSUMER_WAITING ((uint32_t)2) // consumer waiting for commit
-
-#define MPSC_ALLOCATION_ALIGNMENT_BITS 4
-#define MPSC_ALLOCATION_ALIGNMENT (1 << MPSC_ALLOCATION_ALIGNMENT_BITS)
-#define MPSC_ALLOCATION_ALIGNMENT_MASK (MPSC_ALLOCATION_ALIGNMENT - 1)
-#define MPSC_RING_BUFFER_MIN_SIZE 4096
-
-static inline
-bool is_pow2(size_t n) {
-    return (n & (n - 1)) == 0;
-}
-
-static inline
-size_t align_up(size_t v, size_t a) {
-    return (v + (a - 1)) & ~(a - 1);
-}
-
-static void
-mpsc_ring_buffer_create(MpscRingBuffer* mpsc, size_t size) {
+void mpsc_ring_buffer_create(MpscRingBuffer* mpsc, size_t size) {
     mutex_init(&mpsc->producers_mutex);
     mpsc->produced_offset = 0;
     mpsc->consumed_offset = 0;
@@ -1262,8 +1443,7 @@ mpsc_ring_buffer_create(MpscRingBuffer* mpsc, size_t size) {
     mpsc->mask = (uint32_t)((size >> MPSC_ALLOCATION_ALIGNMENT_BITS) - 1);
 }
 
-static void
-mpsc_ring_buffer_destroy(MpscRingBuffer* mpsc) {
+void mpsc_ring_buffer_destroy(MpscRingBuffer* mpsc) {
     free_ring_mapped_buffer((void*)mpsc->ring_buffer, mpsc->size);
 
     mpsc->produced_offset = 0;
@@ -1274,8 +1454,7 @@ mpsc_ring_buffer_destroy(MpscRingBuffer* mpsc) {
     mpsc->size = 0;
 }
 
-static uint8_t*
-mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
+uint8_t* mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
     // Zero allocs or allocs that are bigger than the max payload size are not valid.
     if (size == 0 || size > (mpsc->size - MPSC_HEADER_TOTAL_SIZE)) {
         return NULL;
@@ -1311,8 +1490,7 @@ mpsc_ring_buffer_try_reserve_write(MpscRingBuffer* mpsc, size_t size) {
     return start + MPSC_HEADER_TOTAL_SIZE;
 }
 
-static uint8_t*
-mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
+uint8_t* mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
     // Zero allocs or allocs that are bigger than the max payload size are not valid.
     if (size == 0 || size > (mpsc->size - MPSC_HEADER_TOTAL_SIZE)) {
         return NULL;
@@ -1358,8 +1536,7 @@ mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size) {
     }
 }
 
-static void
-mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, uint8_t* alloc) {
+void mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, uint8_t* alloc) {
     uint8_t* header = alloc - MPSC_HEADER_TOTAL_SIZE;
 
     // Swap doorbell to COMMITTED. If the consumer was waiting on this entry
@@ -1374,8 +1551,7 @@ mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, uint8_t* alloc) {
     }
 }
 
-static size_t
-mpsc_ring_buffer_lock_acquire_read(MpscRingBuffer* mpsc, uint8_t** data) {
+size_t mpsc_ring_buffer_lock_acquire_read(MpscRingBuffer* mpsc, uint8_t** data) {
     uint32_t produced = atomic_load_explicit(&mpsc->produced_offset, memory_order_relaxed);
     uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
 
@@ -1409,8 +1585,7 @@ mpsc_ring_buffer_lock_acquire_read(MpscRingBuffer* mpsc, uint8_t** data) {
     return size;
 }
 
-static void
-mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc, size_t size) {
+void mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc, size_t size) {
     // Increment the counter
     uint32_t consumed = atomic_load_explicit(&mpsc->consumed_offset, memory_order_relaxed);
     uint32_t alloc = (align_up(size, MPSC_ALLOCATION_ALIGNMENT) + MPSC_HEADER_TOTAL_SIZE) >> MPSC_ALLOCATION_ALIGNMENT_BITS;
@@ -1419,73 +1594,6 @@ mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc, size_t size) {
     // Wake any potential waiting reader
     futex_wake_all(&mpsc->consumed_offset);
 }
-
-// ---------------------------------------------------------------------------
-// Serialization
-// ---------------------------------------------------------------------------
-
-typedef struct Tracepoint Tracepoint;
-
-#define NUMPY_MAX_DIMS 32
-
-// These have to match TypeCode in _serializer.py
-typedef enum TraceType {
-    TRACE_TYPE_NONE    = 0,
-    TRACE_TYPE_I64     = 1,
-    TRACE_TYPE_F64     = 2,
-    TRACE_TYPE_STR     = 3,
-    TRACE_TYPE_BYTES   = 7,
-    TRACE_TYPE_NDARRAY = 8,
-} TraceType;
-
-typedef struct TraceFieldStr { const char* data; size_t len; } TraceFieldStr;
-typedef struct TraceFieldBytes { const uint8_t* data; size_t len; } TraceFieldBytes;
-typedef struct TraceFieldNdarray {
-    size_t ndim;
-    const size_t* shape;
-    const size_t* strides;
-    const void* data;
-    size_t elem_size;
-    const char* descr;
-} TraceFieldNdarray;
-
-typedef struct TraceField {
-    uint8_t type;
-    const char* key;
-    size_t key_len;
-    union {
-        int64_t          as_i64;
-        double           as_f64;
-        TraceFieldStr    as_str;
-        TraceFieldBytes  as_bytes;
-        TraceFieldNdarray as_ndarray;
-    } val;
-} TraceField;
-
-// Field macros
-#ifdef __cplusplus
-static inline TraceField _tf_none(const char* k, size_t k_len)                                                                                             { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_NONE;    f.key=k; f.key_len=k_len; return f; }
-static inline TraceField _tf_i64(const char* k, size_t k_len, int64_t v)                                                                                   { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_I64;     f.key=k; f.key_len=k_len; f.val.as_i64=v;  return f; }
-static inline TraceField _tf_f64(const char* k, size_t k_len, double v)                                                                                    { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_F64;     f.key=k; f.key_len=k_len; f.val.as_f64=v;  return f; }
-static inline TraceField _tf_str(const char* k, size_t k_len, const char* s, size_t l)                                                                     { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_STR;     f.key=k; f.key_len=k_len; f.val.as_str.data=s; f.val.as_str.len=l; return f; }
-static inline TraceField _tf_bytes(const char* k, size_t k_len, const uint8_t* d, size_t l)                                                                { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_BYTES;   f.key=k; f.key_len=k_len; f.val.as_bytes.data=d; f.val.as_bytes.len=l; return f; }
-static inline TraceField _tf_ndarray(const char* k, size_t k_len, size_t nd, const size_t* sh, const size_t* st, const void* d, size_t es, const char* de) { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_NDARRAY; f.key=k; f.key_len=k_len; f.val.as_ndarray.ndim=nd; f.val.as_ndarray.shape=sh; f.val.as_ndarray.strides=st; f.val.as_ndarray.data=d; f.val.as_ndarray.elem_size=es; f.val.as_ndarray.descr=de; return f; }
-#define TNONE(key)                           _tf_none   (key, sizeof(key) - 1)
-#define TI64(key, v)                         _tf_i64    (key, sizeof(key) - 1, v)
-#define TF64(key, v)                         _tf_f64    (key, sizeof(key) - 1, v)
-#define TSTR(key, s, l)                      _tf_str    (key, sizeof(key) - 1, s, l)
-#define TBYTES(key, d, l)                    _tf_bytes  (key, sizeof(key) - 1, d, l)
-#define TNDARRAY(key, nd, sh, st, d, es, de) _tf_ndarray(key, sizeof(key) - 1, nd, sh, st, d, es, de)
-#else
-#define TNONE(k)       { .type=TRACE_TYPE_NONE, .key=(k), .key_len=sizeof(k)-1 }
-#define TI64(k, v)     { .type=TRACE_TYPE_I64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_i64=(v)} }
-#define TF64(k, v)     { .type=TRACE_TYPE_F64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_f64=(v)} }
-#define TSTR(k, s, l)  { .type=TRACE_TYPE_STR,  .key=(k), .key_len=sizeof(k)-1, .val={.as_str={(s),(l)}} }
-#define TBYTES(k, d, l){ .type=TRACE_TYPE_BYTES,.key=(k), .key_len=sizeof(k)-1, .val={.as_bytes={(d),(l)}} }
-#define TNDARRAY(k, nd, sh, st, d, es, de) \
-    { .type=TRACE_TYPE_NDARRAY, .key=(k), .key_len=sizeof(k)-1, \
-      .val={.as_ndarray={ (nd),(sh),(st),(d),(es),(de) }} }
-#endif
 
 // Low-level size helpers
 static inline size_t _trace_key_size(size_t key_len) {
@@ -1733,104 +1841,11 @@ static inline uint8_t* _trace_field_write(uint8_t* buf, const TraceField* f) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tracepoint registry and hash table
-// ---------------------------------------------------------------------------
-
-typedef struct Tracepoint {
-    const char* name;
-    size_t      name_len;
-    atomic_uint subscriber_mask;
-#ifdef TRACER_SQLITE_ENABLED
-    void*       sqlite_stmt;
-#endif
-} Tracepoint;
-
-typedef struct TracepointRegistry {
-    Tracepoint tracepoints[TRACER_MAX_TRACEPOINTS];
-    atomic_uint count;
-    bool frozen;
-} TracepointRegistry;
-
-typedef struct TracepointHashEntry {
-    const char* key;
-    size_t      key_len;
-    Tracepoint* tracepoint;
-} TracepointHashEntry;
-
-typedef struct TracepointHashTable {
-    TracepointHashEntry entries[TRACER_HASH_TABLE_CAPACITY];
-} TracepointHashTable;
-
-// ---------------------------------------------------------------------------
-// Subscribers, TLV protocol, and global tracer (defined here so that
-// tracepoint_register can access g_tracer before the function bodies)
-// ---------------------------------------------------------------------------
-
-typedef enum SubscriberType {
-    SUBSCRIBER_NONE = 0,
-    SUBSCRIBER_TCP,
-    SUBSCRIBER_SQLITE
-} SubscriberType;
-
-#ifdef TRACER_SQLITE_ENABLED
-typedef struct SqliteConfig {
-    const char* journal_mode;       // NULL = don't set
-    const char* synchronous;        // NULL = don't set
-    int         wal_autocheckpoint; // 0 = don't set
-    int         page_size;          // 0 = don't set
-    int         cache_size;         // 0 = don't set
-} SqliteConfig;
-
-static inline SqliteConfig sqlite_config_default(void) {
-    SqliteConfig cfg;
-    cfg.journal_mode = "WAL";
-    cfg.synchronous = "NORMAL";
-    cfg.wal_autocheckpoint = 16384;
-    cfg.page_size = 0;
-    cfg.cache_size = 0;
-    return cfg;
-}
-#endif
-
-typedef struct Subscriber {
-    SubscriberType type;
-    MpscRingBuffer ring_buffer;
-    Thread         consumer_thread;
-    atomic_uint    active;
-    atomic_uint    connected;
-    uint32_t       index;
-    union {
-        struct { char host[256]; uint16_t port; socket_t sock; } tcp;
-#ifdef TRACER_SQLITE_ENABLED
-        struct { void* db; char path[512]; SqliteConfig config; } sqlite;
-#endif
-    } cfg;
-} Subscriber;
-
-#define TLV_HEADER_SIZE          16
-#define MSG_TRACE_EVENT          0x200001
-#define MSG_LIST_TRACEPOINTS     0x200002
-#define MSG_LIST_TP_RESPONSE     0x200003
-#define MSG_ENABLE_PATTERN       0x200004
-#define MSG_ENABLE_PATTERN_RESP  0x200005
-#define MSG_DISABLE_PATTERN      0x200006
-#define MSG_DISABLE_PATTERN_RESP 0x200007
-
-typedef struct Tracer {
-    TracepointRegistry  registry;
-    TracepointHashTable hash_table;
-    Subscriber          subscribers[TRACER_MAX_SUBSCRIBERS];
-    atomic_uint         initialized;
-} Tracer;
-
-extern Tracer g_tracer;
-
-static inline bool tracepoint_enabled(const Tracepoint* tp) {
+bool tracepoint_enabled(const Tracepoint* tp) {
     return atomic_load_explicit(&((Tracepoint*)tp)->subscriber_mask, memory_order_relaxed) != 0;
 }
 
-static Tracepoint* tracepoint_register(const char* name) {
+Tracepoint* tracepoint_register(const char* name) {
     uint32_t idx = atomic_fetch_add_explicit(&g_tracer.registry.count, 1, memory_order_relaxed);
     ASSERT(idx < TRACER_MAX_TRACEPOINTS && "too many tracepoints");
     ASSERT(!g_tracer.registry.frozen && "cannot register tracepoints after tracer_init()");
@@ -1847,39 +1862,6 @@ static Tracepoint* tracepoint_register(const char* name) {
     atomic_store_explicit(&tp->subscriber_mask, 0, memory_order_relaxed);
     return tp;
 }
-
-#ifdef _MSC_VER
-#define TRACEPOINT_DEFINE(varname, namestr) \
-    static Tracepoint* varname; \
-    static void __cdecl _tp_init_##varname(void) { varname = tracepoint_register(namestr); } \
-    __pragma(section(".CRT$XCU", read)) \
-    __declspec(allocate(".CRT$XCU")) static void(__cdecl* _tp_ptr_##varname)(void) = _tp_init_##varname;
-#elif defined(__cplusplus)
-#define TRACEPOINT_DEFINE(varname, namestr) \
-    static Tracepoint* varname; \
-    namespace { struct _tp_reg_##varname { _tp_reg_##varname() { varname = tracepoint_register(namestr); } } _tp_inst_##varname; }
-#else
-#define TRACEPOINT_DEFINE(varname, namestr) \
-    static Tracepoint* varname; \
-    __attribute__((constructor)) static void _tp_init_##varname(void) { varname = tracepoint_register(namestr); }
-#endif
-
-// ---------------------------------------------------------------------------
-// Public API forward declarations
-// ---------------------------------------------------------------------------
-void tracer_init(void);
-void tracer_close(void);
-int tracer_add_tcp_subscriber(const char* host, uint16_t port);
-#ifdef TRACER_SQLITE_ENABLED
-int tracer_add_sqlite_subscriber(const char* db_path, const SqliteConfig* config);
-#endif
-bool tracer_subscribe(int subscriber_idx, const char* tracepoint_name);
-bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name);
-void tracer_subscribe_all(int subscriber_idx);
-void tracer_unsubscribe_all(int subscriber_idx);
-void tracer_remove_subscriber(int idx);
-
-#ifdef TRACING_IMPLEMENTATION
 
 Tracer g_tracer;
 
@@ -1965,7 +1947,7 @@ static bool _tcp_send_trace_event(socket_t sock, Tracepoint* tp, const uint8_t* 
     // Wire format: TLV header(16) | id_len(8) | name(N) | num_entries(8) | fields...
     size_t wire_payload_len = 8 + tp->name_len + fields_len;
 
-    uint8_t hdr[TLV_HEADER_SIZE + 8];
+    uint8_t hdr[24];
     uint32_t msg_type = MSG_TRACE_EVENT;
     uint32_t format = 0;
     uint64_t length = (uint64_t)wire_payload_len;
@@ -1973,7 +1955,7 @@ static bool _tcp_send_trace_event(socket_t sock, Tracepoint* tp, const uint8_t* 
     memcpy(hdr + 4, &format, 4);
     memcpy(hdr + 8, &length, 8);
     uint64_t id_len = (uint64_t)tp->name_len;
-    memcpy(hdr + TLV_HEADER_SIZE, &id_len, 8);
+    memcpy(hdr + 16, &id_len, 8);
 
     SocketBuf bufs[3] = {
         SOCKET_BUF(hdr,         sizeof(hdr)),
@@ -2326,8 +2308,8 @@ int tracer_add_tcp_subscriber(const char* host, uint16_t port) {
     return -1;
 }
 
-#ifdef TRACER_SQLITE_ENABLED
 int tracer_add_sqlite_subscriber(const char* db_path, const SqliteConfig* config) {
+#ifdef TRACER_SQLITE_ENABLED
     for (int i = 0; i < TRACER_MAX_SUBSCRIBERS; i++) {
         if (g_tracer.subscribers[i].type == SUBSCRIBER_NONE) {
             Subscriber* sub = &g_tracer.subscribers[i];
@@ -2351,9 +2333,9 @@ int tracer_add_sqlite_subscriber(const char* db_path, const SqliteConfig* config
             return i;
         }
     }
+#endif
     return -1;
 }
-#endif
 
 bool tracer_subscribe(int subscriber_idx, const char* tracepoint_name) {
     Tracepoint* tp = _tracepoint_ht_find(&g_tracer.hash_table, tracepoint_name, strlen(tracepoint_name));
@@ -2457,8 +2439,6 @@ void tracer_close(void) {
     atomic_store_explicit(&g_tracer.initialized, false, memory_order_relaxed);
 }
 
-#endif // TRACING_IMPLEMENTATION (tracer)
-
 // ---------------------------------------------------------------------------
 // TRACE macro
 // ---------------------------------------------------------------------------
@@ -2470,7 +2450,7 @@ static inline int _trace_ctz_msvc(uint32_t x) { unsigned long idx; _BitScanForwa
 #define _TRACE_CTZ(x) __builtin_ctz(x)
 #endif
 
-static inline void _trace_emit(Tracepoint* tp, const TraceField* fields, size_t nfields) {
+void tracepoint_emit(Tracepoint* tp, const TraceField* fields, size_t nfields) {
     uint32_t mask = atomic_load_explicit(&tp->subscriber_mask, memory_order_relaxed);
 
     // Compute total size once (same for all subscribers)
@@ -2499,22 +2479,6 @@ static inline void _trace_emit(Tracepoint* tp, const TraceField* fields, size_t 
         mpsc_ring_buffer_commit_write(&sub->ring_buffer, buf);
     }
 }
+#endif // TRACER_IMPLEMENTATION
 
-// Direct API
-#define TRACE(tp, ...) \
-    do { \
-        if (tracepoint_enabled(tp)) { \
-            TraceField _trace_fields[] = { __VA_ARGS__ }; \
-            _trace_emit((tp), _trace_fields, sizeof(_trace_fields)/sizeof(_trace_fields[0])); \
-        } \
-    } while (0)
-
-// Split check API
-#define WILL_TRACE(tp) tracepoint_enabled(tp)
-#define TRACE_UNCHECKED(tp, ...) \
-    do { \
-        TraceField _trace_fields[] = { __VA_ARGS__ }; \
-        _trace_emit((tp), _trace_fields, sizeof(_trace_fields)/sizeof(_trace_fields[0])); \
-    } while (0)
-
-#endif // TRACING_H
+#endif // TRACER_H

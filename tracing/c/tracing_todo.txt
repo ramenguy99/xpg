@@ -1,13 +1,15 @@
 Maintenance
-- [ ] Check current diff
-- [ ] Public vs private API with prefixes
+- [x] Check current diff
+- [x] Public vs private API
+- [ ] Fix all api with prefixes
 - [ ] Expose all max sizes as defines
+- [ ] Expose assert and malloc as defines
 - [ ] Rename / move directory and library
 
 Rework:
-- [ ] Send tracepoint index / pointer to consumer thread
-    - [ ] Tcp sub uses it for sendv of name
-    - [ ] Sqlite sub uses it for table name (on creation) and stores sqlite statement in it
+- [x] Send tracepoint index / pointer to consumer thread
+    - [x] Tcp sub uses it for sendv of name
+    - [x] Sqlite sub uses it for table name (on creation) and stores sqlite statement in it
 
 TCP:
 - [x] Write cross platform sendv wrapper to send tcp messages in a single call
@@ -15,10 +17,10 @@ TCP:
 - [ ] Add tcp reader thread, use atomics to enable / disable tracepoints at runtime
 
 SQLite:
-- [ ] Do not store columns
-- [ ] Store statement in tracepoint (if not null)
-- [ ] Fallback to dynamic allocation for table creation if does not fit in stack-allocated buffer (snprintf helper, or sqlite helpers)
-- [ ] Sqlite config pragmas from user
+- [x] Do not store columns
+- [x] Store statement in tracepoint (if not null)
+- [x] Fallback to dynamic allocation for table creation if does not fit in stack-allocated buffer (snprintf helper, or sqlite helpers)
+- [x] Sqlite config pragmas from user
 
 Tests:
 - [ ] Sqlite and TCP tests

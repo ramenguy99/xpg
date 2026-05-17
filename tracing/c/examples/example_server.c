@@ -1,6 +1,7 @@
 #include <stdlib.h>
 
-#define TRACING_IMPLEMENTATION
+#define TRACER_PRIVATE_API
+#define TRACER_IMPLEMENTATION
 #include "tracing.h"
 
 void fatal(const char* msg, Result result) {

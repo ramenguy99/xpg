@@ -1,7 +1,8 @@
 #include <cstdlib>
 #include <cstdio>
 
-#define TRACING_IMPLEMENTATION
+#define TRACER_IMPLEMENTATION
+#define TRACER_PRIVATE_API
 #include "tracing.h"
 
 TRACEPOINT_DEFINE(tp_physics, "physics.step");
@@ -25,7 +26,7 @@ int main() {
     tracer_subscribe_all(tcp);
 
 #ifdef TRACER_SQLITE_ENABLED
-    int sql = tracer_add_sqlite_subscriber("traces.db");
+    int sql = tracer_add_sqlite_subscriber("traces.db", NULL);
     tracer_subscribe_all(sql);
     std::printf("SQLite subscriber added\n");
 #endif

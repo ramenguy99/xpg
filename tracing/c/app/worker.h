@@ -4,7 +4,7 @@
 #include <atomic>
 
 struct WorkerContext {
-    Thread thread;
+    _Thread thread;
     std::atomic<bool> running;
 };
 

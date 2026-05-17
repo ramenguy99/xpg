@@ -17,7 +17,7 @@ static void sleep_ms(int ms) {
 #endif
 }
 
-static THREAD_PROC(worker_proc) {
+static _THREAD_PROC(worker_proc) {
     WorkerContext* ctx = (WorkerContext*)data;
     int tick = 0;
 
@@ -43,10 +43,10 @@ static THREAD_PROC(worker_proc) {
 
 void worker_start(WorkerContext* ctx) {
     ctx->running.store(true, std::memory_order_relaxed);
-    create_thread(worker_proc, ctx, &ctx->thread);
+    _create_thread(worker_proc, ctx, &ctx->thread);
 }
 
 void worker_stop(WorkerContext* ctx) {
     ctx->running.store(false, std::memory_order_relaxed);
-    join_thread(&ctx->thread);
+    _join_thread(&ctx->thread);
 }
