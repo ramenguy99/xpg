@@ -133,9 +133,9 @@ using std::memory_order_release;
 #ifndef TRACER_SUBSCRIBER_BUFFER_SIZE
 #define TRACER_SUBSCRIBER_BUFFER_SIZE (1 << 20)
 #endif
-// 0 = DROP, 1 = WAIT
 #ifndef TRACER_QUEUE_FULL_POLICY
-#define TRACER_QUEUE_FULL_POLICY 1
+// 0 = DROP, 1 = WAIT
+#define TRACER_QUEUE_FULL_POLICY 0
 #endif
 #ifndef TRACER_TCP_RECONNECT_MS
 #define TRACER_TCP_RECONNECT_MS 1000
@@ -887,9 +887,7 @@ void mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, uint8_t* alloc);
 size_t mpsc_ring_buffer_lock_acquire_read(MpscRingBuffer* mpsc, uint8_t** data);
 void mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc, size_t size);
 
-// ---------------------------------------------------------------------------
 // Tracepoint registry and hash table
-// ---------------------------------------------------------------------------
 typedef struct Tracepoint {
     const char* name;
     size_t      name_len;
@@ -1864,9 +1862,6 @@ Tracepoint* tracepoint_register(const char* name) {
 }
 
 Tracer g_tracer;
-
-// TODO: make hash funcion exernally overridable.
-// Users that are linking with better hash libraries (like xxhash) should use them instead
 
 // Hash table (FNV-1a, open addressing, linear probing)
 static inline uint32_t _hash_fnv1a(const char* key, size_t len) {

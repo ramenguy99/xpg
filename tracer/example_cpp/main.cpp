@@ -3,8 +3,7 @@
 #include <ctime>
 #include <cerrno>
 
-#define TRACING_IMPLEMENTATION
-#include "tracing.h"
+#include "tracer.h"
 #include "worker.h"
 
 TRACEPOINT_DEFINE(tp_main, "main.lifecycle");

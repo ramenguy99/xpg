@@ -1,24 +1,18 @@
 #include <cstdio>
-#include <ctime>
-#include <cerrno>
+#include <chrono>
+#include <thread>
 
 #include "worker.h"
+
+#include "tracer.h"
 
 TRACEPOINT_DEFINE(tp_worker, "worker.tick");
 
 static void sleep_ms(int ms) {
-#ifdef _WIN32
-    Sleep((DWORD)ms);
-#else
-    struct timespec ts;
-    ts.tv_sec = ms / 1000;
-    ts.tv_nsec = (ms % 1000) * 1000000L;
-    while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {}
-#endif
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
-static _THREAD_PROC(worker_proc) {
-    WorkerContext* ctx = (WorkerContext*)data;
+static void worker_proc(WorkerContext* ctx) {
     int tick = 0;
 
     printf("[worker] started\n");
@@ -38,15 +32,15 @@ static _THREAD_PROC(worker_proc) {
     }
 
     printf("[worker] stopped after %d ticks\n", tick);
-    return 0;
 }
 
 void worker_start(WorkerContext* ctx) {
     ctx->running.store(true, std::memory_order_relaxed);
-    _create_thread(worker_proc, ctx, &ctx->thread);
+    ctx->thread = std::thread(worker_proc, ctx);
 }
 
 void worker_stop(WorkerContext* ctx) {
     ctx->running.store(false, std::memory_order_relaxed);
-    _join_thread(&ctx->thread);
+    if (ctx->thread.joinable())
+        ctx->thread.join();
 }

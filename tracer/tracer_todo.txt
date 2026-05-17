@@ -3,7 +3,7 @@ Maintenance
 - [x] Public vs private API
 - [ ] Fix all api with prefixes
 - [ ] Expose all max sizes as defines
-- [ ] Expose assert and malloc as defines
+- [ ] Expose assert malloc and hash as defines
 - [ ] Rename / move directory and library
 
 Rework:

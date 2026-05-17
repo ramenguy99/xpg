@@ -1,10 +1,10 @@
 #pragma once
 
-#include "tracing.h"
 #include <atomic>
+#include <thread>
 
 struct WorkerContext {
-    _Thread thread;
+    std::thread thread;
     std::atomic<bool> running;
 };
 
