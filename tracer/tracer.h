@@ -342,6 +342,17 @@ typedef THREAD_PROC(ThreadProc);
 Result create_thread(ThreadProc proc, void* user_data, Thread* thread);
 void join_thread(Thread* thread);
 
+static inline void thread_sleep_ms(int ms) {
+#ifdef _WIN32
+    Sleep((DWORD)ms);
+#else
+    struct timespec ts;
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (ms % 1000) * 1000000L;
+    while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {}
+#endif
+}
+
 // Futex
 typedef atomic_uint Futex;
 
@@ -1900,20 +1911,6 @@ static Tracepoint* _tracepoint_ht_find(const TracepointHashTable* ht, const char
     return NULL;
 }
 
-// ---------------------------------------------------------------------------
-// Sleep helper
-// ---------------------------------------------------------------------------
-
-static void _tracer_sleep_ms(int ms) {
-#ifdef _WIN32
-    Sleep((DWORD)ms);
-#else
-    struct timespec ts;
-    ts.tv_sec = ms / 1000;
-    ts.tv_nsec = (ms % 1000) * 1000000L;
-    while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {}
-#endif
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1969,7 +1966,7 @@ static THREAD_PROC(_tcp_consumer_thread) {
             socket_t sock = 0;
             Result res = socket_connect_blocking(sub->cfg.tcp.host, sub->cfg.tcp.port, &sock);
             if (res != SUCCESS) {
-                _tracer_sleep_ms(TRACER_TCP_RECONNECT_MS);
+                thread_sleep_ms(TRACER_TCP_RECONNECT_MS);
                 continue;
             }
             sub->cfg.tcp.sock = sock;

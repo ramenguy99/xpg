@@ -9,7 +9,6 @@
 TRACEPOINT_DEFINE(tp_worker, "worker.tick");
 
 static void sleep_ms(int ms) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
 static void worker_proc(WorkerContext* ctx) {
@@ -28,7 +27,7 @@ static void worker_proc(WorkerContext* ctx) {
 
         tick++;
 
-        sleep_ms(500);
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
     printf("[worker] stopped after %d ticks\n", tick);
