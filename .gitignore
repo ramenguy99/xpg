@@ -5,6 +5,7 @@
 .mypy_cache
 .ruff_cache
 .venv
+.DS_Store
 __pycache__
 
 *.svg
@@ -40,5 +41,3 @@ run_example.bat
 /install-*
 /python-build
 /wheel*
-
-/tracing

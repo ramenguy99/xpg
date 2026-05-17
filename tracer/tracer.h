@@ -22,6 +22,7 @@
 #define poll WSAPoll
 #ifdef _MSC_VER
 #pragma comment(lib, "ws2_32.lib")
+typedef SSIZE_T ssize_t;
 #endif
 
 #else
@@ -2657,6 +2658,7 @@ void tracer_remove_subscriber(int idx) {
     }
 #ifdef TRACER_SQLITE_ENABLED
     if (sub->type == SUBSCRIBER_SQLITE) {
+        sqlite3_exec((sqlite3*)sub->cfg.sqlite.db, "PRAGMA wal_checkpoint(TRUNCATE)", NULL, NULL, NULL);
         sqlite3_close((sqlite3*)sub->cfg.sqlite.db);
     }
 #endif
