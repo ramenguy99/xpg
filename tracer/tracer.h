@@ -84,14 +84,14 @@ typedef SSIZE_T ssize_t;
 #include <sys/uio.h>
 #include <pthread.h>
 
-#endif
-
 // Futex
 #ifdef __APPLE__
 #include <os/os_sync_wait_on_address.h>
 #else
 #include <linux/futex.h>
 #include <sys/syscall.h>
+#endif
+
 #endif
 
 
@@ -315,8 +315,8 @@ static inline TraceField _tf_ndarray(const char* k, size_t k_len, size_t nd, con
 #define TRACEPOINT_DEFINE(varname, namestr) \
     static Tracepoint* varname; \
     static void __cdecl _tp_init_##varname(void) { varname = tracepoint_register(namestr); } \
-    __pragma(section(".CRT$XCU", read)) \
-    __declspec(allocate(".CRT$XCU")) static void(__cdecl* _tp_ptr_##varname)(void) = _tp_init_##varname;
+    __pragma(section(".CRT$XCV", read)) \
+    __declspec(allocate(".CRT$XCV")) static void(__cdecl* _tp_ptr_##varname)(void) = _tp_init_##varname;
 #elif defined(__cplusplus)
 #define TRACEPOINT_DEFINE(varname, namestr) \
     static Tracepoint* varname; \
