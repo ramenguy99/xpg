@@ -34,11 +34,7 @@ if(NOT MSVC)
 endif()
 
 # --- SQLite detection ---
-find_library(SQLITE3_LIB sqlite3)
-find_path(SQLITE3_INCLUDE sqlite3.h)
-if(SQLITE3_LIB AND SQLITE3_INCLUDE)
-    set(HAS_SQLITE TRUE)
-endif()
+find_package(SQLite3 QUIET)
 
 # --- Helper: add a test target with optional sanitizer variants ---
 function(add_test_target name source lang)
@@ -91,20 +87,17 @@ add_test_target(test_ring test_ring.cpp CXX)
 add_test_target(test_tracer test_tracer.cpp CXX)
 
 # SQLite support for test_tracer
-if(HAS_SQLITE)
+if(SQLite3_FOUND)
     target_compile_definitions(test_tracer PRIVATE TRACER_SQLITE_ENABLED)
-    target_include_directories(test_tracer PRIVATE ${SQLITE3_INCLUDE})
-    target_link_libraries(test_tracer PRIVATE ${SQLITE3_LIB})
+    target_link_libraries(test_tracer PRIVATE SQLite::SQLite3)
 
     if(TARGET test_tracer_asan)
         target_compile_definitions(test_tracer_asan PRIVATE TRACER_SQLITE_ENABLED)
-        target_include_directories(test_tracer_asan PRIVATE ${SQLITE3_INCLUDE})
-        target_link_libraries(test_tracer_asan PRIVATE ${SQLITE3_LIB})
+        target_link_libraries(test_tracer_asan PRIVATE SQLite::SQLite3)
     endif()
     if(TARGET test_tracer_tsan)
         target_compile_definitions(test_tracer_tsan PRIVATE TRACER_SQLITE_ENABLED)
-        target_include_directories(test_tracer_tsan PRIVATE ${SQLITE3_INCLUDE})
-        target_link_libraries(test_tracer_tsan PRIVATE ${SQLITE3_LIB})
+        target_link_libraries(test_tracer_tsan PRIVATE SQLite::SQLite3)
     endif()
 endif()
 
