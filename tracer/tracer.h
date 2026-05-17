@@ -2592,6 +2592,7 @@ int tracer_add_sqlite_subscriber(const char* db_path, const SqliteConfig* config
 }
 
 bool tracer_subscribe(int subscriber_idx, const char* tracepoint_name) {
+    if (subscriber_idx < 0) return false;
     Tracepoint* tp = _tracepoint_ht_find(&g_tracer.hash_table, tracepoint_name, strlen(tracepoint_name));
     if (!tp) return false;
     uint32_t bit = 1u << (uint32_t)subscriber_idx;
@@ -2600,6 +2601,7 @@ bool tracer_subscribe(int subscriber_idx, const char* tracepoint_name) {
 }
 
 bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name) {
+    if (subscriber_idx < 0) return false;
     Tracepoint* tp = _tracepoint_ht_find(&g_tracer.hash_table, tracepoint_name, strlen(tracepoint_name));
     if (!tp) return false;
     uint32_t bit = 1u << (uint32_t)subscriber_idx;
@@ -2608,6 +2610,7 @@ bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name) {
 }
 
 void tracer_subscribe_all(int subscriber_idx) {
+    if (subscriber_idx < 0) return;
     uint32_t count = atomic_load_explicit(&g_tracer.registry.count, memory_order_relaxed);
     uint32_t bit = 1u << (uint32_t)subscriber_idx;
     for (uint32_t i = 0; i < count; i++) {
@@ -2616,6 +2619,7 @@ void tracer_subscribe_all(int subscriber_idx) {
 }
 
 void tracer_unsubscribe_all(int subscriber_idx) {
+    if (subscriber_idx < 0) return;
     uint32_t count = atomic_load_explicit(&g_tracer.registry.count, memory_order_relaxed);
     uint32_t bit = 1u << (uint32_t)subscriber_idx;
     for (uint32_t i = 0; i < count; i++) {

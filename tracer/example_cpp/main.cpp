@@ -21,7 +21,11 @@ int main() {
     int tcp = tracer_add_tcp_subscriber("127.0.0.1", 9168);
     tracer_subscribe_all(tcp);
 
-    printf("Tracing started (tcp=%d)\n", tcp);
+    SqliteConfig cfg = sqlite_config_default();
+    int db = tracer_add_sqlite_subscriber("trace.db", &cfg);
+    tracer_subscribe_all(db);
+
+    printf("Tracing started (tcp=%d, sqlite=%d)\n", tcp, db);
 
     TRACE(tp_main,
         TI64("status", 1),
