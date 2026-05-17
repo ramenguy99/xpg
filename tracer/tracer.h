@@ -2442,15 +2442,16 @@ static void _sqlite_process_entry(sqlite3* db, const uint8_t* payload, size_t pa
                 uint64_t sl = _read_u64(vp);
                 sqlite3_bind_text(stmt, col, (const char*)(vp + 8), (int)sl, SQLITE_TRANSIENT);
             } break;
-            case TRACE_TYPE_BYTES:
             case TRACE_TYPE_NDARRAY: {
+                // Store raw npy data (detected by 0x93 magic on read)
                 uint64_t dl = _read_u64(vp);
                 sqlite3_bind_blob(stmt, col, vp + 8, (int)dl, SQLITE_TRANSIENT);
             } break;
+            case TRACE_TYPE_BYTES:
             case TRACE_TYPE_LIST:
             case TRACE_TYPE_TUPLE:
             case TRACE_TYPE_DICT: {
-                // Store as BLOB with type code prefix for Python compatibility
+                // Store with type code prefix for Python compatibility
                 const uint8_t* blob_start = vp - 8; // include type code
                 const uint8_t* blob_end = _skip_serialized_value(vp, end, types[i]);
                 if (blob_end) {
