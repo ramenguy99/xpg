@@ -1479,7 +1479,6 @@ static inline TraceField _tf_ndarray(const char* k, size_t k_len, size_t nd, con
 #define TNONE(k)       { .type=TRACE_TYPE_NONE, .key=(k), .key_len=sizeof(k)-1 }
 #define TI64(k, v)     { .type=TRACE_TYPE_I64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_i64=(v)} }
 #define TF64(k, v)     { .type=TRACE_TYPE_F64,  .key=(k), .key_len=sizeof(k)-1, .val={.as_f64=(v)} }
-#define TBOOL(k, v)    { .type=TRACE_TYPE_BOOL, .key=(k), .key_len=sizeof(k)-1, .val={.as_bool=(v)} }
 #define TSTR(k, s, l)  { .type=TRACE_TYPE_STR,  .key=(k), .key_len=sizeof(k)-1, .val={.as_str={(s),(l)}} }
 #define TBYTES(k, d, l){ .type=TRACE_TYPE_BYTES,.key=(k), .key_len=sizeof(k)-1, .val={.as_bytes={(d),(l)}} }
 #define TNDARRAY(k, nd, sh, st, d, es, de) \
@@ -1520,6 +1519,7 @@ static size_t _npy_total_data_size(size_t ndim, const size_t* shape, size_t elem
 }
 
 static inline size_t trace_size_ndarray(size_t key_len, size_t ndim, const size_t* shape, size_t elem_size, const char* descr) {
+    if (ndim >= NUMPY_MAX_DIMS) return 0;
     size_t npy_size = _npy_header_size(ndim, descr) + _npy_total_data_size(ndim, shape, elem_size);
     return _trace_key_size(key_len) + 8 + 8 + align_up(npy_size, 8);
 }
@@ -1813,7 +1813,7 @@ static Tracepoint* tracepoint_register(const char* name) {
     uint32_t idx = atomic_fetch_add_explicit(&g_tracer.registry.count, 1, memory_order_relaxed);
     ASSERT(idx < TRACER_MAX_TRACEPOINTS && "too many tracepoints");
     ASSERT(!g_tracer.registry.frozen && "cannot register tracepoints after tracer_init()");
-    if (idx < TRACER_MAX_TRACEPOINTS || g_tracer.registry.frozen) {
+    if (idx >= TRACER_MAX_TRACEPOINTS || g_tracer.registry.frozen) {
         return NULL;
     }
 
@@ -1854,8 +1854,6 @@ bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name);
 void tracer_subscribe_all(int subscriber_idx);
 void tracer_unsubscribe_all(int subscriber_idx);
 void tracer_remove_subscriber(int idx);
-
-#define TRACING_IMPLEMENTATION
 
 #ifdef TRACING_IMPLEMENTATION
 
@@ -2134,7 +2132,7 @@ static void _sqlite_process_entry(sqlite3* db, SqliteState* state, const uint8_t
             case TRACE_TYPE_NONE: {
                 sqlite3_bind_null(table->insert_stmt, col);
             } break;
-            case TRACE_TYPE_I64 {
+            case TRACE_TYPE_I64: {
                 int64_t v; memcpy(&v, vp, 8);
                 sqlite3_bind_int64(table->insert_stmt, col, v);
             } break;
