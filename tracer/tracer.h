@@ -159,12 +159,18 @@ typedef enum TraceType {
     TRACE_TYPE_I64     = 1,
     TRACE_TYPE_F64     = 2,
     TRACE_TYPE_STR     = 3,
+    TRACE_TYPE_LIST    = 4,
+    TRACE_TYPE_TUPLE   = 5,
+    TRACE_TYPE_DICT    = 6,
     TRACE_TYPE_BYTES   = 7,
     TRACE_TYPE_NDARRAY = 8,
 } TraceType;
 
+typedef struct TraceField TraceField;
 typedef struct TraceFieldStr { const char* data; size_t len; } TraceFieldStr;
 typedef struct TraceFieldBytes { const uint8_t* data; size_t len; } TraceFieldBytes;
+typedef struct TraceFieldList { const TraceField* items; size_t count; } TraceFieldList;
+typedef struct TraceFieldDict { const TraceField* pairs; size_t count; } TraceFieldDict;
 typedef struct TraceFieldNdarray {
     size_t ndim;
     const size_t* shape;
@@ -174,7 +180,7 @@ typedef struct TraceFieldNdarray {
     const char* descr;
 } TraceFieldNdarray;
 
-typedef struct TraceField {
+struct TraceField {
     uint8_t type;
     const char* key;
     size_t key_len;
@@ -182,10 +188,13 @@ typedef struct TraceField {
         int64_t          as_i64;
         double           as_f64;
         TraceFieldStr    as_str;
+        TraceFieldList   as_list;
+        TraceFieldList   as_tuple;
+        TraceFieldDict   as_dict;
         TraceFieldBytes  as_bytes;
         TraceFieldNdarray as_ndarray;
     } val;
-} TraceField;
+};
 
 // Field macros
 #ifdef __cplusplus
@@ -193,6 +202,9 @@ static inline TraceField _tf_none(const char* k, size_t k_len)                  
 static inline TraceField _tf_i64(const char* k, size_t k_len, int64_t v)                                                                                   { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_I64;     f.key=k; f.key_len=k_len; f.val.as_i64=v;  return f; }
 static inline TraceField _tf_f64(const char* k, size_t k_len, double v)                                                                                    { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_F64;     f.key=k; f.key_len=k_len; f.val.as_f64=v;  return f; }
 static inline TraceField _tf_str(const char* k, size_t k_len, const char* s, size_t l)                                                                     { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_STR;     f.key=k; f.key_len=k_len; f.val.as_str.data=s; f.val.as_str.len=l; return f; }
+static inline TraceField _tf_list(const char* k, size_t k_len, const TraceField* items, size_t count)                                                      { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_LIST;    f.key=k; f.key_len=k_len; f.val.as_list.items=items; f.val.as_list.count=count; return f; }
+static inline TraceField _tf_tuple(const char* k, size_t k_len, const TraceField* items, size_t count)                                                     { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_TUPLE;   f.key=k; f.key_len=k_len; f.val.as_tuple.items=items; f.val.as_tuple.count=count; return f; }
+static inline TraceField _tf_dict(const char* k, size_t k_len, const TraceField* pairs, size_t count)                                                      { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_DICT;    f.key=k; f.key_len=k_len; f.val.as_dict.pairs=pairs; f.val.as_dict.count=count; return f; }
 static inline TraceField _tf_bytes(const char* k, size_t k_len, const uint8_t* d, size_t l)                                                                { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_BYTES;   f.key=k; f.key_len=k_len; f.val.as_bytes.data=d; f.val.as_bytes.len=l; return f; }
 static inline TraceField _tf_ndarray(const char* k, size_t k_len, size_t nd, const size_t* sh, const size_t* st, const void* d, size_t es, const char* de) { TraceField f; memset(&f,0,sizeof(f)); f.type=TRACE_TYPE_NDARRAY; f.key=k; f.key_len=k_len; f.val.as_ndarray.ndim=nd; f.val.as_ndarray.shape=sh; f.val.as_ndarray.strides=st; f.val.as_ndarray.data=d; f.val.as_ndarray.elem_size=es; f.val.as_ndarray.descr=de; return f; }
 #define TNONE(key)                           _tf_none   (key, sizeof(key) - 1)
@@ -201,6 +213,9 @@ static inline TraceField _tf_ndarray(const char* k, size_t k_len, size_t nd, con
 #define TSTR(key, s, l)                      _tf_str    (key, sizeof(key) - 1, s, l)
 #define TBYTES(key, d, l)                    _tf_bytes  (key, sizeof(key) - 1, d, l)
 #define TNDARRAY(key, nd, sh, st, d, es, de) _tf_ndarray(key, sizeof(key) - 1, nd, sh, st, d, es, de)
+#define TLIST(key, items, count)              _tf_list   (key, sizeof(key) - 1, items, count)
+#define TTUPLE(key, items, count)             _tf_tuple  (key, sizeof(key) - 1, items, count)
+#define TDICT(key, pairs, count)              _tf_dict   (key, sizeof(key) - 1, pairs, count)
 #define TU8(key, v)  TI64(key, (uint8_t)(v))
 #define TU16(key, v) TI64(key, (uint16_t)(v))
 #define TU32(key, v) TI64(key, (uint32_t)(v))
@@ -218,6 +233,15 @@ static inline TraceField _tf_ndarray(const char* k, size_t k_len, size_t nd, con
 #define TNDARRAY(k, nd, sh, st, d, es, de) \
     { .type=TRACE_TYPE_NDARRAY, .key=(k), .key_len=sizeof(k)-1, \
       .val={.as_ndarray={ (nd),(sh),(st),(d),(es),(de) }} }
+#define TLIST(k, items, count) \
+    { .type=TRACE_TYPE_LIST, .key=(k), .key_len=sizeof(k)-1, \
+      .val={.as_list={(items),(count)}} }
+#define TTUPLE(k, items, count) \
+    { .type=TRACE_TYPE_TUPLE, .key=(k), .key_len=sizeof(k)-1, \
+      .val={.as_tuple={(items),(count)}} }
+#define TDICT(k, pairs, count) \
+    { .type=TRACE_TYPE_DICT, .key=(k), .key_len=sizeof(k)-1, \
+      .val={.as_dict={(pairs),(count)}} }
 #define TU8(k, v)  TI64(k, (uint8_t)(v))
 #define TU16(k, v) TI64(k, (uint16_t)(v))
 #define TU32(k, v) TI64(k, (uint32_t)(v))
@@ -227,6 +251,14 @@ static inline TraceField _tf_ndarray(const char* k, size_t k_len, size_t nd, con
 #define TI32(k, v) TI64(k, (int32_t)(v))
 #define TF32(k, v) TF64(k, (float)(v))
 #endif
+
+// List/tuple element helpers (value-only, no key)
+#define TLIST_ITEMS(...) ((TraceField[]){ __VA_ARGS__ })
+#define TLIST_COUNT(...) (sizeof((TraceField[]){ __VA_ARGS__ }) / sizeof(TraceField))
+
+// Dict pair helpers: pairs array has 2*count elements (key0, val0, key1, val1, ...)
+#define TDICT_PAIRS(...) ((TraceField[]){ __VA_ARGS__ })
+#define TDICT_COUNT(...) (sizeof((TraceField[]){ __VA_ARGS__ }) / sizeof(TraceField) / 2)
 
 #ifdef _MSC_VER
 #define TRACEPOINT_DEFINE(varname, namestr) \
@@ -1647,11 +1679,34 @@ static inline size_t _trace_key_size(size_t key_len) {
 
 #define TRACE_HEADER_SIZE 16 // tracepoint pointer + num_entries
 
+static size_t _trace_value_size(const TraceField* f);
+
 static inline size_t trace_size_none(size_t key_len)  { return _trace_key_size(key_len) + 8; }
 static inline size_t trace_size_i64(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
 static inline size_t trace_size_f64(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
 static inline size_t trace_size_str(size_t key_len, size_t str_len)   { return _trace_key_size(key_len) + 8 + 8 + align_up(str_len, 8); }
 static inline size_t trace_size_bytes(size_t key_len, size_t data_len){ return _trace_key_size(key_len) + 8 + 8 + align_up(data_len, 8); }
+
+static inline size_t trace_size_list(size_t key_len, const TraceField* items, size_t count) {
+    size_t payload = 8; // count field
+    for (size_t i = 0; i < count; i++)
+        payload += _trace_value_size(&items[i]);
+    return _trace_key_size(key_len) + 8 + payload;
+}
+
+static inline size_t trace_size_tuple(size_t key_len, const TraceField* items, size_t count) {
+    size_t payload = 8; // count field
+    for (size_t i = 0; i < count; i++)
+        payload += _trace_value_size(&items[i]);
+    return _trace_key_size(key_len) + 8 + payload;
+}
+
+static inline size_t trace_size_dict(size_t key_len, const TraceField* pairs, size_t count) {
+    size_t payload = 8; // count field
+    for (size_t i = 0; i < count * 2; i++)
+        payload += _trace_value_size(&pairs[i]);
+    return _trace_key_size(key_len) + 8 + payload;
+}
 
 // .npy header size: magic(6) + version(2) + header_len_field(2) + header_content (padded to 64B alignment)
 static size_t _npy_header_size(size_t ndim, const char* descr) {
@@ -1861,6 +1916,128 @@ static uint8_t* trace_write_ndarray(uint8_t* buf, const char* key, size_t key_le
     return npy_start + npy_padded;
 }
 
+// Value-only size (type code + payload, no key). Used for list elements.
+static size_t _trace_value_size(const TraceField* f) {
+    switch (f->type) {
+        case TRACE_TYPE_NONE:    return 8;
+        case TRACE_TYPE_I64:     return 8 + 8;
+        case TRACE_TYPE_F64:     return 8 + 8;
+        case TRACE_TYPE_STR:     return 8 + 8 + align_up(f->val.as_str.len, 8);
+        case TRACE_TYPE_BYTES:   return 8 + 8 + align_up(f->val.as_bytes.len, 8);
+        case TRACE_TYPE_LIST: {
+            size_t s = 8 + 8; // type + count
+            for (size_t i = 0; i < f->val.as_list.count; i++)
+                s += _trace_value_size(&f->val.as_list.items[i]);
+            return s;
+        }
+        case TRACE_TYPE_TUPLE: {
+            size_t s = 8 + 8; // type + count
+            for (size_t i = 0; i < f->val.as_tuple.count; i++)
+                s += _trace_value_size(&f->val.as_tuple.items[i]);
+            return s;
+        }
+        case TRACE_TYPE_DICT: {
+            size_t s = 8 + 8; // type + count
+            for (size_t i = 0; i < f->val.as_dict.count * 2; i++)
+                s += _trace_value_size(&f->val.as_dict.pairs[i]);
+            return s;
+        }
+        default: ASSERT(0 && "unknown trace type in list"); return 0;
+    }
+}
+
+// Value-only write (type code + payload, no key). Used for list elements.
+static uint8_t* _trace_value_write(uint8_t* buf, const TraceField* f) {
+    switch (f->type) {
+        case TRACE_TYPE_NONE:
+            buf = trace_write_type(buf, TRACE_TYPE_NONE);
+            return buf;
+        case TRACE_TYPE_I64:
+            buf = trace_write_type(buf, TRACE_TYPE_I64);
+            memcpy(buf, &f->val.as_i64, 8); buf += 8;
+            return buf;
+        case TRACE_TYPE_F64:
+            buf = trace_write_type(buf, TRACE_TYPE_F64);
+            memcpy(buf, &f->val.as_f64, 8); buf += 8;
+            return buf;
+        case TRACE_TYPE_STR: {
+            buf = trace_write_type(buf, TRACE_TYPE_STR);
+            uint64_t sl = (uint64_t)f->val.as_str.len;
+            memcpy(buf, &sl, 8); buf += 8;
+            memcpy(buf, f->val.as_str.data, f->val.as_str.len);
+            size_t padded = align_up(f->val.as_str.len, 8);
+            if (padded > f->val.as_str.len) memset(buf + f->val.as_str.len, 0, padded - f->val.as_str.len);
+            buf += padded;
+            return buf;
+        }
+        case TRACE_TYPE_BYTES: {
+            buf = trace_write_type(buf, TRACE_TYPE_BYTES);
+            uint64_t dl = (uint64_t)f->val.as_bytes.len;
+            memcpy(buf, &dl, 8); buf += 8;
+            memcpy(buf, f->val.as_bytes.data, f->val.as_bytes.len);
+            size_t padded = align_up(f->val.as_bytes.len, 8);
+            if (padded > f->val.as_bytes.len) memset(buf + f->val.as_bytes.len, 0, padded - f->val.as_bytes.len);
+            buf += padded;
+            return buf;
+        }
+        case TRACE_TYPE_LIST: {
+            buf = trace_write_type(buf, TRACE_TYPE_LIST);
+            uint64_t cnt = (uint64_t)f->val.as_list.count;
+            memcpy(buf, &cnt, 8); buf += 8;
+            for (size_t i = 0; i < f->val.as_list.count; i++)
+                buf = _trace_value_write(buf, &f->val.as_list.items[i]);
+            return buf;
+        }
+        case TRACE_TYPE_TUPLE: {
+            buf = trace_write_type(buf, TRACE_TYPE_TUPLE);
+            uint64_t cnt = (uint64_t)f->val.as_tuple.count;
+            memcpy(buf, &cnt, 8); buf += 8;
+            for (size_t i = 0; i < f->val.as_tuple.count; i++)
+                buf = _trace_value_write(buf, &f->val.as_tuple.items[i]);
+            return buf;
+        }
+        case TRACE_TYPE_DICT: {
+            buf = trace_write_type(buf, TRACE_TYPE_DICT);
+            uint64_t cnt = (uint64_t)f->val.as_dict.count;
+            memcpy(buf, &cnt, 8); buf += 8;
+            for (size_t i = 0; i < f->val.as_dict.count * 2; i++)
+                buf = _trace_value_write(buf, &f->val.as_dict.pairs[i]);
+            return buf;
+        }
+        default: ASSERT(0 && "unknown trace type in list"); return buf;
+    }
+}
+
+static inline uint8_t* trace_write_list(uint8_t* buf, const char* key, size_t key_len, const TraceField* items, size_t count) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = trace_write_type(buf, TRACE_TYPE_LIST);
+    uint64_t cnt = (uint64_t)count;
+    memcpy(buf, &cnt, 8); buf += 8;
+    for (size_t i = 0; i < count; i++)
+        buf = _trace_value_write(buf, &items[i]);
+    return buf;
+}
+
+static inline uint8_t* trace_write_tuple(uint8_t* buf, const char* key, size_t key_len, const TraceField* items, size_t count) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = trace_write_type(buf, TRACE_TYPE_TUPLE);
+    uint64_t cnt = (uint64_t)count;
+    memcpy(buf, &cnt, 8); buf += 8;
+    for (size_t i = 0; i < count; i++)
+        buf = _trace_value_write(buf, &items[i]);
+    return buf;
+}
+
+static inline uint8_t* trace_write_dict(uint8_t* buf, const char* key, size_t key_len, const TraceField* pairs, size_t count) {
+    buf = trace_write_key(buf, key, key_len);
+    buf = trace_write_type(buf, TRACE_TYPE_DICT);
+    uint64_t cnt = (uint64_t)count;
+    memcpy(buf, &cnt, 8); buf += 8;
+    for (size_t i = 0; i < count * 2; i++)
+        buf = _trace_value_write(buf, &pairs[i]);
+    return buf;
+}
+
 // _trace_field_size / _trace_field_write dispatch on TraceField.type
 static inline size_t _trace_field_size(const TraceField* f) {
     switch (f->type) {
@@ -1868,6 +2045,9 @@ static inline size_t _trace_field_size(const TraceField* f) {
         case TRACE_TYPE_I64:     return trace_size_i64(f->key_len);
         case TRACE_TYPE_F64:     return trace_size_f64(f->key_len);
         case TRACE_TYPE_STR:     return trace_size_str(f->key_len, f->val.as_str.len);
+        case TRACE_TYPE_LIST:    return trace_size_list(f->key_len, f->val.as_list.items, f->val.as_list.count);
+        case TRACE_TYPE_TUPLE:   return trace_size_tuple(f->key_len, f->val.as_tuple.items, f->val.as_tuple.count);
+        case TRACE_TYPE_DICT:    return trace_size_dict(f->key_len, f->val.as_dict.pairs, f->val.as_dict.count);
         case TRACE_TYPE_BYTES:   return trace_size_bytes(f->key_len, f->val.as_bytes.len);
         case TRACE_TYPE_NDARRAY: return trace_size_ndarray(f->key_len, f->val.as_ndarray.ndim, f->val.as_ndarray.shape, f->val.as_ndarray.elem_size, f->val.as_ndarray.descr);
         default: ASSERT(0 && "unknown trace type"); return 0;
@@ -1880,6 +2060,9 @@ static inline uint8_t* _trace_field_write(uint8_t* buf, const TraceField* f) {
         case TRACE_TYPE_I64:     return trace_write_i64(buf, f->key, f->key_len, f->val.as_i64);
         case TRACE_TYPE_F64:     return trace_write_f64(buf, f->key, f->key_len, f->val.as_f64);
         case TRACE_TYPE_STR:     return trace_write_str(buf, f->key, f->key_len, f->val.as_str.data, f->val.as_str.len);
+        case TRACE_TYPE_LIST:    return trace_write_list(buf, f->key, f->key_len, f->val.as_list.items, f->val.as_list.count);
+        case TRACE_TYPE_TUPLE:   return trace_write_tuple(buf, f->key, f->key_len, f->val.as_tuple.items, f->val.as_tuple.count);
+        case TRACE_TYPE_DICT:    return trace_write_dict(buf, f->key, f->key_len, f->val.as_dict.pairs, f->val.as_dict.count);
         case TRACE_TYPE_BYTES:   return trace_write_bytes(buf, f->key, f->key_len, f->val.as_bytes.data, f->val.as_bytes.len);
         case TRACE_TYPE_NDARRAY: return trace_write_ndarray(buf, f->key, f->key_len, f->val.as_ndarray.ndim, f->val.as_ndarray.shape, f->val.as_ndarray.strides, f->val.as_ndarray.data, f->val.as_ndarray.elem_size, f->val.as_ndarray.descr);
         default: ASSERT(0 && "unknown trace type"); return buf;
@@ -2155,6 +2338,50 @@ static void _sqlite_create_table_and_stmt(sqlite3* db, Tracepoint* tp,
     sb_free(&sb);
 }
 
+// Skip over a serialized value's payload (after type code has been read).
+// Returns pointer past the value, or NULL on error.
+static const uint8_t* _skip_serialized_value(const uint8_t* p, const uint8_t* end, uint64_t type) {
+    switch (type) {
+        case TRACE_TYPE_NONE:
+            return p;
+        case TRACE_TYPE_I64:
+        case TRACE_TYPE_F64:
+            return p + 8 <= end ? p + 8 : NULL;
+        case TRACE_TYPE_STR:
+        case TRACE_TYPE_BYTES:
+        case TRACE_TYPE_NDARRAY: {
+            if (p + 8 > end) return NULL;
+            uint64_t dl = _read_u64(p); p += 8;
+            size_t padded = align_up((size_t)dl, 8);
+            return p + padded <= end ? p + padded : NULL;
+        }
+        case TRACE_TYPE_LIST:
+        case TRACE_TYPE_TUPLE: {
+            if (p + 8 > end) return NULL;
+            uint64_t count = _read_u64(p); p += 8;
+            for (uint64_t i = 0; i < count; i++) {
+                if (p + 8 > end) return NULL;
+                uint64_t elem_type = _read_u64(p); p += 8;
+                p = _skip_serialized_value(p, end, elem_type);
+                if (!p) return NULL;
+            }
+            return p;
+        }
+        case TRACE_TYPE_DICT: {
+            if (p + 8 > end) return NULL;
+            uint64_t count = _read_u64(p); p += 8;
+            for (uint64_t i = 0; i < count * 2; i++) {
+                if (p + 8 > end) return NULL;
+                uint64_t elem_type = _read_u64(p); p += 8;
+                p = _skip_serialized_value(p, end, elem_type);
+                if (!p) return NULL;
+            }
+            return p;
+        }
+        default: return NULL;
+    }
+}
+
 // Deserialize binary payload and insert into SQLite
 static void _sqlite_process_entry(sqlite3* db, const uint8_t* payload, size_t payload_len) {
     const uint8_t* p = payload;
@@ -2182,21 +2409,9 @@ static void _sqlite_process_entry(sqlite3* db, const uint8_t* payload, size_t pa
         types[i] = _read_u64(p); p += 8;
         value_ptrs[i] = p;
 
-        switch (types[i]) {
-            case TRACE_TYPE_NONE:
-                break;
-            case TRACE_TYPE_I64:
-            case TRACE_TYPE_F64: {
-                p += 8;
-            } break;
-            case TRACE_TYPE_STR:
-            case TRACE_TYPE_BYTES:
-            case TRACE_TYPE_NDARRAY: {
-                uint64_t dl = _read_u64(p); p += 8;
-                p += align_up(dl, 8);
-            } break;
-            default: return;
-        }
+        const uint8_t* next = _skip_serialized_value(p, end, types[i]);
+        if (!next) return;
+        p = next;
     }
 
     // Create table and prepare statement on first trace for this tracepoint
@@ -2231,6 +2446,18 @@ static void _sqlite_process_entry(sqlite3* db, const uint8_t* payload, size_t pa
             case TRACE_TYPE_NDARRAY: {
                 uint64_t dl = _read_u64(vp);
                 sqlite3_bind_blob(stmt, col, vp + 8, (int)dl, SQLITE_TRANSIENT);
+            } break;
+            case TRACE_TYPE_LIST:
+            case TRACE_TYPE_TUPLE:
+            case TRACE_TYPE_DICT: {
+                // Store as BLOB with type code prefix for Python compatibility
+                const uint8_t* blob_start = vp - 8; // include type code
+                const uint8_t* blob_end = _skip_serialized_value(vp, end, types[i]);
+                if (blob_end) {
+                    sqlite3_bind_blob(stmt, col, blob_start, (int)(blob_end - blob_start), SQLITE_TRANSIENT);
+                } else {
+                    sqlite3_bind_null(stmt, col);
+                }
             } break;
             default: break;
         }
