@@ -474,20 +474,23 @@ static bool socket_send_all(socket_t sock, const void* data, size_t len) {
     return true;
 }
 
-static bool socket_sendv(socket_t sock, const void* a, size_t a_len, const void* b, size_t b_len) {
 #ifdef _WIN32
-    WSABUF bufs[2];
-    DWORD count = 0;
-    bufs[0].buf = (char*)a; bufs[0].len = (ULONG)a_len;
-    bufs[1].buf = (char*)b; bufs[1].len = (ULONG)b_len;
-    int nbufs = b_len > 0 ? 2 : 1;
-    size_t total = a_len + b_len;
+typedef WSABUF SocketBuf;
+#define SOCKET_BUF(ptr, size) { (ULONG)(size), (char*)(ptr) }
+#else
+typedef struct iovec SocketBuf;
+#define SOCKET_BUF(ptr, size) { (void*)(ptr), (size) }
+#endif
+
+static bool socket_sendv(socket_t sock, SocketBuf* bufs, int nbufs) {
+#ifdef _WIN32
+    size_t total = 0;
+    for (int i = 0; i < nbufs; i++) total += bufs[i].len;
     while (total > 0) {
         DWORD sent = 0;
         if (WSASend(sock, bufs, nbufs, &sent, 0, NULL, NULL) == SOCKET_ERROR) return false;
         if (sent == 0) return false;
         total -= sent;
-        // Advance buffers
         for (int i = 0; i < nbufs && sent > 0; i++) {
             if (sent >= bufs[i].len) { sent -= bufs[i].len; bufs[i].len = 0; bufs[i].buf += bufs[i].len; }
             else { bufs[i].buf += sent; bufs[i].len -= (ULONG)sent; sent = 0; }
@@ -495,23 +498,19 @@ static bool socket_sendv(socket_t sock, const void* a, size_t a_len, const void*
     }
     return true;
 #else
-    struct iovec iov[2];
-    iov[0].iov_base = (void*)a; iov[0].iov_len = a_len;
-    iov[1].iov_base = (void*)b; iov[1].iov_len = b_len;
-    int nbufs = b_len > 0 ? 2 : 1;
-    size_t total = a_len + b_len;
+    size_t total = 0;
+    for (int i = 0; i < nbufs; i++) total += bufs[i].iov_len;
     while (total > 0) {
-        ssize_t sent = writev(sock, iov, nbufs);
+        ssize_t sent = writev(sock, bufs, nbufs);
         if (sent < 0) {
             if (errno == EINTR) continue;
             return false;
         }
         if (sent == 0) return false;
         total -= (size_t)sent;
-        // Advance buffers
         for (int i = 0; i < nbufs && sent > 0; i++) {
-            if ((size_t)sent >= iov[i].iov_len) { sent -= (ssize_t)iov[i].iov_len; iov[i].iov_len = 0; }
-            else { iov[i].iov_base = (uint8_t*)iov[i].iov_base + sent; iov[i].iov_len -= (size_t)sent; sent = 0; }
+            if ((size_t)sent >= bufs[i].iov_len) { sent -= (ssize_t)bufs[i].iov_len; bufs[i].iov_len = 0; }
+            else { bufs[i].iov_base = (uint8_t*)bufs[i].iov_base + sent; bufs[i].iov_len -= (size_t)sent; sent = 0; }
         }
     }
     return true;
@@ -1425,6 +1424,8 @@ mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc, size_t size) {
 // Serialization
 // ---------------------------------------------------------------------------
 
+typedef struct Tracepoint Tracepoint;
+
 #define NUMPY_MAX_DIMS 32
 
 // These have to match TypeCode in _serializer.py
@@ -1491,9 +1492,7 @@ static inline size_t _trace_key_size(size_t key_len) {
     return 8 + align_up(key_len, 8);
 }
 
-static inline size_t trace_size_header(size_t id_len) {
-    return 8 + id_len + 8;
-}
+#define TRACE_HEADER_SIZE 16 // tracepoint pointer + num_entries
 
 static inline size_t trace_size_none(size_t key_len)  { return _trace_key_size(key_len) + 8; }
 static inline size_t trace_size_i64(size_t key_len)   { return _trace_key_size(key_len) + 8 + 8; }
@@ -1535,10 +1534,9 @@ static inline uint8_t* trace_write_key(uint8_t* buf, const char* key, size_t key
     return buf;
 }
 
-static inline uint8_t* trace_write_header(uint8_t* buf, const char* id, size_t id_len, size_t num_entries) {
-    uint64_t il = (uint64_t)id_len;
-    memcpy(buf, &il, 8); buf += 8;
-    memcpy(buf, id, id_len); buf += id_len;
+static inline uint8_t* trace_write_header(uint8_t* buf, Tracepoint* tp, size_t num_entries) {
+    uint64_t ptr = (uint64_t)(uintptr_t)tp;
+    memcpy(buf, &ptr, 8); buf += 8;
     uint64_t ne = (uint64_t)num_entries;
     memcpy(buf, &ne, 8); buf += 8;
     return buf;
@@ -1743,6 +1741,9 @@ typedef struct Tracepoint {
     const char* name;
     size_t      name_len;
     atomic_uint subscriber_mask;
+#ifdef TRACER_SQLITE_ENABLED
+    void*       sqlite_stmt;
+#endif
 } Tracepoint;
 
 typedef struct TracepointRegistry {
@@ -1772,6 +1773,26 @@ typedef enum SubscriberType {
     SUBSCRIBER_SQLITE
 } SubscriberType;
 
+#ifdef TRACER_SQLITE_ENABLED
+typedef struct SqliteConfig {
+    const char* journal_mode;       // NULL = don't set
+    const char* synchronous;        // NULL = don't set
+    int         wal_autocheckpoint; // 0 = don't set
+    int         page_size;          // 0 = don't set
+    int         cache_size;         // 0 = don't set
+} SqliteConfig;
+
+static inline SqliteConfig sqlite_config_default(void) {
+    SqliteConfig cfg;
+    cfg.journal_mode = "WAL";
+    cfg.synchronous = "NORMAL";
+    cfg.wal_autocheckpoint = 16384;
+    cfg.page_size = 0;
+    cfg.cache_size = 0;
+    return cfg;
+}
+#endif
+
 typedef struct Subscriber {
     SubscriberType type;
     MpscRingBuffer ring_buffer;
@@ -1782,7 +1803,7 @@ typedef struct Subscriber {
     union {
         struct { char host[256]; uint16_t port; socket_t sock; } tcp;
 #ifdef TRACER_SQLITE_ENABLED
-        struct { void* db; char path[512]; } sqlite;
+        struct { void* db; char path[512]; SqliteConfig config; } sqlite;
 #endif
     } cfg;
 } Subscriber;
@@ -1820,6 +1841,9 @@ static Tracepoint* tracepoint_register(const char* name) {
     Tracepoint* tp = &g_tracer.registry.tracepoints[idx];
     tp->name = name;
     tp->name_len = strlen(name);
+#ifdef TRACER_SQLITE_ENABLED
+    tp->sqlite_stmt = NULL;
+#endif
     atomic_store_explicit(&tp->subscriber_mask, 0, memory_order_relaxed);
     return tp;
 }
@@ -1847,7 +1871,7 @@ void tracer_init(void);
 void tracer_close(void);
 int tracer_add_tcp_subscriber(const char* host, uint16_t port);
 #ifdef TRACER_SQLITE_ENABLED
-int tracer_add_sqlite_subscriber(const char* db_path);
+int tracer_add_sqlite_subscriber(const char* db_path, const SqliteConfig* config);
 #endif
 bool tracer_subscribe(int subscriber_idx, const char* tracepoint_name);
 bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name);
@@ -1915,6 +1939,16 @@ static void _tracer_sleep_ms(int ms) {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+static uint64_t _read_u64(const uint8_t* p) {
+    uint64_t v;
+    memcpy(&v, p, 8);
+    return v;
+}
+
+// ---------------------------------------------------------------------------
 // TCP subscriber consumer thread
 // ---------------------------------------------------------------------------
 
@@ -1927,14 +1961,26 @@ static bool tracer_tcp_send_handshake(socket_t sock) {
     return socket_send_all(sock, hs, sizeof(hs));
 }
 
-static bool tracer_tcp_send_tlv(socket_t sock, uint32_t msg_type, const uint8_t* payload, size_t payload_len) {
-    uint8_t header[TLV_HEADER_SIZE];
+static bool _tcp_send_trace_event(socket_t sock, Tracepoint* tp, const uint8_t* fields_data, size_t fields_len) {
+    // Wire format: TLV header(16) | id_len(8) | name(N) | num_entries(8) | fields...
+    size_t wire_payload_len = 8 + tp->name_len + fields_len;
+
+    uint8_t hdr[TLV_HEADER_SIZE + 8];
+    uint32_t msg_type = MSG_TRACE_EVENT;
     uint32_t format = 0;
-    uint64_t length = (uint64_t)payload_len;
-    memcpy(header + 0, &msg_type, 4);
-    memcpy(header + 4, &format, 4);
-    memcpy(header + 8, &length, 8);
-    return socket_sendv(sock, header, TLV_HEADER_SIZE, payload, payload_len);
+    uint64_t length = (uint64_t)wire_payload_len;
+    memcpy(hdr + 0, &msg_type, 4);
+    memcpy(hdr + 4, &format, 4);
+    memcpy(hdr + 8, &length, 8);
+    uint64_t id_len = (uint64_t)tp->name_len;
+    memcpy(hdr + TLV_HEADER_SIZE, &id_len, 8);
+
+    SocketBuf bufs[3] = {
+        SOCKET_BUF(hdr,         sizeof(hdr)),
+        SOCKET_BUF(tp->name,    tp->name_len),
+        SOCKET_BUF(fields_data, fields_len),
+    };
+    return socket_sendv(sock, bufs, 3);
 }
 
 static THREAD_PROC(_tcp_consumer_thread) {
@@ -1966,7 +2012,12 @@ static THREAD_PROC(_tcp_consumer_thread) {
             break;
         }
 
-        if (!tracer_tcp_send_tlv(sub->cfg.tcp.sock, MSG_TRACE_EVENT, payload, sz)) {
+        // Decode ring buffer header: tracepoint pointer (8 bytes) followed by fields
+        Tracepoint* tp = (Tracepoint*)(uintptr_t)_read_u64(payload);
+        uint8_t* fields_data = payload + 8; // num_entries + field data
+        size_t fields_len = sz - 8;
+
+        if (!_tcp_send_trace_event(sub->cfg.tcp.sock, tp, fields_data, fields_len)) {
             atomic_store_explicit(&sub->connected, false, memory_order_relaxed);
             socket_close(sub->cfg.tcp.sock);
         }
@@ -1981,45 +2032,129 @@ static THREAD_PROC(_tcp_consumer_thread) {
 // SQLite subscriber consumer thread
 // ---------------------------------------------------------------------------
 
-// TODO: remove
-#define TRACER_SQLITE_ENABLED
-
 #ifdef TRACER_SQLITE_ENABLED
 #include <sqlite3.h>
 
-#define SQLITE_MAX_TABLES 64
 #define SQLITE_MAX_COLUMNS 64
 
-typedef struct SqliteTableInfo {
-    char name[256];
-    size_t name_len;
-    uint32_t column_count;
-    char columns[SQLITE_MAX_COLUMNS][256];
-    sqlite3_stmt* insert_stmt;
-} SqliteTableInfo;
+typedef struct {
+    char  stack[4096];
+    char* buf;
+    size_t len;
+    size_t cap;
+} StringBuilder;
 
-typedef struct SqliteState {
-    SqliteTableInfo tables[SQLITE_MAX_TABLES];
-    uint32_t        table_count;
-} SqliteState;
+static void sb_init(StringBuilder* sb) {
+    sb->buf = sb->stack;
+    sb->len = 0;
+    sb->cap = sizeof(sb->stack);
+}
 
-static uint64_t _read_u64(const uint8_t* p) {
-    uint64_t v;
-    memcpy(&v, p, 8);
-    return v;
+static void sb_free(StringBuilder* sb) {
+    if (sb->buf != sb->stack) free(sb->buf);
+}
+
+static void sb_clear(StringBuilder* sb) {
+    sb->len = 0;
+}
+
+static void sb_grow(StringBuilder* sb, size_t needed) {
+    size_t new_cap = sb->cap * 2;
+    if (new_cap < sb->len + needed) new_cap = sb->len + needed;
+    char* new_buf = (char*)malloc(new_cap);
+    memcpy(new_buf, sb->buf, sb->len);
+    if (sb->buf != sb->stack) free(sb->buf);
+    sb->buf = new_buf;
+    sb->cap = new_cap;
+}
+
+static void sb_null_terminate(StringBuilder* sb) {
+    if (sb->len + 1 > sb->cap) sb_grow(sb, 1);
+    sb->buf[sb->len] = '\0';
+}
+
+static void sb_append(StringBuilder* sb, const char* s, size_t n) {
+    if (sb->len + n > sb->cap) sb_grow(sb, n);
+    memcpy(sb->buf + sb->len, s, n);
+    sb->len += n;
+}
+
+static void sb_append_str(StringBuilder* sb, const char* s) {
+    sb_append(sb, s, strlen(s));
+}
+
+static void sb_append_int(StringBuilder* sb, int v) {
+    char tmp[16];
+    int n = snprintf(tmp, sizeof(tmp), "%d", v);
+    sb_append(sb, tmp, (size_t)n);
+}
+
+static void sb_append_quoted(StringBuilder* sb, const char* s, size_t n) {
+    // Worst case: every char is a quote -> 2x + 2 for surrounding quotes
+    size_t worst = n * 2 + 2;
+    if (sb->len + worst > sb->cap) sb_grow(sb, worst);
+    sb->buf[sb->len++] = '"';
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] == '"') sb->buf[sb->len++] = '"';
+        sb->buf[sb->len++] = s[i];
+    }
+    sb->buf[sb->len++] = '"';
+}
+
+static void _sqlite_create_table_and_stmt(sqlite3* db, Tracepoint* tp,
+                                           const char** keys, size_t* key_lens,
+                                           uint64_t* types, uint64_t num_entries)
+{
+    StringBuilder sb;
+    sb_init(&sb);
+
+    // CREATE TABLE
+    sb_append(&sb, "CREATE TABLE IF NOT EXISTS ", 27);
+    sb_append_quoted(&sb, tp->name, tp->name_len);
+    sb_append(&sb, " (", 2);
+
+    for (uint64_t i = 0; i < num_entries; i++) {
+        if (i > 0) sb_append(&sb, ", ", 2);
+        sb_append_quoted(&sb, keys[i], key_lens[i]);
+
+        switch (types[i]) {
+            case TRACE_TYPE_I64: sb_append(&sb, " INTEGER", 8); break;
+            case TRACE_TYPE_F64: sb_append(&sb, " REAL", 5); break;
+            case TRACE_TYPE_STR: sb_append(&sb, " TEXT", 5); break;
+            default:             sb_append(&sb, " BLOB", 5); break;
+        }
+    }
+    sb_append(&sb, ")", 1);
+    sb_null_terminate(&sb);
+    sqlite3_exec(db, sb.buf, NULL, NULL, NULL);
+
+    // INSERT INTO ... VALUES (?,?,...,?)
+    sb_clear(&sb);
+    sb_append(&sb, "INSERT INTO ", 12);
+    sb_append_quoted(&sb, tp->name, tp->name_len);
+    sb_append(&sb, " VALUES (", 9);
+    for (uint64_t i = 0; i < num_entries; i++) {
+        if (i > 0) sb_append(&sb, ",", 1);
+        sb_append(&sb, "?", 1);
+    }
+    sb_append(&sb, ")", 1);
+    sb_null_terminate(&sb);
+
+    sqlite3_stmt* stmt = NULL;
+    sqlite3_prepare_v2(db, sb.buf, (int)sb.len, &stmt, NULL);
+    tp->sqlite_stmt = stmt;
+
+    sb_free(&sb);
 }
 
 // Deserialize binary payload and insert into SQLite
-static void _sqlite_process_entry(sqlite3* db, SqliteState* state, const uint8_t* payload, size_t payload_len) {
+static void _sqlite_process_entry(sqlite3* db, const uint8_t* payload, size_t payload_len) {
     const uint8_t* p = payload;
     const uint8_t* end = payload + payload_len;
 
-    // Read identifier
-    uint64_t id_len = _read_u64(p);
+    // Read tracepoint pointer
+    Tracepoint* tp = (Tracepoint*)(uintptr_t)_read_u64(p);
     p += 8;
-
-    const char* identifier = (const char*)p;
-    p += id_len;
 
     // Read all keys and values into temp arrays
     const char* keys[SQLITE_MAX_COLUMNS];
@@ -2052,119 +2187,94 @@ static void _sqlite_process_entry(sqlite3* db, SqliteState* state, const uint8_t
                 uint64_t dl = _read_u64(p); p += 8;
                 p += align_up(dl, 8);
             } break;
-            default: return; // unknown type, skip entry
+            default: return;
         }
     }
 
-    // TODO: this should likely be an hash table, or stored directly in the tracepoint?
-    // - storing in the tracepoint means that then the workers also access it, while
-    //   so far this did not need to be the case.
-    // - we can lookup the tracepoint from the key (with the ht lookup), or we could
-    //   send the tracepoint pointer as side channel data during tracing for sqlite subs.
-
-    // Find existing table
-    SqliteTableInfo* table = NULL;
-    for (uint32_t i = 0; i < state->table_count; i++) {
-        if (state->tables[i].name_len == id_len && memcmp(state->tables[i].name, identifier, id_len) == 0) {
-            table = &state->tables[i];
-            break;
-        }
+    // Create table and prepare statement on first trace for this tracepoint
+    if (!tp->sqlite_stmt) {
+        _sqlite_create_table_and_stmt(db, tp, keys, key_lens, types, num_entries);
     }
 
-    // Create table if new
-    if (!table) {
-        if (state->table_count >= SQLITE_MAX_TABLES) return;
-        table = &state->tables[state->table_count++];
-        memcpy(table->name, identifier, id_len);
-        table->name[id_len] = '\0';
-        table->name_len = id_len;
-        table->column_count = (uint32_t)num_entries;
-        table->insert_stmt = NULL;
-
-        // Build CREATE TABLE
-        char sql[4096];
-        int pos = snprintf(sql, sizeof(sql), "CREATE TABLE IF NOT EXISTS \"%.*s\" (", (int)id_len, identifier);
-        for (uint64_t i = 0; i < num_entries; i++) {
-            if (i > 0) { sql[pos++] = ','; sql[pos++] = ' '; }
-            pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, "\"%.*s\"", (int)key_lens[i], keys[i]);
-            memcpy(table->columns[i], keys[i], key_lens[i]);
-            table->columns[i][key_lens[i]] = '\0';
-
-            switch (types[i]) {
-                case TRACE_TYPE_I64:
-                    pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, " INTEGER"); break;
-                case TRACE_TYPE_F64:
-                    pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, " REAL"); break;
-                case TRACE_TYPE_STR:
-                    pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, " TEXT"); break;
-                default:
-                    pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, " BLOB"); break;
-            }
-        }
-        pos += snprintf(sql + pos, sizeof(sql) - (size_t)pos, ")");
-        sqlite3_exec(db, sql, NULL, NULL, NULL);
-
-        // Prepare INSERT statement
-        pos = snprintf(sql, sizeof(sql), "INSERT INTO \"%.*s\" VALUES (", (int)id_len, identifier);
-        for (uint64_t i = 0; i < num_entries; i++) {
-            if (i > 0) sql[pos++] = ',';
-            sql[pos++] = '?';
-        }
-        sql[pos++] = ')';
-        sql[pos] = '\0';
-        sqlite3_prepare_v2(db, sql, pos, &table->insert_stmt, NULL);
-    } else {
-        // Verify schema matches
-        ASSERT(table->column_count == (uint32_t)num_entries && "tracepoint schema mismatch");
-        for (uint64_t i = 0; i < num_entries; i++) {
-            ASSERT(key_lens[i] == strlen(table->columns[i]) &&
-                   memcmp(keys[i], table->columns[i], key_lens[i]) == 0 &&
-                   "tracepoint column mismatch");
-        }
-    }
+    sqlite3_stmt* stmt = (sqlite3_stmt*)tp->sqlite_stmt;
 
     // Bind values and execute
-    sqlite3_reset(table->insert_stmt);
+    sqlite3_reset(stmt);
     for (uint64_t i = 0; i < num_entries; i++) {
         int col = (int)(i + 1);
         const uint8_t* vp = value_ptrs[i];
         switch (types[i]) {
             case TRACE_TYPE_NONE: {
-                sqlite3_bind_null(table->insert_stmt, col);
+                sqlite3_bind_null(stmt, col);
             } break;
             case TRACE_TYPE_I64: {
                 int64_t v; memcpy(&v, vp, 8);
-                sqlite3_bind_int64(table->insert_stmt, col, v);
+                sqlite3_bind_int64(stmt, col, v);
             } break;
             case TRACE_TYPE_F64: {
                 double v; memcpy(&v, vp, 8);
-                sqlite3_bind_double(table->insert_stmt, col, v);
+                sqlite3_bind_double(stmt, col, v);
             } break;
             case TRACE_TYPE_STR: {
                 uint64_t sl = _read_u64(vp);
-                sqlite3_bind_text(table->insert_stmt, col, (const char*)(vp + 8), (int)sl, SQLITE_TRANSIENT);
+                sqlite3_bind_text(stmt, col, (const char*)(vp + 8), (int)sl, SQLITE_TRANSIENT);
             } break;
             case TRACE_TYPE_BYTES:
             case TRACE_TYPE_NDARRAY: {
                 uint64_t dl = _read_u64(vp);
-                sqlite3_bind_blob(table->insert_stmt, col, vp + 8, (int)dl, SQLITE_TRANSIENT);
+                sqlite3_bind_blob(stmt, col, vp + 8, (int)dl, SQLITE_TRANSIENT);
             } break;
             default: break;
         }
     }
-    sqlite3_step(table->insert_stmt);
+    sqlite3_step(stmt);
 }
 
 static THREAD_PROC(_sqlite_consumer_thread) {
     Subscriber* sub = (Subscriber*)data;
     sqlite3* db = (sqlite3*)sub->cfg.sqlite.db;
+    SqliteConfig* cfg = &sub->cfg.sqlite.config;
 
-    // TODO: expose sqlite config from user (at least some presets)
-    sqlite3_exec(db, "PRAGMA journal_mode=WAL", NULL, NULL, NULL);
-    sqlite3_exec(db, "PRAGMA synchronous=NORMAL", NULL, NULL, NULL);
+    StringBuilder sb;
+    sb_init(&sb);
 
-    SqliteState* state = (SqliteState*)calloc(1, sizeof(SqliteState));
-    ASSERT(state && "failed to allocate sqlite state");
+    if (cfg->journal_mode) {
+        sb_clear(&sb);
+        sb_append_str(&sb, "PRAGMA journal_mode=");
+        sb_append_str(&sb, cfg->journal_mode);
+        sb_null_terminate(&sb);
+        sqlite3_exec(db, sb.buf, NULL, NULL, NULL);
+    }
+    if (cfg->synchronous) {
+        sb_clear(&sb);
+        sb_append_str(&sb, "PRAGMA synchronous=");
+        sb_append_str(&sb, cfg->synchronous);
+        sb_null_terminate(&sb);
+        sqlite3_exec(db, sb.buf, NULL, NULL, NULL);
+    }
+    if (cfg->wal_autocheckpoint) {
+        sb_clear(&sb);
+        sb_append_str(&sb, "PRAGMA wal_autocheckpoint=");
+        sb_append_int(&sb, cfg->wal_autocheckpoint);
+        sb_null_terminate(&sb);
+        sqlite3_exec(db, sb.buf, NULL, NULL, NULL);
+    }
+    if (cfg->page_size) {
+        sb_clear(&sb);
+        sb_append_str(&sb, "PRAGMA page_size=");
+        sb_append_int(&sb, cfg->page_size);
+        sb_null_terminate(&sb);
+        sqlite3_exec(db, sb.buf, NULL, NULL, NULL);
+    }
+    if (cfg->cache_size) {
+        sb_clear(&sb);
+        sb_append_str(&sb, "PRAGMA cache_size=");
+        sb_append_int(&sb, cfg->cache_size);
+        sb_null_terminate(&sb);
+        sqlite3_exec(db, sb.buf, NULL, NULL, NULL);
+    }
+
+    sb_free(&sb);
 
     while (atomic_load_explicit(&sub->active, memory_order_relaxed)) {
         uint8_t* payload;
@@ -2175,19 +2285,19 @@ static THREAD_PROC(_sqlite_consumer_thread) {
             break;
         }
 
-        _sqlite_process_entry(db, state, payload, sz);
+        _sqlite_process_entry(db, payload, sz);
         mpsc_ring_buffer_lock_release_read(&sub->ring_buffer, sz);
-
-        // Commit after every transaction
-        sqlite3_exec(db, "COMMIT; BEGIN", NULL, NULL, NULL);
     }
 
-    // Final commit and cleanup
-    sqlite3_exec(db, "COMMIT", NULL, NULL, NULL);
-    for (uint32_t i = 0; i < state->table_count; i++) {
-        if (state->tables[i].insert_stmt) sqlite3_finalize(state->tables[i].insert_stmt);
+    // Finalize all prepared statements stored in tracepoints
+    uint32_t count = atomic_load_explicit(&g_tracer.registry.count, memory_order_relaxed);
+    for (uint32_t i = 0; i < count; i++) {
+        Tracepoint* tp = &g_tracer.registry.tracepoints[i];
+        if (tp->sqlite_stmt) {
+            sqlite3_finalize((sqlite3_stmt*)tp->sqlite_stmt);
+            tp->sqlite_stmt = NULL;
+        }
     }
-    free(state);
 
     return 0;
 }
@@ -2217,7 +2327,7 @@ int tracer_add_tcp_subscriber(const char* host, uint16_t port) {
 }
 
 #ifdef TRACER_SQLITE_ENABLED
-int tracer_add_sqlite_subscriber(const char* db_path) {
+int tracer_add_sqlite_subscriber(const char* db_path, const SqliteConfig* config) {
     for (int i = 0; i < TRACER_MAX_SUBSCRIBERS; i++) {
         if (g_tracer.subscribers[i].type == SUBSCRIBER_NONE) {
             Subscriber* sub = &g_tracer.subscribers[i];
@@ -2226,12 +2336,15 @@ int tracer_add_sqlite_subscriber(const char* db_path) {
             atomic_store_explicit(&sub->active, true, memory_order_relaxed);
             snprintf(sub->cfg.sqlite.path, sizeof(sub->cfg.sqlite.path), "%s", db_path);
 
+            if (config)
+                sub->cfg.sqlite.config = *config;
+            else
+                sub->cfg.sqlite.config = sqlite_config_default();
+
             sqlite3* db;
             int rc = sqlite3_open(db_path, &db);
             ASSERT(rc == SQLITE_OK && "failed to open sqlite database");
             sub->cfg.sqlite.db = db;
-
-            sqlite3_exec(db, "BEGIN", NULL, NULL, NULL);
 
             mpsc_ring_buffer_create(&sub->ring_buffer, TRACER_SUBSCRIBER_BUFFER_SIZE);
             create_thread(_sqlite_consumer_thread, sub, &sub->consumer_thread);
@@ -2361,7 +2474,7 @@ static inline void _trace_emit(Tracepoint* tp, const TraceField* fields, size_t 
     uint32_t mask = atomic_load_explicit(&tp->subscriber_mask, memory_order_relaxed);
 
     // Compute total size once (same for all subscribers)
-    size_t sz = trace_size_header(tp->name_len);
+    size_t sz = TRACE_HEADER_SIZE;
     for (size_t i = 0; i < nfields; i++)
         sz += _trace_field_size(&fields[i]);
 
@@ -2378,7 +2491,7 @@ static inline void _trace_emit(Tracepoint* tp, const TraceField* fields, size_t 
 #endif
         if (!buf) continue;
 
-        uint8_t* p = trace_write_header(buf, tp->name, tp->name_len, nfields);
+        uint8_t* p = trace_write_header(buf, tp, nfields);
         for (size_t i = 0; i < nfields; i++)
             p = _trace_field_write(p, &fields[i]);
         ASSERT(p <= buf + sz);
