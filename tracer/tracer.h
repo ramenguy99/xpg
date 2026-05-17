@@ -1,3 +1,48 @@
+/*
+ * tracer.h — single-header C tracing library
+ *
+ * Define TRACER_IMPLEMENTATION in exactly one translation unit before including.
+ * Define TRACER_PRIVATE_API to expose internal helpers without the implementation.
+ *
+ * API:
+ *   tracer_init()                                  — initialize the tracer
+ *   tracer_close()                                 — flush, checkpoint, and shut down
+ *   tracer_add_tcp_subscriber(host, port)          — returns subscriber index or -1
+ *   tracer_add_sqlite_subscriber(path, config)     — returns subscriber index or -1
+ *   tracer_subscribe(idx, tracepoint_name)         — subscribe to a single tracepoint
+ *   tracer_subscribe_all(idx)                      — subscribe to all tracepoints
+ *   tracer_unsubscribe(idx, tracepoint_name)
+ *   tracer_unsubscribe_all(idx)
+ *
+ * Tracepoints & emission:
+ *   TRACEPOINT_DEFINE(var, "name")                 — declare a tracepoint (file scope)
+ *   TRACE(tp, field1, field2, ...)                 — emit a trace event
+ *
+ * Field macros:
+ *   TI64(key, value)          TF64(key, value)     TSTR(key, ptr, len)
+ *   TBYTES(key, ptr, len)     TNONE(key)           TNDARRAY(key, ...)
+ *   TLIST(key, items, count)  TTUPLE(key, items, count)
+ *   TDICT(key, pairs, count)
+ *   TU8, TU16, TU32, TU64, TI8, TI16, TI32, TF32 — convenience wrappers
+ *
+ * Usage:
+ *   #define TRACER_IMPLEMENTATION
+ *   #include "tracer.h"
+ *
+ *   TRACEPOINT_DEFINE(tp_app, "app.lifecycle");
+ *
+ *   int main(void) {
+ *       tracer_init();
+ *       int tcp = tracer_add_tcp_subscriber("127.0.0.1", 9168);
+ *       tracer_subscribe_all(tcp);  // silently ignores -1
+ *
+ *       TRACE(tp_app, TI64("pid", getpid()), TSTR("event", "start", 5));
+ *
+ *       // ... application logic ...
+ *
+ *       tracer_close();
+ *   }
+ */
 #ifndef TRACER_H
 #define TRACER_H
 
