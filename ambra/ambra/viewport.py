@@ -310,10 +310,10 @@ class Viewport:
         rot = translate(self.camera_target) * rotate(angle, axis) * translate(-self.camera_target)
 
         # Update camera
-        new_up = vec3(rot * vec4(self.drag_start_camera_up, 0.0))  # type: ignore
+        self.camera_world_up = vec3(rot * vec4(self.drag_start_camera_up, 0.0))  # type: ignore
         new_camera_position = vec3(rot * vec4(self.drag_start_camera_position, 1.0))  # type: ignore
         self.camera.camera_from_world = RigidTransform3D.look_at(
-            new_camera_position, self.camera_target, new_up, self.handedness
+            new_camera_position, self.camera_target, self.camera_world_up, self.handedness
         )
 
     def rotate_first_person(self, start_pos: ivec2, pos: ivec2) -> None:
