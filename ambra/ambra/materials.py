@@ -227,7 +227,7 @@ class Material:
                 if flags & MaterialPropertyFlags.HAS_VALUE:
                     v = p.property.get_current()
                     if p.srgb:
-                        v = float4_srgb_to_linear(v)
+                        v = float4_srgb_to_linear(v)  # type: ignore
                     self.constants[p.name] = v
                 if flags & MaterialPropertyFlags.ALLOW_IMAGE:
                     self.constants[f"has_{p.name}_texture"] = False

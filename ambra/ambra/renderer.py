@@ -1520,9 +1520,9 @@ class Renderer:
                     else:
                         return 0.0
 
-                def get_value_or_zero_color(p: Property) -> Union[float, PropertyItem]:
+                def get_value_or_zero_color(p: Property) -> Union[PropertyItem, Tuple[float, float, float]]:
                     if isinstance(p, BufferProperty):
-                        return float3_srgb_to_linear(p.get_current()[:3])
+                        return float3_srgb_to_linear(p.get_current()[:3])  # type: ignore
                     else:
                         return (0.0, 0.0, 0.0)
 
