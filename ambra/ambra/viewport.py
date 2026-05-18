@@ -330,7 +330,7 @@ class Viewport:
             movement = vec2(delta) / vec2(self.rect.width, self.rect.height) * ar_half_extents * 2.0
         else:
             speed_scale = max(
-                distance(self.camera_target, self.drag_start_camera_position) * self.camera_pan_distance_speed_scale,
+                distance(self.drag_start_camera_target, self.drag_start_camera_position) * self.camera_pan_distance_speed_scale,
                 self.camera_pan_min_speed_scale,
             )
             movement = vec2(delta) * self.camera_pan_speed * speed_scale
