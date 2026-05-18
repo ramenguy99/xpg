@@ -195,6 +195,7 @@ class Viewport:
         self.is_temporary_ortho = False
         self.prev_camera_fov: Optional[float] = None
         self.prev_camera_depth: Optional[CameraDepth] = None
+        self.prev_camera_world_up: Optional[vec3] = None
         self.temporary_ortho_grid_type: GridType = GridType.XY_PLANE
 
     def resize(self, width: int, height: int) -> None:
@@ -238,6 +239,7 @@ class Viewport:
             # Go back to previous camera if temporary camera is active
             if self.is_temporary_ortho:
                 assert self.prev_camera_depth is not None
+                assert self.prev_camera_world_up is not None
 
                 if self.prev_camera_fov is not None:
                     self.camera = PerspectiveCamera(
@@ -251,6 +253,11 @@ class Viewport:
                         self.camera.center,
                         self.camera.half_extents,
                     )
+                self.camera_world_up = self.prev_camera_world_up
+                # Restart drag operation with same, to adjust to the new camera after restoring world up
+                self.start_drag(self.drag_start_mouse_position)
+
+                self.prev_camera_world_up = None
                 self.is_temporary_ortho = False
 
             if self.camera_control_mode == CameraControlMode.ORBIT:
@@ -330,7 +337,8 @@ class Viewport:
             movement = vec2(delta) / vec2(self.rect.width, self.rect.height) * ar_half_extents * 2.0
         else:
             speed_scale = max(
-                distance(self.drag_start_camera_target, self.drag_start_camera_position) * self.camera_pan_distance_speed_scale,
+                distance(self.drag_start_camera_target, self.drag_start_camera_position)
+                * self.camera_pan_distance_speed_scale,
                 self.camera_pan_min_speed_scale,
             )
             movement = vec2(delta) * self.camera_pan_speed * speed_scale
@@ -455,7 +463,6 @@ class Viewport:
             center = self.camera.center
             if not self.is_temporary_ortho:
                 self.prev_camera_fov = None
-                self.prev_camera_depth = self.camera.depth
         else:
             assert isinstance(self.camera, PerspectiveCamera)
             fov_radians = radians(self.camera.fov)
@@ -463,7 +470,11 @@ class Viewport:
             center = vec2(0, 0)
             if not self.is_temporary_ortho:
                 self.prev_camera_fov = self.camera.fov
-                self.prev_camera_depth = self.camera.depth
+
+        if not self.is_temporary_ortho:
+            self.prev_camera_depth = self.camera.depth
+            self.prev_camera_world_up = self.camera_world_up
+        self.camera_world_up = up
 
         self.camera = OrthographicCamera(
             RigidTransform3D.look_at(position, target, up, self.handedness),
