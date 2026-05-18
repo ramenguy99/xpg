@@ -318,9 +318,9 @@ class Viewport:
 
     def rotate_first_person(self, start_pos: ivec2, pos: ivec2) -> None:
         rot = self._rotation_from_mouse_delta(pos - start_pos, self.drag_start_camera_position)
-        target: vec3 = rot * self.camera_target  # type: ignore
+        self.camera_target = rot * self.drag_start_camera_target
         self.camera.camera_from_world = RigidTransform3D.look_at(
-            self.drag_start_camera_position, target, self.camera_world_up, self.handedness
+            self.drag_start_camera_position, self.camera_target, self.camera_world_up, self.handedness
         )
 
     def pan(self, start_pos: ivec2, pos: ivec2) -> None:
