@@ -31,10 +31,8 @@ float3 threedgsCovarianceProjection(float3x3 cov3Dm, float4 splatCenterView, flo
     float3x3 J;
 
   if (orthographic_mode) {
-    // TODO: properly support this by adding ortho info to scene constants.
     // Since the projection is linear, we don't need an approximation
-    float orthoZoom = 1.0;
-    J = float3x3(orthoZoom, 0.0, 0.0, 0.0, orthoZoom, 0.0, 0.0, 0.0, 0.0);
+    J = float3x3(focal.x, 0.0, 0.0, 0.0, focal.y, 0.0, 0.0, 0.0, 0.0);
   } else {
     // Construct the Jacobian of the affine approximation of the projection matrix. It will be used to transform the
     // 3D covariance matrix instead of using the actual projection matrix because that transformation would

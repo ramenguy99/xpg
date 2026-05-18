@@ -139,7 +139,7 @@ VertexOutput main(VertexInput input)
 #endif
 
   // Computes the projected covariance
-  const float3 cov2Dv = threedgsCovarianceProjection(cov3Dm, viewCenter, g_constants.focal, modelViewMatrix, pcRaster.flags & RenderFlags.OrthographicMode);
+  const float3 cov2Dv = threedgsCovarianceProjection(cov3Dm, viewCenter, g_constants.focal, modelViewMatrix, g_constants.projection[2][3] == 0.0);
 
   // computes the basis vectors of the extent of the projected covariance
   // We use sqrt(8) standard deviations instead of 3 to eliminate more of the splat with a very low opacity.

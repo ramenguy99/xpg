@@ -51,8 +51,7 @@ enum RenderFlags: uint32_t
 {
   DisableOpacity = 1 << 0,
   ShowSphericalHarmonicsOnly = 1 << 1,
-  OrthographicMode = 1 << 2,
-  PointCloudMode = 1 << 3,
+  PointCloudMode = 1 << 2,
 }
 
 // Push constant for raster

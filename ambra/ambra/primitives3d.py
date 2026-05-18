@@ -1930,11 +1930,10 @@ class Voxels(Object3D):
 
 # NOTE: must be kept in sync with RenderFlags in shaders/3d/gaussian_splatting/shaderio.h
 class GaussianSplatsRenderFlags(IntFlag):
-    NONE = (0,)
-    DISABLE_OPACITY = (1 << 0,)
-    SHOW_SPHERICAL_HARMONICS_ONLY = (1 << 1,)
-    ORTHOGRAPHIC_MODE = (1 << 2,)
-    POINT_CLOUD_MODE = (1 << 3,)
+    NONE = 0
+    DISABLE_OPACITY = 1 << 0
+    SHOW_SPHERICAL_HARMONICS_ONLY = 1 << 1
+    POINT_CLOUD_MODE = 1 << 2
 
 
 class GaussianSplats(Object3D):
