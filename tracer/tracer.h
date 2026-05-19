@@ -94,6 +94,11 @@ typedef SSIZE_T ssize_t;
 
 #endif
 
+#if defined(_WIN32) || defined(__APPLE__)
+#define TRACER_MSG_NOSIGNAL 0
+#else
+#define TRACER_MSG_NOSIGNAL MSG_NOSIGNAL
+#endif
 
 // Ring buffer
 #if defined(_WIN32)
@@ -144,6 +149,7 @@ typedef SSIZE_T ssize_t;
 #include <atomic>
 #define _Atomic(T) std::atomic<T>
 #define atomic_uint std::atomic<unsigned int>
+#define atomic_ullong std::atomic<unsigned long long>
 #define atomic_load_explicit(p, o) (p)->load(o)
 #define atomic_store_explicit(p, v, o) (p)->store(v, o)
 #define atomic_exchange_explicit(p, v, o) (p)->exchange(v, o)
@@ -355,6 +361,9 @@ bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name);
 void tracer_subscribe_all(int subscriber_idx);
 void tracer_unsubscribe_all(int subscriber_idx);
 void tracer_remove_subscriber(int idx);
+unsigned long long tracer_subscriber_enqueued_count(int idx);
+unsigned long long tracer_subscriber_dropped_count(int idx);
+
 
 Tracepoint* tracepoint_register(const char* name);
 bool tracepoint_enabled(const Tracepoint* tp);
@@ -1046,6 +1055,8 @@ typedef struct Subscriber {
     atomic_uint    active;
     atomic_uint    connected;
     uint32_t       index;
+    atomic_ullong  enqueued_count;
+    atomic_ullong  dropped_count;
     union {
         struct { char host[256]; uint16_t port; socket_t sock; } tcp;
 #ifdef TRACER_SQLITE_ENABLED
@@ -1064,6 +1075,13 @@ typedef struct Tracer {
 } Tracer;
 
 extern Tracer g_tracer;
+
+unsigned long long tracer_subscriber_enqueued_count(int idx) {
+    return atomic_load_explicit(&g_tracer.subscribers[idx].enqueued_count, memory_order_relaxed);
+}
+unsigned long long tracer_subscriber_dropped_count(int idx) {
+    return atomic_load_explicit(&g_tracer.subscribers[idx].dropped_count, memory_order_relaxed);
+}
 
 #endif // TRACER_PRIVATE_API
 
@@ -1352,7 +1370,7 @@ bool socket_send_all(socket_t sock, const void* data, size_t len) {
 #ifdef _WIN32
         int sent = send(sock, (const char*)p, (int)len, 0);
 #else
-        ssize_t sent = send(sock, p, len, 0);
+        ssize_t sent = send(sock, p, len, TRACER_MSG_NOSIGNAL);
 #endif
         if (sent < 0) {
             if (errno == EINTR) continue;
@@ -1392,7 +1410,10 @@ bool socket_sendv(socket_t sock, SocketBuf* bufs, int nbufs) {
     size_t total = 0;
     for (int i = 0; i < nbufs; i++) total += bufs[i].iov_len;
     while (total > 0) {
-        ssize_t sent = writev(sock, bufs, nbufs);
+        struct msghdr msg = {};
+        msg.msg_iov = bufs;
+        msg.msg_iovlen = nbufs;
+        ssize_t sent = sendmsg(sock, &msg, TRACER_MSG_NOSIGNAL);
         if (sent < 0) {
             if (errno == EINTR) continue;
             return false;
@@ -1850,14 +1871,13 @@ static inline uint8_t* trace_write_bytes(uint8_t* buf, const char* key, size_t k
     return buf;
 }
 
-// Write .npy header and copy strided data into contiguous layout
-static uint8_t* trace_write_ndarray(uint8_t* buf, const char* key, size_t key_len,
-                                     size_t ndim, const size_t* shape, const size_t* strides,
-                                     const void* data, size_t elem_size, const char* descr)
+// Write ndarray value (type code + npy blob), no key. Used by both keyed and list-item paths.
+static uint8_t* _trace_write_ndarray_value(uint8_t* buf,
+                                            size_t ndim, const size_t* shape, const size_t* strides,
+                                            const void* data, size_t elem_size, const char* descr)
 {
     ASSERT(ndim < NUMPY_MAX_DIMS);
 
-    buf = trace_write_key(buf, key, key_len);
     buf = trace_write_type(buf, TRACE_TYPE_NDARRAY);
 
     size_t npy_hdr_size = _npy_header_size(ndim, descr);
@@ -1967,6 +1987,15 @@ static uint8_t* trace_write_ndarray(uint8_t* buf, const char* key, size_t key_le
     return npy_start + npy_padded;
 }
 
+// Write .npy header and copy strided data into contiguous layout
+static uint8_t* trace_write_ndarray(uint8_t* buf, const char* key, size_t key_len,
+                                     size_t ndim, const size_t* shape, const size_t* strides,
+                                     const void* data, size_t elem_size, const char* descr)
+{
+    buf = trace_write_key(buf, key, key_len);
+    return _trace_write_ndarray_value(buf, ndim, shape, strides, data, elem_size, descr);
+}
+
 // Value-only size (type code + payload, no key). Used for list elements.
 static size_t _trace_value_size(const TraceField* f) {
     switch (f->type) {
@@ -1992,6 +2021,11 @@ static size_t _trace_value_size(const TraceField* f) {
             for (size_t i = 0; i < f->val.as_dict.count * 2; i++)
                 s += _trace_value_size(&f->val.as_dict.pairs[i]);
             return s;
+        }
+        case TRACE_TYPE_NDARRAY: {
+            size_t npy_size = _npy_header_size(f->val.as_ndarray.ndim, f->val.as_ndarray.descr)
+                + _npy_total_data_size(f->val.as_ndarray.ndim, f->val.as_ndarray.shape, f->val.as_ndarray.elem_size);
+            return 8 + 8 + align_up(npy_size, 8);
         }
         default: ASSERT(0 && "unknown trace type in list"); return 0;
     }
@@ -2055,6 +2089,10 @@ static uint8_t* _trace_value_write(uint8_t* buf, const TraceField* f) {
                 buf = _trace_value_write(buf, &f->val.as_dict.pairs[i]);
             return buf;
         }
+        case TRACE_TYPE_NDARRAY:
+            return _trace_write_ndarray_value(buf,
+                f->val.as_ndarray.ndim, f->val.as_ndarray.shape, f->val.as_ndarray.strides,
+                f->val.as_ndarray.data, f->val.as_ndarray.elem_size, f->val.as_ndarray.descr);
         default: ASSERT(0 && "unknown trace type in list"); return buf;
     }
 }
@@ -2603,6 +2641,8 @@ int tracer_add_tcp_subscriber(const char* host, uint16_t port) {
             sub->index = (uint32_t)i;
             atomic_store_explicit(&sub->active, true, memory_order_relaxed);
             atomic_store_explicit(&sub->connected, false, memory_order_relaxed);
+            atomic_store_explicit(&sub->enqueued_count, 0ULL, memory_order_relaxed);
+            atomic_store_explicit(&sub->dropped_count, 0ULL, memory_order_relaxed);
             snprintf(sub->cfg.tcp.host, sizeof(sub->cfg.tcp.host), "%s", host);
             sub->cfg.tcp.port = port;
             mpsc_ring_buffer_create(&sub->ring_buffer, TRACER_SUBSCRIBER_BUFFER_SIZE);
@@ -2621,6 +2661,8 @@ int tracer_add_sqlite_subscriber(const char* db_path, const SqliteConfig* config
             sub->type = SUBSCRIBER_SQLITE;
             sub->index = (uint32_t)i;
             atomic_store_explicit(&sub->active, true, memory_order_relaxed);
+            atomic_store_explicit(&sub->enqueued_count, 0ULL, memory_order_relaxed);
+            atomic_store_explicit(&sub->dropped_count, 0ULL, memory_order_relaxed);
             snprintf(sub->cfg.sqlite.path, sizeof(sub->cfg.sqlite.path), "%s", db_path);
 
             if (config)
@@ -2779,7 +2821,10 @@ void tracepoint_emit(Tracepoint* tp, const TraceField* fields, size_t nfields) {
 #else
         buf = mpsc_ring_buffer_try_reserve_write(&sub->ring_buffer, sz);
 #endif
-        if (!buf) continue;
+        if (!buf) {
+            atomic_fetch_add_explicit(&sub->dropped_count, 1, memory_order_relaxed);
+            continue;
+        }
 
         uint8_t* p = trace_write_header(buf, tp, nfields);
         for (size_t i = 0; i < nfields; i++)
@@ -2787,6 +2832,7 @@ void tracepoint_emit(Tracepoint* tp, const TraceField* fields, size_t nfields) {
         ASSERT(p <= buf + sz);
 
         mpsc_ring_buffer_commit_write(&sub->ring_buffer, buf);
+        atomic_fetch_add_explicit(&sub->enqueued_count, 1, memory_order_relaxed);
     }
 }
 #endif // TRACER_IMPLEMENTATION
