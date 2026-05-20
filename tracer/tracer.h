@@ -9,6 +9,7 @@
  *   tracer_close()                                 — flush, checkpoint, and shut down
  *   tracer_add_tcp_subscriber(host, port)          — returns subscriber index or -1
  *   tracer_add_sqlite_subscriber(path, config)     — returns subscriber index or -1
+ *   tracer_add_bin_subscriber(path)                — returns subscriber index or -1
  *   tracer_subscribe(idx, tracepoint_name)         — subscribe to a single tracepoint
  *   tracer_subscribe_all(idx)                      — subscribe to all tracepoints
  *   tracer_unsubscribe(idx, tracepoint_name)
@@ -116,11 +117,14 @@ typedef SSIZE_T ssize_t;
 #	include <fcntl.h>
 #endif
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
 // Assert
 #if !defined(ASSERT)
 #	if defined(_MSC_VER)
 #		if !defined(NDEBUG)
-#			include <intrin.h>
 #			define ASSERT(cond) do { if (!(cond)) __debugbreak(); } while (0)
 #		else
 #			define ASSERT(cond) do { (void)sizeof(cond); } while (0)
@@ -167,6 +171,14 @@ using std::memory_order_release;
 #endif
 
 #include <inttypes.h>
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#define TRACER_UNUSED __attribute__((unused))
+#elif defined(_MSC_VER)
+#define TRACER_UNUSED
+#else
+#define TRACER_UNUSED
 #endif
 
 // ---------------------------------------------------------------------------
@@ -356,6 +368,7 @@ void tracer_init(void);
 void tracer_close(void);
 int tracer_add_tcp_subscriber(const char* host, uint16_t port);
 int tracer_add_sqlite_subscriber(const char* db_path, const SqliteConfig* config);
+int tracer_add_bin_subscriber(const char* path);
 bool tracer_subscribe(int subscriber_idx, const char* tracepoint_name);
 bool tracer_unsubscribe(int subscriber_idx, const char* tracepoint_name);
 void tracer_subscribe_all(int subscriber_idx);
@@ -1010,6 +1023,7 @@ uint8_t* mpsc_ring_buffer_wait_reserve_write(MpscRingBuffer* mpsc, size_t size);
 void mpsc_ring_buffer_commit_write(MpscRingBuffer* mpsc, uint8_t* alloc);
 size_t mpsc_ring_buffer_lock_acquire_read(MpscRingBuffer* mpsc, uint8_t** data);
 void mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc, size_t size);
+void mpsc_ring_buffer_drain(MpscRingBuffer* mpsc);
 
 // Tracepoint registry and hash table
 typedef struct Tracepoint {
@@ -1045,8 +1059,17 @@ typedef struct TracepointHashTable {
 typedef enum SubscriberType {
     SUBSCRIBER_NONE = 0,
     SUBSCRIBER_TCP,
-    SUBSCRIBER_SQLITE
+    SUBSCRIBER_SQLITE,
+    SUBSCRIBER_BIN,
 } SubscriberType;
+
+#ifdef _WIN32
+typedef HANDLE FileHandle;
+#define BIN_FD_INVALID INVALID_HANDLE_VALUE
+#else
+typedef int FileHandle;
+#define BIN_FD_INVALID (-1)
+#endif
 
 typedef struct Subscriber {
     SubscriberType type;
@@ -1062,6 +1085,7 @@ typedef struct Subscriber {
 #ifdef TRACER_SQLITE_ENABLED
         struct { void* db; char path[512]; SqliteConfig config; } sqlite;
 #endif
+        struct { FileHandle fd; char path[512]; } bin;
     } cfg;
 } Subscriber;
 
@@ -1124,6 +1148,7 @@ _addrinfo_and_socket_for_family(uint16_t port, int ai_family, bool only_localhos
     return sock;
 }
 
+TRACER_UNUSED
 Result socket_listen(uint16_t port, int backlog, bool only_ipv4, bool only_localhost, socket_t* socket) {
     socket_t sock = -1;
     struct addrinfo* res = NULL;
@@ -1165,6 +1190,7 @@ Result socket_listen(uint16_t port, int backlog, bool only_ipv4, bool only_local
     return SUCCESS;
 }
 
+TRACER_UNUSED
 Result socket_accept(socket_t listening_socket, int timeout, socket_t* socket)
 {
     struct sockaddr_storage remote;
@@ -1201,6 +1227,7 @@ void socket_close(socket_t socket)
 #endif
 }
 
+TRACER_UNUSED
 Result socket_connect( const char* addr, uint16_t port, TcpConnection* connection)
 {
     if(connection->picked_address)
@@ -1316,6 +1343,7 @@ Result socket_connect( const char* addr, uint16_t port, TcpConnection* connectio
     return SUCCESS;
 }
 
+TRACER_UNUSED
 void socket_close_connection(TcpConnection* connection) {
     socket_close(connection->socket);
     if (connection->addresses) {
@@ -1537,16 +1565,16 @@ void* alloc_ring_mapped_buffer(size_t Size)
 	ASSERT(MemFd > 0 && "failed to create memfd");
 
 	int Ok = ftruncate(MemFd, Size);
-	ASSERT(Ok == 0 && "failed to set memfd size");
+	(void)Ok; ASSERT(Ok == 0 && "failed to set memfd size");
 
 	char* Base = (char*)mmap(NULL, 2 * Size, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 	ASSERT(Base != MAP_FAILED && "failed to create memory mapping");
 
 	void* Mapped1 = mmap(Base + 0 * Size, Size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, MemFd, 0);
-	ASSERT(Mapped1 != MAP_FAILED && "failed to map first half of mapping");
+	(void)Mapped1; ASSERT(Mapped1 != MAP_FAILED && "failed to map first half of mapping");
 
 	void* Mapped2 = mmap(Base + 1 * Size, Size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, MemFd, 0);
-	ASSERT(Mapped2 != MAP_FAILED && "failed to map second half of mapping");
+	(void)Mapped2; ASSERT(Mapped2 != MAP_FAILED && "failed to map second half of mapping");
 
 	close(MemFd);
 
@@ -1742,6 +1770,11 @@ void mpsc_ring_buffer_lock_release_read(MpscRingBuffer* mpsc, size_t size) {
 
     // Wake any potential waiting reader
     futex_wake_all(&mpsc->consumed_offset);
+}
+
+void mpsc_ring_buffer_drain(MpscRingBuffer* mpsc) {
+    uint32_t produced = atomic_load_explicit(&mpsc->produced_offset, memory_order_relaxed);
+    atomic_store_explicit(&mpsc->consumed_offset, produced, memory_order_relaxed);
 }
 
 // Low-level size helpers
@@ -2158,8 +2191,22 @@ static inline uint8_t* _trace_field_write(uint8_t* buf, const TraceField* f) {
     }
 }
 
+#ifdef _MSC_VER
+static inline int _trace_ctz_msvc(uint32_t x) { unsigned long idx; _BitScanForward(&idx, x); return (int)idx; }
+#define _TRACE_CTZ(x) _trace_ctz_msvc(x)
+#else
+#define _TRACE_CTZ(x) __builtin_ctz(x)
+#endif
+
 bool tracepoint_enabled(const Tracepoint* tp) {
-    return atomic_load_explicit(&((Tracepoint*)tp)->subscriber_mask, memory_order_relaxed) != 0;
+    uint32_t mask = atomic_load_explicit(&((Tracepoint*)tp)->subscriber_mask, memory_order_relaxed);
+    while (mask) {
+        int idx = _TRACE_CTZ(mask);
+        mask &= mask - 1;
+        if (atomic_load_explicit(&g_tracer.subscribers[idx].connected, memory_order_relaxed))
+            return true;
+    }
+    return false;
 }
 
 Tracepoint* tracepoint_register(const char* name) {
@@ -2282,6 +2329,7 @@ static THREAD_PROC(_tcp_consumer_thread) {
                 socket_close(sock);
                 continue;
             }
+            mpsc_ring_buffer_drain(&sub->ring_buffer);
             atomic_store_explicit(&sub->connected, true, memory_order_release);
         }
 
@@ -2629,6 +2677,163 @@ static THREAD_PROC(_sqlite_consumer_thread) {
 #endif // TRACER_SQLITE_ENABLED
 
 // ---------------------------------------------------------------------------
+// BIN subscriber consumer thread
+// ---------------------------------------------------------------------------
+
+#ifndef TRACER_BIN_FLUSH_SIZE
+#define TRACER_BIN_FLUSH_SIZE (8 * 1024 * 1024)
+#endif
+
+static FileHandle _file_open(const char* path) {
+#ifdef _WIN32
+    return CreateFileA(path, GENERIC_WRITE, 0, NULL,
+                       CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+#else
+    return open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+#endif
+}
+
+static void _file_close(FileHandle fd) {
+#ifdef _WIN32
+    CloseHandle(fd);
+#else
+    close(fd);
+#endif
+}
+
+static bool _file_write_all(FileHandle fd, const void* data, size_t len) {
+    const uint8_t* p = (const uint8_t*)data;
+    while (len > 0) {
+#ifdef _WIN32
+        DWORD to_write = (DWORD)(len > 0xFFFFFFFF ? 0xFFFFFFFF : len);
+        DWORD written = 0;
+        if (!WriteFile(fd, p, to_write, &written, NULL)) return false;
+        if (written == 0) return false;
+#else
+        ssize_t written = write(fd, p, len);
+        if (written < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        }
+#endif
+        p += (size_t)written;
+        len -= (size_t)written;
+    }
+    return true;
+}
+
+#ifdef _WIN32
+typedef struct { void* base; size_t len; } Buffer;
+#define BUFFER(ptr, sz) { (void*)(ptr), (sz) }
+#else
+typedef struct iovec Buffer;
+#define BUFFER(ptr, sz) { (void*)(ptr), (sz) }
+#endif
+
+static bool _file_writev(FileHandle fd, Buffer* bufs, int nbufs) {
+#if !defined(_WIN32)
+    while (nbufs > 0) {
+        ssize_t written = writev(fd, bufs, nbufs);
+        if (written < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        }
+        while (nbufs > 0 && (size_t)written >= bufs[0].iov_len) {
+            written -= (ssize_t)bufs[0].iov_len;
+            bufs++;
+            nbufs--;
+        }
+        if (nbufs > 0) {
+            bufs[0].iov_base = (uint8_t*)bufs[0].iov_base + written;
+            bufs[0].iov_len -= (size_t)written;
+        }
+    }
+#else
+    for (int i = 0; i < nbufs; i++) {
+        if (!_file_write_all(fd, bufs[i].base, bufs[i].len)) return false;
+    }
+#endif
+    return true;
+}
+
+static bool _file_write_header(FileHandle fd) {
+    uint8_t hdr[8];
+    memcpy(hdr, "AMBR", 4);
+    uint32_t version = 1;
+    memcpy(hdr + 4, &version, 4);
+    return _file_write_all(fd, hdr, sizeof(hdr));
+}
+
+static THREAD_PROC(_bin_consumer_thread) {
+    Subscriber* sub = (Subscriber*)data;
+    FileHandle fd = sub->cfg.bin.fd;
+
+#ifdef __linux__
+    int64_t file_offset = 8;
+    int64_t flush_offset = 0;
+    int64_t prev_flush_offset = -1;
+#endif
+
+    while (atomic_load_explicit(&sub->active, memory_order_relaxed)) {
+        uint8_t* payload;
+        size_t sz = mpsc_ring_buffer_lock_acquire_read(&sub->ring_buffer, &payload);
+
+        if (!atomic_load_explicit(&sub->active, memory_order_relaxed)) {
+            mpsc_ring_buffer_lock_release_read(&sub->ring_buffer, sz);
+            break;
+        }
+
+        Tracepoint* tp = (Tracepoint*)(uintptr_t)_read_u64(payload);
+        uint8_t* fields_data = payload + 8;
+        size_t fields_len = sz - 8;
+
+        size_t wire_payload_len = 8 + tp->name_len + fields_len;
+        uint8_t hdr[24];
+        uint32_t msg_type = MSG_TRACE_EVENT;
+        uint32_t format = 0;
+        uint64_t length = (uint64_t)wire_payload_len;
+        memcpy(hdr + 0, &msg_type, 4);
+        memcpy(hdr + 4, &format, 4);
+        memcpy(hdr + 8, &length, 8);
+        uint64_t id_len = (uint64_t)tp->name_len;
+        memcpy(hdr + 16, &id_len, 8);
+
+        Buffer bufs[3] = {
+            BUFFER(hdr,       sizeof(hdr)),
+            BUFFER(tp->name,  tp->name_len),
+            BUFFER(fields_data, fields_len),
+        };
+        _file_writev(fd, bufs, 3);
+
+        mpsc_ring_buffer_lock_release_read(&sub->ring_buffer, sz);
+
+#ifdef __linux__
+        size_t total_written = sizeof(hdr) + tp->name_len + fields_len;
+        file_offset += (int64_t)total_written;
+
+        if (file_offset - flush_offset >= TRACER_BIN_FLUSH_SIZE) {
+            sync_file_range(fd, (off_t)flush_offset, (off_t)(file_offset - flush_offset), SYNC_FILE_RANGE_WRITE);
+            if (prev_flush_offset >= 0) {
+                sync_file_range(fd, (off_t)prev_flush_offset, (off_t)(flush_offset - prev_flush_offset),
+                                SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER);
+            }
+            prev_flush_offset = flush_offset;
+            flush_offset = file_offset;
+        }
+#endif
+    }
+
+#ifdef __linux__
+    if (flush_offset < file_offset) {
+        sync_file_range(fd, (off_t)flush_offset, (off_t)(file_offset - flush_offset),
+                        SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER);
+    }
+#endif
+
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
 // Subscriber management
 // ---------------------------------------------------------------------------
 
@@ -2661,6 +2866,7 @@ int tracer_add_sqlite_subscriber(const char* db_path, const SqliteConfig* config
             sub->type = SUBSCRIBER_SQLITE;
             sub->index = (uint32_t)i;
             atomic_store_explicit(&sub->active, true, memory_order_relaxed);
+            atomic_store_explicit(&sub->connected, true, memory_order_relaxed);
             atomic_store_explicit(&sub->enqueued_count, 0ULL, memory_order_relaxed);
             atomic_store_explicit(&sub->dropped_count, 0ULL, memory_order_relaxed);
             snprintf(sub->cfg.sqlite.path, sizeof(sub->cfg.sqlite.path), "%s", db_path);
@@ -2672,7 +2878,7 @@ int tracer_add_sqlite_subscriber(const char* db_path, const SqliteConfig* config
 
             sqlite3* db;
             int rc = sqlite3_open(db_path, &db);
-            ASSERT(rc == SQLITE_OK && "failed to open sqlite database");
+            (void)rc; ASSERT(rc == SQLITE_OK && "failed to open sqlite database");
             sub->cfg.sqlite.db = db;
 
             mpsc_ring_buffer_create(&sub->ring_buffer, TRACER_SUBSCRIBER_BUFFER_SIZE);
@@ -2681,6 +2887,33 @@ int tracer_add_sqlite_subscriber(const char* db_path, const SqliteConfig* config
         }
     }
 #endif
+    return -1;
+}
+
+int tracer_add_bin_subscriber(const char* path) {
+    for (int i = 0; i < TRACER_MAX_SUBSCRIBERS; i++) {
+        if (g_tracer.subscribers[i].type == SUBSCRIBER_NONE) {
+            FileHandle fd = _file_open(path);
+            if (fd == BIN_FD_INVALID) return -1;
+            if (!_file_write_header(fd)) {
+                _file_close(fd);
+                return -1;
+            }
+
+            Subscriber* sub = &g_tracer.subscribers[i];
+            sub->type = SUBSCRIBER_BIN;
+            sub->index = (uint32_t)i;
+            atomic_store_explicit(&sub->active, true, memory_order_relaxed);
+            atomic_store_explicit(&sub->connected, true, memory_order_relaxed);
+            atomic_store_explicit(&sub->enqueued_count, 0ULL, memory_order_relaxed);
+            atomic_store_explicit(&sub->dropped_count, 0ULL, memory_order_relaxed);
+            snprintf(sub->cfg.bin.path, sizeof(sub->cfg.bin.path), "%s", path);
+            sub->cfg.bin.fd = fd;
+            mpsc_ring_buffer_create(&sub->ring_buffer, TRACER_SUBSCRIBER_BUFFER_SIZE);
+            create_thread(_bin_consumer_thread, sub, &sub->consumer_thread);
+            return i;
+        }
+    }
     return -1;
 }
 
@@ -2754,6 +2987,9 @@ void tracer_remove_subscriber(int idx) {
         sqlite3_close((sqlite3*)sub->cfg.sqlite.db);
     }
 #endif
+    if (sub->type == SUBSCRIBER_BIN) {
+        _file_close(sub->cfg.bin.fd);
+    }
 
     mpsc_ring_buffer_destroy(&sub->ring_buffer);
     sub->type = SUBSCRIBER_NONE;
@@ -2776,7 +3012,10 @@ void tracer_init(void) {
         _tracepoint_ht_insert(&g_tracer.hash_table, &g_tracer.registry.tracepoints[i]);
     }
 
-    memset(g_tracer.subscribers, 0, sizeof(g_tracer.subscribers));
+    for (int _i = 0; _i < TRACER_MAX_SUBSCRIBERS; _i++) {
+        Subscriber* sub = &g_tracer.subscribers[_i];
+        sub->type = SUBSCRIBER_NONE;
+    }
     atomic_store_explicit(&g_tracer.initialized, true, memory_order_release);
 }
 
@@ -2791,17 +3030,6 @@ void tracer_close(void) {
     atomic_store_explicit(&g_tracer.initialized, false, memory_order_relaxed);
 }
 
-// ---------------------------------------------------------------------------
-// TRACE macro
-// ---------------------------------------------------------------------------
-#ifdef _MSC_VER
-#include <intrin.h>
-static inline int _trace_ctz_msvc(uint32_t x) { unsigned long idx; _BitScanForward(&idx, x); return (int)idx; }
-#define _TRACE_CTZ(x) _trace_ctz_msvc(x)
-#else
-#define _TRACE_CTZ(x) __builtin_ctz(x)
-#endif
-
 void tracepoint_emit(Tracepoint* tp, const TraceField* fields, size_t nfields) {
     uint32_t mask = atomic_load_explicit(&tp->subscriber_mask, memory_order_relaxed);
 
@@ -2814,6 +3042,9 @@ void tracepoint_emit(Tracepoint* tp, const TraceField* fields, size_t nfields) {
         int idx = _TRACE_CTZ(mask);
         mask &= mask - 1;
         Subscriber* sub = &g_tracer.subscribers[idx];
+
+        if (!atomic_load_explicit(&sub->connected, memory_order_relaxed))
+            continue;
 
         uint8_t* buf;
 #if TRACER_QUEUE_FULL_POLICY
