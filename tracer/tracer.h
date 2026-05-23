@@ -210,6 +210,10 @@ using std::memory_order_release;
 #define TRACER_TCP_RECONNECT_MS 1000
 #endif
 
+#ifndef TRACER_BIN_FLUSH_SIZE
+#define TRACER_BIN_FLUSH_SIZE (32 * 1024 * 1024)
+#endif
+
 #ifndef TRACER_SQLITE_MAX_COLUMNS
 #define TRACER_SQLITE_MAX_COLUMNS 64
 #endif
@@ -1099,13 +1103,6 @@ typedef struct Tracer {
 } Tracer;
 
 extern Tracer g_tracer;
-
-unsigned long long tracer_subscriber_enqueued_count(int idx) {
-    return atomic_load_explicit(&g_tracer.subscribers[idx].enqueued_count, memory_order_relaxed);
-}
-unsigned long long tracer_subscriber_dropped_count(int idx) {
-    return atomic_load_explicit(&g_tracer.subscribers[idx].dropped_count, memory_order_relaxed);
-}
 
 #endif // TRACER_PRIVATE_API
 
@@ -2680,10 +2677,6 @@ static THREAD_PROC(_sqlite_consumer_thread) {
 // BIN subscriber consumer thread
 // ---------------------------------------------------------------------------
 
-#ifndef TRACER_BIN_FLUSH_SIZE
-#define TRACER_BIN_FLUSH_SIZE (8 * 1024 * 1024)
-#endif
-
 static FileHandle _file_open(const char* path) {
 #ifdef _WIN32
     return CreateFileA(path, GENERIC_WRITE, 0, NULL,
@@ -3066,6 +3059,14 @@ void tracepoint_emit(Tracepoint* tp, const TraceField* fields, size_t nfields) {
         atomic_fetch_add_explicit(&sub->enqueued_count, 1, memory_order_relaxed);
     }
 }
+
+unsigned long long tracer_subscriber_enqueued_count(int idx) {
+    return atomic_load_explicit(&g_tracer.subscribers[idx].enqueued_count, memory_order_relaxed);
+}
+unsigned long long tracer_subscriber_dropped_count(int idx) {
+    return atomic_load_explicit(&g_tracer.subscribers[idx].dropped_count, memory_order_relaxed);
+}
+
 #endif // TRACER_IMPLEMENTATION
 
 #endif // TRACER_H
