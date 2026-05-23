@@ -200,7 +200,7 @@ using std::memory_order_release;
 #define TRACER_HASH_TABLE_CAPACITY 512
 #endif
 #ifndef TRACER_SUBSCRIBER_BUFFER_SIZE
-#define TRACER_SUBSCRIBER_BUFFER_SIZE (1 << 20)
+#define TRACER_SUBSCRIBER_BUFFER_SIZE (32 * 1024 * 1024)
 #endif
 #ifndef TRACER_QUEUE_FULL_POLICY
 // 0 = DROP, 1 = WAIT
