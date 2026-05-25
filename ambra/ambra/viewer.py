@@ -1,6 +1,7 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
+from pathlib import Path
 from queue import Empty, Queue
 from time import perf_counter_ns
 from typing import Any, Callable, List, Optional, Tuple
@@ -56,6 +57,7 @@ from .gpu_property import (
     GpuStreamingProperty,
 )
 from .headless import HeadlessSwapchain, HeadlessSwapchainFrame
+from .icons_fontawesome import IconsFontAwesome7
 from .keybindings import KeyMap
 from .lights import LIGHT_TYPES_INFO
 from .renderer import FrameInputs, Renderer
@@ -190,6 +192,13 @@ class Viewer:
                 output_format,
                 config.gui.default_font_size,
                 config.gui.default_font_preference,
+            )
+
+        # Add icon font
+        icons_font = Path(__file__).parent.joinpath("fonts", IconsFontAwesome7.FONT_ICON_FILE_NAME_FAS_TTF)
+        if icons_font.exists():
+            self.gui.add_font_ttf(
+                "icons-font-awesome-7", icons_font.read_bytes(), size_pixels=13.0, glyph_offset_y=2.0, merge_mode=True
             )
 
         self.multiviewport = config.gui.multiviewport

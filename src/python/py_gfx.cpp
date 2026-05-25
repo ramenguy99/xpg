@@ -3114,11 +3114,14 @@ struct Gui: nb::intrusive_base {
         ImGui::GetIO().IniFilename = ini_filename.has_value() ? ini_filename->c_str() : NULL;
     }
 
-    nb::ref<Font> add_font_ttf(nb::str name, nb::bytes ttf_data) {
+    nb::ref<Font> add_font_ttf(nb::str name, nb::bytes ttf_data, float size_pixels, float glyph_offset_x, float glyph_offset_y, float glyph_min_advance_x, bool merge_mode) {
         ImFontConfig font_cfg = {};
         strncpy(font_cfg.Name, name.c_str(), sizeof(font_cfg.Name) - 1);
         font_cfg.FontDataOwnedByAtlas = false;
-        ImFont* imfont = ImGui::GetIO().Fonts->AddFontFromMemoryTTF((void*)ttf_data.data(), ttf_data.size(), 0.0f, &font_cfg);
+        font_cfg.MergeMode = merge_mode;
+        font_cfg.GlyphMinAdvanceX = glyph_min_advance_x;
+        font_cfg.GlyphOffset = ImVec2(glyph_offset_x, glyph_offset_y);
+        ImFont* imfont = ImGui::GetIO().Fonts->AddFontFromMemoryTTF((void*)ttf_data.data(), ttf_data.size(), size_pixels, &font_cfg);
         if (!imfont) {
             nb::raise("Failed to add font");
         }
@@ -4511,7 +4514,7 @@ void gfx_create_bindings(nb::module_& m)
         .def("render", &Gui::render, nb::arg("frame"))
         .def("frame", &Gui::frame)
         .def("set_ini_filename", &Gui::set_ini_filename, nb::arg("filename").none())
-        .def("add_font_ttf", &Gui::add_font_ttf, nb::arg("name"), nb::arg("ttf_data"));
+        .def("add_font_ttf", &Gui::add_font_ttf, nb::arg("name"), nb::arg("ttf_data"), nb::arg("size_pixels") = 0.0f, nb::arg("glyph_offset_x") = 0.0f, nb::arg("glyph_offset_y") = 0.0f, nb::arg("glyph_min_advance_x") = 0.0f, nb::arg("merge_mode") = false);
     ;
 
     nb::enum_<gfx::Action>(m, "Action", nb::is_arithmetic())

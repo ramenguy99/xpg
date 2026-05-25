@@ -117,4 +117,7 @@ ignore = [
 
     # Dataclass
     "RUF009", # Function call in dataclass defaults (we use it with frozen types)
+
+    # Security
+    "S105", # Possible hardcoded password (false positives in fonts)
 ]
