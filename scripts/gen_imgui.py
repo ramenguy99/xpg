@@ -206,13 +206,17 @@ for struct in data["structs"]:
             field_name = field["name"]
             field_type = field["type"]
             if field["is_array"]:
-                continue
-            # print(field_type["description"])
-            if not field_type["description"]["kind"] == "Builtin" and not field_type["description"]["kind"] == "User":
-                continue
-            if field_name == "InputQueueCharacters":
-                continue
-            out_cpp(" " * 4 + f'.def_rw("{pascal_to_snake_case(field_name)}", &{struct_name}::{field_name})')
+                # Getter for arrays
+                count = field["array_bounds"]
+                check_index = f"&{struct_name}::{field_name})[{count}]"
+                getter = f"[](const {struct_name}& o, size_t i) {{ if (i >= ArrayCount(o.{field_name})) {{ nb::raise(\"Out of bounds\"); }} return o.{field_name}[i]; }}"
+                out_cpp(" " * 4 + f'.def("{pascal_to_snake_case(field_name)}", {getter})')
+            else:
+                if not field_type["description"]["kind"] == "Builtin" and not field_type["description"]["kind"] == "User":
+                    continue
+                if field_name == "InputQueueCharacters":
+                    continue
+                out_cpp(" " * 4 + f'.def_rw("{pascal_to_snake_case(field_name)}", &{struct_name}::{field_name})')
         out_cpp(";")
         out_cpp("")
 
