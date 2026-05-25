@@ -91,6 +91,9 @@ class Animation:
         else:
             raise ValueError(f"Unhandled enum variant: {self.boundary}")
 
+    def get_timestamps(self, n: int, frames_per_second: float) -> NDArray[np.float64]:
+        return np.zeros((0,), np.float64)
+
 
 class TimeSampledAnimation(Animation):
     def __init__(self, timestamps: NDArray[np.float64], boundary: AnimationBoundary = AnimationBoundary.HOLD):
@@ -272,6 +275,9 @@ class FrameAnimation(Animation):
     def end_animation_time(self, n: int, frames_per_second: float) -> float:
         return (self.start_frame + n) / frames_per_second
 
+    def get_timestamps(self, n: int, frames_per_second: float) -> NDArray[np.float64]:
+        return np.arange(self.start_frame, self.start_frame + n) / frames_per_second
+
 
 @dataclass
 class UploadSettings:
@@ -341,6 +347,9 @@ class Property:
 
     def end_animation_time(self, fps: float) -> float:
         return self.animation.end_animation_time(self.num_frames, fps)
+
+    def get_timestamps(self, fps: float) -> NDArray[np.float64]:
+        return self.animation.get_timestamps(self.num_frames, fps)
 
     # Renderer API
     def create(self, r: "Renderer") -> None:

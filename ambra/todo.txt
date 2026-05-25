@@ -6,7 +6,20 @@ Priority:
 - [ ] UI improvements:
     - [x] Images in GUI
     - [ ] More GUI
-    - [ ] Better timeline with timestamp visualizers
+    - [ ] Better timeline with timestamp visualizers:
+        - [x] Playback buttons
+        - [x] Timestamp ticks at the bottom
+        - [x] Lock and replay speed
+        - [x] Total time / total frames (top right)
+        - [x] Icons
+        - [ ] Configurability
+            - [ ] Filter properties shown
+            - [ ] Toggle compressed / expanded timeline scrollbar
+        - [ ] Collapse points
+            - [ ] For frame animations turn into line
+            - [ ] For timestamp animations downsample / merge contiguous runs
+        - [ ] Zoom and horizontal scroll
+        - [ ] Decide if move to C++
 - [ ] Property:
     - [ ] Ring-buffer / trajectory style property with bounded past. Primitives just see this as a normal property,
           difference is in how this is stored and updated.

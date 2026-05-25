@@ -30,8 +30,10 @@ class KeyMap:
 
     # Playback
     toggle_play_pause: KeyBinding = KeyBinding(Key.SPACE)
-    next_frame: KeyBinding = KeyBinding(Key.PERIOD)
     previous_frame: KeyBinding = KeyBinding(Key.COMMA)
+    next_frame: KeyBinding = KeyBinding(Key.PERIOD)
+    first_frame: KeyBinding = KeyBinding(Key.COMMA, Modifiers.SHIFT)
+    last_frame: KeyBinding = KeyBinding(Key.PERIOD, Modifiers.SHIFT)
 
     # Renderer
     toggle_path_tracer: KeyBinding = KeyBinding(Key.R, Modifiers.CTRL)

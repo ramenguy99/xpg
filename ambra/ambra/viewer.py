@@ -67,7 +67,7 @@ from .utils.descriptors import (
     create_descriptor_layout_pool_and_sets,
     create_descriptor_pool_and_sets,
 )
-from .utils.gpu import UploadableBuffer, to_srgb_format
+from .utils.gpu import UploadableBuffer, float4_to_uint32, to_srgb_format
 from .utils.lru_pool import LRUPool
 from .utils.ring_buffer import RingBuffer
 from .viewport import OrthographicViewType, Playback, Rect, Viewport, ViewportImage
@@ -212,6 +212,7 @@ class Viewer:
         self.gui_selected_gpu_property: Optional[GpuProperty[Any]] = None
         self.gui_playback_slider_held = False
         self.gui_playback_slider_current_num_frames: Optional[int] = None
+        self.gui_playback_selected_property_index = -1
 
         # Disable ImGui asserts
         imgui.get_io().config_error_recovery_enable_assert = False
@@ -404,6 +405,10 @@ class Viewer:
                 # If just restarted playing, reset last_frame_timestamp
                 if self.playback.playing:
                     self.last_frame_timestamp = perf_counter_ns()
+            if self.key_map.first_frame.is_active(key, modifiers):
+                self.playback.set_frame(0)
+            if self.key_map.last_frame.is_active(key, modifiers):
+                self.playback.set_frame(self.playback.num_frames - 1)
             if self.key_map.exit.is_active(key, modifiers):
                 self.running = False
             if self.key_map.toggle_path_tracer.is_active(key, modifiers):
@@ -848,37 +853,250 @@ class Viewer:
         imgui.end()
 
     def gui_playback(self) -> None:
-        if imgui.begin("Playback")[0]:
-            u, self.playback.playing = imgui.checkbox("Playing", self.playback.playing)
-            # If just restarted playing, reset last_frame_timestamp
-            if u and self.playback.playing:
-                self.last_frame_timestamp = perf_counter_ns()
-            _, self.playback.lock_to_last_frame = imgui.checkbox("Lock to last", self.playback.lock_to_last_frame)
-            _, self.playback.playback_speed_multiplier = imgui.drag_float(
-                "Playback speed", self.playback.playback_speed_multiplier, 0.01, 0.01, 10.0, format="%.2fx"
-            )
-            _, frame = imgui.slider_int(
-                "Frame",
-                self.playback.current_frame,
-                0,
-                self.playback.num_frames - 1
-                if self.gui_playback_slider_current_num_frames is None
-                else self.gui_playback_slider_current_num_frames,
-            )
-            if imgui.is_item_active():
-                if not self.gui_playback_slider_held:
-                    self.gui_playback_slider_current_num_frames = self.playback.num_frames - 1
-                self.gui_playback_slider_held = True
-                self.playback.set_frame(frame)
-            else:
-                self.gui_playback_slider_current_num_frames = None
-                self.gui_playback_slider_held = False
+        if imgui.begin("Playback", flags=imgui.WindowFlags.NO_SCROLLBAR)[0]:
+            target_ticks_spacing_px = 40
+            min_ticks_spacing_frames = 10
+            text_height = 15
+            char_width = 6
 
-            imgui.text(f"Time (s): {self.playback.current_time:7.3f} / {self.playback.max_time: 7.3f}")
-            imgui.text(f"Playback FPS: {self.playback.frames_per_second:7.3f}")
+            style = imgui.get_style()
+            imgui.push_style_var(imgui.StyleVar.FRAME_ROUNDING, 2.0)
+            w = imgui.get_content_region_avail().x
+            button_size_x = 25
+            button_size_y = 25
+            button_w = button_size_x * 5
+            imgui.set_cursor_pos_x(w * 0.3 - button_w * 0.5)
+            if imgui.button(IconsFontAwesome7.ICON_BACKWARD_FAST, size=(button_size_x, button_size_y)):
+                self.playback.set_frame(0)
+            imgui.same_line(spacing=0)
+            if imgui.button(IconsFontAwesome7.ICON_BACKWARD_STEP, size=(button_size_x, button_size_y)):
+                self.playback.set_frame(self.playback.current_frame - 1)
+            imgui.same_line(spacing=0)
+
+            pushed = False
+            if self.playback.playing:
+                imgui.push_style_color_im_vec4(imgui.Col.BUTTON, style.colors(imgui.Col.BUTTON_ACTIVE))
+                pushed = True
+            if imgui.button(
+                f"{IconsFontAwesome7.ICON_PAUSE if self.playback.playing else IconsFontAwesome7.ICON_PLAY}###play",
+                size=(button_size_x, button_size_y),
+            ):
+                self.playback.playing = not self.playback.playing
+            if pushed:
+                imgui.pop_style_color()
+
+            imgui.same_line(spacing=0)
+            if imgui.button(IconsFontAwesome7.ICON_FORWARD_STEP, size=(button_size_x, button_size_y)):
+                self.playback.set_frame(self.playback.current_frame + 1)
+            imgui.same_line(spacing=0)
+            if imgui.button(IconsFontAwesome7.ICON_FORWARD_FAST, size=(button_size_x, button_size_y)):
+                self.playback.set_frame(self.playback.num_frames - 1)
+
+            imgui.same_line(spacing=10)
+
+            pushed = False
+            if self.playback.lock_to_last_frame:
+                imgui.push_style_color_im_vec4(imgui.Col.BUTTON, style.colors(imgui.Col.BUTTON_ACTIVE))
+                pushed = True
+            if imgui.button(
+                f"{IconsFontAwesome7.ICON_LOCK if self.playback.lock_to_last_frame else IconsFontAwesome7.ICON_LOCK_OPEN}###lock",
+                size=(button_size_x, button_size_y),
+            ):
+                self.playback.lock_to_last_frame = not self.playback.lock_to_last_frame
+            if pushed:
+                imgui.pop_style_color()
+
+            imgui.same_line(spacing=20)
+            fw = min((w - (button_size_x * 6 + 30)), char_width * 12)
+            imgui.set_next_item_width(fw)
+            _, self.playback.playback_speed_multiplier = imgui.drag_float(
+                "###speed", self.playback.playback_speed_multiplier, 0.01, 0.01, 10.0, format="%.2fx"
+            )
+
+            imgui.same_line(spacing=30)
+            imgui.set_next_item_width(fw)
+            imgui.text(f"{self.playback.frames_per_second} fps")
+            imgui.same_line(spacing=30)
+            imgui.text(f"{self.playback.current_time:7.3f} / {self.playback.max_time: 7.3f} s")
+            imgui.pop_style_var()
+
+            imgui.begin_child("Left", (150, 0), imgui.ChildFlags.RESIZE_X, imgui.WindowFlags.NO_SCROLLBAR)
+            imgui.separator_text("Properties")
+            imgui.set_cursor_pos(imgui.Vec2(0, 20))
+            child_size = imgui.get_content_region_avail()
+            imgui.begin_child(
+                "Properties", imgui.Vec2(child_size.x, child_size.y - text_height), 0, 0
+            )  # , imgui.WindowFlags.NO_SCROLLBAR)
+            scroll = imgui.get_scroll_y()
+
+            # TODO: compute this only once per frame
+            props = self.scene.collect_dynamic_properties()
+            for i, p in enumerate(props):
+                if imgui.selectable(
+                    f"{p.name}###{i}",
+                    i == self.gui_playback_selected_property_index,
+                    imgui.SelectableFlags.ALLOW_DOUBLE_CLICK,
+                ):
+                    if self.gui_playback_selected_property_index == i:
+                        self.gui_playback_selected_property_index = -1
+                    else:
+                        self.gui_playback_selected_property_index = i
+            imgui.end_child()
+            imgui.end_child()
+
+            imgui.same_line()
+            current_bg_color = style.colors(imgui.Col.TAB)
+            current_bg_color = float4_to_uint32((current_bg_color.x, current_bg_color.y, current_bg_color.z, 1.0))
+            current_separator_color = imgui.get_style().colors(imgui.Col.SEPARATOR)
+            current_separator_color = float4_to_uint32(
+                (current_separator_color.x, current_separator_color.y, current_separator_color.z, 1.0)
+            )
+            current_text_color = 0xFFFFFFFF
+            current_line_color = 0xFFFFFFFF
+            text_color = 0xFFBABABA
+            bg_color = 0xFF303030
+            tick_color = 0xFF000000
+            ts_color = text_color
+            ts_selected_color = current_text_color
+
+            list = imgui.get_window_draw_list()
+
+            pos = imgui.get_cursor_screen_pos()
+            size = imgui.get_content_region_avail()
+
+            pos.x += 10
+            size.x -= 20
+
+            imgui.set_cursor_screen_pos(pos)
+            imgui.begin_child("Timeline", size, 0, imgui.WindowFlags.NO_SCROLLBAR)
+            imgui.end_child()
+
+            # Make space for bottom labels
+            size.y -= text_height
+
+            if size.x > 0 and size.y > 0:
+                mouse_pos = imgui.get_mouse_pos()
+
+                if imgui.is_item_clicked(imgui.MouseButton.LEFT):
+                    self.gui_playback_slider_held = True
+                    self.gui_playback_slider_current_num_frames = self.playback.num_frames
+                    self.playback.lock_to_last_frame = False
+                elif not imgui.is_mouse_down(imgui.MouseButton.LEFT):
+                    self.gui_playback_slider_held = False
+                    self.gui_playback_slider_current_num_frames = None
+
+                timeline_frames = (
+                    self.gui_playback_slider_current_num_frames
+                    if self.gui_playback_slider_current_num_frames is not None
+                    else self.playback.num_frames
+                ) - 1
+
+                if self.gui_playback_slider_held:
+                    frame = np.clip(
+                        int(np.round((mouse_pos.x - pos.x) / size.x * timeline_frames)), 0, timeline_frames - 1
+                    )
+                    self.playback.set_frame(frame)
+
+                # TODO: bounds
+                pos.y += text_height
+                size.y -= text_height
+
+                def next_power_of_ten(v: float):
+                    return 10 ** (np.floor(np.log10(v)) + 1)
+
+                def num_digits(n: int):
+                    if n == 0:
+                        return 1
+                    return int(np.log10(n)) + 1
+
+                space_per_frame = size.x / timeline_frames
+                count = target_ticks_spacing_px / space_per_frame
+                computed_ticks_spacing_frames = next_power_of_ten(count)
+
+                ticks_spacing_frames = max(min_ticks_spacing_frames, computed_ticks_spacing_frames)
+
+                ticks = np.arange(0, self.playback.num_frames, ticks_spacing_frames)
+                frame_spacing = size.x / timeline_frames
+
+                ticks_min = np.empty((ticks.size, 2), np.float32)
+                ticks_max = np.empty((ticks.size, 2), np.float32)
+                ticks_min[:, 0] = pos.x + ticks * frame_spacing
+                ticks_min[:, 1] = pos.y
+                ticks_max[:, 0] = ticks_min[:, 0] + 1
+                ticks_max[:, 1] = ticks_min[:, 1] + size.y
+
+                for t, t_min, t_max in zip(ticks, ticks_min, ticks_max):
+                    list.add_text(
+                        imgui.Vec2(t_min[0] - char_width * (num_digits(t) * 0.5), t_min[1] - text_height),
+                        text_color,
+                        f"{int(t)}",
+                    )
+
+                    ts = t / self.playback.frames_per_second
+                    list.add_text(
+                        imgui.Vec2(t_min[0] - char_width * ((num_digits(int(ts)) + 2) * 0.5), t_max[1]),
+                        text_color,
+                        f"{ts:.1f}",
+                    )
+
+                current_min = imgui.Vec2(pos.x + self.playback.current_frame * frame_spacing, pos.y)
+                current_max = imgui.Vec2(current_min.x + 1, pos.y + size.y)
+
+                text_width = char_width * max(3, num_digits(self.playback.current_frame) + 1)
+                text_pos = imgui.Vec2(current_min.x - text_width * 0.5, current_min.y - text_height)
+                text_min = imgui.Vec2(text_pos.x - 5, text_pos.y)
+                text_max = imgui.Vec2(current_min.x + text_width * 0.5 + 7, current_min.y - 2)
+                list.add_rect_filled(text_min, text_max, current_bg_color, 3.0)
+
+                time_text_width = char_width * (num_digits(int(self.playback.current_time)) + 4)
+                time_text_pos = imgui.Vec2(current_min.x - time_text_width * 0.5, current_min.y)
+                time_text_min = imgui.Vec2(time_text_pos.x - 5, time_text_pos.y + size.y)
+                time_text_max = imgui.Vec2(
+                    current_min.x + time_text_width * 0.5 + char_width * 0.5,
+                    current_min.y - 2 + size.y + text_height,
+                )
+                list.add_rect_filled(time_text_min, time_text_max, current_bg_color, 3.0)
+
+                text_width = char_width * num_digits(self.playback.current_frame)
+                text_pos = imgui.Vec2(current_min.x - text_width * 0.5, current_min.y - text_height)
+                list.add_text(text_pos, current_text_color, f"{int(self.playback.current_frame)}")
+
+                time_text_pos = imgui.Vec2(time_text_min.x + char_width, time_text_min.y)
+                list.add_text(time_text_pos, current_text_color, f"{self.playback.current_time:.2f}")
+
+                if size.x > 0 and size.y > 0:
+                    rect_min = imgui.Vec2(pos.x - 1, pos.y)
+                    rect_max = imgui.Vec2(pos.x + size.x + 1, pos.y + size.y)
+                    list.push_clip_rect(rect_min, rect_max)
+                    list.add_rect_filled(rect_min, rect_max, bg_color)
+
+                    list.add_rect_filled_batch(ticks_min, ticks_max, np.array([tick_color]), np.array([0]))
+
+                    # 1px
+                    list.add_rect_filled(current_min, current_max, current_line_color)
+
+                    # TODO: clip range before draw
+                    for y, p in enumerate(props):
+                        ts = p.get_timestamps(self.playback.frames_per_second)
+                        x = ts * (self.playback.frames_per_second / timeline_frames) * size.x
+
+                        center = np.empty((ts.size, 2), np.float32)
+                        center[:, 0] = pos.x + x + 0.5
+                        center[:, 1] = pos.y + (y * (text_height + 2)) + text_height * 0.5 + 3 - scroll
+                        list.add_circle_filled_batch(
+                            center,
+                            np.array([3]),
+                            np.array(
+                                [ts_color if y != self.gui_playback_selected_property_index else ts_selected_color]
+                            ),
+                            4,
+                        )
+                    list.pop_clip_rect()
+
         else:
             self.gui_playback_slider_current_num_frames = None
             self.gui_playback_slider_held = False
+
         imgui.end()
 
     def gui_inspector(self) -> None:

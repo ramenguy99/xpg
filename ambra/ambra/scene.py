@@ -1,7 +1,7 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
-from typing import TYPE_CHECKING, Callable, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from numpy.typing import ArrayLike, DTypeLike
@@ -69,7 +69,7 @@ class Object:
         shape: Tuple[int, ...] = (),
         name: str = "",
     ) -> BufferProperty:
-        property = as_buffer_property(prop, dtype, shape, name)
+        property = as_buffer_property(prop, dtype, shape, f"{self.name}/{name}")
         self.properties.append(property)
         return property
 
@@ -79,7 +79,7 @@ class Object:
         is_3d: bool = False,
         name: str = "",
     ) -> ImageProperty:
-        property = as_image_property(prop, is_3d, name=name)
+        property = as_image_property(prop, is_3d, f"{self.name}/{name}")
         self.properties.append(property)
         return property
 
@@ -94,14 +94,14 @@ class Object:
     def create(self, renderer: "Renderer") -> None:
         pass
 
-    def collect_dynamic_properties(self, all_properties: Set[Property]) -> None:
+    def collect_dynamic_properties(self, all_properties: Dict[Property, None]) -> None:
         for p in self.properties:
             if p.is_dynamic():
-                all_properties.add(p)
+                all_properties[p] = None
         if self.material is not None:
             for mp, _ in self.material.properties:
                 if mp.property.is_dynamic():
-                    all_properties.add(mp.property)
+                    all_properties[mp.property] = None
 
     def update_transform(self, parent: Optional["Object"]) -> None:
         pass
@@ -346,8 +346,8 @@ class Scene:
         for o in self.objects:
             visit_recursive(o)
 
-    def collect_dynamic_properties(self) -> Set[Property]:
-        all_dynamic_properties: Set[Property] = set()
+    def collect_dynamic_properties(self) -> Dict[Property, None]:
+        all_dynamic_properties: Dict[Property, None] = {}
 
         # Objects
         def collect(o: Object) -> None:
