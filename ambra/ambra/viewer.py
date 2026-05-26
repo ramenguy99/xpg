@@ -213,6 +213,8 @@ class Viewer:
         self.gui_playback_slider_held = False
         self.gui_playback_slider_current_num_frames: Optional[int] = None
         self.gui_playback_selected_property_index = -1
+        self.gui_playback_zoom = 0.0
+        self.gui_playback_offset_frames = 0.0
 
         # Disable ImGui asserts
         imgui.get_io().config_error_recovery_enable_assert = False
@@ -855,7 +857,7 @@ class Viewer:
     def gui_playback(self) -> None:
         if imgui.begin("Playback", flags=imgui.WindowFlags.NO_SCROLLBAR)[0]:
             target_ticks_spacing_px = 40
-            min_ticks_spacing_frames = 10
+            min_ticks_spacing_frames = 1
             text_height = 15
             char_width = 6
 
@@ -964,8 +966,11 @@ class Viewer:
             pos = imgui.get_cursor_screen_pos()
             size = imgui.get_content_region_avail()
 
+            cursor_rect_min = imgui.Vec2(pos.x - 5, pos.y)
+            cursor_rect_max = imgui.Vec2(pos.x + size.x + 5, pos.y + size.y)
+
             pos.x += 10
-            size.x -= 20
+            size.x -= 30
 
             imgui.set_cursor_screen_pos(pos)
             imgui.begin_child("Timeline", size, 0, imgui.WindowFlags.NO_SCROLLBAR)
@@ -975,8 +980,9 @@ class Viewer:
             size.y -= text_height
 
             if size.x > 0 and size.y > 0:
-                mouse_pos = imgui.get_mouse_pos()
+                io = imgui.get_io()
 
+                # Mouse button state management
                 if imgui.is_item_clicked(imgui.MouseButton.LEFT):
                     self.gui_playback_slider_held = True
                     self.gui_playback_slider_current_num_frames = self.playback.num_frames
@@ -985,53 +991,100 @@ class Viewer:
                     self.gui_playback_slider_held = False
                     self.gui_playback_slider_current_num_frames = None
 
-                timeline_frames = (
-                    self.gui_playback_slider_current_num_frames
-                    if self.gui_playback_slider_current_num_frames is not None
-                    else self.playback.num_frames
-                ) - 1
+                if imgui.is_item_clicked(imgui.MouseButton.RIGHT):
+                    self.gui_playback_dragging = True
+                    self.gui_playback_drag_start_offset_frames = self.gui_playback_offset_frames
+                    self.gui_playback_drag_start_mouse_position_px = io.mouse_pos.x
+                elif not imgui.is_mouse_down(imgui.MouseButton.RIGHT):
+                    self.gui_playback_dragging = False
+                    self.gui_playback_drag_start_offset_frames = None
 
+                # Init range and zoom
+                mouse_x_px = io.mouse_pos.x - pos.x
+                range_frames = max((self.playback.num_frames - 1), 1)
+                scale_frames_from_px = 2**self.gui_playback_zoom / size.x * range_frames
+
+                # Zooming
+                if imgui.is_item_hovered() and io.mouse_wheel != 0:
+                    mouse_before_frames = self.gui_playback_offset_frames + (scale_frames_from_px * mouse_x_px)
+
+                    self.gui_playback_zoom -= io.mouse_wheel * 0.2
+                    max_zoom = np.log2(range_frames)
+                    self.gui_playback_zoom = np.clip(np.round(self.gui_playback_zoom * 1000) * 0.001, -max_zoom, 0)
+
+                    scale_frames_from_px = 2**self.gui_playback_zoom / size.x * range_frames
+                    mouse_after_frames = self.gui_playback_offset_frames + (scale_frames_from_px * mouse_x_px)
+
+                    # Keep cursor position stable
+                    self.gui_playback_offset_frames += mouse_after_frames - mouse_before_frames
+
+                scale_px_from_frames = 1 / scale_frames_from_px
+
+                # Dragging timeline
+                if self.gui_playback_dragging:
+                    delta_px = io.mouse_pos.x - self.gui_playback_drag_start_mouse_position_px
+                    self.gui_playback_offset_frames = (
+                        self.gui_playback_drag_start_offset_frames + scale_frames_from_px * delta_px
+                    )
+
+                frames_in_view = scale_frames_from_px * size.x
+                frames_outside = range_frames - frames_in_view
+                self.gui_playback_offset_frames = np.clip(self.gui_playback_offset_frames, -frames_outside, 0)
+
+                # Dragging frame cursor
                 if self.gui_playback_slider_held:
                     frame = np.clip(
-                        int(np.round((mouse_pos.x - pos.x) / size.x * timeline_frames)), 0, timeline_frames - 1
+                        int(np.round(scale_frames_from_px * mouse_x_px - self.gui_playback_offset_frames)),
+                        0,
+                        self.playback.num_frames - 1,
                     )
                     self.playback.set_frame(frame)
 
-                # TODO: bounds
-                pos.y += text_height
-                size.y -= text_height
-
+                # Ticks
                 def next_power_of_ten(v: float):
                     return 10 ** (np.floor(np.log10(v)) + 1)
 
                 def num_digits(n: int):
                     if n == 0:
                         return 1
-                    return int(np.log10(n)) + 1
+                    return int(np.log10(abs(n))) + 1
 
-                space_per_frame = size.x / timeline_frames
-                count = target_ticks_spacing_px / space_per_frame
-                computed_ticks_spacing_frames = next_power_of_ten(count)
+                def next_multiple_down(v: float, base: int) -> int:
+                    return (int(v) // base) * base
 
-                ticks_spacing_frames = max(min_ticks_spacing_frames, computed_ticks_spacing_frames)
+                def next_multiple_up(v: float, base: int) -> int:
+                    return (int(np.ceil(v) + base - 1) // base) * base
 
-                ticks = np.arange(0, self.playback.num_frames, ticks_spacing_frames)
-                frame_spacing = size.x / timeline_frames
+                desired_ticks_count = scale_frames_from_px * target_ticks_spacing_px
+                rounded_ticks_spacing_frames = next_power_of_ten(desired_ticks_count)
+                ticks_spacing_frames = max(min_ticks_spacing_frames, rounded_ticks_spacing_frames)
 
+                # Skip top ticks text line
+                pos.y += text_height
+                size.y -= text_height
+
+                first_visible_frame = -self.gui_playback_offset_frames
+                last_visible_frame = -self.gui_playback_offset_frames + scale_frames_from_px * size.x
+                first_visible_tick = next_multiple_up(first_visible_frame, ticks_spacing_frames)
+                last_visible_tick = next_multiple_down(last_visible_frame, ticks_spacing_frames) + 1
+
+                ticks = np.arange(first_visible_tick, last_visible_tick, ticks_spacing_frames)
                 ticks_min = np.empty((ticks.size, 2), np.float32)
                 ticks_max = np.empty((ticks.size, 2), np.float32)
-                ticks_min[:, 0] = pos.x + ticks * frame_spacing
+                ticks_min[:, 0] = pos.x + scale_px_from_frames * (ticks + self.gui_playback_offset_frames)
                 ticks_min[:, 1] = pos.y
                 ticks_max[:, 0] = ticks_min[:, 0] + 1
                 ticks_max[:, 1] = ticks_min[:, 1] + size.y
 
                 for t, t_min, t_max in zip(ticks, ticks_min, ticks_max):
+                    # Top ticks text (frames)
                     list.add_text(
                         imgui.Vec2(t_min[0] - char_width * (num_digits(t) * 0.5), t_min[1] - text_height),
                         text_color,
                         f"{int(t)}",
                     )
 
+                    # Bottom ticks text (timestamps)
                     ts = t / self.playback.frames_per_second
                     list.add_text(
                         imgui.Vec2(t_min[0] - char_width * ((num_digits(int(ts)) + 2) * 0.5), t_max[1]),
@@ -1039,7 +1092,12 @@ class Viewer:
                         f"{ts:.1f}",
                     )
 
-                current_min = imgui.Vec2(pos.x + self.playback.current_frame * frame_spacing, pos.y)
+                # Draw frame cursor text and text bg
+                list.push_clip_rect(cursor_rect_min, cursor_rect_max)
+                current_min = imgui.Vec2(
+                    pos.x + scale_px_from_frames * (self.playback.current_frame + self.gui_playback_offset_frames),
+                    pos.y,
+                )
                 current_max = imgui.Vec2(current_min.x + 1, pos.y + size.y)
 
                 text_width = char_width * max(3, num_digits(self.playback.current_frame) + 1)
@@ -1063,25 +1121,45 @@ class Viewer:
 
                 time_text_pos = imgui.Vec2(time_text_min.x + char_width, time_text_min.y)
                 list.add_text(time_text_pos, current_text_color, f"{self.playback.current_time:.2f}")
+                list.pop_clip_rect()
 
                 if size.x > 0 and size.y > 0:
+                    # Draw body
                     rect_min = imgui.Vec2(pos.x - 1, pos.y)
                     rect_max = imgui.Vec2(pos.x + size.x + 1, pos.y + size.y)
                     list.push_clip_rect(rect_min, rect_max)
                     list.add_rect_filled(rect_min, rect_max, bg_color)
 
+                    # Draw tick lines
                     list.add_rect_filled_batch(ticks_min, ticks_max, np.array([tick_color]), np.array([0]))
 
-                    # 1px
+                    # Draw subticks (partial lines only on top bottom at 1 / 10 spacing)
+                    if ticks_spacing_frames != 1:
+                        subticks = np.arange(first_visible_tick, last_visible_tick, ticks_spacing_frames // 10)
+                        subticks_min = np.empty((subticks.size, 2), np.float32)
+                        subticks_max = np.empty((subticks.size, 2), np.float32)
+                        subticks_min[:, 0] = pos.x + scale_px_from_frames * (
+                            subticks + self.gui_playback_offset_frames
+                        )
+                        subticks_min[:, 1] = pos.y
+                        subticks_max[:, 0] = subticks_min[:, 0] + 1
+                        subticks_max[:, 1] = subticks_min[:, 1] + size.y * 0.1
+                        list.add_rect_filled_batch(subticks_min, subticks_max, np.array([tick_color]), np.array([0]))
+
+                        subticks_min[:, 1] = pos.y + size.y * 0.9
+                        subticks_max[:, 1] = subticks_min[:, 1] + size.y
+                        list.add_rect_filled_batch(subticks_min, subticks_max, np.array([tick_color]), np.array([0]))
+
+                    # Draw frame cursor line
                     list.add_rect_filled(current_min, current_max, current_line_color)
 
-                    # TODO: clip range before draw
+                    # Draw property frame timestamps indicators
                     for y, p in enumerate(props):
-                        ts = p.get_timestamps(self.playback.frames_per_second)
-                        x = ts * (self.playback.frames_per_second / timeline_frames) * size.x
+                        ts = p.get_timestamps(self.playback.frames_per_second, first_visible_frame, last_visible_frame)
+                        x = scale_px_from_frames * ts * self.playback.frames_per_second
 
                         center = np.empty((ts.size, 2), np.float32)
-                        center[:, 0] = pos.x + x + 0.5
+                        center[:, 0] = pos.x + x + 0.5 + scale_px_from_frames * self.gui_playback_offset_frames
                         center[:, 1] = pos.y + (y * (text_height + 2)) + text_height * 0.5 + 3 - scroll
                         list.add_circle_filled_batch(
                             center,

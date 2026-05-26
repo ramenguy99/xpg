@@ -126,6 +126,13 @@ class TimeSampledAnimation(Animation):
     def end_animation_time(self, n: int, fps: float) -> float:
         return self.timestamps[-1] if self.timestamps.size > 0 else 0.0
 
+    def get_timestamps(
+        self, n: int, frames_per_second: float, first_frame: int, last_frame: int
+    ) -> NDArray[np.float64]:
+        begin = max(int(np.searchsorted(self.timestamps, first_frame / frames_per_second, side="right")) - 1, 0)
+        end = min(int(np.searchsorted(self.timestamps, last_frame / frames_per_second, side="right")), n)
+        return self.timestamps[begin:end]
+
 
 class ListTimeSampledAnimation(Animation):
     def __init__(self, timestamps: List[float], boundary: AnimationBoundary = AnimationBoundary.HOLD):
@@ -156,6 +163,13 @@ class ListTimeSampledAnimation(Animation):
 
     def end_animation_time(self, n: int, fps: float) -> float:
         return self.timestamps[-1] if self.timestamps else 0.0
+
+    def get_timestamps(
+        self, n: int, frames_per_second: float, first_frame: int, last_frame: int
+    ) -> NDArray[np.float64]:
+        begin = max(bisect.bisect_right(self.timestamps, first_frame / frames_per_second) - 1, 0)
+        end = min(bisect.bisect_right(self.timestamps, last_frame / frames_per_second), n)
+        return np.array(self.timestamps[begin:end], np.float64)
 
 
 class FrameSampledAnimation(Animation):
@@ -189,6 +203,13 @@ class FrameSampledAnimation(Animation):
     def end_animation_time(self, n: int, fps: float) -> float:
         return (self.indices[-1] + 1) / fps if self.indices.size > 0 else 0.0
 
+    def get_timestamps(
+        self, n: int, frames_per_second: float, first_frame: int, last_frame: int
+    ) -> NDArray[np.float64]:
+        begin = max(int(np.searchsorted(self.indices, first_frame, side="right")) - 1, 0)
+        end = min(int(np.searchsorted(self.indices, last_frame, side="right")), n)
+        return self.indices[begin:end] * (1.0 / frames_per_second)
+
 
 class ListFrameSampledAnimation(Animation):
     def __init__(self, indices: List[int], boundary: AnimationBoundary = AnimationBoundary.HOLD):
@@ -220,6 +241,13 @@ class ListFrameSampledAnimation(Animation):
     def end_animation_time(self, n: int, fps: float) -> float:
         return (self.indices[-1] + 1) / fps if self.indices else 0.0
 
+    def get_timestamps(
+        self, n: int, frames_per_second: float, first_frame: int, last_frame: int
+    ) -> NDArray[np.float64]:
+        begin = max(bisect.bisect_right(self.indices, first_frame) - 1, 0)
+        end = min(bisect.bisect_right(self.indices, last_frame), n)
+        return np.array(self.indices[begin:end], np.float64) * (1.0 / frames_per_second)
+
 
 class ConstantSpeedAnimation(Animation):
     def __init__(
@@ -249,6 +277,13 @@ class ConstantSpeedAnimation(Animation):
     def end_animation_time(self, n: int, fps: float) -> float:
         return (self.start_frame + n) / self.frames_per_second
 
+    def get_timestamps(
+        self, n: int, frames_per_second: float, first_frame: int, last_frame: int
+    ) -> NDArray[np.float64]:
+        begin = np.clip(self.start_frame, first_frame, last_frame)
+        end = np.clip(self.start_frame + n, first_frame, last_frame)
+        return np.arange(begin, end, dtype=np.float64) * (1.0 / self.frames_per_second)
+
 
 class FrameAnimation(Animation):
     def __init__(self, start_frame: int = 0, boundary: AnimationBoundary = AnimationBoundary.HOLD):
@@ -275,8 +310,12 @@ class FrameAnimation(Animation):
     def end_animation_time(self, n: int, frames_per_second: float) -> float:
         return (self.start_frame + n) / frames_per_second
 
-    def get_timestamps(self, n: int, frames_per_second: float) -> NDArray[np.float64]:
-        return np.arange(self.start_frame, self.start_frame + n) / frames_per_second
+    def get_timestamps(
+        self, n: int, frames_per_second: float, first_frame: int, last_frame: int
+    ) -> NDArray[np.float64]:
+        begin = np.clip(self.start_frame, first_frame, last_frame)
+        end = np.clip(self.start_frame + n, first_frame, last_frame)
+        return np.arange(begin, end, dtype=np.float64) * (1.0 / frames_per_second)
 
 
 @dataclass
@@ -348,8 +387,8 @@ class Property:
     def end_animation_time(self, fps: float) -> float:
         return self.animation.end_animation_time(self.num_frames, fps)
 
-    def get_timestamps(self, fps: float) -> NDArray[np.float64]:
-        return self.animation.get_timestamps(self.num_frames, fps)
+    def get_timestamps(self, fps: float, first_frame: int, last_frame: int) -> NDArray[np.float64]:
+        return self.animation.get_timestamps(self.num_frames, fps, first_frame, last_frame)
 
     # Renderer API
     def create(self, r: "Renderer") -> None:
