@@ -1027,8 +1027,7 @@ class Viewer:
                         self.gui_playback_drag_start_offset_frames + scale_frames_from_px * delta_px
                     )
 
-                frames_in_view = scale_frames_from_px * size.x
-                frames_outside = range_frames - frames_in_view
+                frames_outside = range_frames * (1 - 2**self.gui_playback_zoom)
                 self.gui_playback_offset_frames = np.clip(self.gui_playback_offset_frames, -frames_outside, 0)
 
                 # Dragging frame cursor
@@ -1065,6 +1064,8 @@ class Viewer:
 
                 first_visible_frame = -self.gui_playback_offset_frames
                 last_visible_frame = -self.gui_playback_offset_frames + scale_frames_from_px * size.x
+                first_visible_frame_int = int(np.floor(first_visible_frame))
+                last_visible_frame_int = int(np.ceil(last_visible_frame))
                 first_visible_tick = next_multiple_up(first_visible_frame, ticks_spacing_frames)
                 last_visible_tick = next_multiple_down(last_visible_frame, ticks_spacing_frames) + 1
 
@@ -1155,7 +1156,9 @@ class Viewer:
 
                     # Draw property frame timestamps indicators
                     for y, p in enumerate(props):
-                        ts = p.get_timestamps(self.playback.frames_per_second, first_visible_frame, last_visible_frame)
+                        ts = p.get_timestamps(
+                            self.playback.frames_per_second, first_visible_frame_int, last_visible_frame_int
+                        )
                         x = scale_px_from_frames * ts * self.playback.frames_per_second
 
                         center = np.empty((ts.size, 2), np.float32)
