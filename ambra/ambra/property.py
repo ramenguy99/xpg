@@ -91,7 +91,9 @@ class Animation:
         else:
             raise ValueError(f"Unhandled enum variant: {self.boundary}")
 
-    def get_timestamps(self, n: int, frames_per_second: float) -> NDArray[np.float64]:
+    def get_timestamps(
+        self, n: int, frames_per_second: float, first_frame: int, last_frame: int
+    ) -> NDArray[np.float64]:
         return np.zeros((0,), np.float64)
 
 
