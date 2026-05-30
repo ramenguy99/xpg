@@ -168,7 +168,7 @@ class ImageInspector(Widget):
         imgui.text(f"({pixel_image_coordinates.x}, {pixel_image_coordinates.y}): [{values_text}]")
 
     def gui(self) -> None:
-        if imgui.begin(f"{self.title}###widget-{self.uid}")[0]:  # noqa: SIM102
+        if imgui.begin(self.title)[0]:  # noqa: SIM102
             # NOTE: widgets are not disabled if their properties are not enabled to avoid UI appearing and disappearing.
             # They are supposed to handle missing properties gracefully in their implementation.
             if self.image.current_animation_enabled:
