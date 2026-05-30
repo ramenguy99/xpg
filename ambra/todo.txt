@@ -12,21 +12,40 @@ Priority:
         - [x] Lock and replay speed
         - [x] Total time / total frames (top right)
         - [x] Icons
-        - [ ] Configurability
-            - [ ] Filter properties shown
-            - [ ] Toggle compressed / expanded timeline scrollbar
-        - [ ] Collapse points
-            - [ ] For frame animations turn into line
-            - [ ] For timestamp animations downsample / merge contiguous runs
-        - [ ] Zoom and horizontal scroll
-        - [ ] Decide if move to C++
+        - [x] Zoom and horizontal scroll
+        - [x] Subframe scrolling (previous frame but in-between time) -> magnet icon for toggle
+        - [x] Home button to reset zoom
+        - [x] Configurability
+            - [x] Filter properties shown -> for now just property.gui_show_in_timeline (default to True?)
+            - [x] Toggle compressed / expanded timeline scrollbar
+        - [x] Collapse points
+            - [x] For frame animations turn into line
+            - [x] For timestamp animations downsample / merge contiguous runs
+        - [ ] Out of bounds behavior:
+            - [ ] Move in steps
+            - [ ] What happens when timeline grows
+        - [ ] Make sure all sizes work with font scaling
 - [ ] Property:
-    - [ ] Ring-buffer / trajectory style property with bounded past. Primitives just see this as a normal property,
+    - [ ] Ring / windowed style buffer property with bounded past. Primitives just see this as a normal property,
           difference is in how this is stored and updated.
           - Appending only appends a single frame (same as usual)
           - Getting a frame returns the last up to N frames
           - Streamed to GPU every frame (need to roll buffer)
           - Sqlite properties need to use range queries to fill history and then can do normal appends / rolls
+          - CPU storage:
+            - Unordered: Numpy array, list + head/tail
+            - Ordered: dequeue with push/pop
+          - GPU storage (Buffers only, can't do this for images yet, maybe at some point as 3d images or array):
+            prealloced batched:   -> Extra alloc of window size, write extra copy of range start for wraparound (optional)
+            streaming ordered:    -> copy and shift already alloced + upload missing
+            streaming unordered:  -> keep head/tail pointers and upload missing every frame
+          - Questions:
+            - New property type or just a setting?
+            - How to implement fast paths with partial update / range updates?
+            - How to deal with timestamped animation types, ideally last N timestamps, but potentially also last T seconds (with bount on frames too)
+          - Use cases:
+            - Scrolling and rolling plot (both are ordererd, but scrolling requires moving data every frame)
+            - Windowed buffers (e.g. trajectories / histories) -> ideally both past and future (maybe can achieve this with past only and messing with timestamps / frames instead?)
 TODO:
 - [x] Color and sRGB
     All colors:
@@ -82,7 +101,7 @@ TODO:
         - Maybe do not add to the scene?
         - Skip rendering of existing grids
     - [ ] Fix ortho projection for:
-        - [ ] Gaussian splats
+        - [x] Gaussian splats
         - [ ] Raytracing
         - [ ] View direction for reflections
 - [ ] Transparency:

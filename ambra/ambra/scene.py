@@ -1,7 +1,7 @@
 # Copyright Dario Mylonopoulos
 # SPDX-License-Identifier: MIT
 
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import ArrayLike, DTypeLike
@@ -290,10 +290,10 @@ class Widget:
         self.properties.append(property)
         return property
 
-    def collect_dynamic_properties(self, all_properties: Set[Property]) -> None:
+    def collect_dynamic_properties(self, all_properties: Dict[Property, None]) -> None:
         for p in self.properties:
             if p.is_dynamic():
-                all_properties.add(p)
+                all_properties[p] = None
 
     def create_if_needed(self, renderer: "Renderer") -> None:
         if not self.created:
@@ -362,7 +362,7 @@ class Scene:
         # Additional properties
         for p in self.additional_properties:
             if p.is_dynamic():
-                all_dynamic_properties.add(p)
+                all_dynamic_properties[p] = None
 
         return all_dynamic_properties
 

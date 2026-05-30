@@ -27,6 +27,38 @@ if TYPE_CHECKING:
 PropertyItem = NDArray[Any]
 
 
+def timestamps_to_singles_and_runs(
+    timestamps: NDArray[np.float64], threshold: float
+) -> Tuple[NDArray[np.float64], NDArray[np.float64]]:
+    if len(timestamps) == 0:
+        return np.empty(0), np.empty((0, 2))
+    if len(timestamps) == 1:
+        return timestamps.copy(), np.empty((0, 2))
+
+    # Find indices where gaps exceed the threshold
+    deltas = np.diff(timestamps)
+    break_points = np.where(deltas > threshold)[0]
+
+    # Pad with (-1 and len - 1)
+    padded_breaks = np.hstack(([-1], break_points, [len(timestamps) - 1]))
+
+    # Compute break diff
+    break_diffs = np.diff(padded_breaks)
+
+    # If break_diffs == 1, it's an individual sample
+    is_single_break = break_diffs == 1
+    single_indices = padded_breaks[:-1][is_single_break] + 1
+    individual_samples = timestamps[single_indices]
+
+    # If break_diffs > 1, it represents a valid multi-element run range
+    is_run_break = break_diffs > 1
+    start_indices = padded_breaks[:-1][is_run_break] + 1
+    end_indices = padded_breaks[1:][is_run_break]
+    run_ranges = np.column_stack((timestamps[start_indices], timestamps[end_indices]))
+
+    return individual_samples, run_ranges
+
+
 class AnimationBoundary(Enum):
     HOLD = auto()
     REPEAT = auto()
@@ -95,6 +127,13 @@ class Animation:
         self, n: int, frames_per_second: float, first_frame: int, last_frame: int
     ) -> NDArray[np.float64]:
         return np.zeros((0,), np.float64)
+
+    def get_timestamps_singles_and_runs(
+        self, n: int, frames_per_second: float, first_frame: int, last_frame: int, threshold: float
+    ) -> Tuple[NDArray[np.float64], NDArray[np.float64]]:
+        return timestamps_to_singles_and_runs(
+            self.get_timestamps(n, frames_per_second, first_frame, last_frame), threshold
+        )
 
 
 class TimeSampledAnimation(Animation):
@@ -210,7 +249,7 @@ class FrameSampledAnimation(Animation):
     ) -> NDArray[np.float64]:
         begin = max(int(np.searchsorted(self.indices, first_frame, side="right")) - 1, 0)
         end = min(int(np.searchsorted(self.indices, last_frame, side="right")), n)
-        return self.indices[begin:end] * (1.0 / frames_per_second)
+        return self.indices[begin:end].astype(np.float64) * (1.0 / frames_per_second)
 
 
 class ListFrameSampledAnimation(Animation):
@@ -286,6 +325,20 @@ class ConstantSpeedAnimation(Animation):
         end = np.clip(self.start_frame + n, first_frame, last_frame)
         return np.arange(begin, end, dtype=np.float64) * (1.0 / self.frames_per_second)
 
+    def get_timestamps_singles_and_runs(
+        self, n: int, frames_per_second: float, first_frame: int, last_frame: int, threshold: float
+    ) -> Tuple[NDArray[np.float64], NDArray[np.float64]]:
+        begin = np.clip(self.start_frame, first_frame, last_frame)
+        end = np.clip(self.start_frame + n, first_frame, last_frame)
+        if begin == end:
+            return (np.empty((0,), np.float64), np.empty((0, 2), np.float64))
+
+        seconds_per_frame = 1.0 / self.frames_per_second
+        if seconds_per_frame >= threshold:
+            return (np.arange(begin, end, dtype=np.float64) * seconds_per_frame, np.empty((0, 2), np.float64))
+        else:
+            return (np.empty((0,), np.float64), np.array([[begin, end - 1]], np.float64) * seconds_per_frame)
+
 
 class FrameAnimation(Animation):
     def __init__(self, start_frame: int = 0, boundary: AnimationBoundary = AnimationBoundary.HOLD):
@@ -319,6 +372,20 @@ class FrameAnimation(Animation):
         end = np.clip(self.start_frame + n, first_frame, last_frame)
         return np.arange(begin, end, dtype=np.float64) * (1.0 / frames_per_second)
 
+    def get_timestamps_singles_and_runs(
+        self, n: int, frames_per_second: float, first_frame: int, last_frame: int, threshold: float
+    ) -> Tuple[NDArray[np.float64], NDArray[np.float64]]:
+        begin = np.clip(self.start_frame, first_frame, last_frame)
+        end = np.clip(self.start_frame + n, first_frame, last_frame)
+        if begin == end:
+            return (np.empty((0,), np.float64), np.empty((0, 2), np.float64))
+
+        seconds_per_frame = 1.0 / frames_per_second
+        if seconds_per_frame >= threshold:
+            return (np.arange(begin, end, dtype=np.float64) * seconds_per_frame, np.empty((0, 2), np.float64))
+        else:
+            return (np.empty((0,), np.float64), np.array([[begin, end - 1]], np.float64) * seconds_per_frame)
+
 
 @dataclass
 class UploadSettings:
@@ -346,6 +413,8 @@ class Property:
 
         self.current_frame_index = 0 if num_frames > 0 else -1
         self.current_animation_enabled = num_frames > 0
+
+        self.gui_show_in_timeline = True
 
         self.update_callbacks: List[Callable[[Property], None]] = []
 
@@ -391,6 +460,11 @@ class Property:
 
     def get_timestamps(self, fps: float, first_frame: int, last_frame: int) -> NDArray[np.float64]:
         return self.animation.get_timestamps(self.num_frames, fps, first_frame, last_frame)
+
+    def get_timestamps_singles_and_runs(
+        self, fps: float, first_frame: int, last_frame: int, threshold: float
+    ) -> Tuple[NDArray[np.float64], NDArray[np.float64]]:
+        return self.animation.get_timestamps_singles_and_runs(self.num_frames, fps, first_frame, last_frame, threshold)
 
     # Renderer API
     def create(self, r: "Renderer") -> None:

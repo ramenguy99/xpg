@@ -130,6 +130,9 @@ class GuiConfig:
         1.0  # Scale all fonts globally by this factor (default font selection does not take this factor into account).
     )
 
+    playback_expanded: bool = False
+    playback_snap_to_frame: bool = False
+
     stats: bool = False
     playback: bool = False
     inspector: bool = False
