@@ -5,7 +5,6 @@ Priority:
     - [x] 3D lines
 - [ ] UI improvements:
     - [x] Images in GUI
-    - [ ] More GUI
     - [ ] Better timeline with timestamp visualizers:
         - [x] Playback buttons
         - [x] Timestamp ticks at the bottom
@@ -21,10 +20,10 @@ Priority:
         - [x] Collapse points
             - [x] For frame animations turn into line
             - [x] For timestamp animations downsample / merge contiguous runs
+        - [x] Make sure all sizes work with font scaling
         - [ ] Out of bounds behavior:
             - [ ] Move in steps
             - [ ] What happens when timeline grows
-        - [ ] Make sure all sizes work with font scaling
 - [ ] Property:
     - [ ] Ring / windowed style buffer property with bounded past. Primitives just see this as a normal property,
           difference is in how this is stored and updated.
@@ -444,8 +443,14 @@ TODO:
                 - One way would be to double command buffers, render before upload, mark used objects as requiring uploads, then later record and submit uploads before render.
                 - Would be nice to find another way that does not require too much complexity but still achieves this -> trying out widgets now
     - [ ] Better default window placement
+    - [ ] Default widgets improvements:
+        - [ ] inspector
+            - [ ] primitives
+            - [ ] properties
+        - [ ] renderer
     - [ ] Port built-in profiler
     - [ ] Memory breakdown view -> also plot of usage per-frame to spot mid-frame allocs
+    - [ ] Gizmos and mouse interaction on objects
 - [ ] Shaders
     - [x] check if there is a way for users that are writing custom shaders to import ambra modules (like scene.slang)
     - [ ] cache + hot reloading for dev (?)
@@ -490,6 +495,8 @@ TODO:
     - [x] Explore using hatchlings instead of setuptools for better editable builds (read pep 517)
 - [ ] API:
     - [ ] Rename (or underscore prefix) some of the private APIs and simplify public ones (e.g. update is confusing vs update_frame, modify data in place is also not as easy, currently need todo .gpu_property but this could be null if the gpu property has not yet been created)
+    - [ ] Open3D style oneliner to create a viewer and run it (list of objects + config + other utils?)
+    - [ ] Simpler property constructors, e.g. ArrayBufferProperty.streaming()
 
 Bugs:
 - [x] Fix non-unit world_up results in nans in camera
@@ -503,10 +510,8 @@ Bugs:
 
 Feature ideas:
 - [x] Better orthographic navigation (e.g. zoom, different panning speed logic from what we have now)
+- [x] Quickly switch to ortho views and back (maybe with tunable grid size too)
 - [ ] Client statistics (e.g. number of messages, bytes, etc.., maybe some ui like stats or in stats itself)
-- [ ] Quickly switch to ortho views and back (maybe with tunable grid size too)
-- [ ] Open3D style oneliner to create a viewer and run it (list of objects + config + other utils?)
-- [ ] Simpler property constructors, e.g. ArrayBufferProperty.streaming()
 - [ ] Gpu-generated properties:
     - Very general approach with dependency graph and task run etc..
         - Not sure yet how to make this general and useful enough
