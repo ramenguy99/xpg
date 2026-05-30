@@ -49,6 +49,7 @@ class Playback:
 
         self.frames_per_second = config.frames_per_second
         self.playback_speed_multiplier = config.playback_speed_multiplier
+        self.first_frame_after_loop = False
 
         if config.initial_frame is None:
             self.current_time = config.initial_time
@@ -65,7 +66,9 @@ class Playback:
             self.current_time = self.max_time
             self.current_frame = self.num_frames - 1
         else:
+            old_time = self.current_time
             self.set_time(self.current_time + dt * self.playback_speed_multiplier)
+            self.first_frame_after_loop = old_time > self.current_time
 
     def toggle_play_pause(self) -> None:
         self.playing = not self.playing

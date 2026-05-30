@@ -12,7 +12,7 @@ from pyglm.glm import vec3
 from pyxpg import imgui
 
 from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig
-from ambra.primitives3d import Colormap, ColormapDistanceToPlane, ColormapKind, Points
+from ambra.primitives3d import ColormapDistanceToPlane, ColormapKind, Points
 from ambra.property import AnimationBoundary, ListBufferProperty, ListTimeSampledAnimation, UploadSettings
 from ambra.viewer import Viewer
 
@@ -43,8 +43,6 @@ class Camera:
         self.thread.start()
 
     def _entry(self):
-        # TODO: open camera and start streaming
-
         start_t = time.monotonic_ns()
         while True:
             if self.should_stop:
@@ -103,21 +101,15 @@ def main():
                                 upload=UploadSettings(batched=False, preupload=False),
                             )
                         pc = Points(
-                            points_property, colormap=ColormapDistanceToPlane(ColormapKind.JET, 0, 1), point_size=3
+                            points_property,
+                            colormap=ColormapDistanceToPlane(ColormapKind.JET, 0, 1, 0.25),
+                            point_size=3,
                         )
                         self.scene.objects.append(pc)
                     else:
                         total_idx += 1
-
-                        # pc.points.append_frames([reading.data] * 10)
-
                         pc.points.append_frame(reading.data)
-                        # points_animation.timestamps.append(float(total_idx))
-
                         self.playback.set_max_time(pc.points.end_animation_time(self.playback.frames_per_second))
-                        if True:
-                            if not self.gui_playback_slider_held:
-                                self.playback.set_frame(self.playback.num_frames - 1)
                 return super().on_draw()
 
             def on_gui(self):
@@ -146,6 +138,10 @@ def main():
                 camera=CameraConfig(
                     position=vec3(3),
                     target=vec3(0),
+                ),
+                playback=PlaybackConfig(
+                    playing=True,
+                    lock_to_last_frame=True,
                 ),
                 gui=GuiConfig(stats=True, playback=True, renderer=True, inspector=True),
             ),

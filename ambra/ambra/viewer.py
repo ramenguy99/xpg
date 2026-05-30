@@ -219,6 +219,7 @@ class Viewer:
         self.gui_playback_drag_start_offset_frames = 0.0
         self.gui_playback_drag_start_mouse_position_px = 0.0
         self.gui_playback_snap_to_frame = config.gui.playback_snap_to_frame
+        self.gui_playback_autoscroll_while_playing = config.gui.playback_autoscroll_while_playing
         self.gui_playback_expanded = config.gui.playback_expanded
 
         # Disable ImGui asserts
@@ -915,7 +916,7 @@ class Viewer:
                 self.gui_playback_expanded,
             )
             imgui.same_line(spacing=10)
-            if imgui.button(IconsFontAwesome7.ICON_HOUSE, size=button_size):
+            if imgui.button(IconsFontAwesome7.ICON_ARROWS_LEFT_RIGHT_TO_LINE, size=button_size):
                 self.gui_playback_zoom = 0
                 self.gui_playback_offset_frames = 0
             imgui.same_line(spacing=10)
@@ -944,6 +945,11 @@ class Viewer:
             imgui.same_line(spacing=10)
             self.gui_playback_snap_to_frame = toggle_button(
                 IconsFontAwesome7.ICON_MAGNET, self.gui_playback_snap_to_frame
+            )
+            imgui.same_line(spacing=10)
+            self.gui_playback_autoscroll_while_playing = toggle_button(
+                IconsFontAwesome7.ICON_RIGHT_TO_BRACKET,
+                self.gui_playback_autoscroll_while_playing,
             )
             imgui.same_line(spacing=20)
             fw = min((w - (button_size_x * 6 + 30)), char_width * 12)
@@ -1026,9 +1032,15 @@ class Viewer:
                     self.gui_playback_dragging = False
                     self.gui_playback_drag_start_offset_frames = 0.0
 
+                num_frames = (
+                    self.gui_playback_slider_current_num_frames
+                    if self.gui_playback_slider_current_num_frames is not None
+                    else self.playback.num_frames
+                )
+
                 # Init range and zoom
                 mouse_x_px = io.mouse_pos.x - pos.x
-                range_frames = max((self.playback.num_frames - 1), 1)
+                range_frames = max(num_frames, 1)
                 scale_frames_from_px = 2**self.gui_playback_zoom / size.x * range_frames
 
                 # Zooming
@@ -1047,12 +1059,26 @@ class Viewer:
 
                 scale_px_from_frames = 1 / scale_frames_from_px
 
+                current_frame = self.playback.current_time * self.playback.frames_per_second
+
                 # Dragging timeline
                 if self.gui_playback_dragging:
                     delta_px = io.mouse_pos.x - self.gui_playback_drag_start_mouse_position_px
                     self.gui_playback_offset_frames = (
                         self.gui_playback_drag_start_offset_frames + scale_frames_from_px * delta_px
                     )
+                elif (
+                    self.playback.playing
+                    and self.gui_playback_autoscroll_while_playing
+                    and not self.gui_playback_slider_held
+                ):
+                    if self.playback.first_frame_after_loop:
+                        self.gui_playback_offset_frames = 0
+                    else:
+                        first_visible_frame = -self.gui_playback_offset_frames
+                        last_visible_frame = -self.gui_playback_offset_frames + scale_frames_from_px * size.x
+                        if current_frame > last_visible_frame or current_frame < first_visible_frame:
+                            self.gui_playback_offset_frames = -(current_frame - scale_frames_from_px * size.x * 0.25)
 
                 frames_outside = range_frames * (1 - 2**self.gui_playback_zoom)
                 self.gui_playback_offset_frames = np.clip(self.gui_playback_offset_frames, -frames_outside, 0)
@@ -1063,14 +1089,14 @@ class Viewer:
                         frame = np.clip(
                             int(np.round(scale_frames_from_px * mouse_x_px - self.gui_playback_offset_frames)),
                             0,
-                            self.playback.num_frames - 1,
+                            max(num_frames - 1, 0),
                         )
                         self.playback.set_frame(frame)
                     else:
                         frame = np.clip(
                             scale_frames_from_px * mouse_x_px - self.gui_playback_offset_frames,
                             0,
-                            self.playback.num_frames - 1,
+                            np.nextafter(float(num_frames), 0.0),
                         )
                         time = frame / self.playback.frames_per_second
                         self.playback.set_time(time)
@@ -1135,12 +1161,7 @@ class Viewer:
                     # Draw frame cursor text and text bg
                     list.push_clip_rect(cursor_rect_min, cursor_rect_max, True)
                     current_min = imgui.Vec2(
-                        pos.x
-                        + scale_px_from_frames
-                        * (
-                            self.playback.current_time * self.playback.frames_per_second
-                            + self.gui_playback_offset_frames
-                        ),
+                        pos.x + scale_px_from_frames * (current_frame + self.gui_playback_offset_frames),
                         pos.y,
                     )
                     current_max = imgui.Vec2(current_min.x + 1, pos.y + size.y)
