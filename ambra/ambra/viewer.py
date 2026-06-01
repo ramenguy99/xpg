@@ -1262,8 +1262,8 @@ class Viewer:
                         if runs.size > 0:
                             runs_x = scale_px_from_frames * runs * self.playback.frames_per_second
                             runs_x = runs_x + pos.x + 0.5 + scale_px_from_frames * self.gui_playback_offset_frames
-                            lines_min = np.empty((runs.size, 2), np.float32)
-                            lines_max = np.empty((runs.size, 2), np.float32)
+                            lines_min = np.empty((runs.shape[0], 2), np.float32)
+                            lines_max = np.empty((runs.shape[0], 2), np.float32)
                             lines_min[:, 0] = runs_x[:, 0]
                             lines_min[:, 1] = pos_y - frame_line_offset_above
                             lines_max[:, 0] = runs_x[:, 1]
@@ -1280,8 +1280,8 @@ class Viewer:
                             )
 
                             # Edges
-                            edges_min = np.empty((runs.size, 2), np.float32)
-                            edges_max = np.empty((runs.size, 2), np.float32)
+                            edges_min = np.empty((runs.shape[0], 2), np.float32)
+                            edges_max = np.empty((runs.shape[0], 2), np.float32)
                             edges_min[:, 0] = lines_min[:, 0]
                             edges_min[:, 1] = pos_y
                             edges_max[:, 0] = lines_max[:, 0]
