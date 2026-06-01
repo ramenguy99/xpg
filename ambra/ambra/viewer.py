@@ -1004,9 +1004,14 @@ class Viewer:
             pos.x += char_width * 2
             size.x -= char_width * 5
 
+            if self.gui_playback_expanded:
+                child_size = size
+            else:
+                child_size = imgui.Vec2(size.x, min(size.y, not_expanded_max_size + text_height * 2))
+
             imgui.set_cursor_screen_pos(pos)
             imgui.begin_child(
-                "Timeline", size, window_flags=imgui.WindowFlags.NO_SCROLLBAR | imgui.WindowFlags.NO_MOVE
+                "Timeline", child_size, window_flags=imgui.WindowFlags.NO_SCROLLBAR | imgui.WindowFlags.NO_MOVE
             )
             imgui.end_child()
 

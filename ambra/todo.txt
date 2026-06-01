@@ -24,6 +24,16 @@ Priority:
           - Use cases:
             - Scrolling and rolling plot (both are ordererd, but scrolling requires moving data every frame)
             - Windowed buffers (e.g. trajectories / histories) -> ideally both past and future (maybe can achieve this with past only and messing with timestamps / frames instead?)
+- [ ] UI:
+    - [ ] Better default imgui layout:
+        - see https://github.com/ocornut/imgui/issues/4988
+        - and https://gist.github.com/AidanSun05/953f1048ffe5699800d2c92b88c36d9f
+        - [ ] Expose DockBuilder API (maybe make an imgui.internal submodule (?)
+        - [ ] Use trick of defining custom viewport dock UID (or hardcode) and check if this ID already exists before creating (it does if from ini file)
+            - [ ] If ID did not exist, use builder api to generate default layout
+                  -> need to do this at end of frame once we have IDs for each
+                  -> dock playback at bottom, inspector or renderer to right, one on top of each other if both specified (or one right one left for better composability, or renderer just undocked by default)
+
 TODO:
 - [x] Color and sRGB
     All colors:
