@@ -87,6 +87,8 @@ class TracerSource:
     def register(self, topic: str, property: TracerProperty) -> TracerProperty:
         property.source = self
         property.topic = topic
+        if not property.name:
+            property.name = topic
         self.registered_topics.setdefault(topic, RegisteredTopic()).properties.append(property)
 
         return property
