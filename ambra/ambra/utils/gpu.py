@@ -29,8 +29,6 @@ from pyxpg import (
     get_format_info,
 )
 
-from .ring_buffer import RingBuffer
-
 
 def is_pow_2(n: int) -> int:
     return n != 0 and (n & (n - 1) == 0)
@@ -529,98 +527,6 @@ class UploadableImage(Image):
     def upload_sync(self, data: Union[memoryview, NDArray[np.uint8]], layout: ImageLayout) -> None:
         with self.device.sync_commands() as cmd:
             self.upload(cmd, layout, MemoryUsage.NONE, MemoryUsage.NONE, data)
-
-
-@dataclass
-class UniformBlockAllocation:
-    buffer: UploadableBuffer
-    offset: int
-    size: int
-
-    def upload(self, cmd: CommandBuffer, data: Union[memoryview, NDArray[np.uint8]]) -> None:
-        if len(data) > self.size:
-            raise IndexError("data is larger than buffer allocation")
-        self.buffer.upload(cmd, MemoryUsage.SHADER_UNIFORM, data, self.offset)
-
-
-@dataclass
-class UniformBlock:
-    buffers: RingBuffer[UploadableBuffer]
-    size: int
-    used: int = 0
-
-    def alloc(self, size: int, alignment: int) -> UniformBlockAllocation:
-        assert self.used + size < self.size
-        alloc = UniformBlockAllocation(
-            self.buffers.get_current(),
-            self.used,
-            size,
-        )
-        self.used += (size + alignment - 1) & ~(alignment - 1)
-        return alloc
-
-    def advance(self) -> None:
-        self.buffers.advance()
-        self.used = 0
-
-
-class UniformPool:
-    def __init__(self, device: Device, num_frames: int, block_size: int):
-        self.device = device
-        self.num_frames = num_frames
-        self.block_size = block_size
-        self.blocks: List[UniformBlock] = []
-        self.alignment = max(
-            16,
-            self.device.device_properties.limits.min_uniform_buffer_offset_alignment,
-        )
-        self.max_uniform_buffer_range = self.device.device_properties.limits.max_uniform_buffer_range
-
-        # Warmup first block
-        self._alloc_block(block_size)
-
-    def _alloc_block(self, min_size: int) -> UniformBlock:
-        size = max(min_size, self.block_size)
-        block_idx = len(self.blocks)
-        block = UniformBlock(
-            buffers=RingBuffer(
-                [
-                    UploadableBuffer(
-                        self.device,
-                        size,
-                        BufferUsageFlags.UNIFORM,
-                        name=f"uniform-pool-block-buf{block_idx}",
-                    )
-                    for _ in range(self.num_frames)
-                ]
-            ),
-            size=size,
-        )
-
-        # Sync ringbuffer index, not necessary but makes for easier debugging
-        if self.blocks:
-            index = self.blocks[0].buffers.index
-            block.buffers.set(index)
-
-        self.blocks.append(block)
-        return block
-
-    def alloc(self, size: int) -> UniformBlockAllocation:
-        if size > self.max_uniform_buffer_range:
-            raise RuntimeError(
-                f"allocation size ({size}) is larger than device limit ({self.max_uniform_buffer_range})"
-            )
-
-        for b in self.blocks:
-            if b.used + size < b.size:
-                return b.alloc(size, self.alignment)
-
-        # No space left, alloc a new block
-        return self._alloc_block(size).alloc(size, self.alignment)
-
-    def advance(self) -> None:
-        for b in self.blocks:
-            b.advance()
 
 
 _channels_dtype_int_bgra_to_format_table: Dict[Tuple[int, np.dtype, bool, bool], Format] = {

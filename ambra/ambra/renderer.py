@@ -104,7 +104,6 @@ from .utils.gpu import (
     BufferUploadInfo,
     BulkUploader,
     ImageUploadInfo,
-    UniformPool,
     UploadableBuffer,
     attachment_alpha_blending,
     div_round_up,
@@ -387,8 +386,6 @@ class Renderer:
         self.ibl_pipeline: Optional[IBLPipeline] = None
         self.ggx_lut_pipeline = GGXLUTPipeline(self)
         self.ggx_lut = self.ggx_lut_pipeline.run(self)
-
-        self.uniform_pool = UniformPool(device, self.num_frames_in_flight, config.uniform_pool_block_size)
 
         if config.thread_pool_workers is not None:
             self.num_workers = config.thread_pool_workers
@@ -2344,7 +2341,6 @@ class Renderer:
         if before_gui_barriers:
             cmd.barriers(image_barriers=before_gui_barriers)
 
-        self.uniform_pool.advance()
         self.total_frame_index += 1
 
     def render_gui(self, frame: FrameInputs, gui: Gui) -> None:

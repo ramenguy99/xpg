@@ -68,7 +68,6 @@ class RendererConfig:
     path_tracer_clip_value: float = 10.0
     path_tracer_use_background_color: bool = True
     msaa_samples: int = 1
-    uniform_pool_block_size: int = 4 * 1024 * 1024
     upload_buffer_size: int = 32 * 1024 * 1024
     upload_buffer_count: int = 2
     thread_pool_workers: Optional[int] = None

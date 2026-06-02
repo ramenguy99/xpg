@@ -92,7 +92,7 @@ TODO:
         - [x] Gaussian splats
         - [ ] Raytracing
         - [ ] View direction for reflections
-- [ ] Transparency:
+- [x] Transparency:
     - [x] materials in shaders
     - [x] is_transparent on objects and materials
     - [x] transparent queue in rendering and sorting based on position or depth
@@ -103,8 +103,8 @@ TODO:
         - [x] Voxels
     - [x] xray material with transparency based on normal
     - [x] depth peeling
-    - [ ] depth prepass?
-    - [ ] 2D renderables (going to be removed anyways at some point?)
+    - [-] depth prepass -> not needed right now
+    - [-] 2D renderables -> going to be removed anyways at some point
 - [x] Subgroups:
     - [x] Allow forcing subgroup size (if supported) when creating compute pipelines (or maybe arbitrary shaders too)
 - [x] Marching cubes:
@@ -165,8 +165,8 @@ TODO:
             -> Fixed with latest validation layer
 - [ ] Primitives
     - [ ] Objects:
-        - [ ] thin points 2D
-        - [ ] circles 2D
+        - [-] thin points 2D
+        - [-] circles 2D
         - [x] thin points 3D
         - [x] thin lines 2D / 3D
         - [x] Spheres
@@ -199,12 +199,12 @@ TODO:
     - [ ] Should we keep update callbacks? Should they be called when update_frame or update_frames are called? Most users of this just want to mark invalidation, maybe that's less powerful but better overall?
 - [ ] Cameras
     - [x] Better ortho controls
-    - [ ] Temporary axis aligned ortho view from all sides
+    - [x] Temporary axis aligned ortho view from all sides
     - [ ] Camera primitives (in scene):
         - [ ] Constructor from opencv intrinsics
         - [ ] Extrinsics to rotation translation (helper in c++ module? Otherwise numpy but could be annoying without scipy)
         - [ ] View from camera (and stick view to it during playback)
-- [x] Lights, materials and shader permutations
+- [ ] Lights, materials and shader permutations
     - [x] Cache shader compilations also in memory
     - [x] Ambient light
     - [x] PBR material
@@ -234,6 +234,8 @@ TODO:
     - [ ] Point and spot lights and shadows
     - [ ] Colormap material with user-configurable min-max and colormap (evaluated in shader from R channel)
         - think about how to also maybe support variants like versions dependent on distance to position / plane
+    - [ ] Multiviewport now supports enabled / disabled lights and enabled / disabled shadow receivers, but not enabled / disabled shadow casters
+            -> Need multiple shadow maps (and shadow map rendering passes) for that to work correctly
 - [ ] Stages presets in config or in helper functions
     - [x] Basic directional + uniform lights
     - [ ] Lights + grid
