@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import Enum, Flag, auto
 from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, Set, Tuple, TypeVar, Union
 
+import numpy as np
 from numpy.typing import NDArray
 from pyxpg import (
     AccessFlags,
@@ -37,6 +38,7 @@ from .utils.gpu import (
     BufferUploadInfo,
     ImageUploadInfo,
     MipGenerationFilter,
+    SlidingWindowSettings,
     get_image_pitch_rows_and_texel_size,
     to_srgb_format,
     view_bytes,
@@ -450,6 +452,32 @@ class GpuBufferPreuploadedArrayProperty(GpuPreuploadedArrayProperty[Buffer, GpuB
         frame.upload_property_pipeline_stages |= self.pipeline_stage_flags
 
 
+class GpuBufferPreuploadedArraySlidingWindowProperty(GpuBufferPreuploadedArrayProperty):
+    def __init__(
+        self,
+        data: NDArray[Any],
+        renderer: "Renderer",
+        property: "BufferProperty",
+        sliding_window: SlidingWindowSettings,
+        name: str,
+    ):
+        self.sliding_window = sliding_window
+        super().__init__(data, renderer, property, name)
+
+    def get_current(self) -> GpuBufferView:
+        assert self.current is not None
+
+        i = self.property.current_frame_index
+        n = self.property.num_frames
+
+        begin_frame = max(0, i - self.sliding_window.before)
+        end_frame = min(n, i + self.sliding_window.after + 1)
+        begin = self.frame_size * begin_frame
+        end = self.frame_size * end_frame
+
+        return GpuBufferView(self.current.buffer, begin, end - begin)
+
+
 class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
     def __init__(
         self,
@@ -492,7 +520,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
             promises: List[Promise[PropertyItem]] = []
             for i in range(property.num_frames):
                 promise: Promise[PropertyItem] = Promise()
-                self.renderer.thread_pool.submit(promise, self._load_async, i)  # type: ignore
+                self.renderer.thread_pool.submit(promise, self._load, i)  # type: ignore
                 promises.append(promise)
 
         # Collect frames
@@ -528,7 +556,7 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
 
             buf = self.staging_buffers.get_current_and_advance()
             if self.async_load:
-                self.renderer.thread_pool.submit(buf.promise, self._load_async_into, index, buf)  # type: ignore
+                self.renderer.thread_pool.submit(buf.promise, self._load_into, index, buf)  # type: ignore
             else:
                 buf.used_size = self.property.get_frame_by_index_into(index, buf.buf.data)
             self.current_staging_buf = buf
@@ -715,10 +743,10 @@ class GpuPreuploadedProperty(GpuProperty[V], Generic[R, V]):
                 self.renderer.enqueue_for_destruction([b.buf for b in self.staging_buffers])
             self.staging_buffers = None
 
-    def _load_async(self, i: int, thread_index: int) -> "PropertyItem":
+    def _load(self, i: int, thread_index: int) -> "PropertyItem":
         return self.property.get_frame_by_index(i, thread_index)
 
-    def _load_async_into(self, i: int, buf: CpuBuffer, thread_index: int) -> None:
+    def _load_into(self, i: int, buf: CpuBuffer, thread_index: int) -> None:
         buf.used_size = self.property.get_frame_by_index_into(i, buf.buf.data, thread_index)
 
     def _create_preuploaded_resources_and_views(self, frames: List[NDArray[Any]]) -> Tuple[List[R], List[V]]:
@@ -813,6 +841,43 @@ class GpuBufferPreuploadedProperty(GpuPreuploadedProperty[Buffer, GpuBufferView]
 
     def _append_barriers_and_mip_requests_for_upload(self, frame: RendererFrame, resource: V) -> None:
         frame.upload_property_pipeline_stages |= self.pipeline_stage_flags
+
+
+class GpuBufferPreuploadedSlidingWindowProperty(GpuBufferPreuploadedProperty):
+    def __init__(
+        self,
+        renderer: "Renderer",
+        property: "BufferProperty",
+        sliding_window: SlidingWindowSettings,
+        name: str,
+    ):
+        self.sliding_window = sliding_window
+        self.frame_offsets = np.empty(property.num_frames + 1, np.uint64)
+        super().__init__(renderer, property, name)
+
+    def get_current(self) -> GpuBufferView:
+        assert self.current is not None
+
+        i = self.property.current_frame_index
+        n = self.property.num_frames
+        begin_frame = max(0, i - self.sliding_window.before)
+        end_frame = min(n, i + self.sliding_window.after + 1)
+        begin = self.frame_offsets[begin_frame]
+        end = self.frame_offsets[end_frame]
+        return GpuBufferView(self.current.buffer, int(begin), int(end - begin))
+
+    def _create_preuploaded_resources_and_views(
+        self, frames: List[NDArray[Any]]
+    ) -> Tuple[List[Buffer], List[GpuBufferView]]:
+        assert self.batched
+
+        total_size_in_bytes = 0
+        for i, frame in enumerate(frames):
+            self.frame_offsets[i] = total_size_in_bytes
+            total_size_in_bytes += len(view_bytes(frame))
+        self.frame_offsets[len(frames)] = total_size_in_bytes
+
+        return super()._create_preuploaded_resources_and_views(frames)
 
 
 class GpuImagePreuploadedProperty(GpuPreuploadedProperty[Image, GpuImageView]):
@@ -1074,9 +1139,9 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
 
         def cpu_load(k: int, buf: CpuBuffer) -> None:
             if self.async_load:
-                self.renderer.thread_pool.submit(buf.promise, self._load_async_into, k, buf)  # type: ignore
+                self.renderer.thread_pool.submit(buf.promise, self._load_into, k, buf)  # type: ignore
             else:
-                buf.used_size = self.property.get_frame_by_index_into(k, buf.buf.data)
+                self._load_into(k, buf)
 
         property_frame_index = self.property.current_frame_index
         if self.mapped:
@@ -1191,7 +1256,7 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
                 return buf.promise.is_set()
 
             def cpu_prefetch(k: int, buf: CpuBuffer) -> None:
-                self.renderer.thread_pool.submit(buf.promise, self._load_async_into, k, buf)  # type: ignore
+                self.renderer.thread_pool.submit(buf.promise, self._load_into, k, buf)  # type: ignore
 
             # TODO: can likely improve prefetch logic, and should probably allow
             # this to be hooked / configured somehow
@@ -1318,10 +1383,10 @@ class GpuStreamingProperty(GpuProperty[V], Generic[R, V]):
         self._invalidate_all_frames()
 
     # Private API
-    def _load_async(self, i: int, thread_index: int) -> "PropertyItem":
+    def _load(self, i: int, thread_index: int) -> "PropertyItem":
         return self.property.get_frame_by_index(i, thread_index)
 
-    def _load_async_into(self, i: int, buf: CpuBuffer, thread_index: int) -> None:
+    def _load_into(self, i: int, buf: CpuBuffer, thread_index: int = -1) -> None:
         buf.used_size = self.property.get_frame_by_index_into(i, buf.buf.data, thread_index)
 
     def _invalidate_frame(self, index: int) -> None:
@@ -1448,6 +1513,44 @@ class GpuBufferStreamingProperty(GpuStreamingProperty[Buffer, GpuBufferView]):
     def _cmd_before_barrier(self, cmd: CommandBuffer, resource: GpuBufferView) -> None:
         # Needs to be all when going from application usage on graphics queue to copy on transfer queue for prefetching
         cmd.memory_barrier(MemoryUsage.ALL, MemoryUsage.TRANSFER_DST)
+
+
+class GpuBufferStreamingSlidingWindowProperty(GpuBufferStreamingProperty):
+    def __init__(
+        self,
+        renderer: "Renderer",
+        property: "BufferProperty",
+        sliding_window: SlidingWindowSettings,
+        name: str,
+    ):
+        self.usage_flags = property.gpu_usage | BufferUsageFlags.TRANSFER_DST
+        self.max_frame_size = property.max_size * (
+            sliding_window.max_count
+            if sliding_window.max_count is not None
+            else sliding_window.before + sliding_window.after + 1
+        )
+        self.sliding_window = sliding_window
+
+        # Skip constructor
+        super(GpuBufferStreamingProperty, self).__init__(
+            renderer,
+            renderer.buffer_upload_method,
+            property,
+            property.gpu_stage,
+            name,
+        )
+
+    def _load(self, i: int, thread_index: int) -> "PropertyItem":
+        n = self.property.num_frames
+        begin_frame = max(0, i - self.sliding_window.before)
+        end_frame = min(n, i + self.sliding_window.after + 1)
+        return self.property.get_frame_range(begin_frame, end_frame, thread_index)
+
+    def _load_into(self, i: int, buf: CpuBuffer, thread_index: int = -1) -> None:
+        n = self.property.num_frames
+        begin_frame = max(0, i - self.sliding_window.before)
+        end_frame = min(n, i + self.sliding_window.after + 1)
+        buf.used_size = self.property.get_frame_range_into(begin_frame, end_frame, buf.buf.data, thread_index)
 
 
 class GpuImageStreamingProperty(GpuStreamingProperty[Image, GpuImageView]):

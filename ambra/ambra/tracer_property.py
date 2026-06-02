@@ -43,7 +43,9 @@ class TracerBufferProperty(TracerProperty, ListBufferProperty):
     def __init__(
         self, dtype: Optional[DTypeLike] = None, shape: Tuple[int, ...] = (), max_size: int = 0, name: str = ""
     ):
-        ListBufferProperty.__init__(self, [], dtype, shape, max_size, None, UploadSettings(preupload=False), name)
+        ListBufferProperty.__init__(
+            self, [], dtype, shape, max_size, None, UploadSettings(preupload=False), None, name
+        )
         TracerProperty.__init__(self)
 
 

@@ -18,7 +18,7 @@ from pyxpg import (
 )
 
 from . import gpu_property as gpu_property_mod
-from .utils.gpu import format_from_channels_dtype, view_bytes
+from .utils.gpu import SlidingWindowSettings, format_from_channels_dtype, view_bytes
 
 if TYPE_CHECKING:
     from .renderer import Renderer
@@ -434,6 +434,12 @@ class Property:
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         raise NotImplementedError
 
+    def get_frame_range_into(self, frame_begin: int, frame_end: int, out: memoryview, thread_index: int = -1) -> int:
+        raise NotImplementedError
+
+    def get_frame_range(self, frame_begin: int, frame_end: int, thread_index: int = -1) -> PropertyItem:
+        raise NotImplementedError
+
     def destroy_gpu_property(self) -> None:
         if self.gpu_property is not None:
             self.gpu_property.enqueue_for_destruction()
@@ -568,18 +574,37 @@ class BufferProperty(Property):
         shape: Tuple[int, ...],
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
+        sliding_window: Optional[SlidingWindowSettings] = None,
         name: str = "",
     ):
         super().__init__(num_frames, animation, upload, name)
         self.max_size = max_size
         self.dtype = dtype
         self.shape = shape
+        self.sliding_window = sliding_window
 
         self.gpu_property: Optional[gpu_property_mod.GpuProperty[gpu_property_mod.GpuBufferView]] = None
         self.gpu_usage = BufferUsageFlags(0)
         self.gpu_stage = PipelineStageFlags(0)
 
     # Public API
+    def get_current(self) -> PropertyItem:
+        if self.sliding_window is None:
+            return self.get_frame_by_index(self.current_frame_index)
+        else:
+            begin = max(0, self.current_frame_index - self.sliding_window.before)
+            end = min(self.num_frames, self.current_frame_index + self.sliding_window.after + 1)
+            return self.get_frame_range(begin, end)
+
+    def get_frame_range_into(self, frame_begin: int, frame_end: int, out: memoryview, thread_index: int = -1) -> int:
+        offset = 0
+        for f in range(frame_begin, frame_end):
+            offset += self.get_frame_by_index_into(f, out[offset:], thread_index)
+        return offset
+
+    def get_frame_range(self, frame_begin: int, frame_end: int, thread_index: int = -1) -> PropertyItem:
+        return np.concatenate([self.get_frame_by_index(f, thread_index) for f in range(frame_begin, frame_end)])
+
     def use_gpu(self, usage: BufferUsageFlags, stage: PipelineStageFlags) -> "BufferProperty":
         self.gpu_usage |= usage
         self.gpu_stage |= stage
@@ -598,10 +623,22 @@ class BufferProperty(Property):
                     BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
                 )
 
-            if self.upload.preupload:
-                self.gpu_property = gpu_property_mod.GpuBufferPreuploadedProperty(r, self, self.name)
+            if self.sliding_window is None:
+                if self.upload.preupload:
+                    if not self.upload.batched:
+                        raise RuntimeError("BufferProperty with sliding window and preuploaded must be batched")
+                    self.gpu_property = gpu_property_mod.GpuBufferPreuploadedProperty(r, self, self.name)
+                else:
+                    self.gpu_property = gpu_property_mod.GpuBufferStreamingProperty(r, self, self.name)
             else:
-                self.gpu_property = gpu_property_mod.GpuBufferStreamingProperty(r, self, self.name)
+                if self.upload.preupload:
+                    self.gpu_property = gpu_property_mod.GpuBufferPreuploadedSlidingWindowProperty(
+                        r, self, self.sliding_window, self.name
+                    )
+                else:
+                    self.gpu_property = gpu_property_mod.GpuBufferStreamingSlidingWindowProperty(
+                        r, self, self.sliding_window, self.name
+                    )
 
 
 class ImageProperty(Property):
@@ -703,16 +740,29 @@ class ArrayBufferProperty(BufferProperty):
         dtype: Optional[DTypeLike] = None,
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
+        sliding_window: Optional[SlidingWindowSettings] = None,
         name: str = "",
     ):
         data = np.atleast_1d(np.asarray(data, dtype, order="C"))
         max_size = data.itemsize * np.prod(data.shape[1:], dtype=np.int64)
-        super().__init__(int(max_size), len(data), data.dtype, data.shape[1:], animation, upload, name)
+        super().__init__(int(max_size), len(data), data.dtype, data.shape[1:], animation, upload, sliding_window, name)
         self.data = data
 
     # Public API
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         return self.data[frame_index]  # type: ignore
+
+    def get_frame_range_into(self, frame_begin: int, frame_end: int, out: memoryview, thread_index: int = -1) -> int:
+        r = view_bytes(self.data[frame_begin:frame_end])
+        out[: len(r)] = r
+        return len(r)
+
+    def get_frame_range(self, frame_begin: int, frame_end: int, thread_index: int = -1) -> PropertyItem:
+        r = self.data[frame_begin:frame_end]
+        if self.data.ndim > 1:
+            # Flatten frame dimension if needed
+            r = self.data.reshape(-1, *self.data.shape[1:])
+        return r
 
     # Renderer API
     def create(self, r: "Renderer") -> None:
@@ -723,15 +773,27 @@ class ArrayBufferProperty(BufferProperty):
                     BufferUsageFlags.SHADER_DEVICE_ADDRESS | BufferUsageFlags.ACCELERATION_STRUCTURE_INPUT
                 )
 
-            if self.upload.preupload:
-                if self.upload.batched:
-                    self.gpu_property = gpu_property_mod.GpuBufferPreuploadedArrayProperty(
-                        self.data, r, self, self.name
+            if self.sliding_window is None:
+                if self.upload.preupload:
+                    if self.upload.batched:
+                        self.gpu_property = gpu_property_mod.GpuBufferPreuploadedArrayProperty(
+                            self.data, r, self, self.name
+                        )
+                    else:
+                        self.gpu_property = gpu_property_mod.GpuBufferPreuploadedProperty(r, self, self.name)
+                else:
+                    self.gpu_property = gpu_property_mod.GpuBufferStreamingProperty(r, self, self.name)
+            else:
+                if self.upload.preupload:
+                    if not self.upload.batched:
+                        raise RuntimeError("ArrayBufferProperty with sliding window and preuploaded must be batched")
+                    self.gpu_property = gpu_property_mod.GpuBufferPreuploadedArraySlidingWindowProperty(
+                        self.data, r, self, self.sliding_window, self.name
                     )
                 else:
-                    self.gpu_property = gpu_property_mod.GpuBufferPreuploadedProperty(r, self, self.name)
-            else:
-                self.gpu_property = gpu_property_mod.GpuBufferStreamingProperty(r, self, self.name)
+                    self.gpu_property = gpu_property_mod.GpuBufferStreamingSlidingWindowProperty(
+                        r, self, self.sliding_window, self.name
+                    )
 
     # Edit API
     def update_frame(self, frame_index: int, frame: ArrayLike) -> None:
@@ -797,6 +859,7 @@ class ListBufferProperty(BufferProperty):
         max_size: int = 0,
         animation: Optional[Animation] = None,
         upload: Optional[UploadSettings] = None,
+        sliding_window: Optional[SlidingWindowSettings] = None,
         name: str = "",
     ):
         property_data = []
@@ -814,12 +877,15 @@ class ListBufferProperty(BufferProperty):
             property_data.append(a)
             max_size = max(max_size, a.nbytes)
 
-        super().__init__(max_size, len(property_data), dtype, shape, animation, upload, name)
+        super().__init__(max_size, len(property_data), dtype, shape, animation, upload, sliding_window, name)
         self.data = property_data
 
     # Public API
     def get_frame_by_index(self, frame_index: int, thread_index: int = -1) -> PropertyItem:
         return self.data[frame_index]
+
+    def get_frame_range(self, frame_begin: int, frame_end: int, thread_index: int = -1) -> PropertyItem:
+        return np.concatenate(self.data[frame_begin:frame_end])
 
     # Edit API
     def update_frame(self, frame_index: int, frame: NDArray[Any]) -> None:

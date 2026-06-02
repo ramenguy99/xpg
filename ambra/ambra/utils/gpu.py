@@ -84,6 +84,21 @@ def float3_srgb_to_linear(srgb: Tuple[float, float, float]) -> Tuple[float, floa
 
 
 @dataclass
+class SlidingWindowSettings:
+    # Number of frames in the window, including the current frame
+    before: int = 0
+    after: int = 0
+
+    # If set, maximum number of frames in the window excluding the current frame.
+    # If not set, the maximum number is the sum of the initial values of before and after.
+    #
+    # Max is used only for streaming properties for preallocation of a window of frames
+    # on the GPU, it can be set to a higher value than the initial values if the before
+    # and after values can change during the lifetime of the property.
+    max_count: Optional[int] = None
+
+
+@dataclass
 class BufferUploadInfo:
     data: memoryview
     buffer: Buffer
