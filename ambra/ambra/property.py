@@ -435,7 +435,11 @@ class Property:
         raise NotImplementedError
 
     def get_frame_range_into(self, frame_begin: int, frame_end: int, out: memoryview, thread_index: int = -1) -> int:
-        raise NotImplementedError
+        r = self.get_frame_range(frame_begin, frame_end, thread_index)
+        data = view_bytes(r)
+        size = len(data)
+        out[:size] = data
+        return size
 
     def get_frame_range(self, frame_begin: int, frame_end: int, thread_index: int = -1) -> PropertyItem:
         raise NotImplementedError
@@ -595,12 +599,6 @@ class BufferProperty(Property):
             begin = max(0, self.current_frame_index - self.sliding_window.before)
             end = min(self.num_frames, self.current_frame_index + self.sliding_window.after + 1)
             return self.get_frame_range(begin, end)
-
-    def get_frame_range_into(self, frame_begin: int, frame_end: int, out: memoryview, thread_index: int = -1) -> int:
-        offset = 0
-        for f in range(frame_begin, frame_end):
-            offset += self.get_frame_by_index_into(f, out[offset:], thread_index)
-        return offset
 
     def get_frame_range(self, frame_begin: int, frame_end: int, thread_index: int = -1) -> PropertyItem:
         return np.concatenate([self.get_frame_by_index(f, thread_index) for f in range(frame_begin, frame_end)])

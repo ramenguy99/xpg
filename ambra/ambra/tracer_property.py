@@ -35,6 +35,10 @@ class TracerProperty(Property, ABC):
         assert self.source is not None
         return self.source.get_property_frame_by_index(self, frame_index, thread_index)
 
+    def get_frame_range(self, frame_begin: int, frame_end: int, thread_index: int = -1) -> PropertyItem:
+        assert self.source is not None
+        return self.source.get_property_frame_range(self, frame_begin, frame_end, thread_index)
+
     @abstractmethod
     def process(self, **kwargs: Dict[str, Any]) -> PropertyItem: ...
 
@@ -130,10 +134,41 @@ class TracerSource:
                 p for p in viewer.scene.additional_properties if p not in multi_properties
             ]
 
+    def load_frame_from_db(self, db: sqlite3.Connection, property: TracerProperty, frame_index: int) -> PropertyItem:
+        assert property.topic is not None
+        raw_timestamps = self.registered_topics[property.topic].raw_timestamps
+        v = tracer.from_sqlite(
+            db, property.topic, where=f"{self.timestamp_column_name} == {raw_timestamps[frame_index]}"
+        )
+        for callback in self.registered_callbacks.get(property.topic, []):
+            callback(property.topic, v)
+        return property.process(**v)
+
+    def load_range_from_db(
+        self, db: sqlite3.Connection, property: TracerProperty, frame_begin: int, frame_end: int
+    ) -> PropertyItem:
+        assert property.topic is not None
+        raw_timestamps = self.registered_topics[property.topic].raw_timestamps
+        begin_timestamp = raw_timestamps[frame_begin]
+        end_timestamp = raw_timestamps[frame_end - 1]
+        v = tracer.from_sqlite(
+            db,
+            property.topic,
+            where=f"({self.timestamp_column_name} >= {begin_timestamp}) AND ({self.timestamp_column_name} <= {end_timestamp})",
+        )
+        for callback in self.registered_callbacks.get(property.topic, []):
+            callback(property.topic, v)
+        return property.process(**v)
+
     def get_property_frame_by_index(
         self, property: TracerProperty, frame_index: int, thread_index: int = -1
     ) -> PropertyItem:
-        return super(TracerProperty, property).get_frame_by_index(frame_index, thread_index)
+        raise NotImplementedError
+
+    def get_property_frame_range(
+        self, property: TracerProperty, frame_begin: int, frame_end: int, thread_index: int = -1
+    ) -> PropertyItem:
+        raise NotImplementedError
 
 
 class TracerLiveSource(TracerSource):
@@ -257,7 +292,7 @@ class TracerLiveSource(TracerSource):
         self, property: TracerProperty, frame_index: int, thread_index: int = -1
     ) -> PropertyItem:
         if not self.collect_histroy or not self.collect_to_sqlite_db:
-            return super().get_property_frame_by_index(property, frame_index, thread_index)
+            return super(TracerProperty, property).get_frame_by_index(frame_index, thread_index)
         else:
             assert property.topic is not None
             assert self.db is not None
@@ -267,6 +302,15 @@ class TracerLiveSource(TracerSource):
                 self.db, property.topic, where=f"{self.timestamp_column_name} == {raw_timestamps[frame_index]}"
             )
             return property.process(**v)
+
+    def get_property_frame_range(
+        self, property: TracerProperty, frame_begin: int, frame_end: int, thread_index: int = -1
+    ) -> PropertyItem:
+        if not self.collect_histroy or not self.collect_to_sqlite_db:
+            return super(TracerProperty, property).get_frame_range(frame_begin, frame_end, thread_index)
+        else:
+            assert self.db is not None
+            return self.load_range_from_db(self.db, property, frame_begin, frame_end)
 
 
 class TracerOfflineSource(TracerSource):
@@ -301,12 +345,9 @@ class TracerOfflineSource(TracerSource):
     def get_property_frame_by_index(
         self, property: TracerProperty, frame_index: int, thread_index: int = -1
     ) -> PropertyItem:
-        assert property.topic is not None
+        return self.load_frame_from_db(self.db, property, frame_index)
 
-        raw_timestamps = self.registered_topics[property.topic].raw_timestamps
-        v = tracer.from_sqlite(
-            self.db, property.topic, where=f"{self.timestamp_column_name} == {raw_timestamps[frame_index]}"
-        )
-        for callback in self.registered_callbacks.get(property.topic, []):
-            callback(property.topic, v)
-        return property.process(**v)
+    def get_property_frame_range(
+        self, property: TracerProperty, frame_begin: int, frame_end: int, thread_index: int = -1
+    ) -> PropertyItem:
+        return self.load_range_from_db(self.db, property, frame_begin, frame_end)
