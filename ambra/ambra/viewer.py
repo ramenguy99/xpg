@@ -1205,9 +1205,14 @@ class Viewer:
 
                     # Draw subticks (partial lines only on top bottom at 1 / 10 spacing)
                     if ticks_spacing_frames != 1:
-                        subticks = np.arange(
-                            first_visible_tick, last_visible_tick + ticks_spacing_frames, ticks_spacing_frames // 10
+                        subticks_spacing_frames = ticks_spacing_frames // 10
+                        first_visible_subtick = next_multiple_up(
+                            max(first_visible_frame - 1, 0), subticks_spacing_frames
                         )
+                        last_visible_subtick = (
+                            next_multiple_down(min(last_visible_frame + 1, num_frames), subticks_spacing_frames) + 1
+                        )
+                        subticks = np.arange(first_visible_subtick, last_visible_subtick, subticks_spacing_frames)
                         subticks_min = np.empty((subticks.size, 2), np.float32)
                         subticks_max = np.empty((subticks.size, 2), np.float32)
                         subticks_min[:, 0] = pos.x + scale_px_from_frames * (
