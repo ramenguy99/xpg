@@ -221,6 +221,8 @@ class Viewer:
         self.gui_playback_snap_to_frame = config.gui.playback_snap_to_frame
         self.gui_playback_autoscroll_while_playing = config.gui.playback_autoscroll_while_playing
         self.gui_playback_expanded = config.gui.playback_expanded
+        self.gui_playback_cursor_time_decimals = config.gui.playback_cursor_time_decimals
+        self.gui_playback_ticks_time_decimals = config.gui.playback_ticks_time_decimals
 
         # Disable ImGui asserts
         imgui.get_io().config_error_recovery_enable_assert = False
@@ -1160,28 +1162,33 @@ class Viewer:
                         list.add_text(
                             imgui.Vec2(t_min[0] - char_width * ((num_digits(int(ts)) + 2) * 0.5), t_max[1]),
                             text_color,
-                            f"{ts:.1f}",
+                            f"{ts:.{self.gui_playback_ticks_time_decimals}f}",
                         )
 
                     # Draw frame cursor text and text bg
                     list.push_clip_rect(cursor_rect_min, cursor_rect_max, True)
+
                     current_min = imgui.Vec2(
                         pos.x + scale_px_from_frames * (current_frame + self.gui_playback_offset_frames),
                         pos.y,
                     )
                     current_max = imgui.Vec2(current_min.x + 1, pos.y + size.y)
 
-                    text_width = char_width * max(3, num_digits(self.playback.current_frame) + 1)
-                    text_pos = imgui.Vec2(current_min.x - text_width * 0.5, current_min.y - text_height)
-                    text_min = imgui.Vec2(text_pos.x - 5, text_pos.y)
-                    text_max = imgui.Vec2(current_min.x + text_width * 0.5 + 7, current_min.y)
+                    text_width = char_width * (max(3, num_digits(self.playback.current_frame)) + 1)
+                    text_pos = imgui.Vec2(current_min.x - (text_width + char_width) * 0.5, current_min.y - text_height)
+                    text_min = imgui.Vec2(text_pos.x, text_pos.y)
+                    text_max = imgui.Vec2(current_min.x + (text_width + char_width) * 0.5, current_min.y)
                     list.add_rect_filled(text_min, text_max, current_bg_color_uint, 3.0)
 
-                    time_text_width = char_width * (num_digits(int(self.playback.current_time)) + 4)
-                    time_text_pos = imgui.Vec2(current_min.x - time_text_width * 0.5, current_min.y)
-                    time_text_min = imgui.Vec2(time_text_pos.x - 5, time_text_pos.y + size.y)
+                    time_text_width = char_width * (
+                        max(
+                            3, num_digits(int(self.playback.current_time)) + 2 + self.gui_playback_cursor_time_decimals
+                        )
+                    )
+                    time_text_pos = imgui.Vec2(current_min.x - (time_text_width + char_width) * 0.5, current_min.y)
+                    time_text_min = imgui.Vec2(time_text_pos.x, time_text_pos.y + size.y)
                     time_text_max = imgui.Vec2(
-                        current_min.x + time_text_width * 0.5 + char_width * 0.5,
+                        current_min.x + (time_text_width + char_width) * 0.5,
                         current_min.y + size.y + text_height,
                     )
                     list.add_rect_filled(time_text_min, time_text_max, current_bg_color_uint, 3.0)
@@ -1191,7 +1198,11 @@ class Viewer:
                     list.add_text(text_pos, current_text_color, f"{int(self.playback.current_frame)}")
 
                     time_text_pos = imgui.Vec2(time_text_min.x + char_width, time_text_min.y)
-                    list.add_text(time_text_pos, current_text_color, f"{self.playback.current_time:.2f}")
+                    list.add_text(
+                        time_text_pos,
+                        current_text_color,
+                        f"{self.playback.current_time:.{self.gui_playback_cursor_time_decimals}f}",
+                    )
                     list.pop_clip_rect()
 
                     # Draw body

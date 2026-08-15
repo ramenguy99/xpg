@@ -132,6 +132,8 @@ class GuiConfig:
     playback_expanded: bool = False
     playback_snap_to_frame: bool = False
     playback_autoscroll_while_playing: bool = False
+    playback_cursor_time_decimals = 3
+    playback_ticks_time_decimals = 1
 
     stats: bool = False
     playback: bool = False
