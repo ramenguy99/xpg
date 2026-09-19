@@ -198,7 +198,11 @@ class Viewer:
         icons_font = Path(__file__).parent.joinpath("fonts", IconsFontAwesome7.FONT_ICON_FILE_NAME_FAS_TTF)
         if icons_font.exists():
             self.gui.add_font_ttf(
-                "icons-font-awesome-7", icons_font.read_bytes(), size_pixels=13.0, glyph_offset_y=2.0, merge_mode=True
+                "icons-font-awesome-7",
+                icons_font.read_bytes(),
+                size_pixels=config.gui.default_font_size,
+                glyph_offset_y=2.0,
+                merge_mode=True,
             )
 
         self.multiviewport = config.gui.multiviewport
@@ -1333,6 +1337,9 @@ class Viewer:
 
     def gui_inspector(self) -> None:
         if imgui.begin("Inspector")[0]:
+            checkbox_offset = (
+                imgui.get_content_region_avail().x + imgui.get_cursor_screen_pos().x - imgui.get_window_pos().x - 25
+            )
             for i, v in enumerate(self.viewports):
                 if imgui.tree_node_ex(f"Camera - {v.name}##{i}" if self.multiviewport else "Camera"):
                     imgui.begin_disabled()
@@ -1365,7 +1372,7 @@ class Viewer:
                     else:
                         self.gui_selected_obj = o
 
-                imgui.same_line(imgui.get_content_region_max().x - 25)
+                imgui.same_line(checkbox_offset)
                 _, o.gui_enabled = imgui.checkbox(f"##enabled_{o.uid}", o.gui_enabled)
 
                 return o.gui_expanded

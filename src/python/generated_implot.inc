@@ -317,6 +317,8 @@ nb::enum_<ImPlotMarker_>(mod_implot, "Marker", nb::is_arithmetic() )
     .value("CROSS", ImPlotMarker_Cross)
     .value("PLUS", ImPlotMarker_Plus)
     .value("ASTERISK", ImPlotMarker_Asterisk)
+    .value("VERTICAL", ImPlotMarker_Vertical)
+    .value("HORIZONTAL", ImPlotMarker_Horizontal)
 ;
 
 

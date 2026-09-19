@@ -759,6 +759,8 @@ for f in data["functions"]:
     else:
         out_cpp(f");\n")
 
+if not drawlist_ended:
+    out_cpp(";")
 
 if False:
     with open(os.path.join(os.path.dirname(__file__), "..", "src", "python", "module.cpp"), "r") as module_file:

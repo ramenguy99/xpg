@@ -65,6 +65,7 @@ ignore = [
     "PLR0912", # too many branches
     "PLR0913", # too many arguments
     "PLR0915", # too many statements
+    "PLR0917", # too many positional arguments
     "PLR1714", # merge comparisons in set
     "PLR2004", # magic constant
     "PLR5501", # use elif instead of else then if
@@ -116,8 +117,11 @@ ignore = [
     "SIM105", # use contextlib suppress
 
     # Dataclass
-    "RUF009", # Function call in dataclass defaults (we use it with frozen types)
+    "RUF009", # function call in dataclass defaults (we use it with frozen types)
 
     # Security
-    "S105", # Possible hardcoded password (false positives in fonts)
+    "S105", # possible hardcoded password (false positives in fonts)
+
+    # License
+    "CPY001", # missing license at top of file
 ]

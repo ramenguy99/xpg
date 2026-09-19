@@ -139,6 +139,34 @@ void imgui_create_bindings(nb::module_& mod_imgui)
         nb::arg("thickness")
     );
 
+    drawlist_class.def("add_line_h_batch",
+        [](DrawList& self,
+           nb::ndarray<float, nb::shape<-1>> min_x,
+           nb::ndarray<float, nb::shape<-1>> max_x,
+           nb::ndarray<float, nb::shape<-1>> y,
+           nb::ndarray<uint32_t, nb::shape<-1>> col,
+           nb::ndarray<float, nb::shape<-1>> thickness
+        ) {
+
+            bool col_per_object = col.shape(0) != 1;
+            bool thickness_per_object = thickness.shape(0) != 1;
+            for (size_t i = 0; i < min_x.shape(0); i++) {
+                self.list->AddLineH(
+                    min_x(i),
+                    max_x(i),
+                    y(i),
+                    col_per_object ? col(i) : col(0),
+                    thickness_per_object ? thickness(i) : thickness(0)
+                );
+            }
+        },
+        nb::arg("min_x"),
+        nb::arg("max_x"),
+        nb::arg("y"),
+        nb::arg("color"),
+        nb::arg("thickness")
+    );
+
     drawlist_class.def("add_rect_batch",
         [](DrawList& self,
            nb::ndarray<float, nb::shape<-1, 2>> p_min,
@@ -321,6 +349,6 @@ void imgui_create_bindings(nb::module_& mod_imgui)
             spec.Flags = flags;
             return ImPlot::PlotDummy(label_id.c_str(), spec);
         }, nb::arg("label_id"), nb::arg("flags") = 0);
-    
+
 
 }

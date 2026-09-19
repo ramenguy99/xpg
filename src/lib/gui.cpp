@@ -29,13 +29,13 @@ void CreateImGuiImplCommon(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat f
     vk_init_info.QueueFamily = device.graphics_queue_family_index;
     vk_init_info.Queue = device.graphics_queue;
     vk_init_info.DescriptorPool = VK_NULL_HANDLE;
+    vk_init_info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE;
     vk_init_info.PipelineInfoMain.RenderPass = VK_NULL_HANDLE;
     vk_init_info.MinImageCount = (u32)num_frames_in_flight,
     vk_init_info.ImageCount = (u32)num_frames_in_flight,
     vk_init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     vk_init_info.PipelineCache = VK_NULL_HANDLE;
     vk_init_info.PipelineInfoMain.Subpass = 0;
-    vk_init_info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE + 8;
     struct ImGuiCheckResult {
         static void fn(VkResult res) {
             assert(res == VK_SUCCESS);
@@ -118,12 +118,14 @@ void CreateImGuiImplCommon(ImGuiImpl* impl, u32 num_frames_in_flight, VkFormat f
     ImGuiStyle& style = ImGui::GetStyle();
     style.FontSizeBase = config.default_font_size;
 
+    ImFontConfig default_font_config;
+    default_font_config.SizePixels = config.default_font_size;
     if (config.default_font_preference == DefaultFontPreference::VECTOR) {
-        io.Fonts->AddFontDefaultVector();
+        io.Fonts->AddFontDefaultVector(&default_font_config);
     } else if (config.default_font_preference == DefaultFontPreference::BITMAP) {
-        io.Fonts->AddFontDefaultBitmap();
+        io.Fonts->AddFontDefaultBitmap(&default_font_config);
     } else {
-        io.Fonts->AddFontDefault();
+        io.Fonts->AddFontDefault(&default_font_config);
     }
 
     for (usize i = 0; i < config.additional_fonts.length; i++) {

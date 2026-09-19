@@ -121,7 +121,7 @@ class GuiConfig:
 
     ini_filename: Optional[str] = "imgui.ini"  # if set to None disables.
 
-    default_font_size: Optional[float] = None  # If None use default imgui font size (13.0)
+    default_font_size: float = 13.0
     default_font_preference: DefaultFontPreference = (
         DefaultFontPreference.AUTO
     )  # If set to AUTO use BITMAP for font size < 15.0 and VECTOR otherwise.

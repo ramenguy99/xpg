@@ -53,6 +53,9 @@ nb::enum_<ImGuiItemFlags_>(mod_imgui, "ItemFlags", nb::is_arithmetic() , nb::is_
     .value("AUTO_CLOSE_POPUPS", ImGuiItemFlags_AutoClosePopups)
     .value("ALLOW_DUPLICATE_ID", ImGuiItemFlags_AllowDuplicateId)
     .value("DISABLED", ImGuiItemFlags_Disabled)
+    .value("LIVE_EDIT_ON_INPUT_TEXT", ImGuiItemFlags_LiveEditOnInputText)
+    .value("LIVE_EDIT_ON_INPUT_SCALAR", ImGuiItemFlags_LiveEditOnInputScalar)
+    .value("LIVE_EDIT_ON_INPUT", ImGuiItemFlags_LiveEditOnInput)
     ;
 
 nb::enum_<ImGuiInputTextFlags_>(mod_imgui, "InputTextFlags", nb::is_arithmetic() , nb::is_flag())
@@ -108,7 +111,6 @@ nb::enum_<ImGuiTreeNodeFlags_>(mod_imgui, "TreeNodeFlags", nb::is_arithmetic() ,
     .value("DRAW_LINES_FULL", ImGuiTreeNodeFlags_DrawLinesFull)
     .value("DRAW_LINES_TO_NODES", ImGuiTreeNodeFlags_DrawLinesToNodes)
     .value("NAV_LEFT_JUMPS_BACK_HERE", ImGuiTreeNodeFlags_NavLeftJumpsBackHere)
-    .value("SPAN_TEXT_WIDTH", ImGuiTreeNodeFlags_SpanTextWidth)
     ;
 
 nb::enum_<ImGuiPopupFlags_>(mod_imgui, "PopupFlags", nb::is_arithmetic() , nb::is_flag())
@@ -244,7 +246,6 @@ nb::enum_<ImGuiDragDropFlags_>(mod_imgui, "DragDropFlags", nb::is_arithmetic() ,
     .value("ACCEPT_NO_PREVIEW_TOOLTIP", ImGuiDragDropFlags_AcceptNoPreviewTooltip)
     .value("ACCEPT_DRAW_AS_HOVERED", ImGuiDragDropFlags_AcceptDrawAsHovered)
     .value("ACCEPT_PEEK_ONLY", ImGuiDragDropFlags_AcceptPeekOnly)
-    .value("SOURCE_AUTO_EXPIRE_PAYLOAD", ImGuiDragDropFlags_SourceAutoExpirePayload)
     ;
 
 nb::enum_<ImGuiDataType_>(mod_imgui, "DataType", nb::is_arithmetic() )
@@ -506,6 +507,7 @@ nb::enum_<ImGuiCol_>(mod_imgui, "Col", nb::is_arithmetic() )
     .value("SCROLLBAR_GRAB_HOVERED", ImGuiCol_ScrollbarGrabHovered)
     .value("SCROLLBAR_GRAB_ACTIVE", ImGuiCol_ScrollbarGrabActive)
     .value("CHECK_MARK", ImGuiCol_CheckMark)
+    .value("CHECKBOX_SELECTED_BG", ImGuiCol_CheckboxSelectedBg)
     .value("SLIDER_GRAB", ImGuiCol_SliderGrab)
     .value("SLIDER_GRAB_ACTIVE", ImGuiCol_SliderGrabActive)
     .value("BUTTON", ImGuiCol_Button)
@@ -591,6 +593,9 @@ nb::enum_<ImGuiStyleVar_>(mod_imgui, "StyleVar", nb::is_arithmetic() )
     .value("TABLE_ANGLED_HEADERS_TEXT_ALIGN", ImGuiStyleVar_TableAngledHeadersTextAlign)
     .value("TREE_LINES_SIZE", ImGuiStyleVar_TreeLinesSize)
     .value("TREE_LINES_ROUNDING", ImGuiStyleVar_TreeLinesRounding)
+    .value("MENU_ITEM_ROUNDING", ImGuiStyleVar_MenuItemRounding)
+    .value("SELECTABLE_ROUNDING", ImGuiStyleVar_SelectableRounding)
+    .value("DRAG_DROP_TARGET_ROUNDING", ImGuiStyleVar_DragDropTargetRounding)
     .value("BUTTON_TEXT_ALIGN", ImGuiStyleVar_ButtonTextAlign)
     .value("SELECTABLE_TEXT_ALIGN", ImGuiStyleVar_SelectableTextAlign)
     .value("SEPARATOR_SIZE", ImGuiStyleVar_SeparatorSize)
@@ -635,6 +640,7 @@ nb::enum_<ImGuiColorEditFlags_>(mod_imgui, "ColorEditFlags", nb::is_arithmetic()
     .value("FLOAT", ImGuiColorEditFlags_Float)
     .value("PICKER_HUE_BAR", ImGuiColorEditFlags_PickerHueBar)
     .value("PICKER_HUE_WHEEL", ImGuiColorEditFlags_PickerHueWheel)
+    .value("PICKER_NO_ROTATE", ImGuiColorEditFlags_PickerNoRotate)
     .value("INPUT_R_G_B", ImGuiColorEditFlags_InputRGB)
     .value("INPUT_H_S_V", ImGuiColorEditFlags_InputHSV)
     .value("DEFAULT_OPTIONS_", ImGuiColorEditFlags_DefaultOptions_)
@@ -804,6 +810,7 @@ nb::enum_<ImGuiMultiSelectFlags_>(mod_imgui, "MultiSelectFlags", nb::is_arithmet
     .value("NAV_WRAP_X", ImGuiMultiSelectFlags_NavWrapX)
     .value("NO_SELECT_ON_RIGHT_CLICK", ImGuiMultiSelectFlags_NoSelectOnRightClick)
     .value("SELECT_ON_MASK_", ImGuiMultiSelectFlags_SelectOnMask_)
+    .value("CHECKBOX_MODE_", ImGuiMultiSelectFlags_CheckboxMode_)
     .value("SELECT_ON_CLICK", ImGuiMultiSelectFlags_SelectOnClick)
     ;
 
@@ -815,19 +822,20 @@ nb::enum_<ImGuiSelectionRequestType>(mod_imgui, "SelectionRequestType", nb::is_a
 
 nb::enum_<ImDrawFlags_>(mod_imgui, "DrawFlags", nb::is_arithmetic() , nb::is_flag())
     .value("NONE", ImDrawFlags_None)
-    .value("CLOSED", ImDrawFlags_Closed)
     .value("ROUND_CORNERS_TOP_LEFT", ImDrawFlags_RoundCornersTopLeft)
     .value("ROUND_CORNERS_TOP_RIGHT", ImDrawFlags_RoundCornersTopRight)
     .value("ROUND_CORNERS_BOTTOM_LEFT", ImDrawFlags_RoundCornersBottomLeft)
     .value("ROUND_CORNERS_BOTTOM_RIGHT", ImDrawFlags_RoundCornersBottomRight)
     .value("ROUND_CORNERS_NONE", ImDrawFlags_RoundCornersNone)
+    .value("ROUND_CORNERS_ALL", ImDrawFlags_RoundCornersAll)
+    .value("ROUND_CORNERS_DEFAULT_", ImDrawFlags_RoundCornersDefault_)
     .value("ROUND_CORNERS_TOP", ImDrawFlags_RoundCornersTop)
     .value("ROUND_CORNERS_BOTTOM", ImDrawFlags_RoundCornersBottom)
     .value("ROUND_CORNERS_LEFT", ImDrawFlags_RoundCornersLeft)
     .value("ROUND_CORNERS_RIGHT", ImDrawFlags_RoundCornersRight)
-    .value("ROUND_CORNERS_ALL", ImDrawFlags_RoundCornersAll)
-    .value("ROUND_CORNERS_DEFAULT_", ImDrawFlags_RoundCornersDefault_)
     .value("ROUND_CORNERS_MASK_", ImDrawFlags_RoundCornersMask_)
+    .value("CLOSED", ImDrawFlags_Closed)
+    .value("INVALID_MASK_", ImDrawFlags_InvalidMask_)
     ;
 
 nb::enum_<ImDrawListFlags_>(mod_imgui, "DrawListFlags", nb::is_arithmetic() , nb::is_flag())
@@ -836,51 +844,7 @@ nb::enum_<ImDrawListFlags_>(mod_imgui, "DrawListFlags", nb::is_arithmetic() , nb
     .value("ANTI_ALIASED_LINES_USE_TEX", ImDrawListFlags_AntiAliasedLinesUseTex)
     .value("ANTI_ALIASED_FILL", ImDrawListFlags_AntiAliasedFill)
     .value("ALLOW_VTX_OFFSET", ImDrawListFlags_AllowVtxOffset)
-    ;
-
-nb::enum_<ImTextureFormat>(mod_imgui, "TextureFormat", nb::is_arithmetic() )
-    .value("R_G_B_A32", ImTextureFormat_RGBA32)
-    .value("ALPHA8", ImTextureFormat_Alpha8)
-    ;
-
-nb::enum_<ImTextureStatus>(mod_imgui, "TextureStatus", nb::is_arithmetic() )
-    .value("O_K", ImTextureStatus_OK)
-    .value("DESTROYED", ImTextureStatus_Destroyed)
-    .value("WANT_CREATE", ImTextureStatus_WantCreate)
-    .value("WANT_UPDATES", ImTextureStatus_WantUpdates)
-    .value("WANT_DESTROY", ImTextureStatus_WantDestroy)
-    ;
-
-nb::enum_<ImFontAtlasFlags_>(mod_imgui, "FontAtlasFlags", nb::is_arithmetic() , nb::is_flag())
-    .value("NONE", ImFontAtlasFlags_None)
-    .value("NO_POWER_OF_TWO_HEIGHT", ImFontAtlasFlags_NoPowerOfTwoHeight)
-    .value("NO_MOUSE_CURSORS", ImFontAtlasFlags_NoMouseCursors)
-    .value("NO_BAKED_LINES", ImFontAtlasFlags_NoBakedLines)
-    ;
-
-nb::enum_<ImFontFlags_>(mod_imgui, "FontFlags", nb::is_arithmetic() , nb::is_flag())
-    .value("NONE", ImFontFlags_None)
-    .value("NO_LOAD_ERROR", ImFontFlags_NoLoadError)
-    .value("NO_LOAD_GLYPHS", ImFontFlags_NoLoadGlyphs)
-    .value("LOCK_BAKED_SIZES", ImFontFlags_LockBakedSizes)
-    ;
-
-nb::enum_<ImGuiViewportFlags_>(mod_imgui, "ViewportFlags", nb::is_arithmetic() , nb::is_flag())
-    .value("NONE", ImGuiViewportFlags_None)
-    .value("IS_PLATFORM_WINDOW", ImGuiViewportFlags_IsPlatformWindow)
-    .value("IS_PLATFORM_MONITOR", ImGuiViewportFlags_IsPlatformMonitor)
-    .value("OWNED_BY_APP", ImGuiViewportFlags_OwnedByApp)
-    .value("NO_DECORATION", ImGuiViewportFlags_NoDecoration)
-    .value("NO_TASK_BAR_ICON", ImGuiViewportFlags_NoTaskBarIcon)
-    .value("NO_FOCUS_ON_APPEARING", ImGuiViewportFlags_NoFocusOnAppearing)
-    .value("NO_FOCUS_ON_CLICK", ImGuiViewportFlags_NoFocusOnClick)
-    .value("NO_INPUTS", ImGuiViewportFlags_NoInputs)
-    .value("NO_RENDERER_CLEAR", ImGuiViewportFlags_NoRendererClear)
-    .value("NO_AUTO_MERGE", ImGuiViewportFlags_NoAutoMerge)
-    .value("TOP_MOST", ImGuiViewportFlags_TopMost)
-    .value("CAN_HOST_OTHER_WINDOWS", ImGuiViewportFlags_CanHostOtherWindows)
-    .value("IS_MINIMIZED", ImGuiViewportFlags_IsMinimized)
-    .value("IS_FOCUSED", ImGuiViewportFlags_IsFocused)
+    .value("TEXT_NO_PIXEL_SNAP", ImDrawListFlags_TextNoPixelSnap)
     ;
 
 nb::class_<ImGuiStyle>(mod_imgui, "Style")
@@ -930,6 +894,8 @@ nb::class_<ImGuiStyle>(mod_imgui, "Style")
     .def_rw("tree_lines_flags", &ImGuiStyle::TreeLinesFlags)
     .def_rw("tree_lines_size", &ImGuiStyle::TreeLinesSize)
     .def_rw("tree_lines_rounding", &ImGuiStyle::TreeLinesRounding)
+    .def_rw("menu_item_rounding", &ImGuiStyle::MenuItemRounding)
+    .def_rw("selectable_rounding", &ImGuiStyle::SelectableRounding)
     .def_rw("drag_drop_target_rounding", &ImGuiStyle::DragDropTargetRounding)
     .def_rw("drag_drop_target_border_size", &ImGuiStyle::DragDropTargetBorderSize)
     .def_rw("drag_drop_target_padding", &ImGuiStyle::DragDropTargetPadding)
@@ -937,6 +903,7 @@ nb::class_<ImGuiStyle>(mod_imgui, "Style")
     .def_rw("color_button_position", &ImGuiStyle::ColorButtonPosition)
     .def_rw("button_text_align", &ImGuiStyle::ButtonTextAlign)
     .def_rw("selectable_text_align", &ImGuiStyle::SelectableTextAlign)
+    .def_rw("input_text_cursor_size", &ImGuiStyle::InputTextCursorSize)
     .def_rw("separator_size", &ImGuiStyle::SeparatorSize)
     .def_rw("separator_text_border_size", &ImGuiStyle::SeparatorTextBorderSize)
     .def_rw("separator_text_align", &ImGuiStyle::SeparatorTextAlign)
@@ -988,19 +955,24 @@ nb::class_<ImGuiIO>(mod_imgui, "IO")
     .def_rw("config_viewports_platform_focus_sets_im_gui_focus", &ImGuiIO::ConfigViewportsPlatformFocusSetsImGuiFocus)
     .def_rw("config_dpi_scale_fonts", &ImGuiIO::ConfigDpiScaleFonts)
     .def_rw("config_dpi_scale_viewports", &ImGuiIO::ConfigDpiScaleViewports)
-    .def_rw("mouse_draw_cursor", &ImGuiIO::MouseDrawCursor)
     .def_rw("config_mac_o_s_x_behaviors", &ImGuiIO::ConfigMacOSXBehaviors)
     .def_rw("config_input_trickle_event_queue", &ImGuiIO::ConfigInputTrickleEventQueue)
     .def_rw("config_input_text_cursor_blink", &ImGuiIO::ConfigInputTextCursorBlink)
     .def_rw("config_input_text_enter_keep_active", &ImGuiIO::ConfigInputTextEnterKeepActive)
+    .def_rw("config_color_edit_flags", &ImGuiIO::ConfigColorEditFlags)
     .def_rw("config_drag_click_to_input_text", &ImGuiIO::ConfigDragClickToInputText)
     .def_rw("config_windows_resize_from_edges", &ImGuiIO::ConfigWindowsResizeFromEdges)
     .def_rw("config_windows_move_from_title_bar_only", &ImGuiIO::ConfigWindowsMoveFromTitleBarOnly)
     .def_rw("config_windows_copy_contents_with_ctrl_c", &ImGuiIO::ConfigWindowsCopyContentsWithCtrlC)
     .def_rw("config_scrollbar_scroll_by_page", &ImGuiIO::ConfigScrollbarScrollByPage)
+    .def_rw("config_ini_settings_save_last_used_date", &ImGuiIO::ConfigIniSettingsSaveLastUsedDate)
+    .def_rw("config_ini_settings_auto_discard_months", &ImGuiIO::ConfigIniSettingsAutoDiscardMonths)
+    .def_rw("config_debug_ini_settings", &ImGuiIO::ConfigDebugIniSettings)
+    .def_rw("mouse_draw_cursor", &ImGuiIO::MouseDrawCursor)
     .def_rw("config_memory_compact_timer", &ImGuiIO::ConfigMemoryCompactTimer)
     .def_rw("mouse_double_click_time", &ImGuiIO::MouseDoubleClickTime)
     .def_rw("mouse_double_click_max_dist", &ImGuiIO::MouseDoubleClickMaxDist)
+    .def_rw("mouse_single_click_delay", &ImGuiIO::MouseSingleClickDelay)
     .def_rw("mouse_drag_threshold", &ImGuiIO::MouseDragThreshold)
     .def_rw("key_repeat_delay", &ImGuiIO::KeyRepeatDelay)
     .def_rw("key_repeat_rate", &ImGuiIO::KeyRepeatRate)
@@ -1014,7 +986,6 @@ nb::class_<ImGuiIO>(mod_imgui, "IO")
     .def_rw("config_debug_begin_return_value_once", &ImGuiIO::ConfigDebugBeginReturnValueOnce)
     .def_rw("config_debug_begin_return_value_loop", &ImGuiIO::ConfigDebugBeginReturnValueLoop)
     .def_rw("config_debug_ignore_focus_loss", &ImGuiIO::ConfigDebugIgnoreFocusLoss)
-    .def_rw("config_debug_ini_settings", &ImGuiIO::ConfigDebugIniSettings)
     .def_rw("want_capture_mouse", &ImGuiIO::WantCaptureMouse)
     .def_rw("want_capture_keyboard", &ImGuiIO::WantCaptureKeyboard)
     .def_rw("want_text_input", &ImGuiIO::WantTextInput)
@@ -1912,11 +1883,6 @@ mod_imgui.def("color_button",
         return ImGui::ColorButton(desc_id, col, flags, size);
     }, nb::arg("desc_id"), nb::arg("col"), nb::arg("flags") = 0, nb::arg("size") = nb::make_tuple(0, 0));
 
-mod_imgui.def("set_color_edit_options",
-    [] (ImGuiColorEditFlags_ flags) -> void {
-        return ImGui::SetColorEditOptions(flags);
-    }, nb::arg("flags"));
-
 mod_imgui.def("tree_node",
     [] (const char* label) -> bool {
         return ImGui::TreeNode(label);
@@ -2075,12 +2041,12 @@ mod_imgui.def("end_popup",
     });
 
 mod_imgui.def("open_popup",
-    [] (const char* str_id, ImGuiPopupFlags_ popup_flags) -> void {
+    [] (const char* str_id, ImGuiPopupFlags_ popup_flags) -> bool {
         return ImGui::OpenPopup(str_id, popup_flags);
     }, nb::arg("str_id"), nb::arg("popup_flags") = 0);
 
 mod_imgui.def("open_popup_on_item_click",
-    [] (std::optional<const char*> str_id, ImGuiPopupFlags_ popup_flags) -> void {
+    [] (std::optional<const char*> str_id, ImGuiPopupFlags_ popup_flags) -> bool {
         return ImGui::OpenPopupOnItemClick(str_id.has_value() ? str_id.value() : NULL, popup_flags);
     }, nb::arg("str_id") = nb::none(), nb::arg("popup_flags") = 0);
 
@@ -2491,6 +2457,11 @@ mod_imgui.def("get_item_flags",
         return (ImGuiItemFlags_)ImGui::GetItemFlags();
     });
 
+mod_imgui.def("get_item_clicked_count_with_single_click_delay",
+    [] (ImGuiMouseButton_ mouse_button, float delay) -> int {
+        return ImGui::GetItemClickedCountWithSingleClickDelay(mouse_button, delay);
+    }, nb::arg("mouse_button") = 0, nb::arg("delay") = -1.0);
+
 mod_imgui.def("get_main_viewport",
     [] () -> ImGuiViewport* {
         return ImGui::GetMainViewport();
@@ -2602,7 +2573,7 @@ mod_imgui.def("set_next_item_shortcut",
     }, nb::arg("key_chord"), nb::arg("flags") = 0);
 
 mod_imgui.def("set_item_key_owner",
-    [] (ImGuiKey key) -> void {
+    [] (ImGuiKey key) -> bool {
         return ImGui::SetItemKeyOwner(key);
     }, nb::arg("key"));
 
@@ -2629,7 +2600,7 @@ mod_imgui.def("is_mouse_double_clicked",
 mod_imgui.def("is_mouse_released_with_delay",
     [] (ImGuiMouseButton_ button, float delay) -> bool {
         return ImGui::IsMouseReleasedWithDelay(button, delay);
-    }, nb::arg("button"), nb::arg("delay"));
+    }, nb::arg("button"), nb::arg("delay") = -1.);
 
 mod_imgui.def("get_mouse_clicked_count",
     [] (ImGuiMouseButton_ button) -> int {
@@ -2771,10 +2742,14 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
     [] (DrawList* self, ImVec2 p1, ImVec2 p2, Color col, float thickness) -> void {
         return self->list->AddLine(p1, p2, col, thickness);
     }, nb::arg("p1"), nb::arg("p2"), nb::arg("col"), nb::arg("thickness") = 1.0)
+    .def("add_line_h",
+    [] (DrawList* self, float min_x, float max_x, float y, Color col, float thickness) -> void {
+        return self->list->AddLineH(min_x, max_x, y, col, thickness);
+    }, nb::arg("min_x"), nb::arg("max_x"), nb::arg("y"), nb::arg("col"), nb::arg("thickness") = 1.0)
     .def("add_rect",
-    [] (DrawList* self, ImVec2 p_min, ImVec2 p_max, Color col, float rounding, ImDrawFlags_ flags, float thickness) -> void {
-        return self->list->AddRect(p_min, p_max, col, rounding, flags, thickness);
-    }, nb::arg("p_min"), nb::arg("p_max"), nb::arg("col"), nb::arg("rounding") = 0.0, nb::arg("flags") = 0, nb::arg("thickness") = 1.0)
+    [] (DrawList* self, ImVec2 p_min, ImVec2 p_max, Color col, float rounding, float thickness, ImDrawFlags_ flags) -> void {
+        return self->list->AddRect(p_min, p_max, col, rounding, thickness, flags);
+    }, nb::arg("p_min"), nb::arg("p_max"), nb::arg("col"), nb::arg("rounding") = 0.0, nb::arg("thickness") = 1.0, nb::arg("flags") = 0)
     .def("add_rect_filled",
     [] (DrawList* self, ImVec2 p_min, ImVec2 p_max, Color col, float rounding, ImDrawFlags_ flags) -> void {
         return self->list->AddRectFilled(p_min, p_max, col, rounding, flags);
@@ -2836,9 +2811,9 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
         return self->list->AddBezierQuadratic(p1, p2, p3, col, thickness, num_segments);
     }, nb::arg("p1"), nb::arg("p2"), nb::arg("p3"), nb::arg("col"), nb::arg("thickness"), nb::arg("num_segments") = 0)
     .def("add_polyline",
-    [] (DrawList* self, const ImVec2* points, int num_points, Color col, ImDrawFlags_ flags, float thickness) -> void {
-        return self->list->AddPolyline(points, num_points, col, flags, thickness);
-    }, nb::arg("points"), nb::arg("num_points"), nb::arg("col"), nb::arg("flags"), nb::arg("thickness"))
+    [] (DrawList* self, const ImVec2* points, int num_points, Color col, float thickness, ImDrawFlags_ flags) -> void {
+        return self->list->AddPolyline(points, num_points, col, thickness, flags);
+    }, nb::arg("points"), nb::arg("num_points"), nb::arg("col"), nb::arg("thickness"), nb::arg("flags") = 0)
     .def("add_convex_poly_filled",
     [] (DrawList* self, const ImVec2* points, int num_points, Color col) -> void {
         return self->list->AddConvexPolyFilled(points, num_points, col);
@@ -2880,9 +2855,9 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
         return self->list->PathFillConcave(col);
     }, nb::arg("col"))
     .def("path_stroke",
-    [] (DrawList* self, Color col, ImDrawFlags_ flags, float thickness) -> void {
-        return self->list->PathStroke(col, flags, thickness);
-    }, nb::arg("col"), nb::arg("flags") = 0, nb::arg("thickness") = 1.0)
+    [] (DrawList* self, Color col, float thickness, ImDrawFlags_ flags) -> void {
+        return self->list->PathStroke(col, thickness, flags);
+    }, nb::arg("col"), nb::arg("thickness") = 1.0, nb::arg("flags") = 0)
     .def("path_arc_to",
     [] (DrawList* self, ImVec2 center, float radius, float a_min, float a_max, int num_segments) -> void {
         return self->list->PathArcTo(center, radius, a_min, a_max, num_segments);
@@ -2951,6 +2926,18 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
     [] (DrawList* self, ImVec2 pos, ImVec2 uv, Color col) -> void {
         return self->list->PrimVtx(pos, uv, col);
     }, nb::arg("pos"), nb::arg("uv"), nb::arg("col"))
+    .def("add_rect_im_draw_flags",
+    [] (DrawList* self, ImVec2 p_min, ImVec2 p_max, Color col, float rounding, ImDrawFlags_ flags, float thickness) -> void {
+        return self->list->AddRect(p_min, p_max, col, rounding, flags, thickness);
+    }, nb::arg("p_min"), nb::arg("p_max"), nb::arg("col"), nb::arg("rounding"), nb::arg("flags"), nb::arg("thickness"))
+    .def("add_polyline_im_draw_flags",
+    [] (DrawList* self, const ImVec2* points, int num_points, Color col, ImDrawFlags_ flags, float thickness) -> void {
+        return self->list->AddPolyline(points, num_points, col, flags, thickness);
+    }, nb::arg("points"), nb::arg("num_points"), nb::arg("col"), nb::arg("flags"), nb::arg("thickness"))
+    .def("path_stroke_im_draw_flags",
+    [] (DrawList* self, Color col, ImDrawFlags_ flags, float thickness) -> void {
+        return self->list->PathStroke(col, flags, thickness);
+    }, nb::arg("col"), nb::arg("flags"), nb::arg("thickness"))
     .def("push_texture_id",
     [] (DrawList* self, const Texture& tex_ref) -> void {
         return self->list->PushTextureID(tex_ref.tex_ref);
@@ -2960,48 +2947,3 @@ auto drawlist_class = nb::class_<DrawList>(mod_imgui, "DrawList",
         return self->list->PopTextureID();
     })
 ;
-mod_imgui.def("set_window_font_scale",
-    [] (float scale) -> void {
-        return ImGui::SetWindowFontScale(scale);
-    }, nb::arg("scale"));
-
-mod_imgui.def("image_im_vec4",
-    [] (const Texture& tex_ref, ImVec2 image_size, ImVec2 uv0, ImVec2 uv1, ImVec4 tint_col, ImVec4 border_col) -> void {
-        return ImGui::Image(tex_ref.tex_ref, image_size, uv0, uv1, tint_col, border_col);
-    }, nb::arg("tex_ref"), nb::arg("image_size"), nb::arg("uv0"), nb::arg("uv1"), nb::arg("tint_col"), nb::arg("border_col"));
-
-mod_imgui.def("push_button_repeat",
-    [] (bool repeat) -> void {
-        return ImGui::PushButtonRepeat(repeat);
-    }, nb::arg("repeat"));
-
-mod_imgui.def("pop_button_repeat",
-    [] () -> void {
-        return ImGui::PopButtonRepeat();
-    });
-
-mod_imgui.def("push_tab_stop",
-    [] (bool tab_stop) -> void {
-        return ImGui::PushTabStop(tab_stop);
-    }, nb::arg("tab_stop"));
-
-mod_imgui.def("pop_tab_stop",
-    [] () -> void {
-        return ImGui::PopTabStop();
-    });
-
-mod_imgui.def("get_content_region_max",
-    [] () -> ImVec2 {
-        return ImGui::GetContentRegionMax();
-    });
-
-mod_imgui.def("get_window_content_region_min",
-    [] () -> ImVec2 {
-        return ImGui::GetWindowContentRegionMin();
-    });
-
-mod_imgui.def("get_window_content_region_max",
-    [] () -> ImVec2 {
-        return ImGui::GetWindowContentRegionMax();
-    });
-
