@@ -30,7 +30,7 @@ Build:
             conda install conda-forge::vulkan-tools
 
 Maintenance:
-- [x] Update all deps (last: 11/10/2025)
+- [x] Update all deps (last: 19/09/2026)
 - [x] Add basic CI build on master or manually triggered (can remove slang to keep it fast, could also be a pipeline option)
 
 C++:
@@ -313,8 +313,8 @@ Build:
 Bugs:
 - [ ] Wayland GLFW issues:
     - [x] Window does not show immediately: need to draw before waiting for input. To fix this we can invert the loop or skip waiting the first frame (something that we might anyways do for imgui)
+    - [x] Window goes unresponsive when alt-tabbed on hyprland: https://github.com/glfw/glfw/issues/2723
     - [ ] Slow to resize, people point to libdecor: https://github.com/glfw/glfw/issues/2493
-    - [ ] Window goes unresponsive when alt-tabbed on hyprland: https://github.com/glfw/glfw/issues/2723
 
 Tests:
 - [ ] Add simple unit tests, pytest with a specific python version? Use lavapipe for rendering tests?
@@ -375,8 +375,8 @@ Python:
 - [ ] Warp interop
     - [ ] Requires instructions to build warp from our branch, or ask again to merge
 - [ ] Nanobind:
+    - [x] Nanobind 2.10 onwards dropped support for python 3.8. At some point will need to drop too (or potentially hold back nanobind version just for 3.8 wheels).
     - [ ] See if there is a way to fix direct _pyxpg.imgui imports to use pyxpg.imgui instead, same for _pyxpg.DescriptorSet in imgui
     - [ ] Flags that do not have is_arithmetic (and maybe others as well) produce weird bindings
         for default values. Stubgen fails on python3.8 cibuildwheel (not sure if other versions too)
         -> check again now that we are 3.10+
-    - [ ] Nanobind 2.10 onwards dropped support for python 3.8. At some point will need to drop too (or potentially hold back nanobind version just for 3.8 wheels).
