@@ -13,7 +13,6 @@ from pyxpg import (
     AccessFlags,
     Action,
     AllocType,
-    BorderColor,
     BufferUsageFlags,
     DescriptorSetBinding,
     DescriptorType,
@@ -64,6 +63,7 @@ from .renderer import FrameInputs, Renderer
 from .scene import Object, Scene, Widget
 from .server import Client, Message, RawMessage, Server, parse_builtin_messages
 from .utils.descriptors import (
+    create_descriptor_layout_pool_and_set,
     create_descriptor_layout_pool_and_sets,
     create_descriptor_pool_and_sets,
 )
@@ -270,17 +270,24 @@ class Viewer:
                 raise ValueError(
                     "config.gui.initial_number_of_viewports must be less than or equal to config.gui.max_viewport_count"
                 )
+
             self.viewport_sampler = Sampler(
                 self.device,
                 u=SamplerAddressMode.CLAMP_TO_BORDER,
                 v=SamplerAddressMode.CLAMP_TO_BORDER,
-                border_color=BorderColor.FLOAT_OPAQUE_BLACK,
             )
+            self.viewport_sampler_layout, self.viewport_sampler_pool, self.viewport_sampler_set = (
+                create_descriptor_layout_pool_and_set(
+                    self.device, [DescriptorSetBinding(1, DescriptorType.SAMPLER, stage_flags=Stage.FRAGMENT)]
+                )
+            )
+            self.viewport_sampler_set.write_sampler(self.viewport_sampler, 0)
+
             self.viewport_descriptor_layout, self.viewport_descriptor_pool, self.viewport_descriptor_sets = (
                 create_descriptor_layout_pool_and_sets(
                     self.device,
                     [
-                        DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT),
+                        DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE, stage_flags=Stage.FRAGMENT),
                     ],
                     config.gui.max_viewport_count,
                 )
@@ -378,7 +385,7 @@ class Viewer:
                 )
 
                 s = self.viewport_descriptor_sets[viewport_index]
-                s.write_combined_image_sampler(img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, self.viewport_sampler, 0)
+                s.write_image(img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 0)
                 texture = imgui.Texture(s)
 
                 viewport_image = ViewportImage(img, srgb_view, texture)
@@ -1626,12 +1633,16 @@ class Viewer:
                     v.rect.x = pos.x
                     v.rect.y = pos.y
                     v.resize(min(size.x, output_width), min(size.y, output_height))
+
+                    draw_list = imgui.get_window_draw_list()
+                    draw_list.set_sampler(self.viewport_sampler_set)
                     imgui.image(
                         v.viewport_image.imgui_texture,
                         avail,
                         imgui.Vec2(0, 0),
                         imgui.Vec2(size.x / fb_width, size.y / fb_height),
                     )
+                    draw_list.reset_sampler()
 
                     # Rotate
                     if imgui.is_item_clicked(rotate_button) and mapped_mods == self.key_map.camera_rotate.mods:

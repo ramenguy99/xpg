@@ -571,13 +571,11 @@ static void ImGui_ImplVulkan_DrawCallback_SetSamplerLinear(const ImDrawList*, co
 static void ImGui_ImplVulkan_DrawCallback_SetSamplerNearest(const ImDrawList*, const ImDrawCmd*)    { ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData(); vkCmdBindDescriptorSets(bd->RenderState->CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, bd->RenderState->PipelineLayout, 1, 1, &bd->SamplerNearestDS, 0, nullptr); }
 
 // If you want to use your own sampler, you can create your own callback, access ImGui_ImplVulkan_RenderState for command-buffer and pipeline layout, e.g.
-/*
 void ImGui_ImplVulkan_DrawCallback_SetSamplerCustom(const ImDrawList*, const ImDrawCmd* cmd)
 {
     ImGui_ImplVulkan_RenderState* render_state = (ImGui_ImplVulkan_RenderState*)ImGui::GetPlatformIO().Renderer_RenderState;
     vkCmdBindDescriptorSets(render_state->CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, render_state->PipelineLayout, 1, 1, (VkDescriptorSet*)cmd->UserCallbackData, 0, nullptr);
 }
-*/
 
 // Render function
 void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer, VkPipeline pipeline)
@@ -2075,7 +2073,7 @@ static void ImGui_ImplVulkan_CreateWindow(ImGuiViewport* viewport)
     ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
     VkResult err = (VkResult)platform_io.Platform_CreateVkSurface(viewport, (ImU64)v->Instance, (const void*)v->Allocator, (ImU64*)&wd->Surface);
     check_vk_result(err);
-    
+
     // Check if surface creation failed
     if (err != VK_SUCCESS || wd->Surface == VK_NULL_HANDLE)
     {

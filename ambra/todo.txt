@@ -416,7 +416,7 @@ TODO:
     - [x] Show memory usage in stats
     - [x] Better/configurable handling of imgui.ini file
     - [x] User texture for UI stuff, e.g. in imagui window (or tooltip)
-        - ImGui uses VkDescriptorSet, must be a single COMBINED_IMAGE_SAMPLER in it
+        - ImGui uses VkDescriptorSet, must be a single SAMPLED_IMAGE in it
         - You can pass the descriptor pool from which to allocate to imgui directly, but we currently
         let ImGui do that and just pass a number
         - You can allocate from ImGui's pool with ImGuiImplVulkan_AddTexture and ImGuiImplVulkan_RemoveTexture,
@@ -1220,13 +1220,3 @@ Thoughts:
                 [x] Double check if we need the extra array of resource generations for the full array dynamic case
                 [x] How to handle append, insert, remove -> also need to remove gpu properties from renderer
                 [x] Improve UI of GPU property depending on various states
-
-User texture for UI stuff, e.g. in imgui window (or tooltip):
-    - ImGui uses VkDescriptorSet, must be a single COMBINED_IMAGE_SAMPLER in it
-    - You can pass the descriptor pool from which to allocate to imgui directly, but we currently
-      let ImGui do that and just pass a number
-    - You can allocate from ImGui's pool with ImGuiImplVulkan_AddTexture and ImGuiImplVulkan_RemoveTexture,
-      these will allocate from the imgui's managed pool. This only requires a VkSampler, an image view and a layout.
-    - We can also allocate those descriptor sets manually, either directly in python or in a Gui wrapper.
-    - It might be a bit inefficient to have a DescriptorSet and Pool per image, but we currently don't expose
-      descriptor pools anyway. We might want to revisit this once we do this.

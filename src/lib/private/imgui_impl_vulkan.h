@@ -280,6 +280,8 @@ struct ImGui_ImplVulkanH_Window
     }
 };
 
+void ImGui_ImplVulkan_DrawCallback_SetSamplerCustom(const ImDrawList*, const ImDrawCmd* cmd);
+
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif

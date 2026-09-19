@@ -1,13 +1,13 @@
 import numpy as np
-from pyglm.glm import inverse, ivec2, normalize, quatLookAtRH, vec3, vec4
+from pyglm.glm import normalize, vec3, vec4
 from pyxpg import *
 
 from ambra.config import CameraConfig, Config, GuiConfig, PlaybackConfig, RendererConfig
 from ambra.geometry import create_axis3d_lines_and_colors, create_cube, create_plane
 from ambra.lights import DirectionalLight, DirectionalShadowSettings
-from ambra.materials import DiffuseMaterial, PBRMaterial
+from ambra.materials import DiffuseMaterial
 from ambra.primitives3d import Lines, Mesh
-from ambra.utils.descriptors import create_descriptor_layout_pool_and_set
+from ambra.utils.gui import GuiImage
 from ambra.utils.hook import hook
 from ambra.viewer import Viewer
 
@@ -40,35 +40,11 @@ class CustomViewer(Viewer):
 
                     if u:
                         light.rotation.update_frame(0, np.array(normalize(vec4(r))))
-                    if light._texture is None and light.shadow_map is not None:
-                        layout, pool, set = create_descriptor_layout_pool_and_set(
-                            viewer.device,
-                            [
-                                DescriptorSetBinding(
-                                    1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT
-                                ),
-                            ],
-                        )
-                        set.write_combined_image_sampler(
-                            light.shadow_map, ImageLayout.SHADER_READ_ONLY_OPTIMAL, sampler, 0
-                        )
-                        light._texture = imgui.Texture(set)
+                    if light.shadow_image is None and light.shadow_map is not None:
+                        light.shadow_image = GuiImage(viewer.device, light.shadow_map, sampler)
 
-                    if light._texture is not None:
-                        avail = imgui.get_content_region_avail()
-                        available = ivec2(avail.x, avail.y)
-
-                        ar = 1.0
-
-                        # height = available.x / ar
-                        height = available.y
-                        view_size = ivec2(ar * height, height)
-                        imgui.image(
-                            light._texture,
-                            imgui.Vec2(*view_size),
-                            uv0=(0, 0),
-                            uv1=(1, -1),
-                        )
+                    if light.shadow_image is not None:
+                        light.shadow_image.draw_square(imgui.get_window_draw_list(), uv_max=(1, -1))
 
             imgui.end()
 
@@ -139,7 +115,7 @@ light1 = DirectionalLight.look_at(
     np.array([1.0, 1.0, 1.0]),
     shadow_settings=DirectionalShadowSettings(half_extent=5.0, z_near=1.0, z_far=10),
 )
-light1._texture = None
+light1.shadow_image = None
 
 light2 = DirectionalLight.look_at(
     vec3(-2, 3, 4),
@@ -148,7 +124,7 @@ light2 = DirectionalLight.look_at(
     np.array([1.0, 1.0, 1.0]),
     shadow_settings=DirectionalShadowSettings(half_extent=5.0, z_near=1.0, z_far=10),
 )
-light2._texture = None
+light2.shadow_image = None
 
 sampler = Sampler(
     viewer.device,

@@ -20,6 +20,8 @@
 
 #include "py_gfx.h"
 
+#include "../lib/private/imgui_impl_vulkan.h"
+
 
 namespace nb = nanobind;
 
@@ -49,7 +51,6 @@ struct Texture: nb::intrusive_base {
     nb::ref<DescriptorSet> descriptor_set;
     ImTextureRef tex_ref;
 };
-
 
 static const char* dtype_code_to_str(u8 code) {
     switch(code) {
@@ -272,6 +273,30 @@ void imgui_create_bindings(nb::module_& mod_imgui)
         nb::arg("num_segments") = 0
     );
 
+    drawlist_class.def("set_sampler",
+        [](DrawList& self,
+           nb::ref<DescriptorSet> sampler_descriptor_set
+        ) {
+            self.list->AddCallback(ImGui_ImplVulkan_DrawCallback_SetSamplerCustom, &sampler_descriptor_set->set.set, sizeof(VkDescriptorSet));
+        },
+        nb::arg("sampler_descriptor_set")
+    );
+    drawlist_class.def("set_sampler_nearest",
+        [](DrawList& self) {
+            self.list->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest);
+        }
+    );
+    drawlist_class.def("set_sampler_linear",
+        [](DrawList& self) {
+            self.list->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear);
+        }
+    );
+    // Same as set_sampler_linear but kept to express intent, and potentially update if imgui defaults change.
+    drawlist_class.def("reset_sampler",
+        [](DrawList& self) {
+            self.list->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear);
+        }
+    );
 
     // IO
     mod_imgui.def("get_io", ImGui::GetIO, nb::rv_policy::reference);

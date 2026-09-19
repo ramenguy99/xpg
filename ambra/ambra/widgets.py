@@ -3,7 +3,10 @@ from typing import Optional
 from pyglm.glm import clamp, floor, ivec2, vec2
 from pyxpg import (
     BorderColor,
+    DescriptorPool,
+    DescriptorPoolSize,
     DescriptorSetBinding,
+    DescriptorSetLayout,
     DescriptorType,
     ImageLayout,
     ImageUsageFlags,
@@ -18,7 +21,6 @@ from .property import ImageProperty
 from .renderer import Renderer
 from .renderer_frame import RendererFrame
 from .scene import Widget
-from .utils.descriptors import create_descriptor_layout_pool_and_sets
 from .utils.ring_buffer import RingBuffer
 
 
@@ -44,26 +46,38 @@ class ImageInspector(Widget):
         self.pixel_under_cursor: Optional[ivec2] = None
 
     def create(self, r: Renderer) -> None:
+        self.image_layout = DescriptorSetLayout(
+            r.device, [DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE, stage_flags=Stage.FRAGMENT)]
+        )
+        self.sampler_layout = DescriptorSetLayout(
+            r.device, [DescriptorSetBinding(1, DescriptorType.SAMPLER, stage_flags=Stage.FRAGMENT)]
+        )
+
+        self.pool = DescriptorPool(
+            r.device,
+            [
+                DescriptorPoolSize(1, DescriptorType.SAMPLER),
+                DescriptorPoolSize(r.num_frames_in_flight, DescriptorType.SAMPLED_IMAGE),
+            ],
+            1 + r.num_frames_in_flight,
+        )
+
+        self.sampler_set = self.pool.allocate_descriptor_set(self.sampler_layout)
+        self.image_sets = [self.pool.allocate_descriptor_set(self.image_layout) for _ in range(r.num_frames_in_flight)]
+
         self.sampler = Sampler(
             r.device,
             u=SamplerAddressMode.CLAMP_TO_BORDER,
             v=SamplerAddressMode.CLAMP_TO_BORDER,
             border_color=BorderColor.FLOAT_OPAQUE_BLACK,
         )
-
-        self.descriptor_layout, self.descriptor_pool, self.descriptor_sets = create_descriptor_layout_pool_and_sets(
-            r.device,
-            [
-                DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT),
-            ],
-            r.num_frames_in_flight,
-        )
-        self.texture_and_sets = RingBuffer([(s, imgui.Texture(s)) for s in self.descriptor_sets])
+        self.sampler_set.write_sampler(self.sampler, 0)
+        self.texture_and_sets = RingBuffer([(s, imgui.Texture(s)) for s in self.image_sets])
 
     def upload(self, r: Renderer, frame: RendererFrame) -> None:
         s, self.texture = self.texture_and_sets.get_current_and_advance()
-        s.write_combined_image_sampler(
-            self.image.get_current_gpu().image, ImageLayout.SHADER_READ_ONLY_OPTIMAL, self.sampler, 0
+        s.write_image(
+            self.image.get_current_gpu().image, ImageLayout.SHADER_READ_ONLY_OPTIMAL, DescriptorType.SAMPLED_IMAGE, 0
         )
 
     def _draw(self) -> None:
@@ -97,12 +111,14 @@ class ImageInspector(Widget):
         image_top_left = vec2(self.offset)
         image_bottom_right = image_top_left + image_visible_size
 
+        draw_list.set_sampler(self.sampler_set)
         imgui.image(
             self.texture,
-            imgui.Vec2(*view_size),
+            imgui.Vec2(view_size.x, view_size.y),
             imgui.Vec2(*(image_top_left / vec2(image_size))),
             imgui.Vec2(*(image_bottom_right / vec2(image_size))),
         )
+        draw_list.reset_sampler()
 
         if imgui.is_item_hovered() and io.mouse_wheel != 0:
             self.zoom -= io.mouse_wheel * self.zoom_speed

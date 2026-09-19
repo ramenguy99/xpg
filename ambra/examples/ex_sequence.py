@@ -11,6 +11,7 @@ from ambra.lights import DirectionalLight, DirectionalShadowSettings
 from ambra.primitives3d import Mesh
 from ambra.property import BufferProperty, UploadSettings
 from ambra.utils.descriptors import create_descriptor_layout_pool_and_set
+from ambra.utils.gui import GuiImage
 from ambra.utils.hook import hook
 from ambra.utils.io import (
     read_exact,
@@ -75,7 +76,7 @@ mesh = Mesh(positions, indices=indices)
 class CustomViewer(Viewer):
     def __init__(self, title="ambra", config=None, key_map=None):
         super().__init__(title, config, key_map)
-        self._texture = None
+        self.shadow_image = None
 
     @hook
     def on_gui(self):
@@ -87,38 +88,16 @@ class CustomViewer(Viewer):
         imgui.end()
         if imgui.begin("Image"):
             if hasattr(light, "shadow_map"):
-                if self._texture is None and light.shadow_map is not None:
-                    sampler = Sampler(
+                if self.shadow_image is None and light.shadow_map is not None:
+                    self._sampler = Sampler(
                         viewer.device,
                         u=SamplerAddressMode.REPEAT,
                         v=SamplerAddressMode.REPEAT,
                     )
-                    layout, pool, set = create_descriptor_layout_pool_and_set(
-                        viewer.device,
-                        [
-                            DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT),
-                        ],
-                    )
-                    set.write_combined_image_sampler(
-                        light.shadow_map, ImageLayout.SHADER_READ_ONLY_OPTIMAL, sampler, 0
-                    )
-                    self._sampler = sampler
-                    self._texture = imgui.Texture(set)
+                    self.shadow_image = GuiImage(viewer.device, light.shadow_map, self._sampler)
 
-                if self._texture is not None:
-                    avail = imgui.get_content_region_avail()
-                    available = ivec2(avail.x, avail.y)
-
-                    ar = 1.0
-
-                    # height = available.x / ar
-                    height = available.y
-                    view_size = ivec2(ar * height, height)
-                    imgui.image(
-                        self._texture,
-                        imgui.Vec2(*view_size),
-                        uv1=(1, -1),
-                    )
+                if self.shadow_image is not None:
+                    self.shadow_image.draw_square(imgui.get_window_draw_list(), uv_max=(1, -1))
         imgui.end()
 
     def on_key(self, key: Key, action: Action, modifiers: Modifiers):

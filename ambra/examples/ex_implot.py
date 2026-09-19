@@ -1,10 +1,20 @@
-from ambra.utils.descriptors import create_descriptor_layout_pool_and_set
 import numpy as np
-from pyxpg import AllocType, DescriptorSetBinding, DescriptorType, Format, Image, ImageLayout, ImageUsageFlags, Stage, imgui
-from pyxpg.imgui import implot, Vec4
+from pyxpg import (
+    AllocType,
+    DescriptorSetBinding,
+    DescriptorType,
+    Format,
+    Image,
+    ImageLayout,
+    ImageUsageFlags,
+    Stage,
+    imgui,
+)
+from pyxpg.imgui import Vec4, implot
 from pyxpg.imgui.implot import Marker
 
 from ambra.config import Config, GuiConfig
+from ambra.utils.descriptors import create_descriptor_layout_pool_and_set
 from ambra.utils.hook import hook
 from ambra.viewer import Viewer
 
@@ -18,9 +28,9 @@ data = np.array(
 )
 colors = np.array(
     [
-        0xff0000ff,
-        0xff00ff00,
-        0xffff0000,
+        0xFF0000FF,
+        0xFF00FF00,
+        0xFFFF0000,
     ],
     np.uint32,
 )
@@ -34,29 +44,34 @@ for i in range(H):
         img_data[i, j, 3] = 1
 img_data = (img_data * 255.0).astype(np.uint8)
 
+
 class CustomViewer(Viewer):
     @hook
     def on_gui(self):
         if imgui.begin("YO")[0]:
             if implot.begin_plot("Plot", flags=implot.PlotFlags.NO_FRAME):
-                implot.plot_line("Line", data[:, 0], data[:, 1][::-1],
-                                 marker=Marker.SQUARE,
-                                 marker_size=32,
-                                 marker_fill_color=Vec4(1.0, 1.0, 0.0, 0.5),
-                                 line_colors=colors,
-                                 marker_line_colors=colors[::-1]
-                                )
+                implot.plot_line(
+                    "Line",
+                    data[:, 0],
+                    data[:, 1][::-1],
+                    marker=Marker.SQUARE,
+                    marker_size=32,
+                    marker_fill_color=Vec4(1.0, 1.0, 0.0, 0.5),
+                    line_colors=colors,
+                    marker_line_colors=colors[::-1],
+                )
                 implot.end_plot()
             if implot.begin_plot("Image", flags=implot.PlotFlags.NO_FRAME):
                 implot.plot_image("RGB", texture, 0, 0, W, H)
-                implot.plot_bubbles("Features",
-                                    np.array([15, 6, 9], np.float32),
-                                    np.array([1, 3, 2], np.float32),
-                                    np.array([0.2, 0.5, 0.1],np.float32),
-                                    line_colors=colors,
-                                    fill_colors=colors,
-                                    fill_alpha=0.5,
-                                    )
+                implot.plot_bubbles(
+                    "Features",
+                    np.array([15, 6, 9], np.float32),
+                    np.array([1, 3, 2], np.float32),
+                    np.array([0.2, 0.5, 0.1], np.float32),
+                    line_colors=colors,
+                    fill_colors=colors,
+                    fill_alpha=0.5,
+                )
                 implot.plot_text("Text", 7, 5)
                 implot.plot_dummy("Dummy")
                 implot.end_plot()
@@ -79,15 +94,24 @@ viewer = CustomViewer(
 )
 
 r = viewer.renderer
-img = Image.from_data(r.device, img_data, ImageLayout.SHADER_READ_ONLY_OPTIMAL, W, H, Format.R8G8B8A8_UNORM, ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST, AllocType.DEVICE)
+img = Image.from_data(
+    r.device,
+    img_data,
+    ImageLayout.SHADER_READ_ONLY_OPTIMAL,
+    W,
+    H,
+    Format.R8G8B8A8_UNORM,
+    ImageUsageFlags.SAMPLED | ImageUsageFlags.TRANSFER_DST,
+    AllocType.DEVICE,
+)
 descriptor_layout, descriptor_pool, descriptor_set = create_descriptor_layout_pool_and_set(
     r.device,
     [
-        DescriptorSetBinding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, stage_flags=Stage.FRAGMENT),
+        DescriptorSetBinding(1, DescriptorType.SAMPLED_IMAGE, stage_flags=Stage.FRAGMENT),
     ],
     r.num_frames_in_flight,
 )
-descriptor_set.write_combined_image_sampler(img, ImageLayout.SHADER_READ_ONLY_OPTIMAL, r.linear_sampler, 0)
+descriptor_set.write_image(img, ImageLayout.SHADER_READ_ONLY_OPTIMAL,DescriptorType.SAMPLED_IMAGE, 0)
 texture = imgui.Texture(descriptor_set)
 
 
