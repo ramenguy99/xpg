@@ -2682,6 +2682,11 @@ struct Window: nb::intrusive_base {
                 .mouse_move_event = [this](glm::ivec2 p) {
                     nb::gil_scoped_acquire gil;
 
+                    // Acquire can file during shutdown
+                    if (!gil.is_valid()) {
+                        return;
+                    }
+
                     // Ignore following events after an error has occured while processing previous events
                     if (PyErr_Occurred()) {
                         return;
@@ -2696,6 +2701,11 @@ struct Window: nb::intrusive_base {
                 },
                 .mouse_button_event = [this] (glm::ivec2 p, gfx::MouseButton b, gfx::Action a, gfx::Modifiers m) {
                     nb::gil_scoped_acquire gil;
+
+                    // Acquire can file during shutdown
+                    if (!gil.is_valid()) {
+                        return;
+                    }
 
                     // Ignore following events after an error has occured while processing previous events
                     if (PyErr_Occurred()) {
@@ -2712,6 +2722,11 @@ struct Window: nb::intrusive_base {
                 .mouse_scroll_event = [this] (glm::ivec2 p, glm::dvec2 s) {
                     nb::gil_scoped_acquire gil;
 
+                    // Acquire can file during shutdown
+                    if (!gil.is_valid()) {
+                        return;
+                    }
+
                     // Ignore following events after an error has occured while processing previous events
                     if (PyErr_Occurred()) {
                         return;
@@ -2727,6 +2742,11 @@ struct Window: nb::intrusive_base {
                 .key_event = [this] (gfx::Key k, gfx::Action a, gfx::Modifiers m) {
                     nb::gil_scoped_acquire gil;
 
+                    // Acquire can file during shutdown
+                    if (!gil.is_valid()) {
+                        return;
+                    }
+
                     // Ignore following events after an error has occured while processing previous events
                     if (PyErr_Occurred()) {
                         return;
@@ -2741,6 +2761,11 @@ struct Window: nb::intrusive_base {
                 },
                 .draw = [this] () {
                     nb::gil_scoped_acquire gil;
+
+                    // Acquire can file during shutdown
+                    if (!gil.is_valid()) {
+                        return;
+                    }
 
                     // Ignore following events after an error has occured while processing previous events
                     if (PyErr_Occurred()) {
@@ -4802,8 +4827,8 @@ void gfx_create_bindings(nb::module_& m)
         .def("destroy", &Buffer::destroy)
         .def_static("from_data", &Buffer::from_data, nb::arg("device"), nb::arg("data"), nb::arg("usage_flags"), nb::arg("alloc_type"), nb::arg("name") = nb::none())
         .def_prop_ro("data", [] (Buffer& buffer) {
-            return nb::steal(PyMemoryView_FromObject(buffer.self_py()));
-        }, nb::sig("def data(self) -> memoryview"))
+            return nb::memoryview(buffer.self_py());
+        })
         .def_prop_ro("is_mapped", [](Buffer& buf) {
             return buf.buffer.map.data != 0;
         })

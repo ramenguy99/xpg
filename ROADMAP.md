@@ -378,4 +378,5 @@ Python:
     - [ ] See if there is a way to fix direct _pyxpg.imgui imports to use pyxpg.imgui instead, same for _pyxpg.DescriptorSet in imgui
     - [ ] Flags that do not have is_arithmetic (and maybe others as well) produce weird bindings
         for default values. Stubgen fails on python3.8 cibuildwheel (not sure if other versions too)
+        -> check again now that we are 3.10+
     - [ ] Nanobind 2.10 onwards dropped support for python 3.8. At some point will need to drop too (or potentially hold back nanobind version just for 3.8 wheels).

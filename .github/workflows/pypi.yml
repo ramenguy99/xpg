@@ -8,7 +8,7 @@ on:
         required: true
         default: '0'
       fast:
-        description: 'Build only python 3.9? (0: no, 1: yes)'
+        description: 'Build only python 3.10? (0: no, 1: yes)'
         required: true
         default: '0'
 
@@ -35,10 +35,10 @@ jobs:
           tar xvf MoltenVK-macos-privateapi.tar
           echo "CIBW_CONFIG_SETTINGS=\"cmake.define.XPG_MOLTENVK_PATH=\"$(pwd)/MoltenVK\"\"" >> $GITHUB_ENV
 
-      - name: Build wheels (Python 3.9 only)
+      - name: Build wheels (Python 3.10 only)
         if: ${{ github.event.inputs.fast == '1'}}
         env:
-          CIBW_BUILD: "cp39-*"
+          CIBW_BUILD: "cp310-*"
         uses: pypa/cibuildwheel@v3.1.4
 
       - name: Build wheels

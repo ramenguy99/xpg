@@ -19,7 +19,7 @@ overloading for bounds checks and vector math.
 - Shader compilation and reflection utilities based on Slang or glslang and
   SPIR-V tools.
 - First-class Python bindings for graphics, imgui and shader compilation
-  and reflection for Python 3.8+.
+  and reflection for Python 3.10+.
 
 ## Project structure
 
@@ -183,7 +183,7 @@ modern GPU features like asynchronous streaming, GPU driven rendering, and
 bindless resources.
 
 Ambra has minimal dependencies and should be easy to integrate into any Python
-3.8+ environment alongside other packages.
+3.10+ environment alongside other packages.
 
 ### Quickstart
 

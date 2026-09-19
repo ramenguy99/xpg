@@ -19,7 +19,7 @@ modern GPU features like asynchronous streaming, GPU driven rendering, and
 bindless resources.
 
 Ambra has minimal dependencies and should be easy to integrate into any Python
-3.8+ environment alongside other packages.
+3.10+ environment alongside other packages.
 
 ### Quickstart
 

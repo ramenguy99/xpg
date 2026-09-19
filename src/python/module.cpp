@@ -157,7 +157,7 @@ static void log_impl(xpg::logging::LogLevel level, const char* ctx, const char* 
     PyFile_WriteString("\n", file.ptr());
 }
 
-void log_create_bindings(nb::module_ &m, PyModuleDef &pmd) {
+void log_create_bindings(nb::module_ &m) {
     // Initialize logging
     xpg::logging::g_log_level = xpg::logging::LogLevel::Disabled;
     xpg::logging::g_log_func = log_impl;
@@ -176,17 +176,16 @@ void log_create_bindings(nb::module_ &m, PyModuleDef &pmd) {
     m.def("set_log_level", xpg::logging::set_log_level, nb::arg("level"));
     m.def("get_log_level", [](){ return xpg::logging::g_log_level.load(std::memory_order_relaxed); });
 
-    pmd.m_free = [](void *) {
-        // Switch from the Python logger to standard stderr output
-        xpg::logging::g_log_func = xpg::logging::log_stdout;
-    };
+    NB_CALL(keep_alive_ptr)(NB_CTX, m.ptr(), (void *)log_impl,
+        [](void *) noexcept {
+            xpg::logging::g_log_func = xpg::logging::log_stdout;
+        });
 }
 
 NB_MODULE(_pyxpg, m) {
 #if PYXPG_DISABLE_NANOBIND_LEAK_WARNINGS
     nb::set_leak_warnings(false);
 #endif
-
     nb::intrusive_init(
         [](PyObject *o) noexcept {
             nb::gil_scoped_acquire guard;
@@ -197,7 +196,7 @@ NB_MODULE(_pyxpg, m) {
             Py_DECREF(o);
         });
 
-    log_create_bindings(m, nanobind__pyxpg_module);
+    log_create_bindings(m);
 
     gfx_create_bindings(m);
 

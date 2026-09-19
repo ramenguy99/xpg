@@ -7,7 +7,7 @@ name = "ambra"
 version = "0.5.0.dev0"
 description = "Ambra 3D Viewer"
 readme = "README.md"
-requires-python = ">= 3.8"
+requires-python = ">= 3.10"
 authors = [
     { name = "Dario Mylonopoulos", email = "ramenguy99@gmail.com" },
 ]
