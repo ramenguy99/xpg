@@ -20,8 +20,13 @@
 
 #include "py_gfx.h"
 
-#include "../lib/private/imgui_impl_vulkan.h"
+#include <backends/imgui_impl_vulkan.h>
 
+void ImGui_ImplVulkan_DrawCallback_SetSamplerCustom(const ImDrawList*, const ImDrawCmd* cmd)
+{
+    ImGui_ImplVulkan_RenderState* render_state = (ImGui_ImplVulkan_RenderState*)ImGui::GetPlatformIO().Renderer_RenderState;
+    vkCmdBindDescriptorSets(render_state->CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, render_state->PipelineLayout, 1, 1, (VkDescriptorSet*)cmd->UserCallbackData, 0, nullptr);
+}
 
 namespace nb = nanobind;
 

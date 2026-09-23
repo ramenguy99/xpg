@@ -13,8 +13,8 @@
 #include <backends/imgui_impl_glfw.cpp>
 
 #undef VK_NO_PROTOTYPES
-#include "private/imgui_impl_vulkan.h"
-#include "private/imgui_impl_vulkan.cpp"
+#include <backends/imgui_impl_vulkan.h>
+#include <backends/imgui_impl_vulkan.cpp>
 
 namespace xpg {
 namespace gui {
